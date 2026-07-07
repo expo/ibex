@@ -895,11 +895,9 @@ fn pick_package_import_path(value: &Value, subpath: Option<&str>) -> Option<Stri
             Some(target.to_string())
         }
         Value::Object(map) => {
-            // Conditions are ranked by specificity; `default` is Node's
-            // lowest-priority fallback and must be tried last, otherwise a
-            // manifest that lists `default` alongside `import`/`require`
-            // resolves the wrong module on every load.
-            for condition in ["node", "import", "require", "default"] {
+            // This loader runs CommonJS `require()`; among CJS-compatible
+            // conditions, `default` remains the lowest-priority fallback.
+            for condition in ["node", "require", "import", "default"] {
                 if let Some(condition_target) = map.get(condition) {
                     if let Some(path) = pick_package_import_path(condition_target, subpath) {
                         return Some(path);
@@ -1397,9 +1395,9 @@ mod tests {
     }
 
     #[test]
-    fn package_import_condition_prefers_import_over_default() {
-        // `default` must be the lowest-priority fallback; with `import`
-        // present it must not be selected. (ENG-22949 finding 1)
+    fn package_import_condition_prefers_require_over_import() {
+        // `require` is the correct branch for the CJS loader; `default` remains
+        // the lowest-priority fallback. (ENG-23457)
         let value: Value = serde_json::json!({
             "import": "./esm.mjs",
             "require": "./cjs.js",
@@ -1407,7 +1405,7 @@ mod tests {
         });
         assert_eq!(
             pick_package_import_path(&value, None),
-            Some("./esm.mjs".to_string())
+            Some("./cjs.js".to_string())
         );
     }
 

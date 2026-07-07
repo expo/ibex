@@ -970,14 +970,20 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             memset(&addr6, 0, sizeof(addr6));
             addr6.sin6_family = AF_INET6;
             addr6.sin6_port = htons(port);
-            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            if (inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr) != 1) {
+              throw facebook::jsi::JSError(
+                  runtime, ("__exactUdpBind: invalid IPv6 address " + host).c_str());
+            }
             sa = reinterpret_cast<struct sockaddr*>(&addr6);
             sa_len = sizeof(addr6);
           } else {
             memset(&addr4, 0, sizeof(addr4));
             addr4.sin_family = AF_INET;
             addr4.sin_port = htons(port);
-            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            if (inet_pton(AF_INET, host.c_str(), &addr4.sin_addr) != 1) {
+              throw facebook::jsi::JSError(
+                  runtime, ("__exactUdpBind: invalid IPv4 address " + host).c_str());
+            }
             sa = reinterpret_cast<struct sockaddr*>(&addr4);
             sa_len = sizeof(addr4);
           }
@@ -1044,14 +1050,20 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             memset(&addr6, 0, sizeof(addr6));
             addr6.sin6_family = AF_INET6;
             addr6.sin6_port = htons(port);
-            inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr);
+            if (inet_pton(AF_INET6, host.c_str(), &addr6.sin6_addr) != 1) {
+              throw facebook::jsi::JSError(
+                  runtime, ("__exactUdpSend: invalid IPv6 address " + host).c_str());
+            }
             sa = reinterpret_cast<struct sockaddr*>(&addr6);
             sa_len = sizeof(addr6);
           } else {
             memset(&addr4, 0, sizeof(addr4));
             addr4.sin_family = AF_INET;
             addr4.sin_port = htons(port);
-            inet_pton(AF_INET, host.c_str(), &addr4.sin_addr);
+            if (inet_pton(AF_INET, host.c_str(), &addr4.sin_addr) != 1) {
+              throw facebook::jsi::JSError(
+                  runtime, ("__exactUdpSend: invalid IPv4 address " + host).c_str());
+            }
             sa = reinterpret_cast<struct sockaddr*>(&addr4);
             sa_len = sizeof(addr4);
           }

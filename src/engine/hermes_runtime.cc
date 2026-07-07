@@ -3251,20 +3251,21 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     }
   }
 
-  std::vector<uint64_t> due;
+  std::vector<std::pair<uint64_t, uint64_t>> due;
   for (const auto& kv : runtime->timers) {
     if (kv.second.due_ms <= now_ms) {
       // Skip unref'd timers if nothing else is keeping the loop alive
       if (!kv.second.referenced && !has_referenced_work) {
         continue;
       }
-      due.push_back(kv.first);
+      due.push_back({kv.second.due_ms, kv.first});
     }
   }
-  // Sort by timer ID to maintain insertion order (IDs are monotonically increasing)
+  // Node/libuv fire coalesced due timers by deadline first, then insertion id.
   std::sort(due.begin(), due.end());
 
-  for (auto id : due) {
+  for (auto [deadline, id] : due) {
+    (void)deadline;
     auto it = runtime->timers.find(id);
     if (it == runtime->timers.end()) {
       continue;

@@ -317,7 +317,13 @@ async fn run_server(
                 break;
             }
             accept = listener.accept() => {
-                let Ok((stream, _)) = accept else { break; };
+                let (stream, _) = match accept {
+                    Ok(value) => value,
+                    Err(err) => {
+                        eprintln!("CDP accept error: {err}");
+                        continue;
+                    }
+                };
                 let backend = backend.clone();
                 let connected = connected.clone();
                 let notify = notify.clone();

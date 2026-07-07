@@ -370,9 +370,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         ex_host_free_string(json);
                       }
 
+                      auto resolve = std::move(t.resolve);
+                      auto reject = std::move(t.reject);
                       pushRuntimeCallback(
                           t.handle,
-                          [resolve = t.resolve, reject = t.reject,
+                          [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, has_payload,
                            payload = std::move(payload)](
                               facebook::jsi::Runtime& rt) {
@@ -855,9 +857,11 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       int32_t code = ex_host_http_await_writable(
                           t.server_id, t.request_id, t.timeout_ms);
 
+                      auto resolve = std::move(t.resolve);
+                      auto reject = std::move(t.reject);
                       pushRuntimeCallback(
                           t.handle,
-                          [resolve = t.resolve, reject = t.reject,
+                          [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, code](
                               facebook::jsi::Runtime& rt) {
                             ScopedNativePrincipal nativePrincipal(principal);

@@ -679,8 +679,6 @@ std::string spawnSyncWindowsJson(
     HANDLE stdoutRead = nullptr;
     HANDLE stdoutWrite = nullptr;
     if (!CreatePipe(&stdoutRead, &stdoutWrite, &sa, 0)) {
-      CloseHandle(stdinRead);
-      CloseHandle(stdinWrite);
       return failJson("Failed to create stdout pipe");
     }
     SetHandleInformation(stdoutRead, HANDLE_FLAG_INHERIT, 0);
@@ -760,6 +758,19 @@ std::string spawnSyncWindowsJson(
     return failJson(windowsErrorMessage(err) + ": " + file);
   }
 
+  std::string stdoutStr;
+  std::string stderrStr;
+  std::thread stdoutThread;
+  std::thread stderrThread;
+  if (parentStdOutRead) {
+    stdoutThread = std::thread(readPipeToString, parentStdOutRead, &stdoutStr, maxBuffer);
+    parentStdOutRead = nullptr;
+  }
+  if (parentStdErrRead) {
+    stderrThread = std::thread(readPipeToString, parentStdErrRead, &stderrStr, maxBuffer);
+    parentStdErrRead = nullptr;
+  }
+
   if (parentStdInWrite) {
     if (!input.empty()) {
       DWORD written = 0;
@@ -772,19 +783,6 @@ std::string spawnSyncWindowsJson(
     }
     CloseHandle(parentStdInWrite);
     parentStdInWrite = nullptr;
-  }
-
-  std::string stdoutStr;
-  std::string stderrStr;
-  std::thread stdoutThread;
-  std::thread stderrThread;
-  if (parentStdOutRead) {
-    stdoutThread = std::thread(readPipeToString, parentStdOutRead, &stdoutStr, maxBuffer);
-    parentStdOutRead = nullptr;
-  }
-  if (parentStdErrRead) {
-    stderrThread = std::thread(readPipeToString, parentStdErrRead, &stderrStr, maxBuffer);
-    parentStdErrRead = nullptr;
   }
 
   DWORD waitMs = timeoutMs == 0 ? INFINITE : timeoutMs;

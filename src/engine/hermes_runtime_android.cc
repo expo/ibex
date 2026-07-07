@@ -894,7 +894,11 @@ extern "C" void android_animation_frame_callback(uint64_t token, int64_t frame_t
     entry = std::move(it->second);
     g_android_animation_frame_callbacks.erase(it);
   }
-  if (!entry.runtime || !entry.callback || !runtimeIsAlive(entry.runtime)) {
+  if (!entry.runtime || !entry.callback) {
+    return;
+  }
+  if (!runtimeIsAlive(entry.runtime)) {
+    (void)new std::shared_ptr<facebook::jsi::Function>(std::move(entry.callback));
     return;
   }
   double frame_time_ms = static_cast<double>(frame_time_nanos) / 1000000.0;

@@ -2129,6 +2129,7 @@ pub extern "C" fn ex_host_sqlite_all(
 
     as_json_cstring(&json!({
         "rows": payload_rows,
+        "columnNames": column_names,
         "columnTypes": column_types.unwrap_or_default(),
     }))
 }
@@ -2195,6 +2196,7 @@ pub extern "C" fn ex_host_sqlite_get(
 
     as_json_cstring(&json!({
         "row": row,
+        "columnNames": column_names,
         "columnTypes": column_types,
     }))
 }

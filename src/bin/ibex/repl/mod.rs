@@ -479,56 +479,86 @@ impl Highlighter for ExHelper {
 
 impl Validator for ExHelper {
     fn validate(&self, ctx: &mut ValidationContext) -> rustyline::Result<ValidationResult> {
-        let input = ctx.input();
+        Ok(validate_repl_input(ctx.input()))
+    }
+}
 
-        // Check for unbalanced brackets/parens/braces
-        let mut stack = Vec::new();
-        let mut in_string = false;
-        let mut string_char = '"';
-        let mut trailing_backslashes = 0usize;
+fn validate_repl_input(input: &str) -> ValidationResult {
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut string_char = '"';
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut trailing_backslashes = 0usize;
+    let mut chars = input.chars().peekable();
 
-        for c in input.chars() {
-            if in_string {
-                if c == string_char && trailing_backslashes.is_multiple_of(2) {
-                    in_string = false;
-                }
-            } else {
-                match c {
-                    '"' | '\'' | '`' => {
-                        in_string = true;
-                        string_char = c;
-                    }
-                    '(' | '[' | '{' => stack.push(c),
-                    ')' => {
-                        if stack.pop() != Some('(') {
-                            return Ok(ValidationResult::Invalid(Some("Unmatched )".to_string())));
-                        }
-                    }
-                    ']' => {
-                        if stack.pop() != Some('[') {
-                            return Ok(ValidationResult::Invalid(Some("Unmatched ]".to_string())));
-                        }
-                    }
-                    '}' => {
-                        if stack.pop() != Some('{') {
-                            return Ok(ValidationResult::Invalid(Some("Unmatched }".to_string())));
-                        }
-                    }
-                    _ => {}
-                }
+    while let Some(c) = chars.next() {
+        if in_line_comment {
+            if c == '\n' {
+                in_line_comment = false;
             }
-            if c == '\\' {
-                trailing_backslashes += 1;
-            } else {
-                trailing_backslashes = 0;
-            }
+            continue;
         }
 
-        if in_string || !stack.is_empty() {
-            Ok(ValidationResult::Incomplete)
+        if in_block_comment {
+            if c == '*' && chars.peek() == Some(&'/') {
+                chars.next();
+                in_block_comment = false;
+            }
+            continue;
+        }
+
+        if in_string {
+            if c == string_char && trailing_backslashes.is_multiple_of(2) {
+                in_string = false;
+            }
         } else {
-            Ok(ValidationResult::Valid(None))
+            match c {
+                '/' if chars.peek() == Some(&'/') => {
+                    chars.next();
+                    in_line_comment = true;
+                    continue;
+                }
+                '/' if chars.peek() == Some(&'*') => {
+                    chars.next();
+                    in_block_comment = true;
+                    continue;
+                }
+                '"' | '\'' | '`' => {
+                    in_string = true;
+                    string_char = c;
+                }
+                '(' | '[' | '{' => stack.push(c),
+                ')' => {
+                    if stack.pop() != Some('(') {
+                        return ValidationResult::Invalid(Some("Unmatched )".to_string()));
+                    }
+                }
+                ']' => {
+                    if stack.pop() != Some('[') {
+                        return ValidationResult::Invalid(Some("Unmatched ]".to_string()));
+                    }
+                }
+                '}' => {
+                    if stack.pop() != Some('{') {
+                        return ValidationResult::Invalid(Some("Unmatched }".to_string()));
+                    }
+                }
+                _ => {}
+            }
         }
+
+        if c == '\\' {
+            trailing_backslashes += 1;
+        } else {
+            trailing_backslashes = 0;
+        }
+    }
+
+    if in_string || !stack.is_empty() {
+        ValidationResult::Incomplete
+    } else {
+        ValidationResult::Valid(None)
     }
 }
 
