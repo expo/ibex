@@ -5,7 +5,8 @@
 **Systems:** Build, Tooling, Windows, macOS, Linux, Developer Experience
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-05
-**Related:** LLP 0000, LLP 0001, LLP 0005
+**Revised:** 2026-07-06 (recorded Unix build-host bootstrap expectations and current macOS coreutils verification)
+**Related:** LLP 0000, LLP 0001, LLP 0005, LLP 0017, LLP 0018
 
 ## Summary
 
@@ -47,6 +48,29 @@ enough.
 The machines listed here are not currently part of an Ibex CI contract. If one
 becomes a self-hosted runner or a required release builder, update this guide
 and the relevant build or CI LLP in the same change.
+
+## Bootstrap Expectations
+
+For Unix-like agent build hosts, run `scripts/check-build-machine.sh` before
+depending on the host for Ibex work. It is the repo-local readiness contract for
+the operational prerequisites introduced by LLP 0017 and LLP 0018.
+
+Required setup checked by that script includes:
+
+- a GNU timeout binary reachable through `scripts/with-timeout.sh` (`timeout` on
+  Linux; Homebrew `coreutils`, which provides `gtimeout`, on macOS);
+- the LLP 0017 safe Git hook configuration;
+- `cargo`.
+
+Recommended setup checked by that script includes `sccache` with
+`RUSTC_WRAPPER=sccache` and a persistent `SCCACHE_DIR`, plus `bun` for
+regenerating vendored artifacts.
+
+As of 2026-07-06, the current macOS development host used for this Codex run has
+Homebrew `coreutils` 9.11 installed, with both `/opt/homebrew/bin/timeout` and
+`/opt/homebrew/bin/gtimeout` available. Treat that as verified for this host,
+not as proof that every listed remote machine is bootstrapped; run the check
+script on each host before relying on it.
 
 ## Open Questions
 

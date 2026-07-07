@@ -5,7 +5,7 @@
 **Systems:** Tooling, Build, Agent Skills, Developer Experience, CI
 **Author:** Charlie Cheever / Claude (second-round pilot feedback)
 **Date:** 2026-07-05
-**Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run); 2026-07-05 (revised items 1, 2, 5, 7 per the OpenAI- and Claude-family reviews under `llp/reviews/`: agent stale-vendored path now fails nonzero not warn-only, test wrapper defaults to the full package test set instead of dropping the 63 binary tests, post-rebase re-verify gets a minimum-verification policy, and item-1 required-artifact semantics are made explicit); 2026-07-05 (implemented the core items — see Implementation status)
+**Revised:** 2026-07-05 (added frictions 5–7 — vendored-vs-src stale build, agents parking on backgrounded builds, and the hot-`main` rebuild tax — plus plan items 5–7 and a sharp-edges appendix, from the 14-way parallel cdc-linear-do run); 2026-07-05 (revised items 1, 2, 5, 7 per the OpenAI- and Claude-family reviews under `llp/reviews/`: agent stale-vendored path now fails nonzero not warn-only, test wrapper defaults to the full package test set instead of dropping the 63 binary tests, post-rebase re-verify gets a minimum-verification policy, and item-1 required-artifact semantics are made explicit); 2026-07-05 (implemented the core items — see Implementation status); 2026-07-06 (verified Homebrew coreutils 9.11 and timeout/gtimeout on the current macOS host)
 **Related:** LLP 0000; LLP 0005; LLP 0006 (fail-closed/loud principle); LLP 0015 (build machines); LLP 0017 (agent execution reliability); ENG-22986
 
 ## Summary
@@ -424,6 +424,9 @@ playbook; verified end to end in this checkout.
 - **Item 4 — done.** `scripts/check-build-machine.sh` verifies the timeout binary
   (through the wrapper), the LLP 0017 git-hooks safe state, cargo, and
   recommends sccache/bun; exits nonzero if a required precondition is unmet.
+  On 2026-07-06, `brew install coreutils` reported Homebrew `coreutils` 9.11
+  already installed and up to date on the current macOS host, with both
+  `/opt/homebrew/bin/timeout` and `/opt/homebrew/bin/gtimeout` available.
 - **Item 5 — done.** `build.rs` gained an mtime staleness comparison of the
   generated sources against their committed outputs. It **replaces** the old
   always-on "using vendored generated artifacts" `cargo:warning` (which, being

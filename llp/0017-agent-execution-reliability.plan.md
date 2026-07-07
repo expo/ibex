@@ -5,7 +5,7 @@
 **Systems:** Build, Tooling, Agent Skills, CI, Developer Experience
 **Author:** Charlie Cheever / Claude (pilot feedback) / Codex
 **Date:** 2026-07-05
-**Revised:** 2026-07-05 (Claude and OpenAI review revisions: hook mutability, drift-check cleanliness, regenerate parity, installer hook opt-in, and source-repo validation); 2026-07-05 (P0/P1/P2 code items implemented — see §Implementation status)
+**Revised:** 2026-07-05 (Claude and OpenAI review revisions: hook mutability, drift-check cleanliness, regenerate parity, installer hook opt-in, and source-repo validation); 2026-07-05 (P0/P1/P2 code items implemented — see §Implementation status); 2026-07-06 (timeout/coreutils bootstrap verified on the current macOS host)
 **Related:** LLP 0000; LLP 0001; LLP 0005; LLP 0006; LLP 0012; LLP 0015; LLP 0018 (second-round fail-loud follow-ups); ENG-22986
 
 ## Summary
@@ -285,9 +285,10 @@ Acceptance criteria:
 
 ## Implementation status
 
-Landed 2026-07-05. Items 1–4's code surface is implemented and tested; the
-remaining work is operational (build-machine bootstrap) and one policy decision
-(item 5).
+Landed 2026-07-05. Items 1–4's code surface is implemented and tested, item 5
+is decided, and the timeout/coreutils bootstrap is verified on the current macOS
+host. Remaining operational build-cache setup (`sccache`) is tracked by LLP
+0018 and checked by `scripts/check-build-machine.sh`.
 
 **Item 1 — agent skill sync safe by default (P0): done.**
 
@@ -339,18 +340,19 @@ remaining work is operational (build-machine bootstrap) and one policy decision
   idempotent; refuses to target the main worktree). It intentionally does not
   link `target/` (see item 4).
 
-**Item 4 — timeout wrapper (P2): partially done.**
+**Item 4 — timeout wrapper and coreutils bootstrap (P2): done.**
 
 - `scripts/with-timeout.sh` wraps `timeout` (Linux) / `gtimeout` (macOS) with a
-  clear error and exit 127 when neither exists. Confirmed firsthand that the
-  current macOS build machine has **neither** binary installed, which is the
-  friction the pilot hit.
-- **Operational, not yet done:** install GNU coreutils on the macOS build
-  machine (`brew install coreutils`) and bootstrap `sccache`
-  (`RUSTC_WRAPPER=sccache` + a persistent cache dir). These are machine setup
-  under LLP 0015's inventory role, not code in this repo. (coreutils since
-  installed; `sccache` bootstrap and default cache wiring are now tracked by
-  [LLP 0018](./0018-agent-tooling-fail-loud.plan.md) items 3–4.)
+  clear error and exit 127 when neither exists. The current macOS development
+  host has Homebrew `coreutils` 9.11 installed (`brew install coreutils` is
+  idempotently up to date), and both `/opt/homebrew/bin/timeout` and
+  `/opt/homebrew/bin/gtimeout` resolve; `scripts/with-timeout.sh 1 true` is the
+  portable smoke check.
+- Remaining build-machine speed bootstrap is `sccache`
+  (`RUSTC_WRAPPER=sccache` + a persistent cache dir). That is machine setup
+  under LLP 0015's inventory role and is tracked by
+  [LLP 0018](./0018-agent-tooling-fail-loud.plan.md) item 3 plus
+  `scripts/check-build-machine.sh`.
 
 **Item 5 — direct-to-main vs PR landing (P3): decided.** The author chose to
 **keep direct-to-main** (2026-07-05), now that item 1 removes the
