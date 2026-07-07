@@ -7,8 +7,11 @@
 #include <winhttp.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -30,7 +33,7 @@ namespace {
 
 struct RequestState {
   uint32_t request_id = 0;
-  // Written by the detached performFetch worker; exchanged to null (and then
+  // Written by the performFetch worker; exchanged to null (and then
   // closed) by closeHandles(), which native_fetch_cancel runs on the caller's
   // thread while the worker may be inside a WinHTTP call on these handles.
   // Atomics make that concurrent access well-defined; exchange() in
@@ -45,6 +48,66 @@ struct RequestState {
 
 std::mutex g_requests_mutex;
 std::unordered_map<uint32_t, std::shared_ptr<RequestState>> g_requests;
+
+// ENG-23499 — Windows fetch uses synchronous WinHTTP calls, so N concurrent
+// requests must not create N detached native threads. Keep the same bounded
+// 16-worker / 512-queued-job discipline as Linux's FetchWorkerPool and the
+// HTTP wait pools. The singleton is intentionally immortal: worker threads are
+// detached and can sit in cv_.wait(), so destroying the pool during process
+// exit risks tearing down a mutex/condvar that still has waiters.
+class FetchWorkerPool {
+ public:
+  static FetchWorkerPool& instance() {
+    static FetchWorkerPool* pool = new FetchWorkerPool();
+    return *pool;
+  }
+
+  bool enqueue(std::function<void()> job, std::string& error) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.size() >= kMaxQueue) {
+        error = "Fetch worker queue full";
+        return false;
+      }
+      spawnWorkerIfNeededLocked();
+      queue_.push_back(std::move(job));
+    }
+    cv_.notify_one();
+    return true;
+  }
+
+ private:
+  static constexpr size_t kMaxWorkers = 16;
+  static constexpr size_t kMaxQueue = 512;
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::deque<std::function<void()>> queue_;
+  size_t idle_ = 0;
+  size_t total_ = 0;
+
+  void spawnWorkerIfNeededLocked() {
+    if (idle_ > 0 || total_ >= kMaxWorkers) {
+      return;
+    }
+
+    total_ += 1;
+    std::thread([this]() {
+      for (;;) {
+        std::function<void()> job;
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          idle_ += 1;
+          cv_.wait(lock, [this]() { return !queue_.empty(); });
+          idle_ -= 1;
+          job = std::move(queue_.front());
+          queue_.pop_front();
+        }
+        job();
+      }
+    }).detach();
+  }
+};
 
 std::wstring utf8ToWide(const std::string& input) {
   if (input.empty()) return std::wstring();
@@ -177,10 +240,19 @@ void performFetch(
     void* context) {
   (void)decompress;
 
+  if (!state) {
+    return;
+  }
+
   auto finish = [&]() {
     closeHandles(state);
     removeRequest(state->request_id);
   };
+
+  if (state->cancelled.load(std::memory_order_relaxed)) {
+    finish();
+    return;
+  }
 
   // Handle discipline (see RequestState): each WinHTTP call loads the handle
   // field once, immediately before the call. If native_fetch_cancel already
@@ -370,17 +442,37 @@ extern "C" void native_fetch_perform(
     body_copy.assign(body, body + body_length);
   }
 
-  std::thread(
-      performFetch,
-      state,
-      std::string(method ? method : "GET"),
-      std::string(url),
-      std::string(headers ? headers : ""),
-      decompress,
-      std::move(body_copy),
-      response_callback,
-      context)
-      .detach();
+  std::string method_copy(method ? method : "GET");
+  std::string url_copy(url);
+  std::string headers_copy(headers ? headers : "");
+
+  std::string pool_error;
+  const bool queued = FetchWorkerPool::instance().enqueue(
+      [state,
+       method_copy = std::move(method_copy),
+       url_copy = std::move(url_copy),
+       headers_copy = std::move(headers_copy),
+       decompress,
+       body_copy = std::move(body_copy),
+       response_callback,
+       context]() mutable {
+        performFetch(
+            state,
+            std::move(method_copy),
+            std::move(url_copy),
+            std::move(headers_copy),
+            decompress,
+            std::move(body_copy),
+            response_callback,
+            context);
+      },
+      pool_error);
+  if (!queued) {
+    removeRequest(request_id);
+    if (!state->cancelled.load(std::memory_order_relaxed)) {
+      response_callback(request_id, 0, pool_error.c_str(), nullptr, nullptr, 0, context);
+    }
+  }
 }
 
 extern "C" void native_fetch_cancel(uint32_t request_id) {
