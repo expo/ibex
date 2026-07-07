@@ -138,6 +138,60 @@ test('multiple free references all rewrite', () => {
   expect(out).toContain('__compartment.Buffer.from(x)');
 });
 
+// --- hoistRef (ENG-22644) ---
+// The plugin hoists the registry lookup once per module (`var __ibexC_* =
+// __compartments["pkg"];`) so each access pays one Proxy trap hop, not two.
+
+const HOIST_REF = '__compartments["pkg@1.0.0"]';
+
+function rwHoist(src) {
+  return rewriteFreeGlobals(src, {
+    compartmentRef: HOIST_REF,
+    globalNames: names,
+    hoistRef: true,
+  });
+}
+
+test('hoistRef declares the compartment binding once and routes accesses through it', () => {
+  const out = rwHoist('process.exit();\nfetch(url);');
+  const m = out.match(/^var (__ibexC_\w+) = __compartments\["pkg@1\.0\.0"\];\n/);
+  expect(m).not.toBeNull();
+  const ref = m[1];
+  expect(out).toContain(`${ref}.process.exit()`);
+  expect(out).toContain(`${ref}.fetch(url)`);
+  // The registry expression appears exactly once — in the hoisted declaration.
+  expect(out.split('__compartments').length).toBe(2);
+});
+
+test('hoistRef inserts after the directive prologue so "use strict" survives', () => {
+  const out = rwHoist('"use strict";\nprocess.exit();');
+  expect(out.startsWith('"use strict";')).toBe(true);
+  const m = out.match(/^"use strict";\nvar (__ibexC_\w+) = __compartments\["pkg@1\.0\.0"\];/);
+  expect(m).not.toBeNull();
+  expect(out).toContain(`${m[1]}.process.exit()`);
+});
+
+test('hoistRef with no rewrites leaves the module byte-identical (no stray declaration)', () => {
+  const src = 'const x = foo + bar.baz(qux);';
+  expect(rwHoist(src)).toBe(src);
+});
+
+test('hoistRef binding name avoids collisions with module source text', () => {
+  const clean = rwHoist('process.x;');
+  const ref = clean.match(/^var (__ibexC_\w+) =/)[1];
+  // A module that already mentions the derived name forces a suffixed one.
+  const out = rwHoist(`var ${ref} = 1;\nprocess.x;`);
+  const m = out.match(/var (__ibexC_\w+) = __compartments\["pkg@1\.0\.0"\];/);
+  expect(m).not.toBeNull();
+  expect(m[1]).not.toBe(ref);
+});
+
+test('hoistRef routes globalThis to the hoisted binding', () => {
+  const out = rwHoist('const g = globalThis;');
+  const m = out.match(/^var (__ibexC_\w+) =/);
+  expect(out).toContain(`const g = ${m[1]};`);
+});
+
 // --- packageOfModuleId ---
 
 test('packageOfModuleId extracts the package from a node_modules path', () => {

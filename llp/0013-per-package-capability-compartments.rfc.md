@@ -236,7 +236,13 @@ Two implementations, one semantics:
   transform pipeline (LLP 0007; Oxc transforms in
   `packages/ibex-devtools`), so this is a transform plugin, not a runtime
   `with`+Proxy shim. LavaMoat ships the equivalent as bundler plugins
-  `[inferred: external]`.
+  `[inferred: external]`. The rewrite hoists the registry lookup once per
+  module (`var __ibexC_* = __compartments["pkg"];`, inserted after the
+  directive prologue so `"use strict"` survives) and routes every rewritten
+  access through that binding, so a powerful-global read pays one compartment
+  Proxy trap instead of registry-trap + compartment-trap. Safe because the
+  registry get trap memoizes the per-package compartment — stable identity,
+  no other observable effect (ENG-22644).
 - **Engine-native (Phase 3, fork)**: global resolution is already a single
   interpreter case — `CASE(GetGlobalObject)` reads `runtime.getGlobal()` in
   one place `[observed]` (`hermes:lib/VM/Interpreter.cpp:1842-1844`;
@@ -317,7 +323,13 @@ drift-checked in CI with per-entry provenance (LLP 0014). Policy governs
    enforced by the loader (which Ibex owns). Builtins are reachable by
    `require`, so import policy is the *primary* gate for them: a
    compartment with no `fs` endowment but unrestricted `require('node:fs')`
-   is not contained.
+   is not contained. The host memoizes ALLOWED `(principal, specifier)`
+   import decisions (invalidated on policy application and principal
+   re-registration), so a steady-state repeated `require()` is one native
+   call plus a hash hit; denials always re-run the full decision and keep
+   their audit entries, and the memo lives host-side — NOT in the JS loader —
+   because only the host knows the frame-derived requesting principal
+   (ENG-22644).
 
 Runtime-internal modules (the `packages/ibex-runtime-js` security layer and
 bootstrap internals) are their own trusted principal and are not importable

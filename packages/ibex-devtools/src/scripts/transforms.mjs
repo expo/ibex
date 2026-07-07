@@ -429,12 +429,22 @@ function collectBlockLexical(statements, out) {
 /**
  * Rewrite free references to `globalNames` so they resolve against
  * `compartmentRef`. Pure: source string in, rewritten source string out.
+ *
+ * With `hoistRef: true`, `compartmentRef` is evaluated ONCE per module into a
+ * hoisted `var` (inserted after the directive prologue, so a "use strict"
+ * directive keeps working) and every rewritten access goes through that
+ * binding. For the compartment plugin this halves the Proxy trap hops per
+ * powerful-global read: the registry lookup (`__compartments["pkg"]`, one trap)
+ * happens once per module instead of at every access. Safe because the
+ * registry's get trap memoizes the compartment per package — the object
+ * identity is stable — and has no other observable effect. (ENG-22644)
  */
 export function rewriteFreeGlobals(source, options = {}) {
   const {
     compartmentRef = '__compartment',
     globalNames = defaultCompartmentGlobals,
     rewriteEval = true,
+    hoistRef = false,
   } = options;
   if (!source) return source;
   const names = globalNames instanceof Set ? globalNames : new Set(globalNames);
@@ -442,6 +452,12 @@ export function rewriteFreeGlobals(source, options = {}) {
 
   const ast = parseModuleOrScript(source);
   if (!ast) return source;
+
+  // The expression each rewritten access resolves against: the hoisted
+  // binding when hoisting, otherwise the raw compartment expression.
+  const ref = hoistRef
+    ? freshCompartmentBindingName(source, compartmentRef)
+    : compartmentRef;
 
   const replacements = [];
   // Scope chain: array of Set<string>. Index 0 is the module/global scope.
@@ -473,15 +489,15 @@ export function rewriteFreeGlobals(source, options = {}) {
     if (isBound(name)) return;
     if (name === 'eval' && rewriteEval && isCall) {
       // Direct eval → compartment-bound evaluator (indirect-eval semantics).
-      replacements.push({ start: node.start, end: node.end, text: `${compartmentRef}.eval` });
+      replacements.push({ start: node.start, end: node.end, text: `${ref}.eval` });
       return;
     }
     if (!names.has(name)) return;
     if (name === 'globalThis' || name === 'global' || name === 'self') {
       // The self-referential globals resolve to the compartment itself.
-      replacements.push({ start: node.start, end: node.end, text: compartmentRef });
+      replacements.push({ start: node.start, end: node.end, text: ref });
     } else {
-      replacements.push({ start: node.start, end: node.end, text: `${compartmentRef}.${name}` });
+      replacements.push({ start: node.start, end: node.end, text: `${ref}.${name}` });
     }
   };
 
@@ -623,7 +639,7 @@ export function rewriteFreeGlobals(source, options = {}) {
         if (node.shorthand && node.value && node.value.type === 'Identifier') {
           const name = node.value.name;
           if ((names.has(name) && !isBound(name)) ) {
-            const text = name === 'globalThis' ? compartmentRef : `${compartmentRef}.${name}`;
+            const text = name === 'globalThis' ? ref : `${ref}.${name}`;
             replacements.push({ start: node.start, end: node.end, text: `${name}: ${text}` });
           }
           return;
@@ -652,7 +668,58 @@ export function rewriteFreeGlobals(source, options = {}) {
   };
 
   walk(ast, null, null, null);
-  return applySourceReplacements(source, replacements);
+  if (!hoistRef || replacements.length === 0) {
+    return applySourceReplacements(source, replacements);
+  }
+  const rewritten = applySourceReplacements(source, replacements);
+  // Insert the hoisted binding after the directive prologue. Identifier
+  // references cannot occur inside directive strings, so every replacement
+  // sits at/after this offset and it is unshifted in the rewritten text.
+  const insertAt = directivePrologueEnd(ast);
+  const decl = `var ${ref} = ${compartmentRef};`;
+  return insertAt === 0
+    ? `${decl}\n${rewritten}`
+    : `${rewritten.slice(0, insertAt)}\n${decl}${rewritten.slice(insertAt)}`;
+}
+
+/**
+ * End offset of a Program's directive prologue (the leading string-expression
+ * statements, e.g. `"use strict";`), or 0 when it has none. The hoisted
+ * compartment binding must go AFTER it: a statement inserted before "use
+ * strict" would demote the directive to a plain expression and silently
+ * de-strict the module. (ENG-22644)
+ */
+function directivePrologueEnd(programNode) {
+  let end = 0;
+  for (const stmt of programNode.body || []) {
+    const isStringExpression =
+      stmt &&
+      stmt.type === 'ExpressionStatement' &&
+      (typeof stmt.directive === 'string' ||
+        (stmt.expression &&
+          (stmt.expression.type === 'Literal' || stmt.expression.type === 'StringLiteral') &&
+          typeof stmt.expression.value === 'string'));
+    if (!isStringExpression) break;
+    end = stmt.end;
+  }
+  return end;
+}
+
+/**
+ * A module-unique identifier for the hoisted compartment binding: deterministic
+ * per compartment key (so every module of one package hoists the same name, and
+ * an accidental merge under bundler scope-hoisting could only alias identical
+ * values), disambiguated against the module source so package code can never
+ * collide with (or forge a reference to) the binding. (ENG-22644)
+ */
+function freshCompartmentBindingName(source, compartmentRef) {
+  let h = 5381;
+  for (let i = 0; i < compartmentRef.length; i += 1) {
+    h = ((h * 33) ^ compartmentRef.charCodeAt(i)) >>> 0;
+  }
+  let name = `__ibexC_${h.toString(36)}`;
+  while (source.indexOf(name) !== -1) name += '_';
+  return name;
 }
 
 /**
@@ -683,7 +750,10 @@ export function createCompartmentGlobalsPlugin({
         ? endowmentsFor(bareName || pkg)
         : defaultCompartmentGlobals;
       const compartmentRef = `${registry}[${JSON.stringify(pkg)}]`;
-      const rewritten = rewriteFreeGlobals(code, { compartmentRef, globalNames });
+      // Hoist the registry lookup once per module: every rewritten access then
+      // costs one compartment trap hop instead of registry-get + compartment-get.
+      // (ENG-22644)
+      const rewritten = rewriteFreeGlobals(code, { compartmentRef, globalNames, hoistRef: true });
       if (rewritten === code) return null;
       return { code: rewritten };
     },
