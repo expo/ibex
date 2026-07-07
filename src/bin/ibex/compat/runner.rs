@@ -110,7 +110,8 @@ pub async fn run_tests_with_events(
 
     // Start the WPT servers if any tests are in the Wpt section. The harness
     // uses these for real HTTP, HTTPS, WebSocket, secure WebSocket, and H2
-    // requests instead of falling back to file:// URLs.
+    // requests; without the server, URL-based WPTs produce slow false
+    // regressions instead of meaningful compatibility results.
     let has_wpt_tests = plan.tests.iter().any(|t| t.section == Section::Wpt);
     let mut wpt_server_child: Option<std::process::Child> = None;
     let wpt_server_config: Option<WptServerConfig> = if has_wpt_tests {
@@ -120,9 +121,7 @@ pub async fn run_tests_with_events(
                 Some(config)
             }
             Err(e) => {
-                // Non-fatal: tests will fall back to file:// URLs
-                eprintln!("[wpt-server] Warning: failed to start WPT server: {e}");
-                None
+                anyhow::bail!("failed to start WPT server for WPT tests: {e}");
             }
         }
     } else {
@@ -1101,7 +1100,12 @@ fn parse_json_result(stdout: &str, test_id: &str) -> Option<TestResult> {
 }
 
 /// How long to wait for wpt-server.py to announce its port before giving up.
-const WPT_SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+///
+/// GitHub-hosted macOS can spend more than ten seconds importing the freshly
+/// installed WPT server stack before stdout is flushed. Keep this bounded, but
+/// long enough that CI startup slowness does not become a fake WebSocket
+/// compatibility regression.
+const WPT_SERVER_STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 /// Trailing stderr lines retained for the startup failure message.
 const WPT_SERVER_STDERR_TAIL_LINES: usize = 20;
 
