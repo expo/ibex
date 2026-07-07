@@ -87,9 +87,13 @@ function _normalizeRmError(err, path, recursive) {
 		err.syscall = "rm";
 		if (typeof err.message === "string") err.message = err.message.replace(/, (?:rmdir|unlink) /, ", rm ");
 	}
-	if (recursive && typeof process === "object" && process !== null && process.platform === "darwin" && err.code === "EACCES") {
-		err.code = "ENOTEMPTY";
-		if (path) {
+	if (recursive && typeof process === "object" && process !== null && process.platform === "darwin" && err.code === "EACCES" && path) {
+		var entries = null;
+		try {
+			entries = readdirSync(path);
+		} catch (_e) {}
+		if (entries && entries.length > 0) {
+			err.code = "ENOTEMPTY";
 			err.path = path;
 			err.message = "ENOTEMPTY: directory not empty, rm '" + path + "'";
 		}
@@ -1696,12 +1700,28 @@ function cpSync(src, dest, options) {
 		if (!filter) return false;
 		return filter(srcItem, destItem) === false;
 	}
-	function copyOne(source, destination) {
+	function _makeCpSpecialFileError(st, destination) {
+		var code, message;
+		if (typeof st.isSocket === "function" && st.isSocket()) {
+			code = "ERR_FS_CP_SOCKET";
+			message = "Cannot copy a socket file: " + destination;
+		} else if (typeof st.isFIFO === "function" && st.isFIFO()) {
+			code = "ERR_FS_CP_FIFO_PIPE";
+			message = "Cannot copy a FIFO pipe: " + destination;
+		} else {
+			code = "ERR_FS_CP_UNKNOWN";
+			message = "Cannot copy an unknown file type: " + destination;
+		}
+		var err = new Error(message);
+		err.code = code;
+		return err;
+	}
+	function copyOne(source, destination, atRoot) {
 		if (filter && shouldSkip(source, destination)) return;
 		var st = lstatSync(source);
 		if (st.isSymbolicLink()) {
 			if (dereference) {
-				copyOne(realpathSync(source), destination);
+				copyOne(realpathSync(source), destination, atRoot);
 				return;
 			}
 			return symlinkSync(readlinkSync(source), destination);
@@ -1732,11 +1752,11 @@ function cpSync(src, dest, options) {
 			var list = readdirSync(source, { withFileTypes: true });
 			for (var i = 0; i < list.length; i++) {
 				var childName = list[i].name;
-				copyOne(pathJoin(source, childName), pathJoin(destination, childName));
+				copyOne(pathJoin(source, childName), pathJoin(destination, childName), false);
 			}
 			return;
 		}
-		if (st.isFile()) {
+		if (st.isFile() || st.isCharacterDevice() || st.isBlockDevice()) {
 			var destExists = existsSync(destination);
 			if (!force && destExists) {
 				if (errorOnExist) {
@@ -1748,30 +1768,36 @@ function cpSync(src, dest, options) {
 				return;
 			}
 			if (destExists && force) unlinkSync(destination);
-			if (preserveTimestamps) writeFileSync(destination, readFileSync(source));
-			else {
-				var fd = openSync(source, "r");
-				var outFd = openSync(destination, "w", options.mode);
-				try {
-					var buf = Buffer.alloc(65536);
-					var bytes = readSync(fd, buf, 0, buf.length, -1);
-					while (bytes > 0) {
-						writeSync(outFd, buf, 0, bytes, -1);
-						bytes = readSync(fd, buf, 0, buf.length, -1);
+			var fd = openSync(source, "r");
+			var outFd = openSync(destination, "w");
+			try {
+				var buf = Buffer.alloc(65536);
+				var bytes = readSync(fd, buf, 0, buf.length, -1);
+				while (bytes > 0) {
+					var offset = 0;
+					while (offset < bytes) {
+						var written = writeSync(outFd, buf, offset, bytes - offset, -1);
+						if (!(written > 0)) {
+							var werr = /* @__PURE__ */ new Error("EIO: i/o error, copyfile '" + source + "' -> '" + destination + "'");
+							werr.code = "EIO";
+							werr.errno = _uvErrnoMap.EIO;
+							throw werr;
+						}
+						offset += written;
 					}
-				} finally {
-					closeSync(fd);
-					closeSync(outFd);
+					bytes = readSync(fd, buf, 0, buf.length, -1);
 				}
+			} finally {
+				closeSync(fd);
+				closeSync(outFd);
 			}
+			chmodSync(destination, st.mode & 4095);
+			if (preserveTimestamps) utimesSync(destination, st.atime, st.mtime);
 			return;
 		}
-		if (!st.isSymbolicLink()) {
-			copyOne(realpathSync(source), destination);
-			return;
-		}
+		if (atRoot) throw _makeCpSpecialFileError(st, destination);
 	}
-	copyOne(srcPath, destPath);
+	copyOne(srcPath, destPath, true);
 }
 function cp(src, dest, options, cb) {
 	if (typeof options === "function") {
@@ -1867,7 +1893,7 @@ function _collectAllEntries(root, prefix, includeFiles, includeDirs) {
 		var child = entries[i];
 		var childPrefix = prefix ? prefix + "/" + child.name : child.name;
 		if (child.isDirectory()) {
-			if (includeDirs) out.push(childPrefix + "/");
+			if (includeDirs) out.push(childPrefix);
 			Array.prototype.push.apply(out, _collectAllEntries(pathJoin(root, child.name), childPrefix, includeFiles, includeDirs));
 		} else if (includeFiles) out.push(childPrefix);
 	}
@@ -1884,21 +1910,34 @@ function globSync(pattern, options) {
 	var regex = _patternToRegex(pattern);
 	if (exclude && !Array.isArray(exclude) && typeof exclude !== "function") throw _fsInvalidArgType("exclude", "function or array", exclude);
 	var paths = [];
-	var all = _collectAllEntries(cwd, "", true, false);
+	var all = _collectAllEntries(cwd, "", true, true);
+	var excludedPrefixes = [];
 	for (var i = 0; i < all.length; i++) {
 		var candidate = all[i].replace(/\\\\/g, "/");
-		if (exclude) {
-			if (Array.isArray(exclude) ? exclude.indexOf(candidate) !== -1 : typeof exclude === "function" && !exclude(candidate)) continue;
+		var pruned = false;
+		for (var ep = 0; ep < excludedPrefixes.length; ep++) if (candidate.lastIndexOf(excludedPrefixes[ep], 0) === 0) {
+			pruned = true;
+			break;
 		}
-		if (!regex.test(candidate)) continue;
+		if (pruned) continue;
+		var dirent = null;
 		if (withTypes) {
 			var full = pathJoin(cwd, candidate);
 			var stat = null;
 			try {
 				stat = lstatSync(full);
 			} catch (_e) {}
-			paths.push(new Dirent(candidate, full, stat || null));
-		} else paths.push(candidate);
+			dirent = new Dirent(candidate, full, stat || null);
+		}
+		if (exclude) {
+			if (Array.isArray(exclude) ? exclude.indexOf(candidate) !== -1 : exclude(withTypes ? dirent : candidate) === true) {
+				excludedPrefixes.push(candidate + "/");
+				continue;
+			}
+		}
+		if (!regex.test(candidate)) continue;
+		if (withTypes) paths.push(dirent);
+		else paths.push(candidate);
 	}
 	if (options.withFileTypes) return paths;
 	if (options.encoding === "buffer") return paths.map(function(item) {
@@ -3086,7 +3125,7 @@ function _initReadStream(rs, path, options) {
 		}
 		rs._opening = false;
 	}
-	if (!rs._opened && rs._shouldAutoClose) _deferFsCallback(ensureOpen);
+	if (!rs._opened) _deferFsCallback(ensureOpen);
 	rs._read = function() {
 		if (rs.destroyed || rs.closed) return;
 		if (typeof rs._reading === "boolean" && rs._reading) return;
@@ -3390,6 +3429,15 @@ function _initWriteStream(ws, path, options) {
 		processingWrite = false;
 	}
 	function setOpened(newFd) {
+		if (ws.destroyed || ws.closed || ws._closed) {
+			opening = false;
+			if (typeof newFd === "number") try {
+				if (typeof fsModule.close === "function") fsModule.close.call(fsModule, newFd, function() {});
+				else if (typeof fsModule.closeSync === "function") fsModule.closeSync(newFd);
+				else closeSync(newFd);
+			} catch (_ignore) {}
+			return;
+		}
 		openError = null;
 		if (!opened && typeof _validateFd === "function") _validateFd(newFd);
 		opened = true;
@@ -3765,15 +3813,27 @@ FSWatcher.prototype.stop = function() {
 	}).bind(this));
 	return this;
 };
+function _setWatcherTimerRef(timer, shouldRef) {
+	if (timer === void 0 || timer === null) return;
+	if (typeof timer === "object") {
+		var method = shouldRef ? timer.ref : timer.unref;
+		if (typeof method === "function") {
+			method.call(timer);
+			return;
+		}
+	}
+	var control = shouldRef ? g.__exactTimerRef : g.__exactTimerUnref;
+	if (typeof control === "function") control(timer);
+}
 FSWatcher.prototype.ref = function() {
 	this._unrefed = false;
 	if (this._start) this._start();
-	if (this._timer && this._timer.ref) this._timer.ref();
+	if (this._timer) _setWatcherTimerRef(this._timer, true);
 	return this;
 };
 FSWatcher.prototype.unref = function() {
 	this._unrefed = true;
-	if (this._stop) this._stop();
+	if (this._timer) _setWatcherTimerRef(this._timer, false);
 	return this;
 };
 FSWatcher.prototype.listenerCount = function(ev) {
@@ -3979,8 +4039,9 @@ function watch(filename, options, listener) {
 		};
 		watcher._pollInterval = directoryInterval;
 		watcher._start = function() {
-			if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+			if (watcher._timer || watcher._closed || watcher._stopped) return;
 			watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+			if (watcher._unrefed) _setWatcherTimerRef(watcher._timer, false);
 		};
 		watcher._stop = function() {
 			if (watcher._timer) {
@@ -4009,8 +4070,9 @@ function watch(filename, options, listener) {
 		};
 		watcher._pollInterval = fileInterval;
 		watcher._start = function() {
-			if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+			if (watcher._timer || watcher._closed || watcher._stopped) return;
 			watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+			if (watcher._unrefed) _setWatcherTimerRef(watcher._timer, false);
 		};
 		watcher._stop = function() {
 			if (watcher._timer) {
@@ -4118,8 +4180,7 @@ function watchFile(filename, options, listener) {
 		watcher._prevExists = false;
 		watcher._prev = makeZeroStats(watcher._statOptions.bigint);
 		try {
-			var prevStats = statSync(resolvedFilename, watcher._statOptions);
-			watcher._prev = watcher._statOptions.bigint ? _makeBigIntStats(prevStats) : prevStats;
+			watcher._prev = statSync(resolvedFilename, watcher._statOptions);
 			watcher._prevExists = true;
 			watcher._hadInitialStat = true;
 		} catch (e) {
@@ -4131,8 +4192,7 @@ function watchFile(filename, options, listener) {
 			var curr;
 			var currExists = false;
 			try {
-				var rawCurr = statSync(resolvedFilename, watcher._statOptions);
-				curr = watcher._statOptions.bigint ? _makeBigIntStats(rawCurr) : rawCurr;
+				curr = statSync(resolvedFilename, watcher._statOptions);
 				currExists = true;
 			} catch (e) {
 				curr = makeZeroStats(watcher._statOptions.bigint);
@@ -4145,8 +4205,9 @@ function watchFile(filename, options, listener) {
 		};
 		watcher._pollInterval = watchFileInterval;
 		watcher._start = function() {
-			if (watcher._timer || watcher._closed || watcher._stopped || watcher._unrefed) return;
+			if (watcher._timer || watcher._closed || watcher._stopped) return;
 			watcher._timer = setInterval(watcher._poll, watcher._pollInterval);
+			if (watcher._unrefed) _setWatcherTimerRef(watcher._timer, false);
 		};
 		watcher._stop = function() {
 			if (watcher._timer) {
@@ -4336,6 +4397,7 @@ function lchownSync(path, uid, gid) {
 	} catch (e) {
 		throw _makeFsError(e, "lchown", p);
 	}
+	throw _makeUnsupportedFsError("lchown", p);
 }
 function _toUnixTimestamp(time) {
 	if (time instanceof Date) return time.getTime() / 1e3;
@@ -4532,7 +4594,7 @@ FileHandlePromise.prototype.readFile = function(options) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		return readFileSync(handle.fd, options);
+		return _promisesReadFileWithSignal(handle.fd, options);
 	})();
 };
 FileHandlePromise.prototype.writeFile = function(data, options) {
@@ -4547,7 +4609,6 @@ FileHandlePromise.prototype.appendFile = function(data, options) {
 	return _resolveAsync(function() {
 		handle._ensureOpen();
 		appendFileSync(handle.fd, data, options);
-		return toUint8Array(data, options && options.encoding).length;
 	})();
 };
 FileHandlePromise.prototype.createReadStream = function(options) {
@@ -4655,10 +4716,15 @@ function _extend(target, source) {
 	for (var i = 0; i < keys.length; i++) target[keys[i]] = source[keys[i]];
 	return target;
 }
+function _promisesReadFileWithSignal(pathOrFd, options) {
+	var opts = _normalizeReadFileOptions(options, true);
+	if (opts.signal && opts.signal.aborted === true) throw _makeAbortError(opts.signal.reason);
+	return readFileSync(pathOrFd, options);
+}
 var promises = {
 	readFile: function(p, o) {
 		return _resolveAsync(function() {
-			return readFileSync(p, o);
+			return _promisesReadFileWithSignal(p, o);
 		})();
 	},
 	writeFile: function(p, d, o) {
@@ -4667,7 +4733,6 @@ var promises = {
 	appendFile: function(p, d, o) {
 		return _resolveAsync(function() {
 			appendFileSync(p, d, o);
-			return toUint8Array(d, o && o.encoding).length;
 		})();
 	},
 	stat: function(p, o) {
@@ -5206,13 +5271,18 @@ function lchmodSync(path, mode) {
 	mode = _coerceMode(mode);
 	_validateUint32("mode", mode);
 	ensureExactFs();
-	if (typeof g.__exactLchmod === "function") {
-		g.__exactLchmod(path, mode);
-		return;
-	}
-	if (typeof g.__exactLchmodSync === "function") {
-		g.__exactLchmodSync(path, mode);
-		return;
+	var p = _pathToString(path);
+	try {
+		if (typeof g.__exactLchmod === "function") {
+			g.__exactLchmod(p, mode);
+			return;
+		}
+		if (typeof g.__exactLchmodSync === "function") {
+			g.__exactLchmodSync(p, mode);
+			return;
+		}
+	} catch (e) {
+		throw _makeFsError(e, "lchmod", p);
 	}
 	var err = /* @__PURE__ */ new Error("ENOSYS: lchmod is not supported");
 	err.code = "ENOSYS";
@@ -5237,15 +5307,20 @@ function lutimes(path, atime, mtime, callback) {
 function lutimesSync(path, atime, mtime) {
 	_validatePath(path);
 	ensureExactFs();
+	var p = _pathToString(path);
 	var at = _toUnixTimestamp(atime);
 	var mt = _toUnixTimestamp(mtime);
-	if (typeof g.__exactLutimes === "function") {
-		g.__exactLutimes(path, at, mt);
-		return;
-	}
-	if (typeof g.__exactLutimesSync === "function") {
-		g.__exactLutimesSync(path, at, mt);
-		return;
+	try {
+		if (typeof g.__exactLutimes === "function") {
+			g.__exactLutimes(p, at, mt);
+			return;
+		}
+		if (typeof g.__exactLutimesSync === "function") {
+			g.__exactLutimesSync(p, at, mt);
+			return;
+		}
+	} catch (e) {
+		throw _makeFsError(e, "lutime", p);
 	}
 	var err = /* @__PURE__ */ new Error("ENOSYS: lutimes is not supported");
 	err.code = "ENOSYS";
