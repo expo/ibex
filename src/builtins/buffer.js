@@ -1131,6 +1131,9 @@ Buffer.byteLength = function(string, encoding) {
   if (normalizedEncoding === "base64" || normalizedEncoding === "base64url") {
     return base64ByteLength(string);
   }
+  if (normalizedEncoding === "hex") {
+    return Math.floor(string.length / 2);
+  }
   return encodeString(string, normalizedEncoding).length;
 };
 
@@ -1286,6 +1289,22 @@ function normalizeLastIndexOfOffset(bufferLength, byteOffset) {
   return offset;
 }
 
+function normalizeLastIndexOfEmptyOffset(bufferLength, byteOffset) {
+  if (byteOffset === undefined) return bufferLength;
+  var offset = Number(byteOffset);
+  if (offset !== offset) return bufferLength;
+  if (!isFiniteNumber(offset)) {
+    return offset < 0 ? 0 : bufferLength;
+  }
+  offset = normalizeToInteger(offset);
+  if (offset < 0) {
+    offset += bufferLength;
+  }
+  if (offset < 0) return 0;
+  if (offset > bufferLength) return bufferLength;
+  return offset;
+}
+
 function findBufferSequence(buffer, value, byteOffset, encoding, backwards) {
   if (typeof byteOffset === "string") {
     encoding = byteOffset;
@@ -1293,17 +1312,14 @@ function findBufferSequence(buffer, value, byteOffset, encoding, backwards) {
   }
 
   var needle = toSearchBytes(value, encoding);
+  if (needle.length === 0) {
+    return backwards
+      ? normalizeLastIndexOfEmptyOffset(buffer.length, byteOffset)
+      : normalizeIndexOfOffset(buffer.length, byteOffset);
+  }
   var offset = backwards
     ? normalizeLastIndexOfOffset(buffer.length, byteOffset)
     : normalizeIndexOfOffset(buffer.length, byteOffset);
-
-  if (needle.length === 0) {
-    if (backwards) {
-      if (offset < 0) return -1;
-      return offset > buffer.length ? buffer.length : offset;
-    }
-    return offset > buffer.length ? buffer.length : offset;
-  }
 
   if (needle.length > buffer.length) {
     return -1;

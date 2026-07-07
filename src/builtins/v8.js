@@ -8,6 +8,12 @@ function _getMemStats() {
   return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };
 }
 
+function _unsupported(method) {
+  var err = new Error('v8.' + method + ' is not implemented in this runtime');
+  err.code = 'ERR_METHOD_NOT_IMPLEMENTED';
+  return err;
+}
+
 module.exports = {
   getHeapStatistics: function() {
     var mem = _getMemStats();
@@ -75,15 +81,10 @@ module.exports = {
     }
   },
   serialize: function(value) {
-    var json = JSON.stringify(value);
-    if (typeof Buffer !== 'undefined') return Buffer.from(json);
-    return new TextEncoder().encode(json);
+    throw _unsupported('serialize');
   },
   deserialize: function(buffer) {
-    var str = typeof buffer === 'string' ? buffer :
-      (typeof Buffer !== 'undefined' && Buffer.isBuffer(buffer)) ? buffer.toString() :
-      new TextDecoder().decode(buffer);
-    return JSON.parse(str);
+    throw _unsupported('deserialize');
   },
   cachedDataVersionTag: function() { return 0; },
   writeHeapSnapshot: function(filename) {

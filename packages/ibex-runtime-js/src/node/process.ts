@@ -104,14 +104,12 @@ const _nativeQueueMicrotask =
   typeof queueMicrotask === 'function' ? queueMicrotask.bind(globalThis) : undefined;
 const _nativeBigInt = typeof BigInt === 'function' ? BigInt : undefined;
 
-// (ENG-23140) Signal numbers are platform-specific and diverge for common
+// (ENG-23140/ENG-23316) Signal numbers are platform-specific and diverge for common
 // signals: SIGUSR1 is 30 on Darwin but 10 on Linux, SIGBUS is 10 on Darwin but
-// 7 on Linux. A single Linux-numbered table made process.kill(pid, 'SIGUSR1')
-// deliver SIGBUS on Darwin (killing the target) and disagreed with
-// binding('constants').os.signals. Branch on process.platform like
-// builtins/child-process.js does (ENG-23032); Android runs on the Linux
-// kernel, so it uses the Linux numbers.
-const SIGNAL_NAMES_DARWIN: Record<string, number> = {
+// 7 on Linux. Prefer the native/global table when present so JS never drifts
+// from compiled kernel constants; merge with the platform fallback because
+// __exactSignalNumbers intentionally omits untrappable SIGKILL/SIGSTOP.
+const FALLBACK_SIGNAL_NAMES_DARWIN: Record<string, number> = {
   SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
   SIGIOT: 6, SIGBUS: 10, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 30, SIGSEGV: 11,
   SIGUSR2: 31, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 20,
@@ -119,7 +117,7 @@ const SIGNAL_NAMES_DARWIN: Record<string, number> = {
   SIGURG: 16, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
   SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12,
 };
-const SIGNAL_NAMES_LINUX: Record<string, number> = {
+const FALLBACK_SIGNAL_NAMES_LINUX: Record<string, number> = {
   SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
   SIGIOT: 6, SIGBUS: 7, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11,
   SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGSTKFLT: 16,
@@ -130,9 +128,23 @@ const SIGNAL_NAMES_LINUX: Record<string, number> = {
 
 /** Exported for tests: the signal name -> number table for a platform. */
 export function signalNameToNumberMap(platform: string): Record<string, number> {
-  return platform === 'linux' || platform === 'android'
-    ? SIGNAL_NAMES_LINUX
-    : SIGNAL_NAMES_DARWIN;
+  const fallback = platform === 'linux' || platform === 'android'
+    ? FALLBACK_SIGNAL_NAMES_LINUX
+    : FALLBACK_SIGNAL_NAMES_DARWIN;
+  const out: Record<string, number> = { ...fallback };
+  let nativeMap: any = undefined;
+  try {
+    nativeMap = (globalThis as any).__exactSignalNumbersMap;
+    if (!nativeMap && typeof (globalThis as any).__exactSignalNumbers === 'function') {
+      nativeMap = (globalThis as any).__exactSignalNumbers();
+    }
+  } catch (_err) {}
+  if (nativeMap && typeof nativeMap === 'object') {
+    for (const key of Object.keys(nativeMap)) {
+      if (typeof nativeMap[key] === 'number') out[key] = nativeMap[key];
+    }
+  }
+  return out;
 }
 
 function currentSignalNameToNumberMap(): Record<string, number> {
@@ -1116,9 +1128,20 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
     _nextTickQueue.push({ callback: cb, args: [] });
     _scheduleNextTickDrain();
   }
+  function _writeAfterEndError(): Error & { code: string } {
+    const err = new Error('write after end') as Error & { code: string };
+    err.code = 'ERR_STREAM_WRITE_AFTER_END';
+    return err;
+  }
   if (writeFn) {
     const _exactWriteImpl = function(chunk: any, encoding?: any, callback?: Function) {
       if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+      if (stream.writableEnded || stream.destroyed) {
+        const err = _writeAfterEndError();
+        if (typeof callback === 'function') _deferWriteCallback(() => callback(err));
+        _deferWriteCallback(() => stream.emit('error', err));
+        return false;
+      }
       // Honor the encoding argument: the native write path (__exactFsWrite)
       // treats strings as UTF-8, so write('aGVsbG8=', 'base64') must be
       // converted to bytes here or the literal base64 text is emitted.
@@ -1150,9 +1173,12 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       if (chunk != null) stream.write(chunk, encoding);
       stream.writableEnded = true;
       stream.writableFinished = true;
-      stream.emit('finish');
-      stream.emit('close');
-      if (typeof callback === 'function') callback();
+      _deferWriteCallback(() => {
+        stream.emit('finish');
+        if (typeof callback === 'function') callback();
+        stream.emit('close');
+      });
+      return stream;
     };
   }
   return stream;

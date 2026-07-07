@@ -1,4 +1,4 @@
-var channels = {};
+var channels = typeof Map === 'function' ? new Map() : {};
 
 function Channel(name) {
   this.name = name;
@@ -38,7 +38,14 @@ function channel(name) {
   if (typeof name !== 'string' && typeof name !== 'symbol') {
     throw new TypeError('Channel name must be a string or Symbol');
   }
-  var key = String(name);
+  if (channels && typeof channels.get === 'function') {
+    var existing = channels.get(name);
+    if (existing) return existing;
+    var created = new Channel(name);
+    channels.set(name, created);
+    return created;
+  }
+  var key = typeof name === 'symbol' ? name : String(name);
   if (!channels[key]) {
     channels[key] = new Channel(name);
   }
@@ -46,9 +53,10 @@ function channel(name) {
 }
 
 function hasSubscribers(name) {
-  var key = String(name);
-  if (!channels[key]) return false;
-  return channels[key].hasSubscribers;
+  var ch = channels && typeof channels.get === 'function'
+    ? channels.get(name)
+    : channels[typeof name === 'symbol' ? name : String(name)];
+  return !!(ch && ch.hasSubscribers);
 }
 
 function TracingChannel(nameOrChannels) {

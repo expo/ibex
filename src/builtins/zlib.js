@@ -53,6 +53,27 @@ function checkKMaxLength(length) {
   }
 }
 
+function validateMaxOutputLength(options) {
+  if (!options || options.maxOutputLength === undefined) return Infinity;
+  var value = options.maxOutputLength;
+  if (typeof value !== 'number') {
+    throw makeError('ERR_INVALID_ARG_TYPE', 'TypeError',
+      'The "options.maxOutputLength" property must be of type number. Received type ' + typeof value + " ('" + String(value) + "')");
+  }
+  if (value !== value || value < 0) {
+    throw makeError('ERR_OUT_OF_RANGE', 'RangeError',
+      'The value of "options.maxOutputLength" is out of range. It must be >= 0. Received ' + String(value));
+  }
+  return value;
+}
+
+function checkMaxOutputLength(length, maxOutputLength) {
+  if (length > maxOutputLength) {
+    throw makeError('ERR_BUFFER_TOO_LARGE', 'RangeError',
+      'Cannot create a Buffer larger than ' + maxOutputLength + ' bytes');
+  }
+}
+
 function toBytes(data) {
   if (typeof data === 'string') {
     if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(data);
@@ -123,8 +144,8 @@ function wrapInflateError(e) {
 
 // Internal: inflate and return [buffer, bytesConsumed]
 // flags=2 means returnConsumed=true (bit1), non-lenient
-function inflateSyncConsumed(bytes, mode) {
-  var raw = __exactInflateSync(bytes, mode, false, 2);
+function inflateSyncConsumed(bytes, mode, flags) {
+  var raw = __exactInflateSync(bytes, mode, false, flags === undefined ? 2 : flags);
   if (Array.isArray(raw)) {
     return [toBuffer(raw[0]), raw[1]];
   }
@@ -151,6 +172,7 @@ function brotliDecompressSyncConsumed(bytes) {
 // mode: 0 = deflate (zlib header), 1 = gzip, 2 = raw (no header/checksum)
 function deflateSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, true, false);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
@@ -161,6 +183,8 @@ function deflateSync(data, options) {
 
 function inflateSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, false, false);
+  var maxOutputLength = validateMaxOutputLength(options);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
@@ -172,12 +196,14 @@ function inflateSync(data, options) {
     throw wrapInflateError(e);
   }
   checkKMaxLength(result.length);
+  checkMaxOutputLength(result.length, maxOutputLength);
   if (options && options.info) return { engine: new Inflate(options), buffer: result }; // eslint-disable-line no-use-before-define
   return result;
 }
 
 function gzipSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, true, true);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
   var buf = toBuffer(__exactDeflateSync(bytes, level, 1));
@@ -187,6 +213,8 @@ function gzipSync(data, options) {
 
 function gunzipSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, false, true);
+  var maxOutputLength = validateMaxOutputLength(options);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
 
@@ -197,7 +225,7 @@ function gunzipSync(data, options) {
     var memberResult;
     var consumed;
     try {
-      var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : (2 /* returnConsumed */));
+      var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : (2 /* returnConsumed */));
       if (Array.isArray(raw)) {
         memberResult = toBuffer(raw[0]);
         consumed = raw[1];
@@ -206,7 +234,6 @@ function gunzipSync(data, options) {
         consumed = remaining.length;
       }
     } catch (e) {
-      if (allOutputs.length > 0) break; // trailing garbage after valid members
       if (lenient) return toBuffer(new Uint8Array(0));
       throw wrapInflateError(e);
     }
@@ -217,12 +244,14 @@ function gunzipSync(data, options) {
 
   var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
   checkKMaxLength(result.length);
+  checkMaxOutputLength(result.length, maxOutputLength);
   if (options && options.info) return { engine: new Gunzip(options), buffer: result }; // eslint-disable-line no-use-before-define
   return result;
 }
 
 function deflateRawSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, true, false);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
@@ -233,6 +262,8 @@ function deflateRawSync(data, options) {
 
 function inflateRawSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, false, false);
+  var maxOutputLength = validateMaxOutputLength(options);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
@@ -244,12 +275,15 @@ function inflateRawSync(data, options) {
     throw wrapInflateError(e);
   }
   checkKMaxLength(result.length);
+  checkMaxOutputLength(result.length, maxOutputLength);
   if (options && options.info) return { engine: new InflateRaw(options), buffer: result }; // eslint-disable-line no-use-before-define
   return result;
 }
 
 function unzipSync(data, options) {
   validateInput(data);
+  validateZlibOptions(options, false, true);
+  var maxOutputLength = validateMaxOutputLength(options);
   var bytes = toBytes(data);
   var lenient = !!(options && options.finishFlush === 2 /* Z_SYNC_FLUSH */);
 
@@ -264,7 +298,7 @@ function unzipSync(data, options) {
       var memberResult;
       var consumed;
       try {
-        var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : 2);
+        var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : 2);
         if (Array.isArray(raw)) {
           memberResult = toBuffer(raw[0]);
           consumed = raw[1];
@@ -273,7 +307,6 @@ function unzipSync(data, options) {
           consumed = remaining.length;
         }
       } catch (e) {
-        if (allOutputs.length > 0) break;
         if (lenient) return toBuffer(new Uint8Array(0));
         throw wrapInflateError(e);
       }
@@ -283,6 +316,7 @@ function unzipSync(data, options) {
     }
     var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
     checkKMaxLength(result.length);
+    checkMaxOutputLength(result.length, maxOutputLength);
     if (options && options.info) return { engine: new Unzip(options), buffer: result }; // eslint-disable-line no-use-before-define
     return result;
   }
@@ -296,6 +330,7 @@ function unzipSync(data, options) {
     throw wrapInflateError(e);
   }
   checkKMaxLength(singleResult.length);
+  checkMaxOutputLength(singleResult.length, maxOutputLength);
   if (options && options.info) return { engine: new Unzip(options), buffer: singleResult }; // eslint-disable-line no-use-before-define
   return singleResult;
 }
@@ -363,13 +398,10 @@ function brotliCompressSync(data, options) {
 function brotliDecompressSync(data, options) {
   validateInput(data);
   var bytes = toBytes(data);
-  var maxOutputLength = options && options.maxOutputLength !== undefined ? options.maxOutputLength : Infinity;
+  var maxOutputLength = validateMaxOutputLength(options);
   if (typeof __exactBrotliDecompressSync !== 'function') throw new Error('brotliDecompressSync not available');
   var result = __exactBrotliDecompressSync(bytes);
-  if (result.length > maxOutputLength) {
-    throw makeError('ERR_BUFFER_TOO_LARGE', 'RangeError',
-      'Cannot create a Buffer larger than ' + maxOutputLength + ' bytes');
-  }
+  checkMaxOutputLength(result.length, maxOutputLength);
   checkKMaxLength(result.length);
   var buf = toBuffer(result);
   if (options && options.info) return { engine: new BrotliDecompress(options), buffer: buf }; // eslint-disable-line no-use-before-define
