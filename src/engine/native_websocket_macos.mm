@@ -469,8 +469,11 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
             if (message.type == NSURLSessionWebSocketMessageTypeString) {
                 NSString* str = message.string;
                 const char* utf8 = [str UTF8String];
+                // U+0000 is valid inside a WebSocket text frame; strlen would
+                // truncate 'a\0b' at the embedded NUL (ENG-23469).
+                NSUInteger utf8Length = [str lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
                 if (context && message_cb) {
-                    message_cb(ws_id, (const uint8_t*)utf8, strlen(utf8), 1, context);
+                    message_cb(ws_id, (const uint8_t*)(utf8 ? utf8 : ""), utf8Length, 1, context);
                 }
             } else if (message.type == NSURLSessionWebSocketMessageTypeData) {
                 NSData* data = message.data;
