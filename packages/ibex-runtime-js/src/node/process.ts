@@ -1072,12 +1072,49 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       return result;
     };
   }
+  // Node invokes stream.write callbacks asynchronously even when the
+  // underlying write completed synchronously; a synchronous call lets the
+  // callback observe pre-write program state. Real Node runs them on the
+  // nextTick queue (after all synchronous code, before microtasks), so defer
+  // through the same delegation as Process#nextTick to keep write callbacks
+  // and user nextTicks interleaving in one queue. (ENG-23236)
+  function _deferWriteCallback(callback: Function): void {
+    const cb = callback as (...args: any[]) => void;
+    if (_nativeProcessNextTick) {
+      _nativeProcessNextTick(cb);
+      return;
+    }
+    if (_nativeGlobalNextTick) {
+      _nativeGlobalNextTick(cb);
+      return;
+    }
+    _nextTickQueue.push({ callback: cb, args: [] });
+    _scheduleNextTickDrain();
+  }
   if (writeFn) {
     const _exactWriteImpl = function(chunk: any, encoding?: any, callback?: Function) {
       if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
+      // Honor the encoding argument: the native write path (__exactFsWrite)
+      // treats strings as UTF-8, so write('aGVsbG8=', 'base64') must be
+      // converted to bytes here or the literal base64 text is emitted.
+      // Same shape as the bootstrap-layer fix from ENG-23132; this
+      // shared-bundle write is the one that actually executes in all
+      // runtime modes. (ENG-23236)
+      if (typeof chunk === 'string' && typeof encoding === 'string' &&
+          encoding !== '' && encoding !== 'utf8' && encoding !== 'utf-8') {
+        if (typeof Buffer !== 'undefined' && Buffer.from) {
+          try {
+            chunk = Buffer.from(chunk, encoding);
+            encoding = undefined;
+          } catch (_err) {
+            // Unknown encoding label: fall through and emit the raw string
+            // (matches the landed bootstrap fallback shape).
+          }
+        }
+      }
       const normalizedChunk = coerceChunk(chunk);
       const result = writeFn(normalizedChunk);
-      if (typeof callback === 'function') callback();
+      if (typeof callback === 'function') _deferWriteCallback(callback);
       return result;
     };
     (_exactWriteImpl as any).__exactNativeWrite = true;

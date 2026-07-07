@@ -292,6 +292,78 @@ async fn cli_console_log_prints_strings_raw() {
 }
 
 #[tokio::test]
+async fn cli_stdout_write_honors_encoding_argument() {
+    // ENG-23236: the shared-bundle _exactWriteImpl (the write that actually
+    // executes in all runtime modes) parsed the encoding argument but never
+    // consulted it, so write('aGVsbG8=', 'base64') emitted the literal
+    // base64 text. Node decodes it: base64 -> "hello", hex -> "hi\n".
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("-e").arg(
+        "process.stdout.write('aGVsbG8=', 'base64');\
+         process.stdout.write('\\n');\
+         process.stdout.write('68690a', 'hex');\
+         process.stderr.write('d29ybGQ=', 'base64');",
+    );
+
+    let output = timeout(Duration::from_secs(10), cmd.output())
+        .await
+        .expect("CLI eval timed out")
+        .expect("failed to spawn or read ibex process output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "stderr: {stderr}");
+    assert!(
+        stdout.contains("hello\nhi\n"),
+        "stdout.write must decode base64/hex string chunks like Node: stdout={stdout:?}"
+    );
+    assert!(
+        !stdout.contains("aGVsbG8=") && !stdout.contains("68690a"),
+        "the literal encoded text must not leak through: stdout={stdout:?}"
+    );
+    assert!(
+        stderr.contains("world"),
+        "stderr.write must honor encoding too: stderr={stderr:?}"
+    );
+}
+
+#[tokio::test]
+async fn cli_stdout_write_callback_is_asynchronous() {
+    // ENG-23236: the write callback was invoked synchronously; Node
+    // guarantees asynchronous invocation (nextTick timing), so the callback
+    // must observe state mutated by code that runs after the write call.
+    // Covers both the (chunk, callback) and (chunk, encoding, callback)
+    // overloads.
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("-e").arg(
+        "let after = false;\
+         process.stdout.write('first\\n', () => { console.log('cb-after-sync:', after); });\
+         process.stdout.write('aGk=\\n', 'base64', () => { console.log('cb3-after-sync:', after); });\
+         after = true;\
+         console.log('sync-end');",
+    );
+
+    let output = timeout(Duration::from_secs(10), cmd.output())
+        .await
+        .expect("CLI eval timed out")
+        .expect("failed to spawn or read ibex process output");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "stderr: {stderr}");
+    assert!(
+        stdout.contains("cb-after-sync: true") && stdout.contains("cb3-after-sync: true"),
+        "write callbacks must run after the synchronous code that follows the write: stdout={stdout:?}"
+    );
+    let sync_end = stdout.find("sync-end").expect("sync-end printed");
+    let cb = stdout.find("cb-after-sync").expect("callback ran");
+    assert!(
+        sync_end < cb,
+        "callback must fire after synchronous completion, like Node: stdout={stdout:?}"
+    );
+}
+
+#[tokio::test]
 async fn cli_completion_bash_targets_ibex_not_node() {
     // LLP 0175 ledger item 4 (exact-side history): the old output was Node's
     // completion script verbatim, registering completions for `node node_g`.
