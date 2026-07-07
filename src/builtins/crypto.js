@@ -1437,6 +1437,11 @@ function _detectAsymmetricKeyType(raw) {
   if (hex.indexOf('06092a864886f70d010101') !== -1) return 'rsa';
   if (hex.indexOf('06072a8648ce3d0201') !== -1) return 'ec';
   if (hex.indexOf('06072a8648ce380401') !== -1) return 'dsa';
+  // Classic DH: PKCS#3 dhKeyAgreement (1.2.840.113549.1.3.1) or X9.42
+  // dhpublicnumber (1.2.840.10046.2.1). Without these, DH PEMs fell through
+  // to the 'rsa' default and stateless diffieHellman() could not route them.
+  if (hex.indexOf('06092a864886f70d010301') !== -1) return 'dh';
+  if (hex.indexOf('06072a8648ce3e0201') !== -1) return 'dh';
   if (hex.indexOf('06032b656e') !== -1) return 'x25519';
   if (hex.indexOf('06032b656f') !== -1) return 'x448';
   if (hex.indexOf('06032b6570') !== -1) return 'ed25519';
@@ -3735,13 +3740,248 @@ function checkPrime(candidate, options, callback) {
 }
 
 // --- diffieHellman function (stateless) ---
+
+// Minimal DER TLV reader used by the classic-DH key parser below.
+// Returns { tag, start, end } for the element at `pos`, or null on malformed
+// input (truncated, or length form we do not accept).
+function _derTlv(bytes, pos) {
+  if (pos + 2 > bytes.length) return null;
+  var tag = bytes[pos];
+  var lenByte = bytes[pos + 1];
+  var len, headerLen;
+  if (lenByte < 0x80) {
+    len = lenByte;
+    headerLen = 2;
+  } else {
+    var n = lenByte & 0x7f;
+    if (n === 0 || n > 4 || pos + 2 + n > bytes.length) return null;
+    len = 0;
+    for (var i = 0; i < n; i++) len = len * 256 + bytes[pos + 2 + i];
+    headerLen = 2 + n;
+  }
+  if (pos + headerLen + len > bytes.length) return null;
+  return { tag: tag, start: pos + headerLen, end: pos + headerLen + len };
+}
+
+// Parse a classic-DH key (PEM string or DER bytes) into its group parameters
+// and key value. Accepts both encodings Node/OpenSSL emit:
+//   PKCS#8 private: SEQ { INT v, SEQ { OID, SEQ { INT p, INT g, ... } }, OCTET STRING { INT x } }
+//   SPKI public:    SEQ { SEQ { OID, SEQ { INT p, INT g, ... } }, BIT STRING { INT y } }
+// (PKCS#3 params are { p, g [, l] }; X9.42 params are { p, g, q, ... } — the
+// first two integers are p and g in both.) Returns { p, g, priv } or
+// { p, g, pub } as BigInts, or null if the material is not a DH key.
+function _parseDhKey(material) {
+  var bytes = typeof material === 'string' ? _decodePemKeyBytes(material) : _toBytes(material);
+  var outer = _derTlv(bytes, 0);
+  if (!outer || outer.tag !== 0x30) return null;
+  var first = _derTlv(bytes, outer.start);
+  if (!first) return null;
+  var isPrivate = first.tag === 0x02; // PKCS#8 version INTEGER; SPKI starts with a SEQUENCE
+  var alg = isPrivate ? _derTlv(bytes, first.end) : first;
+  if (!alg || alg.tag !== 0x30) return null;
+  var oid = _derTlv(bytes, alg.start);
+  if (!oid || oid.tag !== 0x06) return null;
+  var oidHex = _toHex(bytes.slice(oid.start, oid.end)).toLowerCase();
+  // PKCS#3 dhKeyAgreement (1.2.840.113549.1.3.1) / X9.42 dhpublicnumber (1.2.840.10046.2.1)
+  if (oidHex !== '2a864886f70d010301' && oidHex !== '2a8648ce3e0201') return null;
+  var params = _derTlv(bytes, oid.end);
+  if (!params || params.tag !== 0x30) return null;
+  var pInt = _derTlv(bytes, params.start);
+  if (!pInt || pInt.tag !== 0x02) return null;
+  var gInt = _derTlv(bytes, pInt.end);
+  if (!gInt || gInt.tag !== 0x02) return null;
+  var keyWrap = _derTlv(bytes, alg.end);
+  if (!keyWrap) return null;
+  var inner;
+  if (isPrivate) {
+    if (keyWrap.tag !== 0x04) return null; // OCTET STRING { INTEGER x }
+    inner = _derTlv(bytes, keyWrap.start);
+  } else {
+    if (keyWrap.tag !== 0x03 || keyWrap.end <= keyWrap.start) return null; // BIT STRING { INTEGER y }
+    inner = _derTlv(bytes, keyWrap.start + 1); // skip unused-bits count
+  }
+  if (!inner || inner.tag !== 0x02) return null;
+  var result = {
+    p: _bytesToBigInt(bytes.slice(pInt.start, pInt.end)),
+    g: _bytesToBigInt(bytes.slice(gInt.start, gInt.end))
+  };
+  var value = _bytesToBigInt(bytes.slice(inner.start, inner.end));
+  if (isPrivate) result.priv = value;
+  else result.pub = value;
+  return result;
+}
+
+// Detect the web-curve name of an EC key from its material (curve OID for
+// PEM/DER, `crv` for JWK). Only the curves the native ECDH bridge speaks.
+function _ecWebCurveFromKeyMaterial(material) {
+  if (material && typeof material === 'object' && !_isStringOrBuffer(material)) {
+    var crv = material.crv;
+    return (crv === 'P-256' || crv === 'P-384' || crv === 'P-521') ? crv : null;
+  }
+  var hex = _toHex(typeof material === 'string' ? _decodePemKeyBytes(material) : _toBytes(material)).toLowerCase();
+  if (hex.indexOf('06082a8648ce3d030107') !== -1) return 'P-256'; // prime256v1
+  if (hex.indexOf('06052b81040022') !== -1) return 'P-384'; // secp384r1
+  if (hex.indexOf('06052b81040023') !== -1) return 'P-521'; // secp521r1
+  return null;
+}
+
+function _dhMismatchingDomainError() {
+  // Matches Node's OpenSSL passthrough for EC-curve / DH-group mismatch.
+  return _createCryptoError(Error, 'ERR_OSSL_MISMATCHING_DOMAIN_PARAMETERS',
+    'error:1C8000CB:Provider routines::mismatching domain parameters');
+}
+
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles — on
+// profiles without the OpenSSL derive bridges (SecKey-only macOS, Windows,
+// iOS) stateless ECDH/XDH must throw, never return made-up bytes.
+function _dhNotSupportedError(what) {
+  return _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+    'crypto.diffieHellman: ' + what);
+}
+
+function _dhOperationFailed(keyType, e) {
+  var detail = e && e.message ? e.message : String(e);
+  return _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+    'Failed to derive ' + keyType + ' shared secret: ' + detail);
+}
+
+// Key material handed to the native XDH bridge: PEM strings and DER bytes
+// pass through (the bridge imports both); x25519 JWKs are lowered to their
+// raw 32-byte field. x448 JWKs have no raw import path in the bridge.
+function _xdhBridgeMaterial(data, keyType, jwkField) {
+  if (data && typeof data === 'object' && !_isStringOrBuffer(data)) {
+    var field = data[jwkField];
+    if (keyType === 'x25519' && typeof field === 'string' && typeof Buffer !== 'undefined') {
+      return Buffer.from(field, 'base64url');
+    }
+    throw _dhNotSupportedError(keyType + ' JWK keys are not supported here; export the key as PEM or DER first');
+  }
+  return data;
+}
+
+// ibex's native EC keygen labels SPKI public PEMs "BEGIN ECDSA PUBLIC KEY";
+// OpenSSL's PEM reader only accepts the standard "BEGIN PUBLIC KEY" label, so
+// lower any nonstandard-label public PEM to its DER bytes — the bridges'
+// d2i_PUBKEY import path is label-blind.
+function _publicKeyMaterialForBridge(data) {
+  if (typeof data === 'string' && data.indexOf('PUBLIC KEY-----') !== -1 &&
+      data.indexOf('-----BEGIN PUBLIC KEY-----') === -1) {
+    return _decodePemKeyBytes(data);
+  }
+  return data;
+}
+
+// Key material for the native ECDH bridge: PEM/DER pass through; EC public
+// JWKs are lowered to an uncompressed point. EC private JWKs would need DER
+// construction the runtime does not do yet — throw honestly instead.
+function _ecdhBridgeMaterial(data, isPublic) {
+  if (data && typeof data === 'object' && !_isStringOrBuffer(data)) {
+    if (isPublic && typeof data.x === 'string' && typeof data.y === 'string' && typeof Buffer !== 'undefined') {
+      var xb = Buffer.from(data.x, 'base64url');
+      var yb = Buffer.from(data.y, 'base64url');
+      var point = new Uint8Array(1 + xb.length + yb.length);
+      point[0] = 0x04;
+      for (var i = 0; i < xb.length; i++) point[1 + i] = xb[i];
+      for (var j = 0; j < yb.length; j++) point[1 + xb.length + j] = yb[j];
+      return point;
+    }
+    throw _dhNotSupportedError('EC JWK private keys are not supported here; export the key as PEM or DER first');
+  }
+  return data;
+}
+
+// Classic (modp) DH agreement over KeyObjects. Pure BigInt math — works on
+// every profile, matching the DiffieHellman class. Node pads the secret to
+// the prime length (OpenSSL dh_pad), so a leading 0x00 byte is preserved.
+function _statelessDhClassic(privateKey, publicKey) {
+  var priv = _parseDhKey(privateKey._data);
+  if (!priv || priv.priv === undefined) {
+    throw _dhNotSupportedError('could not read the DH private key material');
+  }
+  var pub = _parseDhKey(publicKey._data);
+  if (!pub) {
+    throw _dhNotSupportedError('could not read the DH public key material');
+  }
+  if (priv.p !== pub.p || priv.g !== pub.g) throw _dhMismatchingDomainError();
+  var pubValue = pub.pub;
+  if (pubValue === undefined) {
+    // Node accepts a private KeyObject in the publicKey slot; recover y = g^x mod p.
+    pubValue = _modPow(pub.g, pub.priv, pub.p);
+  }
+  var secret = _modPow(pubValue, priv.priv, priv.p);
+  var byteLen = Math.ceil(priv.p.toString(2).length / 8);
+  return _bigIntToBytes(secret, byteLen);
+}
+
+function _statelessEcdh(privateKey, publicKey) {
+  if (typeof __exactEcdhDeriveBits !== 'function') {
+    throw _dhNotSupportedError('ec key agreement is not available in this build (no native ECDH bridge)');
+  }
+  var privCurve = _ecWebCurveFromKeyMaterial(privateKey._data);
+  var pubCurve = _ecWebCurveFromKeyMaterial(publicKey._data);
+  if (!privCurve || !pubCurve) {
+    throw _dhNotSupportedError('unsupported EC curve (supported: P-256, P-384, P-521)');
+  }
+  if (privCurve !== pubCurve) throw _dhMismatchingDomainError();
+  var privMaterial = _ecdhBridgeMaterial(privateKey._data, false);
+  var pubMaterial = _publicKeyMaterialForBridge(_ecdhBridgeMaterial(publicKey._data, true));
+  try {
+    return _bytesToBufferLike(__exactEcdhDeriveBits(privCurve, privMaterial, pubMaterial));
+  } catch (e) {
+    if (e && e.code) throw e;
+    throw _dhOperationFailed('ec', e);
+  }
+}
+
+function _statelessXdh(privateKey, publicKey, keyType) {
+  // The bridge's PEM/DER import paths are algorithm-agnostic, so it derives
+  // for both x25519 and x448 key material despite its name.
+  if (typeof __exactX25519DeriveBits !== 'function') {
+    throw _dhNotSupportedError(keyType + ' key agreement is not available in this build (no native derive bridge)');
+  }
+  var privMaterial = _xdhBridgeMaterial(privateKey._data, keyType, 'd');
+  var pubMaterial = _publicKeyMaterialForBridge(_xdhBridgeMaterial(publicKey._data, keyType, 'x'));
+  try {
+    return _bytesToBufferLike(__exactX25519DeriveBits(privMaterial, pubMaterial));
+  } catch (e) {
+    if (e && e.code) throw e;
+    throw _dhOperationFailed(keyType, e);
+  }
+}
+
+var _dhEnabledKeyTypes = { dh: 1, ec: 1, x448: 1, x25519: 1 };
+
+// crypto.diffieHellman({ privateKey, publicKey }): stateless key agreement
+// over KeyObjects. Validation order and error codes mirror Node v25.
 function diffieHellman(options) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) throw _errInvalidArgType('options', 'of type object', options);
-  if (!options.privateKey || !(options.privateKey instanceof KeyObject)) throw _errInvalidArgType('options.privateKey', 'KeyObject', options.privateKey);
-  if (!options.publicKey || !(options.publicKey instanceof KeyObject)) throw _errInvalidArgType('options.publicKey', 'KeyObject', options.publicKey);
-  // Stub: return random shared secret
-  var secret = randomBytes(32);
-  return secret;
+  var privateKey = options.privateKey;
+  var publicKey = options.publicKey;
+  if (!(privateKey instanceof KeyObject)) {
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_VALUE',
+      "The property 'options.privateKey' is invalid. Received " + _inspectValue(privateKey));
+  }
+  if (!(publicKey instanceof KeyObject)) {
+    throw _createCryptoError(TypeError, 'ERR_INVALID_ARG_VALUE',
+      "The property 'options.publicKey' is invalid. Received " + _inspectValue(publicKey));
+  }
+  if (privateKey.type !== 'private') {
+    throw _createCryptoError(TypeError, 'ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE',
+      'Invalid key object type ' + privateKey.type + ', expected private.');
+  }
+  if (publicKey.type !== 'public' && publicKey.type !== 'private') {
+    throw _createCryptoError(TypeError, 'ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE',
+      'Invalid key object type ' + publicKey.type + ', expected private or public.');
+  }
+  var privType = privateKey.asymmetricKeyType;
+  var pubType = publicKey.asymmetricKeyType;
+  if (privType !== pubType || !_dhEnabledKeyTypes[privType]) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_INCOMPATIBLE_KEY',
+      'Incompatible key types for Diffie-Hellman: ' + privType + ' and ' + pubType);
+  }
+  if (privType === 'dh') return _statelessDhClassic(privateKey, publicKey);
+  if (privType === 'ec') return _statelessEcdh(privateKey, publicKey);
+  return _statelessXdh(privateKey, publicKey, privType);
 }
 
 // --- secureHeapUsed ---

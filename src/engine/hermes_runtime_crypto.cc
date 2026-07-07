@@ -3490,6 +3490,20 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           pubKey = d2i_PUBKEY(nullptr, &p, static_cast<long>(pubKeyBytes.size()));
         }
         if (!pubKey) {
+          // crypto.diffieHellman() accepts a private KeyObject in the
+          // publicKey slot (Node semantics, ENG-23144); import the private
+          // material and let EVP_PKEY_derive_set_peer use its public half.
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pubKey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pubKey) {
+          const unsigned char* p = pubKeyBytes.data();
+          pubKey = d2i_PrivateKey(EVP_PKEY_X25519, nullptr, &p, static_cast<long>(pubKeyBytes.size()));
+        }
+        if (!pubKey) {
           EVP_PKEY_free(privKey);
           throw facebook::jsi::JSError(runtime, "__exactX25519DeriveBits: failed to import X25519 public key");
         }
@@ -4075,6 +4089,20 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
               OSSL_PARAM_BLD_free(bld);
             }
           }
+        }
+        if (!pubKey) {
+          // crypto.diffieHellman() accepts a private KeyObject in the
+          // publicKey slot (Node semantics, ENG-23144); import the private
+          // material and let EVP_PKEY_derive_set_peer use its public half.
+          BIO* bio = BIO_new_mem_buf(pubKeyBytes.data(), static_cast<int>(pubKeyBytes.size()));
+          if (bio) {
+            pubKey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+            BIO_free(bio);
+          }
+        }
+        if (!pubKey) {
+          const unsigned char* p = pubKeyBytes.data();
+          pubKey = d2i_PrivateKey(EVP_PKEY_EC, nullptr, &p, static_cast<long>(pubKeyBytes.size()));
         }
         if (!pubKey) {
           EVP_PKEY_free(privKey);

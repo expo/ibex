@@ -1527,6 +1527,8 @@ function _detectAsymmetricKeyType(raw) {
 	if (hex.indexOf("06092a864886f70d010101") !== -1) return "rsa";
 	if (hex.indexOf("06072a8648ce3d0201") !== -1) return "ec";
 	if (hex.indexOf("06072a8648ce380401") !== -1) return "dsa";
+	if (hex.indexOf("06092a864886f70d010301") !== -1) return "dh";
+	if (hex.indexOf("06072a8648ce3e0201") !== -1) return "dh";
 	if (hex.indexOf("06032b656e") !== -1) return "x25519";
 	if (hex.indexOf("06032b656f") !== -1) return "x448";
 	if (hex.indexOf("06032b6570") !== -1) return "ed25519";
@@ -3494,11 +3496,171 @@ function checkPrime(candidate, options, callback) {
 		}, 0);
 	}
 }
+function _derTlv(bytes, pos) {
+	if (pos + 2 > bytes.length) return null;
+	var tag = bytes[pos];
+	var lenByte = bytes[pos + 1];
+	var len, headerLen;
+	if (lenByte < 128) {
+		len = lenByte;
+		headerLen = 2;
+	} else {
+		var n = lenByte & 127;
+		if (n === 0 || n > 4 || pos + 2 + n > bytes.length) return null;
+		len = 0;
+		for (var i = 0; i < n; i++) len = len * 256 + bytes[pos + 2 + i];
+		headerLen = 2 + n;
+	}
+	if (pos + headerLen + len > bytes.length) return null;
+	return {
+		tag,
+		start: pos + headerLen,
+		end: pos + headerLen + len
+	};
+}
+function _parseDhKey(material) {
+	var bytes = typeof material === "string" ? _decodePemKeyBytes(material) : _toBytes(material);
+	var outer = _derTlv(bytes, 0);
+	if (!outer || outer.tag !== 48) return null;
+	var first = _derTlv(bytes, outer.start);
+	if (!first) return null;
+	var isPrivate = first.tag === 2;
+	var alg = isPrivate ? _derTlv(bytes, first.end) : first;
+	if (!alg || alg.tag !== 48) return null;
+	var oid = _derTlv(bytes, alg.start);
+	if (!oid || oid.tag !== 6) return null;
+	var oidHex = _toHex(bytes.slice(oid.start, oid.end)).toLowerCase();
+	if (oidHex !== "2a864886f70d010301" && oidHex !== "2a8648ce3e0201") return null;
+	var params = _derTlv(bytes, oid.end);
+	if (!params || params.tag !== 48) return null;
+	var pInt = _derTlv(bytes, params.start);
+	if (!pInt || pInt.tag !== 2) return null;
+	var gInt = _derTlv(bytes, pInt.end);
+	if (!gInt || gInt.tag !== 2) return null;
+	var keyWrap = _derTlv(bytes, alg.end);
+	if (!keyWrap) return null;
+	var inner;
+	if (isPrivate) {
+		if (keyWrap.tag !== 4) return null;
+		inner = _derTlv(bytes, keyWrap.start);
+	} else {
+		if (keyWrap.tag !== 3 || keyWrap.end <= keyWrap.start) return null;
+		inner = _derTlv(bytes, keyWrap.start + 1);
+	}
+	if (!inner || inner.tag !== 2) return null;
+	var result = {
+		p: _bytesToBigInt(bytes.slice(pInt.start, pInt.end)),
+		g: _bytesToBigInt(bytes.slice(gInt.start, gInt.end))
+	};
+	var value = _bytesToBigInt(bytes.slice(inner.start, inner.end));
+	if (isPrivate) result.priv = value;
+	else result.pub = value;
+	return result;
+}
+function _ecWebCurveFromKeyMaterial(material) {
+	if (material && typeof material === "object" && !_isStringOrBuffer(material)) {
+		var crv = material.crv;
+		return crv === "P-256" || crv === "P-384" || crv === "P-521" ? crv : null;
+	}
+	var hex = _toHex(typeof material === "string" ? _decodePemKeyBytes(material) : _toBytes(material)).toLowerCase();
+	if (hex.indexOf("06082a8648ce3d030107") !== -1) return "P-256";
+	if (hex.indexOf("06052b81040022") !== -1) return "P-384";
+	if (hex.indexOf("06052b81040023") !== -1) return "P-521";
+	return null;
+}
+function _dhMismatchingDomainError() {
+	return _createCryptoError(Error, "ERR_OSSL_MISMATCHING_DOMAIN_PARAMETERS", "error:1C8000CB:Provider routines::mismatching domain parameters");
+}
+function _dhNotSupportedError(what) {
+	return _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "crypto.diffieHellman: " + what);
+}
+function _dhOperationFailed(keyType, e) {
+	var detail = e && e.message ? e.message : String(e);
+	return _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "Failed to derive " + keyType + " shared secret: " + detail);
+}
+function _xdhBridgeMaterial(data, keyType, jwkField) {
+	if (data && typeof data === "object" && !_isStringOrBuffer(data)) {
+		var field = data[jwkField];
+		if (keyType === "x25519" && typeof field === "string" && typeof Buffer !== "undefined") return Buffer.from(field, "base64url");
+		throw _dhNotSupportedError(keyType + " JWK keys are not supported here; export the key as PEM or DER first");
+	}
+	return data;
+}
+function _publicKeyMaterialForBridge(data) {
+	if (typeof data === "string" && data.indexOf("PUBLIC KEY-----") !== -1 && data.indexOf("-----BEGIN PUBLIC KEY-----") === -1) return _decodePemKeyBytes(data);
+	return data;
+}
+function _ecdhBridgeMaterial(data, isPublic) {
+	if (data && typeof data === "object" && !_isStringOrBuffer(data)) {
+		if (isPublic && typeof data.x === "string" && typeof data.y === "string" && typeof Buffer !== "undefined") {
+			var xb = Buffer.from(data.x, "base64url");
+			var yb = Buffer.from(data.y, "base64url");
+			var point = new Uint8Array(1 + xb.length + yb.length);
+			point[0] = 4;
+			for (var i = 0; i < xb.length; i++) point[1 + i] = xb[i];
+			for (var j = 0; j < yb.length; j++) point[1 + xb.length + j] = yb[j];
+			return point;
+		}
+		throw _dhNotSupportedError("EC JWK private keys are not supported here; export the key as PEM or DER first");
+	}
+	return data;
+}
+function _statelessDhClassic(privateKey, publicKey) {
+	var priv = _parseDhKey(privateKey._data);
+	if (!priv || priv.priv === void 0) throw _dhNotSupportedError("could not read the DH private key material");
+	var pub = _parseDhKey(publicKey._data);
+	if (!pub) throw _dhNotSupportedError("could not read the DH public key material");
+	if (priv.p !== pub.p || priv.g !== pub.g) throw _dhMismatchingDomainError();
+	var pubValue = pub.pub;
+	if (pubValue === void 0) pubValue = _modPow(pub.g, pub.priv, pub.p);
+	return _bigIntToBytes(_modPow(pubValue, priv.priv, priv.p), Math.ceil(priv.p.toString(2).length / 8));
+}
+function _statelessEcdh(privateKey, publicKey) {
+	if (typeof __exactEcdhDeriveBits !== "function") throw _dhNotSupportedError("ec key agreement is not available in this build (no native ECDH bridge)");
+	var privCurve = _ecWebCurveFromKeyMaterial(privateKey._data);
+	var pubCurve = _ecWebCurveFromKeyMaterial(publicKey._data);
+	if (!privCurve || !pubCurve) throw _dhNotSupportedError("unsupported EC curve (supported: P-256, P-384, P-521)");
+	if (privCurve !== pubCurve) throw _dhMismatchingDomainError();
+	var privMaterial = _ecdhBridgeMaterial(privateKey._data, false);
+	var pubMaterial = _publicKeyMaterialForBridge(_ecdhBridgeMaterial(publicKey._data, true));
+	try {
+		return _bytesToBufferLike(__exactEcdhDeriveBits(privCurve, privMaterial, pubMaterial));
+	} catch (e) {
+		if (e && e.code) throw e;
+		throw _dhOperationFailed("ec", e);
+	}
+}
+function _statelessXdh(privateKey, publicKey, keyType) {
+	if (typeof __exactX25519DeriveBits !== "function") throw _dhNotSupportedError(keyType + " key agreement is not available in this build (no native derive bridge)");
+	var privMaterial = _xdhBridgeMaterial(privateKey._data, keyType, "d");
+	var pubMaterial = _publicKeyMaterialForBridge(_xdhBridgeMaterial(publicKey._data, keyType, "x"));
+	try {
+		return _bytesToBufferLike(__exactX25519DeriveBits(privMaterial, pubMaterial));
+	} catch (e) {
+		if (e && e.code) throw e;
+		throw _dhOperationFailed(keyType, e);
+	}
+}
+var _dhEnabledKeyTypes = {
+	dh: 1,
+	ec: 1,
+	x448: 1,
+	x25519: 1
+};
 function diffieHellman(options) {
 	if (!options || typeof options !== "object" || Array.isArray(options)) throw _errInvalidArgType("options", "of type object", options);
-	if (!options.privateKey || !(options.privateKey instanceof KeyObject)) throw _errInvalidArgType("options.privateKey", "KeyObject", options.privateKey);
-	if (!options.publicKey || !(options.publicKey instanceof KeyObject)) throw _errInvalidArgType("options.publicKey", "KeyObject", options.publicKey);
-	return randomBytes(32);
+	var privateKey = options.privateKey;
+	var publicKey = options.publicKey;
+	if (!(privateKey instanceof KeyObject)) throw _createCryptoError(TypeError, "ERR_INVALID_ARG_VALUE", "The property 'options.privateKey' is invalid. Received " + _inspectValue(privateKey));
+	if (!(publicKey instanceof KeyObject)) throw _createCryptoError(TypeError, "ERR_INVALID_ARG_VALUE", "The property 'options.publicKey' is invalid. Received " + _inspectValue(publicKey));
+	if (privateKey.type !== "private") throw _createCryptoError(TypeError, "ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE", "Invalid key object type " + privateKey.type + ", expected private.");
+	if (publicKey.type !== "public" && publicKey.type !== "private") throw _createCryptoError(TypeError, "ERR_CRYPTO_INVALID_KEY_OBJECT_TYPE", "Invalid key object type " + publicKey.type + ", expected private or public.");
+	var privType = privateKey.asymmetricKeyType;
+	var pubType = publicKey.asymmetricKeyType;
+	if (privType !== pubType || !_dhEnabledKeyTypes[privType]) throw _createCryptoError(Error, "ERR_CRYPTO_INCOMPATIBLE_KEY", "Incompatible key types for Diffie-Hellman: " + privType + " and " + pubType);
+	if (privType === "dh") return _statelessDhClassic(privateKey, publicKey);
+	if (privType === "ec") return _statelessEcdh(privateKey, publicKey);
+	return _statelessXdh(privateKey, publicKey, privType);
 }
 function secureHeapUsed() {
 	return {
