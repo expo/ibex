@@ -56,6 +56,7 @@ g.__exactFsRead = (fd: number, length: number, position: number) => {
 g.__exactFsWrite = (fd: number, bytes: Uint8Array, pos: number) =>
   nodeFs.writeSync(fd, bytes, 0, bytes.length, pos === -1 ? null : pos);
 g.__exactAccess = (p: string, mode: number) => nodeFs.accessSync(p, mode);
+g.__exactChmod = (p: string, mode: number) => nodeFs.chmodSync(p, mode);
 g.__exactUnlink = (p: string) => nodeFs.unlinkSync(p);
 g.__exactReaddir = (p: string) => JSON.stringify(nodeFs.readdirSync(p));
 g.__exactMkdir = (p: string, recursive: boolean) => nodeFs.mkdirSync(p, { recursive });
