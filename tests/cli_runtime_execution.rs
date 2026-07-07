@@ -146,6 +146,33 @@ async fn cli_runtime_regex_literal_containing_await_does_not_reroute_entry() {
     );
 }
 
+/// ENG-23484 finding 4 (P3): a string literal containing
+/// `//# sourceMappingURL=` must survive the TLA-shim evaluation — the eval
+/// normalization used to truncate ANY line containing the marker, corrupting
+/// code that generates sourcemap comments.
+#[tokio::test]
+async fn cli_runtime_tla_shim_preserves_sourcemap_marker_in_string_literals() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(
+        &entry,
+        "const banner = \"//# sourceMappingURL=x.map\";\nawait Promise.resolve();\nconsole.log(\"len=\" + banner.length);\n",
+    )
+    .expect("write entry");
+
+    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "a TLA entry with a sourcemap-marker string must run\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("len=26"),
+        "the string literal must survive normalization intact\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 /// ENG-23484 finding 1 (P1): a runtime error thrown by a bytecode entry is an
 /// EVAL failure, not a bytecode-load failure. It must propagate as-is — the
 /// program's side effects must not run a second time via the JS-source

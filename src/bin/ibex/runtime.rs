@@ -2268,16 +2268,14 @@ fn normalize_hashbang_for_eval(source: &str) -> Cow<'_, str> {
             continue;
         }
 
-        if let Some(marker_index) = line.find("//#") {
-            if line[marker_index..].contains("sourceMappingURL=") {
-                normalized.push_str(&line[..marker_index]);
-                if line.ends_with('\n') {
-                    normalized.push('\n');
-                }
-                continue;
-            }
-        }
-
+        // Strip a sourceMappingURL comment only when the whole line is that
+        // comment (leading whitespace aside) — that is the only position this
+        // textual scan can prove is a comment. A mid-line match is NOT
+        // provably one: `out.push("//# sourceMappingURL=" + url);` is code
+        // that GENERATES sourcemap comments, and truncating at the marker
+        // corrupted such source into a syntax error (ENG-23484).
+        // Under-stripping merely leaves a stale sourcemap pointer behind,
+        // which is harmless by comparison.
         let trimmed = line.trim_start();
         if trimmed.starts_with("//#") && trimmed.contains("sourceMappingURL=") {
             if line.ends_with('\n') {
@@ -3648,6 +3646,39 @@ console.log("kept");
             normalized.as_ref(),
             "///usr/bin/env node\nconsole.log('ok');\n"
         );
+    }
+
+    #[test]
+    fn normalize_hashbang_for_eval_strips_only_whole_line_sourcemap_comments() {
+        // A line that IS a sourceMappingURL comment (leading whitespace aside)
+        // is stripped; the marker inside a string literal — code that
+        // generates sourcemap comments — must survive untouched. Truncating
+        // it mid-line corrupted the source on every TLA-shim evaluation.
+        // (ENG-23484)
+        let source = "const banner = \"//# sourceMappingURL=x.map\";\n\
+                      out.push(\"//# sourceMappingURL=\" + url);\n\
+                      \t//# sourceMappingURL=indented.map\n\
+                      //# sourceMappingURL=real.map\n";
+        let normalized = normalize_hashbang_for_eval(source);
+
+        assert_eq!(
+            normalized.as_ref(),
+            "const banner = \"//# sourceMappingURL=x.map\";\n\
+             out.push(\"//# sourceMappingURL=\" + url);\n\
+             \n\
+             \n"
+        );
+    }
+
+    #[test]
+    fn normalize_hashbang_for_eval_keeps_trailing_code_before_sourcemap_comment() {
+        // A trailing same-line comment after real code is no longer stripped:
+        // this scan cannot prove comment position mid-line, and keeping a
+        // stale sourcemap pointer is harmless next to truncating code.
+        let source = "doWork(); //# sourceMappingURL=inline.map\n";
+        let normalized = normalize_hashbang_for_eval(source);
+
+        assert_eq!(normalized.as_ref(), source);
     }
 
     #[tokio::test]
