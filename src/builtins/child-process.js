@@ -964,16 +964,29 @@ function _validateSpawnSyncOptions(options) {
     _validateNullBytes(command, 'command');
     _validateOptionsNullBytes(options);
     var opts = normalizeExecOptions(options);
-    var spawnOptions = {
-      cwd: opts.cwd,
-      env: opts.env,
-      timeout: opts.timeout,
-      maxBuffer: options && options.maxBuffer !== undefined ? options.maxBuffer : undefined,
-      encoding: opts.encoding,
-      input: opts.input,
-      shell: opts.shell !== undefined ? opts.shell : true,
-    };
+    // (ENG-23485) Forward the caller's full options to spawnSync the way
+    // Node's normalizeExecArgs does (notably stdio, but also killSignal,
+    // argv0, uid/gid, windowsHide, ...). The previous allowlist silently
+    // dropped everything it didn't name, so execSync({stdio:'inherit'})
+    // captured output instead of streaming it to the terminal.
+    var spawnOptions = {};
+    if (options && typeof options === 'object') {
+      for (var execOptKey in options) {
+        if (Object.prototype.hasOwnProperty.call(options, execOptKey)) {
+          spawnOptions[execOptKey] = options[execOptKey];
+        }
+      }
+    }
+    // Node's normalizeExecArgs: a custom shell string is honored, anything
+    // else (including shell:false) still runs the command through the shell.
+    spawnOptions.shell = typeof opts.shell === 'string' ? opts.shell : true;
+    if (opts.encoding !== undefined) spawnOptions.encoding = opts.encoding;
+    // Node contract: unless the caller specifies stdio, the sync exec family
+    // passes the captured child stderr through to the parent's stderr so
+    // child error output is visible.
+    var inheritStderr = !spawnOptions.stdio;
     var result = cp.spawnSync(command, [], spawnOptions);
+    if (inheritStderr) _writeInheritedSyncStderr(result.stderr);
 
     if (result.error) {
       if (result.error.stdout === undefined) result.error.stdout = result.stdout;
@@ -997,12 +1010,29 @@ function _validateSpawnSyncOptions(options) {
       );
     }
 
+    // (ENG-23485) Node returns null when stdout was not piped (e.g.
+    // stdio:'inherit'/'ignore'), for every encoding.
+    if (result.stdout == null) return result.stdout;
     var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
     if (encoding === 'buffer' || encoding === null) {
       return result.stdout;
     }
     return typeof result.stdout === 'string' ? result.stdout : '';
   };
+
+  // (ENG-23485) Shared "stderr passthrough" for the sync exec family: when the
+  // caller did not specify stdio, Node writes the captured child stderr to the
+  // parent's stderr after the child completes (see Node's execSync/execFileSync).
+  function _writeInheritedSyncStderr(stderr) {
+    if (stderr == null || !stderr.length) return;
+    if (typeof process === 'undefined' || !process.stderr ||
+        typeof process.stderr.write !== 'function') {
+      return;
+    }
+    try {
+      process.stderr.write(stderr);
+    } catch (err) { _swallowDebug('sync exec stderr passthrough failed', err); }
+  }
 
   // Internal spawnSync that takes a single normalized opts object.
   // This is the function exposed as internal/child_process.spawnSync.
@@ -1025,6 +1055,11 @@ function _validateSpawnSyncOptions(options) {
     if (typeof opts.killSignal === 'number' && opts.killSignal > 0) {
       nativeOpts.killSignal = opts.killSignal;
     }
+    // (ENG-23485) Credentials for the child. Serialized BEFORE env on purpose:
+    // the native side only trusts a "uid"/"gid" key that appears ahead of the
+    // env object, so env values can't smuggle credentials into the parse.
+    if (typeof opts.uid === 'number' && opts.uid >= 0) nativeOpts.uid = Math.floor(opts.uid);
+    if (typeof opts.gid === 'number' && opts.gid >= 0) nativeOpts.gid = Math.floor(opts.gid);
     if (opts.encoding !== undefined) nativeOpts.encoding = opts.encoding;
     if (opts.envPairs) {
       var envObj = {};
@@ -1155,6 +1190,28 @@ function _validateSpawnSyncOptions(options) {
     killSignal = _signalMap[upper];
   }
 
+  // (ENG-23485) Node contract: a non-negative numeric stdio entry shares that
+  // parent fd with the child (stdio:[0,1,2] === 'inherit'); it is not a mode
+  // enum. fd === slot is resolved to 'inherit' HERE, in the trusted builtin
+  // layer, so every fd:N that reaches the native bridge is a genuinely
+  // foreign fd and stays subject to the LLP 0013 fd-ownership check
+  // (ENG-22906). Previously numeric entries were skipped by the native parser
+  // and every slot fell back to 'pipe'.
+  var syncStdio = options.stdio;
+  if (Array.isArray(syncStdio)) {
+    var mappedSyncStdio = [];
+    for (var ssi = 0; ssi < syncStdio.length; ssi++) {
+      var syncEntry = syncStdio[ssi];
+      if (typeof syncEntry === 'number' && isFinite(syncEntry) && syncEntry >= 0) {
+        var syncFdNum = Math.floor(syncEntry);
+        mappedSyncStdio[ssi] = syncFdNum === ssi ? 'inherit' : 'fd:' + syncFdNum;
+      } else {
+        mappedSyncStdio[ssi] = syncEntry;
+      }
+    }
+    syncStdio = mappedSyncStdio;
+  }
+
   // Build internal opts object
   // Default env to process.env if not specified (Node.js behavior - JS-set env vars must propagate)
   var resolvedEnv = options.env !== undefined ? options.env : (typeof process !== 'undefined' ? process.env : undefined);
@@ -1163,6 +1220,10 @@ function _validateSpawnSyncOptions(options) {
     file: file,
     args: spawnArgs,
     cwd: options.cwd ? String(options.cwd) : undefined,
+    // (ENG-23485) uid/gid were validated above but never handed to the native
+    // bridge, so the child silently ran with the parent's credentials.
+    uid: options.uid,
+    gid: options.gid,
     env: resolvedEnv ? _flattenEnv(resolvedEnv) : undefined,
     timeout: options.timeout ? Number(options.timeout) : undefined,
     encoding: options.encoding,
@@ -1172,7 +1233,7 @@ function _validateSpawnSyncOptions(options) {
     windowsHide: options.windowsHide !== undefined ? !!options.windowsHide : false,
     windowsVerbatimArguments: shellValue ? !!(/^(?:.*\\)?cmd(?:\.exe)?$/i.test(file)) : !!(options.windowsVerbatimArguments),
     argv0: options.argv0,
-    stdio: options.stdio,
+    stdio: syncStdio,
   };
 
   // Pass input. (ENG-23009) Encode as base64 so binary bytes reach the child's
@@ -1232,8 +1293,19 @@ function _validateSpawnSyncOptions(options) {
     return typeof val === 'string' ? val : _toUtf8String(val);
   }
 
-  var stdoutOutput = _decodeSyncOutput(result.stdout);
-  var stderrOutput = _decodeSyncOutput(result.stderr);
+  // (ENG-23485) Node returns null for stdout/stderr slots that were not piped
+  // (inherit/ignore/fd passthrough) instead of an empty Buffer/string.
+  function _syncSlotIsPipe(index) {
+    var v;
+    if (typeof syncStdio === 'string') v = syncStdio;
+    else if (Array.isArray(syncStdio)) v = syncStdio[index];
+    else return true;
+    if (v === undefined || v === null || v === 'pipe' || v === 'overlapped') return true;
+    if (typeof v === 'string') return false; // inherit / ignore / fd:N
+    return true;
+  }
+  var stdoutOutput = _syncSlotIsPipe(1) ? _decodeSyncOutput(result.stdout) : null;
+  var stderrOutput = _syncSlotIsPipe(2) ? _decodeSyncOutput(result.stderr) : null;
 
   var output = [null, stdoutOutput, stderrOutput];
 
@@ -1329,7 +1401,11 @@ cp.execFileSync = function execFileSync(file, args, options) {
   if (!args) args = [];
   _validateArgsNullBytes(args);
   _validateOptionsNullBytes(options);
+  // (ENG-23485) Node contract: unless the caller specifies stdio, the sync
+  // exec family passes the captured child stderr through to the parent.
+  var inheritStderr = !(options && typeof options === 'object' && options.stdio);
   var result = cp.spawnSync(file, args, options);
+  if (inheritStderr) _writeInheritedSyncStderr(result.stderr);
 
   if (result.error) {
     // Attach stdout/stderr to the error object (Node compat)
@@ -1348,6 +1424,8 @@ cp.execFileSync = function execFileSync(file, args, options) {
     throw err;
   }
 
+  // (ENG-23485) Node returns null when stdout was not piped.
+  if (result.stdout == null) return result.stdout;
   var opts = normalizeExecOptions(options);
   var encoding = (opts && opts.encoding !== undefined) ? opts.encoding : 'buffer';
   if (encoding === 'buffer' || encoding === null) {
@@ -1777,12 +1855,20 @@ function _normalizeSpawnMode(mode, fallbackMode) {
     if (normalized === 'ignore' || normalized === 'overlapped' || normalized === 'inherit' || normalized === 'pipe' || normalized === 'ipc') {
       return normalized === 'overlapped' ? 'pipe' : normalized;
     }
+    // (ENG-23485) Preserve already-normalized fd:N entries so re-normalizing
+    // (e.g. fork pre-normalizes, then spawn normalizes again) is idempotent
+    // instead of squashing them to 'pipe'.
+    if (normalized.indexOf('fd:') === 0) {
+      return normalized;
+    }
   }
   if (typeof normalized === 'number') {
-    if (normalized === 0) return 'ignore';
-    if (normalized === 1) return 'pipe';
-    if (normalized === 2) return 'inherit';
-    // Raw fd number - pass through as fd:N
+    // (ENG-23485) Node contract: a non-negative numeric stdio entry shares
+    // that parent fd with the child (stdio:[0,1,2] === 'inherit'); it is not
+    // a mode enum. The old 0->'ignore'/1->'pipe'/2->'inherit' mapping closed
+    // the child's stdin and captured its stdout invisibly. Every number goes
+    // through the fd:N passthrough; _normalizeSpawnOptions resolves fd:N at
+    // its own slot to 'inherit' after the stdio layout is final.
     return 'fd:' + normalized;
   }
   // Stream/Socket object - extract the raw fd
@@ -2073,6 +2159,10 @@ function _normalizeSpawnOptions(options, command) {
     env: _flattenEnv(env),
     shell: options.shell,
     detached: options.detached,
+    // (ENG-23485) carry credentials through; they were validated by the
+    // callers but never reached the native spawn bridge.
+    uid: typeof options.uid === 'number' ? options.uid : undefined,
+    gid: typeof options.gid === 'number' ? options.gid : undefined,
     serialization: options.serialization === 'advanced' ? 'advanced' : 'json'
   };
   var stdio = options.stdio;
@@ -2141,6 +2231,17 @@ function _normalizeSpawnOptions(options, command) {
   } else {
     normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
   }
+  // (ENG-23485) fd:N where N equals its FINAL slot is exactly 'inherit'
+  // (Node: stdio:[0,1,2] === 'inherit'). Resolve the equivalence here, in the
+  // trusted builtin layer and after any ipc compaction settles the layout, so
+  // every fd:N that reaches the native bridge is a genuinely foreign fd and
+  // stays subject to the LLP 0013 fd-ownership check (ENG-22906: spawn
+  // authority does not imply raw fd authority).
+  for (var fdSlot = 0; fdSlot < normalized.stdio.length; fdSlot++) {
+    if (normalized.stdio[fdSlot] === 'fd:' + fdSlot) {
+      normalized.stdio[fdSlot] = 'inherit';
+    }
+  }
   var ipcFd = normalized.stdio.indexOf('ipc');
   if (ipcFd !== -1) {
     env.EXACT_IPC_FD = String(ipcFd);
@@ -2181,17 +2282,50 @@ function _normalizeForkEnv(optionsEnv) {
   return env;
 }
 
+// (ENG-23485) One shared decoder instead of a fresh TextDecoder per chunk;
+// non-streaming decode holds no state between calls, so reuse is safe.
+var _sharedUtf8Decoder = null;
 function _toUtf8String(bytes) {
   if (typeof TextDecoder === 'function') {
     try {
-      return new TextDecoder().decode(bytes);
-    } catch (err) { /* ignored: fall through to the manual utf8 decode */ }
+      if (_sharedUtf8Decoder === null) _sharedUtf8Decoder = new TextDecoder();
+      return _sharedUtf8Decoder.decode(bytes);
+    } catch (err) {
+      // ignored: fall through to the manual utf8 decode
+      _sharedUtf8Decoder = null;
+    }
   }
   var out = '';
   for (var i = 0; i < bytes.length; i++) {
     out += String.fromCharCode(bytes[i]);
   }
   return out;
+}
+
+// (ENG-23485) Persistent streaming UTF-8 decode for the parent-side IPC
+// channel, mirroring the child-side ENG-23132 fix in bootstrap/ipc-listener.js:
+// a multibyte sequence split across two poll reads must not decode to U+FFFD
+// on each side — that corrupted the reassembled JSON line, JSON.parse failed,
+// and the packet was silently dropped. '\n' framing is unaffected because a
+// newline byte never appears inside a multibyte UTF-8 sequence. One decoder
+// per IPC channel so partial tails are never shared between children.
+function _makeIpcChunkDecoder() {
+  var streamDecoder = null;
+  return function _decodeIpcChunk(rawData) {
+    if (rawData == null) return '';
+    if (typeof rawData === 'string') return rawData;
+    if (typeof TextDecoder === 'function' && typeof Uint8Array === 'function' &&
+        rawData instanceof Uint8Array) {
+      try {
+        if (streamDecoder === null) streamDecoder = new TextDecoder('utf-8');
+        return streamDecoder.decode(rawData, { stream: true });
+      } catch (err) {
+        streamDecoder = null;
+        _swallowDebug('streaming IPC decode failed; falling back', err);
+      }
+    }
+    return _toUtf8String(rawData);
+  };
 }
 
 function _toUint8String(value) {
@@ -2656,6 +2790,9 @@ function ChildProcess(handle, pid, stdioModes) {
 
   // Pending fd received via SCM_RIGHTS, to be attached to next parsed packet
   var _pendingRecvFd = -1;
+  // (ENG-23485) Stateful per-channel decoder: multibyte UTF-8 split across
+  // poll reads must not decode to U+FFFD per chunk.
+  var _decodeIpcChunk = _makeIpcChunkDecoder();
 
   function drainIpcPackets(rawData, recvFd) {
     if (typeof recvFd === 'number' && recvFd >= 0) {
@@ -2664,7 +2801,7 @@ function ChildProcess(handle, pid, stdioModes) {
     if (!rawData || !rawData.length) {
       return;
     }
-    var rawStr = (typeof rawData === 'string') ? rawData : _toUtf8String(rawData);
+    var rawStr = _decodeIpcChunk(rawData);
     self._ipcBuffer += rawStr;
     while (self._ipcBuffer.length > 0) {
       var lineEnd = self._ipcBuffer.indexOf('\n');
@@ -2916,6 +3053,11 @@ ChildProcess.prototype.spawn = function(options) {
   var opts = {};
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
+  // (ENG-23485) uid/gid serialized BEFORE env: native only trusts a
+  // "uid"/"gid" key ahead of the env object so env values can't smuggle
+  // credentials into the substring parse.
+  if (normalizedOptions.uid !== undefined) opts.uid = Math.floor(normalizedOptions.uid);
+  if (normalizedOptions.gid !== undefined) opts.gid = Math.floor(normalizedOptions.gid);
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
   opts.windowsHide = normalizedOptions.windowsHide;
@@ -3062,6 +3204,9 @@ ChildProcess.prototype.spawn = function(options) {
   // IPC message handling for prototype.spawn path
   var _ipcBuffer2 = '';
   var _pendingRecvFd2 = -1;
+  // (ENG-23485) Stateful per-channel decoder: multibyte UTF-8 split across
+  // poll reads must not decode to U+FFFD per chunk.
+  var _decodeIpcChunk2 = _makeIpcChunkDecoder();
 
   function emitDisconnect2() {
     if (self3._disconnectEmitted) return;
@@ -3091,7 +3236,7 @@ ChildProcess.prototype.spawn = function(options) {
       _pendingRecvFd2 = recvFd;
     }
     if (!rawData || !rawData.length) return;
-    var rawStr = (typeof rawData === 'string') ? rawData : _toUtf8String(rawData);
+    var rawStr = _decodeIpcChunk2(rawData);
     _ipcBuffer2 += rawStr;
     while (_ipcBuffer2.length > 0) {
       var lineEnd = _ipcBuffer2.indexOf('\n');
@@ -3235,13 +3380,46 @@ ChildProcess.prototype.spawn = function(options) {
     }
   }
 
+  // (ENG-23485) Expose the pump on this path too: ref() and the global
+  // __exactSpawnPump dispatcher both call __pumpFromNative, which was only
+  // assigned on the constructor path — ref() after unref() threw here.
+  this.__pumpFromNative = pollStreams2;
+
   setTimeout(function() { self3.emit('spawn'); }, 0);
   self3._pollTimer = setTimeout(pollStreams2, 0);
 };
 
 var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
 
+// (ENG-23485) win32 has no async native spawn yet: this fallback runs the
+// child to completion inside spawnSync (the event loop is blocked for the
+// child's whole lifetime; stdin writes and kill() can never reach the live
+// child) and then replays its buffered output. Warn once so the blocking
+// behavior is visible instead of a silent freeze.
+var _win32SyncSpawnWarned = false;
+
 function _spawnSyncBackedChildProcess(command, args, options, normalizedOptions) {
+  // IPC can never deliver a message to or from a live child under the
+  // sync-backed model (fork/'ipc' stdio would silently drop every message),
+  // so fail loudly instead.
+  var win32Stdio = normalizedOptions && normalizedOptions.stdio;
+  if (win32Stdio && typeof win32Stdio.indexOf === 'function' && win32Stdio.indexOf('ipc') !== -1) {
+    var ipcSyncErr = new Error(
+      "child_process IPC (fork / stdio 'ipc') is not supported on Windows: " +
+      'async spawn is emulated with spawnSync and cannot exchange messages with a live child');
+    ipcSyncErr.code = 'ENOTSUP';
+    ipcSyncErr.syscall = 'spawn ' + command;
+    throw ipcSyncErr;
+  }
+  if (!_win32SyncSpawnWarned && typeof process !== 'undefined' &&
+      typeof process.emitWarning === 'function') {
+    _win32SyncSpawnWarned = true;
+    process.emitWarning(
+      'child_process async spawn on Windows is emulated with spawnSync: the ' +
+      'event loop blocks until the child exits, and stdin/kill() cannot reach ' +
+      'the running child.',
+      'ExactWarning');
+  }
   var stdioCfg = {
     stdin: normalizedOptions.stdio[0],
     stdout: normalizedOptions.stdio[1],
@@ -3320,19 +3498,29 @@ ChildProcess.prototype.kill = function(signal) {
 
 ChildProcess.prototype.ref = function() {
   this._ref = true;
-  if (this._exited || this._pollTimer || !this._handle) {
+  if (this._exited || this._pollTimer ||
+      this._handle === null || this._handle === undefined || this._handle < 0) {
     return this;
   }
+  // (ENG-23485) Restart the actual polling loop, not a single one-shot pump.
+  // The old one-shot fired the pump once and left the fired timer id in
+  // _pollTimer, so stdout/'exit'/'close' never arrived after unref()+ref()
+  // and any later ref() was a no-op. The pump itself may reschedule into
+  // _pollTimer (prototype.spawn path); only drive again when it did not.
   var self = this;
-  if (this._useNativePump && this._handle >= 0) {
-    self._pollTimer = setTimeout(function() {
-      self.__pumpFromNative();
-    }, 0);
-  } else {
-    self._pollTimer = setTimeout(function() {
-      self.__pumpFromNative();
-    }, 0);
+  function refDrivePoll() {
+    self._pollTimer = null;
+    if (self._exited || !self._ref) return;
+    if (typeof self.__pumpFromNative === 'function') {
+      try {
+        self.__pumpFromNative();
+      } catch (err) { _swallowDebug('ref() pump failed', err); }
+    }
+    if (!self._exited && self._ref && !self._pollTimer) {
+      self._pollTimer = setTimeout(refDrivePoll, _nextSpawnPollDelay(self, self._lastPollActivity));
+    }
   }
+  this._pollTimer = setTimeout(refDrivePoll, 0);
   return this;
 };
 
@@ -3807,6 +3995,11 @@ cp.spawn = function spawn(command, args, options) {
   var opts = {};
   if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
   if (normalizedOptions.shell !== undefined) opts.shell = normalizedOptions.shell;
+  // (ENG-23485) uid/gid serialized BEFORE env: native only trusts a
+  // "uid"/"gid" key ahead of the env object so env values can't smuggle
+  // credentials into the substring parse.
+  if (normalizedOptions.uid !== undefined) opts.uid = Math.floor(normalizedOptions.uid);
+  if (normalizedOptions.gid !== undefined) opts.gid = Math.floor(normalizedOptions.gid);
   if (normalizedOptions.env) opts.env = normalizedOptions.env;
   if (normalizedOptions.detached !== undefined) opts.detached = normalizedOptions.detached;
   opts.windowsHide = normalizedOptions.windowsHide;

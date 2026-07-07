@@ -111,6 +111,43 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
   return envVec;
 }
 
+// (ENG-23485) Parse options.uid/options.gid for the spawn child. Trust a
+// "uid"/"gid" key only when it appears BEFORE the env object in the options
+// JSON — JS serializes credentials ahead of env, so an env *value* containing
+// the byte sequence '"uid":0' can never be mistaken for the option (raw fd/
+// credential integers are forgeable inputs; see LLP 0013's policy concerns).
+// The digit guard rejects quoted lookalikes such as {"env":{"uid":"1000"}}.
+static void s_parseSpawnCredentials(const std::string& optsJson,
+                                    long& spawnUid,
+                                    long& spawnGid) {
+  auto envKeyPos = optsJson.find("\"env\":");
+  auto readCredential = [&](const char* key) -> long {
+    auto pos = optsJson.find(key);
+    if (pos == std::string::npos) return -1;
+    if (envKeyPos != std::string::npos && pos > envKeyPos) return -1;
+    const char* p = optsJson.c_str() + pos + std::strlen(key);
+    if (*p < '0' || *p > '9') return -1;
+    return std::strtol(p, nullptr, 10);
+  };
+  spawnUid = readCredential("\"uid\":");
+  spawnGid = readCredential("\"gid\":");
+}
+
+// (ENG-23485) Apply options.gid/options.uid in the forked child, gid before
+// uid (once uid drops privileges setgid would fail) — libuv's order. Returns
+// 0 on success; on failure returns the errno so the caller can report it
+// through the exec error pipe instead of silently running the child with the
+// parent's credentials.
+static int s_applySpawnCredentials(long spawnGid, long spawnUid) {
+  if (spawnGid >= 0 && setgid(static_cast<gid_t>(spawnGid)) != 0) {
+    return errno != 0 ? errno : EPERM;
+  }
+  if (spawnUid >= 0 && setuid(static_cast<uid_t>(spawnUid)) != 0) {
+    return errno != 0 ? errno : EPERM;
+  }
+  return 0;
+}
+
 void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
@@ -505,6 +542,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::string stdinMode = "pipe";
         std::string stdoutMode = "pipe";
         std::string stderrMode = "pipe";
+        // (ENG-23485) options.uid/options.gid for the child; -1 = not set.
+        long spawnUid = -1;
+        long spawnGid = -1;
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
@@ -553,6 +593,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             int parsedSig = static_cast<int>(std::strtol(optsJson.c_str() + start, nullptr, 10));
             if (parsedSig > 0) kill_signal = parsedSig;
           }
+          s_parseSpawnCredentials(optsJson, spawnUid, spawnGid);
           envEntries = s_parseEnvFromOpts(optsJson);
           // Parse stdio: string form ("inherit"/"pipe"/"ignore") sets all three
           // fds; (ENG-23025) array form ["ignore","inherit","inherit"] sets them
@@ -650,6 +691,34 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // stdin is fed from `input` when present (pipe); otherwise "ignore" ->
         // /dev/null and anything else -> inherit the parent's stdin.
         const bool syncStdinIgnore = (stdinMode == "ignore");
+
+        // (ENG-23485) fd:N stdio entries (Node numeric stdio semantics:
+        // "share this parent fd with the child"), dup2'd in the child below.
+        // The trusted JS layer resolves fd:N-equals-slot to 'inherit' before
+        // it reaches this bridge (Node's stdio:[0,1,2]), so every fd:N seen
+        // here is a genuinely foreign fd and must pass the capability layer —
+        // raw fd integers are forgeable
+        // (@ref LLP 0013#policy — same rule as the async spawn redirects).
+        auto parseSyncFdMode = [](const std::string& mode) -> int {
+          if (mode.size() > 3 && mode.compare(0, 3, "fd:") == 0) {
+            return std::atoi(mode.c_str() + 3);
+          }
+          return -1;
+        };
+        int syncStdinFdRedirect = parseSyncFdMode(stdinMode);
+        int syncStdoutFdRedirect = parseSyncFdMode(stdoutMode);
+        int syncStderrFdRedirect = parseSyncFdMode(stderrMode);
+        if (!isAllowAll()) {
+          if (syncStdinFdRedirect >= 0) {
+            exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
+          }
+          if (syncStdoutFdRedirect >= 0) {
+            exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
+          }
+          if (syncStderrFdRedirect >= 0) {
+            exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
+          }
+        }
 
         // JSON escape helper
         auto jsonEscape = [](const std::string& s) -> std::string {
@@ -791,6 +860,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdoutPipe[0]);
             dup2(stdoutPipe[1], STDOUT_FILENO);
             close(stdoutPipe[1]);
+          } else if (syncStdoutFdRedirect >= 0) {
+            dup2(syncStdoutFdRedirect, STDOUT_FILENO);
           } else if (syncStdoutIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
             if (nullFd >= 0) { dup2(nullFd, STDOUT_FILENO); close(nullFd); }
@@ -801,6 +872,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stderrPipe[0]);
             dup2(stderrPipe[1], STDERR_FILENO);
             close(stderrPipe[1]);
+          } else if (syncStderrFdRedirect >= 0) {
+            dup2(syncStderrFdRedirect, STDERR_FILENO);
           } else if (syncStderrIgnore) {
             int nullFd = open("/dev/null", O_WRONLY);
             if (nullFd >= 0) { dup2(nullFd, STDERR_FILENO); close(nullFd); }
@@ -811,6 +884,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(stdinPipe[1]);
             dup2(stdinPipe[0], STDIN_FILENO);
             close(stdinPipe[0]);
+          } else if (syncStdinFdRedirect >= 0) {
+            dup2(syncStdinFdRedirect, STDIN_FILENO);
           } else if (syncStdinIgnore) {
             int nullFd = open("/dev/null", O_RDONLY);
             if (nullFd >= 0) { dup2(nullFd, STDIN_FILENO); close(nullFd); }
@@ -840,6 +915,18 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (chdir(cwd.c_str()) != 0) {
               int chdirErrno = errno;
               ssize_t nw = write(execErrPipe[1], &chdirErrno, sizeof(chdirErrno));
+              (void)nw;
+              _exit(127);
+            }
+          }
+
+          // (ENG-23485) Apply options.gid/options.uid (gid first) between fork
+          // and exec; failure reports through the exec error pipe so JS
+          // surfaces spawn EPERM instead of silently keeping parent credentials.
+          {
+            int credErrno = s_applySpawnCredentials(spawnGid, spawnUid);
+            if (credErrno != 0) {
+              ssize_t nw = write(execErrPipe[1], &credErrno, sizeof(credErrno));
               (void)nw;
               _exit(127);
             }
@@ -897,9 +984,20 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             } else if (childErrno != ENOENT) {
               errorStr = std::string("exec failed: ") + std::strerror(childErrno);
             }
+            // (ENG-23485) Precise code so JS reports EPERM for setuid/setgid
+            // failures (previously "Permission denied" was remapped to EACCES).
+            std::string errCode;
+            if (childErrno == EPERM) errCode = "EPERM";
+            else if (childErrno == EACCES) errCode = "EACCES";
+            else if (childErrno == ENOENT) errCode = "ENOENT";
+            std::string codeField;
+            if (!errCode.empty()) {
+              codeField = ",\"code\":\"" + errCode + "\",\"errno\":"
+                  + std::to_string(-childErrno);
+            }
             std::string resultJson = "{\"stdout\":\"\",\"stderr\":\"\",\"stdioEncoding\":\"base64\",\"status\":127,\"pid\":"
                 + std::to_string(static_cast<int>(pid))
-                + ",\"error\":\"" + jsonEscape(errorStr) + "\"}";
+                + ",\"error\":\"" + jsonEscape(errorStr) + "\"" + codeField + "}";
             return facebook::jsi::Value(
                 facebook::jsi::String::createFromUtf8(runtime, resultJson));
           }
@@ -1229,6 +1327,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         bool useShell = false;
         std::string shellPath; // (ENG-23032) custom shell binary; empty -> /bin/sh
         bool detached = false; // (ENG-23032) start child in a new session/pgroup
+        // (ENG-23485) options.uid/options.gid for the child; -1 = not set.
+        long spawnUid = -1;
+        long spawnGid = -1;
         std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
 
@@ -1305,6 +1406,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           if (optsJson.find("\"detached\":true") != std::string::npos) {
             detached = true;
           }
+          s_parseSpawnCredentials(optsJson, spawnUid, spawnGid);
 
           auto stdioPos = optsJson.find("\"stdio\":");
           if (stdioPos != std::string::npos) {
@@ -1371,6 +1473,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         stdinFdRedirect = parseFdMode(stdioModes[0]);
         stdoutFdRedirect = parseFdMode(stdioModes[1]);
         stderrFdRedirect = parseFdMode(stdioModes[2]);
+        // (ENG-23485) NOTE: the trusted JS layer resolves fd:N-equals-slot to
+        // 'inherit' before it reaches this bridge (Node's stdio:[0,1,2]), so
+        // every fd:N seen here is a genuinely foreign fd and is always
+        // ownership-checked below (ENG-22906: spawn authority does not imply
+        // raw fd authority).
 
         auto currentPrincipalOwnsSpawnFd = [](int fd, bool needsRead, bool needsWrite) {
           if (fd < 0) {
@@ -1714,6 +1821,18 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (chdir(cwd.c_str()) != 0) {
               int chdirErrno = errno;
               ssize_t nw = write(execErrPipe[1], &chdirErrno, sizeof(chdirErrno));
+              (void)nw;
+              _exit(127);
+            }
+          }
+
+          // (ENG-23485) Apply options.gid/options.uid (gid first) between fork
+          // and exec; failure reports through the exec error pipe so JS
+          // surfaces spawn EPERM instead of silently keeping parent credentials.
+          {
+            int credErrno = s_applySpawnCredentials(spawnGid, spawnUid);
+            if (credErrno != 0) {
+              ssize_t nw = write(execErrPipe[1], &credErrno, sizeof(credErrno));
               (void)nw;
               _exit(127);
             }
@@ -2173,9 +2292,10 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnSendMsg", std::move(spawnSendMsgFn));
 
-  // __exactSpawnRecvMsg(handle) -> {data: string, fd: number} or null
+  // __exactSpawnRecvMsg(handle) -> {data: Uint8Array, fd: number} or null
   // Receives data from the child's IPC socket using recvmsg. Returns
   // any SCM_RIGHTS file descriptor in the fd field (-1 if none).
+  // (ENG-23485) data is raw bytes; JS decodes with a streaming UTF-8 decoder.
   auto spawnRecvMsgFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRecvMsg"),
@@ -2238,8 +2358,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto result = facebook::jsi::Object(runtime);
-        result.setProperty(runtime, "data",
-            facebook::jsi::String::createFromUtf8(runtime, std::string(buf, static_cast<size_t>(bytesRead))));
+        // (ENG-23485) Hand JS the raw bytes, not a UTF-8 string: a 64KB
+        // recvmsg chunk can split a multibyte UTF-8 sequence, and
+        // createFromUtf8 replaced the halves with U+FFFD before JS could
+        // reassemble them (the corrupted JSON line was then silently
+        // dropped). JS feeds these bytes to a persistent streaming decoder,
+        // same as the __exactSpawnRead byte channel (ENG-23009).
+        std::vector<uint8_t> dataBytes(buf, buf + static_cast<size_t>(bytesRead));
+        result.setProperty(runtime, "data", makeUint8Array(runtime, std::move(dataBytes)));
         result.setProperty(runtime, "fd", facebook::jsi::Value(recvFd));
         return result;
       });

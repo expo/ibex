@@ -509,6 +509,220 @@ c.on('close', function () { console.log('RESULT|out=' + out.trim()); });
     );
 }
 
+// ENG-23485 -----------------------------------------------------------------
+
+/// execSync must honor options.stdio (previously dropped by an option
+/// allowlist, so stdio:'inherit' captured output invisibly instead of
+/// streaming it), return null for a non-piped stdout like Node, and — when no
+/// stdio is given — pass the captured child stderr through to the parent's
+/// stderr (Node's sync-exec-family default).
+#[test]
+fn exec_sync_honors_stdio_and_passes_stderr_through() {
+    let app = r#"
+const cp = require('child_process');
+const inherited = cp.execSync('echo INHERITED_EXEC_LINE', { stdio: 'inherit' });
+console.log('RESULT|inheritReturn=' + inherited);
+const captured = cp.execSync('echo EXEC_STDERR_LINE 1>&2; echo captured-out', { encoding: 'utf8' });
+console.log('RESULT2|captured=' + captured.trim());
+cp.execFileSync('sh', ['-c', 'echo EXECFILE_STDERR_LINE 1>&2']);
+"#;
+    let run = run_app("execsyncstdio", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "inheritReturn="),
+        Some("null"),
+        "execSync(stdio:'inherit') must return null (stdout not piped): {line}"
+    );
+    assert!(
+        run.stdout.contains("INHERITED_EXEC_LINE"),
+        "execSync stdio:'inherit' output did not reach the parent terminal\nstdout:\n{}",
+        run.stdout
+    );
+    let line2 = run
+        .stdout
+        .lines()
+        .find(|l| l.starts_with("RESULT2|"))
+        .expect("RESULT2 line");
+    assert_eq!(
+        field(line2, "captured="),
+        Some("captured-out"),
+        "default execSync must still capture stdout: {line2}"
+    );
+    assert!(
+        run.stderr.contains("EXEC_STDERR_LINE"),
+        "execSync must pass child stderr through to the parent's stderr by default\nstderr:\n{}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains("EXECFILE_STDERR_LINE"),
+        "execFileSync must pass child stderr through to the parent's stderr by default\nstderr:\n{}",
+        run.stderr
+    );
+}
+
+/// Numeric stdio entries mean "share this parent fd" (Node contract:
+/// stdio:[0,1,2] === 'inherit'). The old mapping turned 0 into 'ignore' and
+/// 1 into 'pipe', so spawn(..., {stdio:[0,1,2]}) printed nothing.
+#[test]
+fn numeric_stdio_shares_parent_fds() {
+    let app = r#"
+const cp = require('child_process');
+const r = cp.spawnSync('sh', ['-c', 'echo SYNC_NUMERIC_LINE'], { stdio: [0, 1, 2] });
+console.log('RESULT|syncStdout=' + r.stdout + '|status=' + r.status);
+const c = cp.spawn('sh', ['-c', 'echo ASYNC_NUMERIC_LINE'], { stdio: [0, 1, 2] });
+console.log('RESULT2|childStdoutNull=' + (c.stdout === null));
+c.on('close', function (code) { console.log('RESULT3|asyncExit=' + code); });
+"#;
+    let run = run_app("numericstdio", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "syncStdout="),
+        Some("null"),
+        "spawnSync stdio:[0,1,2] must not capture stdout (Node returns null): {line}"
+    );
+    assert_eq!(field(line, "status="), Some("0"), "child failed: {line}");
+    assert!(
+        run.stdout.contains("SYNC_NUMERIC_LINE") && run.stdout.contains("ASYNC_NUMERIC_LINE"),
+        "numeric stdio output did not reach the parent terminal\nstdout:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("RESULT2|childStdoutNull=true"),
+        "spawn stdio:[0,1,2] must not create a stdout pipe\nstdout:\n{}",
+        run.stdout
+    );
+    assert!(
+        run.stdout.contains("RESULT3|asyncExit=0"),
+        "async numeric-stdio child did not exit cleanly\nstdout:\n{}",
+        run.stdout
+    );
+}
+
+/// options.uid/options.gid must actually be applied in the child (previously
+/// validated, then silently discarded). Running as non-root we can only prove
+/// the plumbing end-to-end with the caller's own uid/gid (the setgid/setuid
+/// syscalls run and succeed) and that a foreign uid fails with EPERM instead
+/// of silently running as the parent's user.
+#[test]
+fn spawn_sync_applies_uid_gid() {
+    let app = r#"
+const cp = require('child_process');
+const uid = process.getuid();
+const gid = process.getgid();
+const same = cp.spawnSync('id', ['-u'], { uid: uid, gid: gid, encoding: 'utf8' });
+console.log('RESULT|status=' + same.status + '|out=' + String(same.stdout).trim() + '|uid=' + uid);
+if (uid !== 0) {
+  const cross = cp.spawnSync('id', [], { uid: 0 });
+  console.log('RESULT2|crossCode=' + (cross.error && cross.error.code));
+} else {
+  console.log('RESULT2|crossCode=EPERM'); // running as root: cross-uid would legitimately succeed
+}
+"#;
+    let run = run_app("uidgid", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "status="),
+        Some("0"),
+        "same-uid spawn failed: {line}"
+    );
+    let uid = field(line, "uid=").expect("uid field");
+    assert_eq!(
+        field(line, "out="),
+        Some(uid),
+        "child did not run with the requested uid: {line}"
+    );
+    assert!(
+        run.stdout.contains("RESULT2|crossCode=EPERM"),
+        "cross-uid spawnSync as non-root must surface EPERM, not silently keep parent credentials\nstdout:\n{}",
+        run.stdout
+    );
+}
+
+/// unref() followed by ref() must resume polling: the old ref() fired the
+/// pump exactly once, left the fired timer id in _pollTimer (so later ref()s
+/// were no-ops), and stdout/'exit'/'close' never arrived.
+#[test]
+fn unref_then_ref_resumes_child_events() {
+    let app = r#"
+const cp = require('child_process');
+const c = cp.spawn('sh', ['-c', 'sleep 1; echo HI_AFTER_REF']);
+let out = '';
+c.stdout.on('data', function (d) { out += d; });
+c.unref();
+setTimeout(function () { c.ref(); }, 100);
+let exited = false;
+c.on('exit', function (code) { exited = true; console.log('RESULT|exit=' + code + '|out=' + out.trim()); });
+c.on('close', function () { console.log('RESULT2|close=1'); });
+setTimeout(function () {
+  if (!exited) { console.log('RESULT|exit=NEVER|out='); process.exit(1); }
+}, 10000);
+"#;
+    let run = run_app("unrefref", app, Duration::from_secs(25));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "exit="),
+        Some("0"),
+        "child 'exit' never fired after unref()+ref(): {line}"
+    );
+    assert_eq!(
+        field(line, "out="),
+        Some("HI_AFTER_REF"),
+        "child output lost after unref()+ref(): {line}"
+    );
+    assert!(
+        run.stdout.contains("RESULT2|close=1"),
+        "'close' never fired after unref()+ref()\nstdout:\n{}",
+        run.stdout
+    );
+}
+
+/// Parent-side IPC receive must survive a multibyte UTF-8 sequence split
+/// across recvmsg chunks (the 64KB native read guarantees splits for a 360KB
+/// payload of 3-byte chars). Previously the native bridge stringified each
+/// chunk with createFromUtf8 (U+FFFD at both cut ends) and the corrupted JSON
+/// line was silently dropped — the parent's 'message' never fired. Companion
+/// to the child-side test in bootstrap_ipc.rs (ENG-23132).
+#[test]
+fn parent_ipc_decode_survives_multibyte_split_across_reads() {
+    let dir = unique_dir("parentdecode");
+    write_text(
+        &dir.join("child.js"),
+        r#"
+process.send({ type: 'blob', payload: '€'.repeat(120000) });
+setTimeout(function () { process.exit(0); }, 5000);
+"#,
+    );
+    let app = r#"
+const cp = require('child_process');
+const c = cp.fork(__dirname + '/child.js');
+let done = false;
+c.on('message', function (m) {
+  if (!m || m.type !== 'blob') return;
+  done = true;
+  let replacements = 0;
+  for (const ch of m.payload) if (ch === '�') replacements++;
+  const ok = m.payload === '€'.repeat(120000);
+  console.log('RESULT|ok=' + ok + '|replacements=' + replacements + '|len=' + m.payload.length);
+  c.kill();
+});
+setTimeout(function () {
+  if (!done) { console.log('RESULT|ok=timeout|replacements=-1|len=-1'); try { c.kill(); } catch (e) {} process.exit(1); }
+}, 20000);
+"#;
+    let run = run_app_in(&dir, app, Duration::from_secs(40));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "ok="),
+        Some("true"),
+        "large multibyte IPC message corrupted or dropped on the parent side: {line}"
+    );
+    assert_eq!(
+        field(line, "replacements="),
+        Some("0"),
+        "U+FFFD replacement characters leaked into the delivered payload: {line}"
+    );
+}
+
 /// Minimal JSON string encoder (avoids pulling serde into this test).
 fn serde_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);

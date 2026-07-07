@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps)
+**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps; added the Windows Child Process section — ENG-23485)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -33,6 +33,26 @@ This pass also added Linux fetch cancellation plumbing. With libcurl, aborts
 are observed by `CURLOPT_XFERINFOFUNCTION` and suppress the response callback;
 in the degraded CLI fallback, abort suppresses callbacks but cannot kill the
 already-running child `curl` process.
+
+## Windows Child Process
+
+Windows has a real native **sync** spawn bridge (`__exactSpawnSync` in
+`hermes_runtime_platform_windows.cc`; ENG-23115 brought base64 stdio, real
+`process.env`, and `maxBuffer` parity), but **no async native spawn**.
+`cp.spawn`/`exec`/`execFile` on win32 are emulated by
+`_spawnSyncBackedChildProcess` in `src/builtins/child-process.js`: the child
+runs to completion inside spawnSync and its buffered output is replayed
+afterwards. Consequences (ENG-23485 finding #5):
+
+- the event loop blocks for the child's entire lifetime;
+- stdin writes and `kill()` can never reach the live child;
+- IPC could never deliver a message to or from a live child.
+
+Since ENG-23485 this is loud instead of silent: the emulation emits a one-time
+`process.emitWarning`, and `'ipc'` stdio (including `fork`) throws `ENOTSUP`
+on win32. A real async backend (CreateProcess + overlapped pipes implementing
+the same `__exactSpawn*` host-function contract as POSIX) is tracked in
+ENG-23500.
 
 Android uses a Java/JNI OkHttp bridge for fetch and WebSocket. The C++ runtime
 keeps the same `native_fetch_*` and `native_ws_*` symbols, while

@@ -815,16 +815,15 @@ cp.execSync = function execSync(command, options) {
 	_validateNullBytes(command, "command");
 	_validateOptionsNullBytes(options);
 	var opts = normalizeExecOptions(options);
-	var spawnOptions = {
-		cwd: opts.cwd,
-		env: opts.env,
-		timeout: opts.timeout,
-		maxBuffer: options && options.maxBuffer !== void 0 ? options.maxBuffer : void 0,
-		encoding: opts.encoding,
-		input: opts.input,
-		shell: opts.shell !== void 0 ? opts.shell : true
-	};
+	var spawnOptions = {};
+	if (options && typeof options === "object") {
+		for (var execOptKey in options) if (Object.prototype.hasOwnProperty.call(options, execOptKey)) spawnOptions[execOptKey] = options[execOptKey];
+	}
+	spawnOptions.shell = typeof opts.shell === "string" ? opts.shell : true;
+	if (opts.encoding !== void 0) spawnOptions.encoding = opts.encoding;
+	var inheritStderr = !spawnOptions.stdio;
 	var result = cp.spawnSync(command, [], spawnOptions);
+	if (inheritStderr) _writeInheritedSyncStderr(result.stderr);
 	if (result.error) {
 		if (result.error.stdout === void 0) result.error.stdout = result.stdout;
 		if (result.error.stderr === void 0) result.error.stderr = result.stderr;
@@ -840,10 +839,20 @@ cp.execSync = function execSync(command, options) {
 		pid: result.pid,
 		cmd: command
 	});
+	if (result.stdout == null) return result.stdout;
 	var encoding = opts && opts.encoding !== void 0 ? opts.encoding : "buffer";
 	if (encoding === "buffer" || encoding === null) return result.stdout;
 	return typeof result.stdout === "string" ? result.stdout : "";
 };
+function _writeInheritedSyncStderr(stderr) {
+	if (stderr == null || !stderr.length) return;
+	if (typeof process === "undefined" || !process.stderr || typeof process.stderr.write !== "function") return;
+	try {
+		process.stderr.write(stderr);
+	} catch (err) {
+		_swallowDebug("sync exec stderr passthrough failed", err);
+	}
+}
 function _internalSpawnSync(opts) {
 	var file = opts.file;
 	var args = opts.args || [];
@@ -853,6 +862,8 @@ function _internalSpawnSync(opts) {
 	if (opts.maxBuffer === Infinity) nativeOpts.maxBuffer = 0;
 	else if (typeof opts.maxBuffer === "number" && isFinite(opts.maxBuffer)) nativeOpts.maxBuffer = Math.floor(opts.maxBuffer);
 	if (typeof opts.killSignal === "number" && opts.killSignal > 0) nativeOpts.killSignal = opts.killSignal;
+	if (typeof opts.uid === "number" && opts.uid >= 0) nativeOpts.uid = Math.floor(opts.uid);
+	if (typeof opts.gid === "number" && opts.gid >= 0) nativeOpts.gid = Math.floor(opts.gid);
 	if (opts.encoding !== void 0) nativeOpts.encoding = opts.encoding;
 	if (opts.envPairs) {
 		var envObj = {};
@@ -959,12 +970,26 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		}
 		killSignal = _signalMap[upper];
 	}
+	var syncStdio = options.stdio;
+	if (Array.isArray(syncStdio)) {
+		var mappedSyncStdio = [];
+		for (var ssi = 0; ssi < syncStdio.length; ssi++) {
+			var syncEntry = syncStdio[ssi];
+			if (typeof syncEntry === "number" && isFinite(syncEntry) && syncEntry >= 0) {
+				var syncFdNum = Math.floor(syncEntry);
+				mappedSyncStdio[ssi] = syncFdNum === ssi ? "inherit" : "fd:" + syncFdNum;
+			} else mappedSyncStdio[ssi] = syncEntry;
+		}
+		syncStdio = mappedSyncStdio;
+	}
 	var resolvedEnv = options.env !== void 0 ? options.env : typeof process !== "undefined" ? process.env : void 0;
 	resolvedEnv = _prepareExactChildEnv(command, resolvedEnv, options.argv0);
 	var internalOpts = {
 		file,
 		args: spawnArgs,
 		cwd: options.cwd ? String(options.cwd) : void 0,
+		uid: options.uid,
+		gid: options.gid,
 		env: resolvedEnv ? _flattenEnv(resolvedEnv) : void 0,
 		timeout: options.timeout ? Number(options.timeout) : void 0,
 		encoding: options.encoding,
@@ -974,7 +999,7 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		windowsHide: options.windowsHide !== void 0 ? !!options.windowsHide : false,
 		windowsVerbatimArguments: shellValue ? !!/^(?:.*\\)?cmd(?:\.exe)?$/i.test(file) : !!options.windowsVerbatimArguments,
 		argv0: options.argv0,
-		stdio: options.stdio
+		stdio: syncStdio
 	};
 	if (options.input != null) {
 		var _inB = _childProcessBufferCtor();
@@ -1017,8 +1042,17 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		if (encoding === "buffer" || encoding === null || encoding === void 0) return val;
 		return typeof val === "string" ? val : _toUtf8String(val);
 	}
-	var stdoutOutput = _decodeSyncOutput(result.stdout);
-	var stderrOutput = _decodeSyncOutput(result.stderr);
+	function _syncSlotIsPipe(index) {
+		var v;
+		if (typeof syncStdio === "string") v = syncStdio;
+		else if (Array.isArray(syncStdio)) v = syncStdio[index];
+		else return true;
+		if (v === void 0 || v === null || v === "pipe" || v === "overlapped") return true;
+		if (typeof v === "string") return false;
+		return true;
+	}
+	var stdoutOutput = _syncSlotIsPipe(1) ? _decodeSyncOutput(result.stdout) : null;
+	var stderrOutput = _syncSlotIsPipe(2) ? _decodeSyncOutput(result.stderr) : null;
 	var output = [
 		null,
 		stdoutOutput,
@@ -1085,7 +1119,9 @@ cp.execFileSync = function execFileSync(file, args, options) {
 	if (!args) args = [];
 	_validateArgsNullBytes(args);
 	_validateOptionsNullBytes(options);
+	var inheritStderr = !(options && typeof options === "object" && options.stdio);
 	var result = cp.spawnSync(file, args, options);
+	if (inheritStderr) _writeInheritedSyncStderr(result.stderr);
 	if (result.error) {
 		if (result.error.stdout === void 0) result.error.stdout = result.stdout;
 		if (result.error.stderr === void 0) result.error.stderr = result.stderr;
@@ -1099,6 +1135,7 @@ cp.execFileSync = function execFileSync(file, args, options) {
 		stderr: result.stderr,
 		pid: result.pid
 	});
+	if (result.stdout == null) return result.stdout;
 	var opts = normalizeExecOptions(options);
 	var encoding = opts && opts.encoding !== void 0 ? opts.encoding : "buffer";
 	if (encoding === "buffer" || encoding === null) return result.stdout;
@@ -1489,13 +1526,9 @@ function _normalizeSpawnMode(mode, fallbackMode) {
 	var normalized = mode === void 0 || mode === null ? fallbackMode : mode;
 	if (typeof normalized === "string") {
 		if (normalized === "ignore" || normalized === "overlapped" || normalized === "inherit" || normalized === "pipe" || normalized === "ipc") return normalized === "overlapped" ? "pipe" : normalized;
+		if (normalized.indexOf("fd:") === 0) return normalized;
 	}
-	if (typeof normalized === "number") {
-		if (normalized === 0) return "ignore";
-		if (normalized === 1) return "pipe";
-		if (normalized === 2) return "inherit";
-		return "fd:" + normalized;
-	}
+	if (typeof normalized === "number") return "fd:" + normalized;
 	if (normalized && typeof normalized === "object") {
 		if (normalized._ownerChildProcess && normalized._exactSpawnStream) {
 			if (normalized._exactSpawnStream === "stdout") normalized._ownerChildProcess._exactSuppressStdoutPump = true;
@@ -1683,6 +1716,8 @@ function _normalizeSpawnOptions(options, command) {
 		env: _flattenEnv(env),
 		shell: options.shell,
 		detached: options.detached,
+		uid: typeof options.uid === "number" ? options.uid : void 0,
+		gid: typeof options.gid === "number" ? options.gid : void 0,
 		serialization: options.serialization === "advanced" ? "advanced" : "json"
 	};
 	var stdio = options.stdio;
@@ -1743,6 +1778,7 @@ function _normalizeSpawnOptions(options, command) {
 		"pipe",
 		"pipe"
 	];
+	for (var fdSlot = 0; fdSlot < normalized.stdio.length; fdSlot++) if (normalized.stdio[fdSlot] === "fd:" + fdSlot) normalized.stdio[fdSlot] = "inherit";
 	var ipcFd = normalized.stdio.indexOf("ipc");
 	if (ipcFd !== -1) {
 		env.EXACT_IPC_FD = String(ipcFd);
@@ -1771,13 +1807,32 @@ function _normalizeForkEnv(optionsEnv) {
 	}
 	return env;
 }
+var _sharedUtf8Decoder = null;
 function _toUtf8String(bytes) {
 	if (typeof TextDecoder === "function") try {
-		return new TextDecoder().decode(bytes);
-	} catch (err) {}
+		if (_sharedUtf8Decoder === null) _sharedUtf8Decoder = new TextDecoder();
+		return _sharedUtf8Decoder.decode(bytes);
+	} catch (err) {
+		_sharedUtf8Decoder = null;
+	}
 	var out = "";
 	for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
 	return out;
+}
+function _makeIpcChunkDecoder() {
+	var streamDecoder = null;
+	return function _decodeIpcChunk(rawData) {
+		if (rawData == null) return "";
+		if (typeof rawData === "string") return rawData;
+		if (typeof TextDecoder === "function" && typeof Uint8Array === "function" && rawData instanceof Uint8Array) try {
+			if (streamDecoder === null) streamDecoder = new TextDecoder("utf-8");
+			return streamDecoder.decode(rawData, { stream: true });
+		} catch (err) {
+			streamDecoder = null;
+			_swallowDebug("streaming IPC decode failed; falling back", err);
+		}
+		return _toUtf8String(rawData);
+	};
 }
 function _bytesToBuffer(value) {
 	var B = _childProcessBufferCtor();
@@ -2130,10 +2185,11 @@ function ChildProcess(handle, pid, stdioModes) {
 		emitDisconnect();
 	}
 	var _pendingRecvFd = -1;
+	var _decodeIpcChunk = _makeIpcChunkDecoder();
 	function drainIpcPackets(rawData, recvFd) {
 		if (typeof recvFd === "number" && recvFd >= 0) _pendingRecvFd = recvFd;
 		if (!rawData || !rawData.length) return;
-		var rawStr = typeof rawData === "string" ? rawData : _toUtf8String(rawData);
+		var rawStr = _decodeIpcChunk(rawData);
 		self._ipcBuffer += rawStr;
 		while (self._ipcBuffer.length > 0) {
 			var lineEnd = self._ipcBuffer.indexOf("\n");
@@ -2310,6 +2366,8 @@ ChildProcess.prototype.spawn = function(options) {
 	var opts = {};
 	if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
 	if (normalizedOptions.shell !== void 0) opts.shell = normalizedOptions.shell;
+	if (normalizedOptions.uid !== void 0) opts.uid = Math.floor(normalizedOptions.uid);
+	if (normalizedOptions.gid !== void 0) opts.gid = Math.floor(normalizedOptions.gid);
 	if (normalizedOptions.env) opts.env = normalizedOptions.env;
 	if (normalizedOptions.detached !== void 0) opts.detached = normalizedOptions.detached;
 	opts.windowsHide = normalizedOptions.windowsHide;
@@ -2431,6 +2489,7 @@ ChildProcess.prototype.spawn = function(options) {
 	var signalNames2 = _signalNumbers;
 	var _ipcBuffer2 = "";
 	var _pendingRecvFd2 = -1;
+	var _decodeIpcChunk2 = _makeIpcChunkDecoder();
 	function emitDisconnect2() {
 		if (self3._disconnectEmitted) return;
 		self3._disconnectEmitted = true;
@@ -2451,7 +2510,7 @@ ChildProcess.prototype.spawn = function(options) {
 	function drainIpcPackets2(rawData, recvFd) {
 		if (typeof recvFd === "number" && recvFd >= 0) _pendingRecvFd2 = recvFd;
 		if (!rawData || !rawData.length) return;
-		var rawStr = typeof rawData === "string" ? rawData : _toUtf8String(rawData);
+		var rawStr = _decodeIpcChunk2(rawData);
 		_ipcBuffer2 += rawStr;
 		while (_ipcBuffer2.length > 0) {
 			var lineEnd = _ipcBuffer2.indexOf("\n");
@@ -2574,13 +2633,26 @@ ChildProcess.prototype.spawn = function(options) {
 		}
 		if (!self3._exited && self3._ref) self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity));
 	}
+	this.__pumpFromNative = pollStreams2;
 	setTimeout(function() {
 		self3.emit("spawn");
 	}, 0);
 	self3._pollTimer = setTimeout(pollStreams2, 0);
 };
 var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
+var _win32SyncSpawnWarned = false;
 function _spawnSyncBackedChildProcess(command, args, options, normalizedOptions) {
+	var win32Stdio = normalizedOptions && normalizedOptions.stdio;
+	if (win32Stdio && typeof win32Stdio.indexOf === "function" && win32Stdio.indexOf("ipc") !== -1) {
+		var ipcSyncErr = /* @__PURE__ */ new Error("child_process IPC (fork / stdio 'ipc') is not supported on Windows: async spawn is emulated with spawnSync and cannot exchange messages with a live child");
+		ipcSyncErr.code = "ENOTSUP";
+		ipcSyncErr.syscall = "spawn " + command;
+		throw ipcSyncErr;
+	}
+	if (!_win32SyncSpawnWarned && typeof process !== "undefined" && typeof process.emitWarning === "function") {
+		_win32SyncSpawnWarned = true;
+		process.emitWarning("child_process async spawn on Windows is emulated with spawnSync: the event loop blocks until the child exits, and stdin/kill() cannot reach the running child.", "ExactWarning");
+	}
 	var child = new ChildProcess(-1, void 0, {
 		stdin: normalizedOptions.stdio[0],
 		stdout: normalizedOptions.stdio[1],
@@ -2650,14 +2722,19 @@ ChildProcess.prototype.kill = function(signal) {
 };
 ChildProcess.prototype.ref = function() {
 	this._ref = true;
-	if (this._exited || this._pollTimer || !this._handle) return this;
+	if (this._exited || this._pollTimer || this._handle === null || this._handle === void 0 || this._handle < 0) return this;
 	var self = this;
-	if (this._useNativePump && this._handle >= 0) self._pollTimer = setTimeout(function() {
-		self.__pumpFromNative();
-	}, 0);
-	else self._pollTimer = setTimeout(function() {
-		self.__pumpFromNative();
-	}, 0);
+	function refDrivePoll() {
+		self._pollTimer = null;
+		if (self._exited || !self._ref) return;
+		if (typeof self.__pumpFromNative === "function") try {
+			self.__pumpFromNative();
+		} catch (err) {
+			_swallowDebug("ref() pump failed", err);
+		}
+		if (!self._exited && self._ref && !self._pollTimer) self._pollTimer = setTimeout(refDrivePoll, _nextSpawnPollDelay(self, self._lastPollActivity));
+	}
+	this._pollTimer = setTimeout(refDrivePoll, 0);
 	return this;
 };
 ChildProcess.prototype.unref = function() {
@@ -3012,6 +3089,8 @@ cp.spawn = function spawn(command, args, options) {
 	var opts = {};
 	if (normalizedOptions.cwd) opts.cwd = String(normalizedOptions.cwd);
 	if (normalizedOptions.shell !== void 0) opts.shell = normalizedOptions.shell;
+	if (normalizedOptions.uid !== void 0) opts.uid = Math.floor(normalizedOptions.uid);
+	if (normalizedOptions.gid !== void 0) opts.gid = Math.floor(normalizedOptions.gid);
 	if (normalizedOptions.env) opts.env = normalizedOptions.env;
 	if (normalizedOptions.detached !== void 0) opts.detached = normalizedOptions.detached;
 	opts.windowsHide = normalizedOptions.windowsHide;
