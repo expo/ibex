@@ -77,6 +77,17 @@ pub struct CapabilityManager {
     module_to_package: RwLock<HashMap<String, PackagePrincipal>>,
     /// Per-package import-graph policy.
     import_policy: RwLock<HashMap<String, ImportPolicy>>,
+    /// Memo of import decisions that resolved to ALLOWED, keyed principal →
+    /// allowed specifiers. `decide_import` is pure in (`module_to_package`,
+    /// `import_policy`), so a hit is exactly the recomputation — and since
+    /// `gate_and_record` records only would-denies, skipping it for an allowed
+    /// decision drops no audit entry. Denials are never memoized (every denied
+    /// import re-runs the full path and records). Invalidated when either
+    /// input changes: `apply_policy` clears it, `register_module_package`
+    /// purges the re-registered principal. Bounded by the real import graph
+    /// (registered principals × specifiers they successfully import).
+    /// (ENG-22644) @ref LLP 0013#policy
+    import_allowed_memo: RwLock<HashMap<String, HashSet<String>>>,
     /// Capability classes (e.g. `fs:write`, `process:spawn`) that require
     /// stack-intersection enforcement. Empty = off (the default).
     deputy_classes: RwLock<HashSet<String>>,
@@ -157,6 +168,7 @@ impl CapabilityManager {
             package_grants: RwLock::new(HashMap::new()),
             module_to_package: RwLock::new(HashMap::new()),
             import_policy: RwLock::new(HashMap::new()),
+            import_allowed_memo: RwLock::new(HashMap::new()),
             deputy_classes: RwLock::new(HashSet::new()),
             ceiling: RwLock::new(Vec::new()),
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
@@ -214,6 +226,14 @@ impl CapabilityManager {
                     .map(|s| normalize_capability(s))
                     .collect();
             }
+        }
+        // The import policy just changed: every memoized allowed-import
+        // decision is stale. Cleared LAST so a check that raced the partial
+        // application above cannot leave a decision computed against the old
+        // policy behind. (In practice apply_policy runs once, at host setup,
+        // before user code.) (ENG-22644)
+        if let Ok(mut memo) = self.import_allowed_memo.write() {
+            memo.clear();
         }
     }
 
@@ -283,6 +303,14 @@ impl CapabilityManager {
                     locator: locator.map(|s| s.to_string()),
                 },
             );
+        }
+        // The principal's package resolution just changed (typically
+        // unregistered→registered, which flips it from trusted to policied):
+        // drop any allowed-import decisions memoized under the old resolution.
+        // Registration precedes any code attributed to this principal running,
+        // so no check for it can race this purge. (ENG-22644)
+        if let Ok(mut memo) = self.import_allowed_memo.write() {
+            memo.remove(module_id);
         }
     }
 
@@ -547,8 +575,30 @@ impl CapabilityManager {
     /// @ref LLP 0013#policy — builtins are reachable by `require`, so this is
     /// the primary containment gate for them.
     pub fn check_import(&self, module_id: &str, specifier: &str) -> bool {
+        // Fast path for the steady-state require() loop: a previously-computed
+        // ALLOWED decision for this (principal, specifier) short-circuits the
+        // policy walk and the `import:<specifier>` render. An allowed decision
+        // proceeds in every mode and records nothing (gate_and_record logs
+        // would-denies only), so the hit is observably identical to
+        // recomputing; see the field docs for the invalidation contract.
+        // (ENG-22644)
+        if let Ok(memo) = self.import_allowed_memo.read() {
+            if memo
+                .get(module_id)
+                .is_some_and(|specs| specs.contains(specifier))
+            {
+                return true;
+            }
+        }
         let decision =
             self.mode == SecurityMode::Permissive || self.decide_import(module_id, specifier);
+        if decision {
+            if let Ok(mut memo) = self.import_allowed_memo.write() {
+                memo.entry(module_id.to_string())
+                    .or_default()
+                    .insert(specifier.to_string());
+            }
+        }
         self.gate_and_record(module_id, format!("import:{}", specifier), decision)
     }
 
@@ -1847,6 +1897,90 @@ mod tests {
         assert!(manager.check_import("5", "node:child_process"));
         // ...but records the would-deny.
         assert!(manager.audit_report().contains("import:node:child_process"));
+    }
+
+    // ENG-22644 — the allowed-import memo must be invalidated when its inputs
+    // change, or a decision computed under the old state would leak through.
+    #[test]
+    fn import_memo_is_purged_when_a_principal_is_registered() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        let policy = PolicyFile {
+            packages: HashMap::from([(
+                "evil".to_string(),
+                crate::host::policy::PackagePolicy {
+                    builtins: Some(vec![]), // deny all builtins
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        manager.apply_policy(&policy);
+
+        // Unregistered principal is trusted: allowed (and memoized).
+        assert!(manager.check_import("9", "node:fs"));
+        assert!(manager.check_import("9", "node:fs"));
+
+        // Registration flips the principal from trusted to policied; the memo
+        // entry for it must not survive.
+        manager.register_module_package("9", "evil", None);
+        assert!(!manager.check_import("9", "node:fs"));
+    }
+
+    #[test]
+    fn import_memo_is_cleared_when_policy_is_applied() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.register_module_package("7", "leftpad", None);
+
+        // No import policy yet: unrestricted (allowed, memoized).
+        assert!(manager.check_import("7", "node:fs"));
+
+        // Applying a policy that restricts the package must defeat the memo.
+        let policy = PolicyFile {
+            packages: HashMap::from([(
+                "leftpad".to_string(),
+                crate::host::policy::PackagePolicy {
+                    builtins: Some(vec![]), // deny all builtins
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        manager.apply_policy(&policy);
+        assert!(!manager.check_import("7", "node:fs"));
+    }
+
+    #[test]
+    fn denied_imports_are_never_memoized_and_keep_recording() {
+        let manager = CapabilityManager::new(SecurityMode::Audit);
+        let policy = PolicyFile {
+            packages: HashMap::from([(
+                "evil".to_string(),
+                crate::host::policy::PackagePolicy {
+                    builtins: Some(vec![]),
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        };
+        manager.apply_policy(&policy);
+        manager.register_module_package("5", "evil", None);
+
+        // Two denied (audit: proceed-but-record) imports → two audit entries,
+        // proving the second denial was not short-circuited by any memo.
+        assert!(manager.check_import("5", "node:fs"));
+        assert!(manager.check_import("5", "node:fs"));
+        let denials = manager
+            .audit_log()
+            .iter()
+            .filter(|e| e.capability == "import:node:fs" && e.is_would_deny())
+            .count();
+        assert_eq!(denials, 2);
+
+        // An allowed import is memoized (hit returns without recording), and
+        // repeated allowed imports never add entries either way.
+        assert!(manager.check_import("1", "node:fs"));
+        assert!(manager.check_import("1", "node:fs"));
+        assert_eq!(manager.audit_log().len(), 2);
     }
 
     // @ref LLP 0013#phase-5 — stack-intersection: a deputy holding fs:write

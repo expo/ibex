@@ -5013,6 +5013,17 @@
   // deep inside load()) so the loader's own internal fan-out — e.g. mapping
   // 'dns/promises' to an internal load('dns') — is not re-gated under the
   // requesting package's principal against a different specifier. (ENG-22618/ENG-22629)
+  //
+  // Deliberately NOT memoized here (and not moved after load()'s module-cache
+  // hit): the true requesting principal is frame-derived on the native side and
+  // is not knowable in JS — a (requesterHint, specifier) memo would let package
+  // Q skip the check by calling a require closure it obtained from an
+  // already-allowed package P, and a post-cache-hit gate would let any package
+  // reach any module some other principal already loaded. The repeated-require
+  // fast path lives in the host instead: CapabilityManager memoizes ALLOWED
+  // (principal, specifier) decisions keyed by the frame-derived principal, so
+  // the steady state is one native call + a hash hit, while denials always run
+  // the full path and keep their audit entries. (ENG-22644)
   function checkImportGate(specifier, requesterHint) {
     if (!__privCheckImport || typeof specifier !== 'string') return;
     // On the frame-attribution engine the native check re-derives the requesting
