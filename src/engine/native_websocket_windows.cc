@@ -47,6 +47,11 @@ struct WebSocketEntry {
 
   std::mutex handle_mutex;
   std::mutex send_mutex;
+  // Guards reads/nulling of `context` so a callback's snapshot+retain is
+  // atomic against the teardown release; without it a receive-thread
+  // callback can retain a context whose final release (and scheduled
+  // delete) already happened on the closing thread.
+  std::mutex context_mutex;
   std::atomic<bool> closed{false};
   std::atomic<bool> receive_paused{false};
   std::atomic<bool> flow_controlled_receive{false};
@@ -126,6 +131,10 @@ bool isLoopbackHost(const std::wstring& host) {
 
 void closeHandles(const std::shared_ptr<WebSocketEntry>& entry) {
   if (!entry) return;
+  // Serialize with in-flight WinHttpWebSocketSend/Close (send_mutex before
+  // handle_mutex everywhere): a handle must not be closed -- and its value
+  // possibly recycled by an unrelated connection -- under a live send.
+  std::lock_guard<std::mutex> send_lock(entry->send_mutex);
   std::lock_guard<std::mutex> lock(entry->handle_mutex);
   HINTERNET websocket = entry->websocket;
   HINTERNET request = entry->request;
@@ -141,18 +150,31 @@ void closeHandles(const std::shared_ptr<WebSocketEntry>& entry) {
   if (session) WinHttpCloseHandle(session);
 }
 
-void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
-  if (!entry || !entry->error_cb || !entry->context) return;
+// Snapshots and retains the callback context atomically against the
+// teardown release in releaseContext. The caller must balance a non-null
+// return with native_ws_release_context.
+void* acquireContext(const std::shared_ptr<WebSocketEntry>& entry) {
+  if (!entry) return nullptr;
+  std::lock_guard<std::mutex> lock(entry->context_mutex);
+  if (!entry->context) return nullptr;
   native_ws_retain_context(entry->context);
-  entry->error_cb(entry->ws_id, message ? message : "WebSocket error", entry->context);
-  native_ws_release_context(entry->context);
+  return entry->context;
+}
+
+void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
+  if (!entry || !entry->error_cb) return;
+  void* ctx = acquireContext(entry);
+  if (!ctx) return;
+  entry->error_cb(entry->ws_id, message ? message : "WebSocket error", ctx);
+  native_ws_release_context(ctx);
 }
 
 void call_open(const std::shared_ptr<WebSocketEntry>& entry) {
-  if (!entry || !entry->open_cb || !entry->context) return;
-  native_ws_retain_context(entry->context);
-  entry->open_cb(entry->ws_id, "", "", entry->context);
-  native_ws_release_context(entry->context);
+  if (!entry || !entry->open_cb) return;
+  void* ctx = acquireContext(entry);
+  if (!ctx) return;
+  entry->open_cb(entry->ws_id, "", "", ctx);
+  native_ws_release_context(ctx);
 }
 
 void call_message(
@@ -160,10 +182,11 @@ void call_message(
     const uint8_t* data,
     size_t len,
     bool is_text) {
-  if (!entry || !entry->message_cb || !entry->context) return;
-  native_ws_retain_context(entry->context);
-  entry->message_cb(entry->ws_id, data, len, is_text ? 1 : 0, entry->context);
-  native_ws_release_context(entry->context);
+  if (!entry || !entry->message_cb) return;
+  void* ctx = acquireContext(entry);
+  if (!ctx) return;
+  entry->message_cb(entry->ws_id, data, len, is_text ? 1 : 0, ctx);
+  native_ws_release_context(ctx);
 }
 
 void call_close(
@@ -171,23 +194,30 @@ void call_close(
     uint16_t code,
     const char* reason,
     int was_clean) {
-  if (!entry || !entry->close_cb || !entry->context) return;
-  native_ws_retain_context(entry->context);
-  entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, entry->context);
-  native_ws_release_context(entry->context);
+  if (!entry || !entry->close_cb) return;
+  void* ctx = acquireContext(entry);
+  if (!ctx) return;
+  entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, ctx);
+  native_ws_release_context(ctx);
 }
 
 void call_bytes_sent(const std::shared_ptr<WebSocketEntry>& entry, size_t bytes_sent) {
-  if (!entry || !entry->bytes_sent_cb || !entry->context) return;
-  native_ws_retain_context(entry->context);
-  entry->bytes_sent_cb(entry->ws_id, bytes_sent, entry->context);
-  native_ws_release_context(entry->context);
+  if (!entry || !entry->bytes_sent_cb) return;
+  void* ctx = acquireContext(entry);
+  if (!ctx) return;
+  entry->bytes_sent_cb(entry->ws_id, bytes_sent, ctx);
+  native_ws_release_context(ctx);
 }
 
 void releaseContext(const std::shared_ptr<WebSocketEntry>& entry) {
-  if (!entry || !entry->context) return;
-  native_ws_release_context(entry->context);
-  entry->context = nullptr;
+  if (!entry) return;
+  void* ctx = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(entry->context_mutex);
+    ctx = entry->context;
+    entry->context = nullptr;
+  }
+  if (ctx) native_ws_release_context(ctx);
 }
 
 void remove_connection(uint32_t ws_id) {
@@ -201,7 +231,19 @@ void remove_connection(uint32_t ws_id) {
   }
   if (!entry) return;
   entry->closed.store(true, std::memory_order_relaxed);
-  closeHandles(entry);
+  bool upgraded = false;
+  {
+    std::lock_guard<std::mutex> lock(entry->handle_mutex);
+    upgraded = entry->websocket != nullptr;
+  }
+  if (upgraded) {
+    closeHandles(entry);
+  }
+  // Not upgraded: the handshake thread still owns session/connect/request
+  // and closes them itself once it observes `closed` -- closing them here
+  // would yank handles out from under its blocking synchronous WinHTTP
+  // calls (documented as unpredictable) and risk the OS recycling the
+  // handle values into an unrelated connection.
   releaseContext(entry);
 }
 
@@ -212,6 +254,14 @@ HINTERNET entryWebSocket(const std::shared_ptr<WebSocketEntry>& entry) {
 }
 
 void receive_loop(const std::shared_ptr<WebSocketEntry>& entry) {
+  if (!entry) return;
+  if (entry->closed.load(std::memory_order_relaxed)) {
+    // A concurrent close()/destroy raced the end of the handshake; it
+    // already reported closure, so deliver no open event.
+    remove_connection(entry->ws_id);
+    closeHandles(entry);
+    return;
+  }
   call_open(entry);
 
   std::vector<uint8_t> message;
@@ -317,6 +367,9 @@ void fail_connect(const std::shared_ptr<WebSocketEntry>& entry, const std::strin
     call_close(entry, 1006, message.c_str(), 0);
   }
   remove_connection(entry->ws_id);
+  // Pre-upgrade handles belong to this (handshake) thread; remove_connection
+  // intentionally leaves them alone, so dispose of them here.
+  closeHandles(entry);
 }
 
 // Stores a handle produced during the async handshake into the entry unless
@@ -342,7 +395,8 @@ bool adopt_handshake_handle(
 // parallel"; macOS is fully async already. Handles are published to the
 // entry as they are created so a concurrent close()/destroy can cancel the
 // blocking WinHTTP calls by closing them.
-// @ref LLP 0003#websocket-bridge-threading-and-context-ownership
+// @ref LLP 0003#websocket-bridge-threading-and-context-ownership — connect
+// returns immediately; the handshake must not block the JS thread
 void run_connect_handshake(
     const std::shared_ptr<WebSocketEntry>& entry,
     const std::wstring& host,
@@ -364,6 +418,7 @@ void run_connect_handshake(
   }
   if (!adopt_handshake_handle(entry, &WebSocketEntry::session, session)) {
     WinHttpCloseHandle(session);
+    closeHandles(entry);
     return;
   }
   WinHttpSetTimeouts(session, 30000, 30000, 30000, 300000);
@@ -376,6 +431,7 @@ void run_connect_handshake(
   }
   if (!adopt_handshake_handle(entry, &WebSocketEntry::connect, connect)) {
     WinHttpCloseHandle(connect);
+    closeHandles(entry);
     return;
   }
 
@@ -394,6 +450,7 @@ void run_connect_handshake(
   }
   if (!adopt_handshake_handle(entry, &WebSocketEntry::request, request)) {
     WinHttpCloseHandle(request);
+    closeHandles(entry);
     return;
   }
 
@@ -452,6 +509,7 @@ void run_connect_handshake(
   }
   if (!adopt_handshake_handle(entry, &WebSocketEntry::websocket, websocket)) {
     WinHttpCloseHandle(websocket);
+    closeHandles(entry);
     return;
   }
   {
@@ -507,7 +565,8 @@ extern "C" uint32_t native_ws_connect(
   // (remove_connection performs the balancing release). An extra retain here
   // leaked the context -- and the JS WebSocket instance it pins -- on every
   // successful connection.
-  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership
+  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — ownership
+  // transfers on nonzero ws_id; never retain at connect
   entry->context = context;
 
   {
@@ -536,10 +595,17 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
   }
   if (!entry || entry->closed.load(std::memory_order_relaxed)) return;
 
-  HINTERNET websocket = entryWebSocket(entry);
+  // Hold send_mutex across the handle read AND the send: closeHandles
+  // acquires send_mutex before closing, so the handle cannot be closed (and
+  // its value recycled) while WinHttpWebSocketSend is using it.
+  std::lock_guard<std::mutex> lock(entry->send_mutex);
+  HINTERNET websocket = nullptr;
+  {
+    std::lock_guard<std::mutex> handle_lock(entry->handle_mutex);
+    websocket = entry->websocket;
+  }
   if (!websocket) return;
 
-  std::lock_guard<std::mutex> lock(entry->send_mutex);
   WINHTTP_WEB_SOCKET_BUFFER_TYPE type = is_text
       ? WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE
       : WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE;
@@ -568,14 +634,23 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
 
   HINTERNET websocket = entryWebSocket(entry);
   if (websocket) {
-    std::lock_guard<std::mutex> lock(entry->send_mutex);
-    WinHttpWebSocketClose(
-        websocket,
-        code == 1005 ? WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS : code,
-        const_cast<char*>(reason ? reason : ""),
-        reason ? static_cast<DWORD>(std::strlen(reason)) : 0);
+    {
+      std::lock_guard<std::mutex> lock(entry->send_mutex);
+      WinHttpWebSocketClose(
+          websocket,
+          code == 1005 ? WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS : code,
+          const_cast<char*>(reason ? reason : ""),
+          reason ? static_cast<DWORD>(std::strlen(reason)) : 0);
+    }
+    call_close(entry, code == 1005 ? 1000 : code, reason ? reason : "", 1);
+  } else {
+    // close() while still CONNECTING: fail the connection per WHATWG --
+    // error event, then an unclean 1006 close. The handshake thread
+    // observes `closed`, abandons the upgrade, and disposes of its own
+    // handles.
+    call_error(entry, "WebSocket was closed before the connection was established");
+    call_close(entry, 1006, "", 0);
   }
-  call_close(entry, code == 1005 ? 1000 : code, reason ? reason : "", 1);
   remove_connection(ws_id);
 }
 
