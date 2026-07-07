@@ -468,6 +468,38 @@ function _createIpcPacket(type, data, handleType, serializationMode) {
   return JSON.stringify(pkt) + '\n';
 }
 
+// (ENG-23231) Parent→child IPC writes go through a byte-accurate outbound
+// queue, mirroring the child-side ENG-23132 fix in ipc-listener.js: the IPC
+// socket is non-blocking, so a framed packet larger than the kernel send
+// buffer comes back as a partial write. Abandoning the tail would leave a
+// headless fragment in the pipe that corrupts the child's newline framing.
+// Packets are encoded to bytes up front because the native write primitives
+// report BYTE counts, and byte offsets diverge from JS string indices for
+// multibyte payloads.
+function _ipcPacketToBytes(packet) {
+  if (typeof Buffer !== 'undefined' && Buffer && typeof Buffer.from === 'function') {
+    return Buffer.from(packet, 'utf8');
+  }
+  if (typeof TextEncoder === 'function') {
+    return new TextEncoder().encode(packet);
+  }
+  return packet;
+}
+
+function _ipcPacketLength(packet) {
+  if (!packet) return 0;
+  if (typeof packet.byteLength === 'number') return packet.byteLength;
+  if (typeof packet.length === 'number') return packet.length;
+  return 0;
+}
+
+function _ipcPacketSlice(packet, offset) {
+  if (!packet || offset <= 0) return packet;
+  if (typeof packet.subarray === 'function') return packet.subarray(offset);
+  if (typeof packet.slice === 'function') return packet.slice(offset);
+  return packet;
+}
+
 // Extract a native file descriptor from a handle object (net.Socket, net.Server, dgram.Socket, etc.)
 function _extractHandleFd(handle) {
   if (!handle) return -1;
@@ -2437,8 +2469,10 @@ function ChildProcess(handle, pid, stdioModes) {
   this._ipcBuffer = '';
   this._ipcQueueSize = 0;
   this._ipcQueueMax = 2;
-  this._sendCallbackQueue = [];
-  this._sendCallbackDraining = false;
+  // (ENG-23231) Outbound IPC byte queue: entries are framed packets encoded
+  // to bytes, drained head-first so partial writes resume at their offset.
+  this._ipcSendQueue = [];
+  this._ipcFlushTimer = null;
   this._disconnectPending = false;
   this._disconnectEmitted = false;
   this._closeCallback = null;
@@ -2572,6 +2606,9 @@ function ChildProcess(handle, pid, stdioModes) {
     self.connected = false;
     self._ipcMode = false;
     self.channel = null;
+    // (ENG-23231) Queued sends can no longer be delivered; resolve their
+    // callbacks with ERR_IPC_CHANNEL_CLOSED instead of leaving them pending.
+    self._failPendingIpcSends(null);
     // Flush remaining transferred sockets whose close notification will
     // never arrive after the child disconnects/exits.
     _flushSentSocketEntries(self._sentSocketServers);
@@ -3012,6 +3049,8 @@ ChildProcess.prototype.spawn = function(options) {
     self3.connected = false;
     self3._ipcMode = false;
     self3.channel = null;
+    // (ENG-23231) Same as emitDisconnect: fail undeliverable queued sends.
+    self3._failPendingIpcSends(null);
     _flushSentSocketEntries(self3._sentSocketServers);
     if (typeof setTimeout === 'function') {
       setTimeout(function() { self3.emit('disconnect'); }, 0);
@@ -3295,6 +3334,145 @@ ChildProcess.prototype._finalizeDisconnect = function() {
   this.channel = null;
 };
 
+// Write one chunk to the child's IPC socket. Returns the byte count the
+// kernel accepted (0 = EAGAIN, retry later) or -1 on a hard failure.
+ChildProcess.prototype._ipcWriteChunk = function(chunk, sendFd) {
+  var written;
+  if (sendFd >= 0 && typeof globalThis.__exactSpawnSendMsg === 'function') {
+    written = globalThis.__exactSpawnSendMsg(this._handle, chunk, sendFd);
+  } else if (typeof globalThis.__exactSpawnWrite === 'function') {
+    written = globalThis.__exactSpawnWrite(this._handle, chunk, 'ipc');
+  } else {
+    return -1;
+  }
+  // Defensive: the spawn-unavailable stubs historically returned booleans.
+  if (written === true) return _ipcPacketLength(chunk);
+  if (written === false) return -1;
+  return typeof written === 'number' ? written : -1;
+};
+
+// Resolve one queue entry: decrement the in-flight counter and report the
+// outcome (callback with err/null; 'error' event when there is no callback),
+// asynchronously like Node does. Entries resolve in queue order because each
+// completion schedules its own macrotask in FIFO order.
+ChildProcess.prototype._completeIpcSendEntry = function(entry, err) {
+  var self = this;
+  setTimeout(function() {
+    if (entry.counted && self._ipcQueueSize > 0) {
+      self._ipcQueueSize--;
+    }
+    if (typeof entry.callback === 'function') {
+      entry.callback(err || null);
+    } else if (err) {
+      self.emit('error', err);
+    }
+  }, 0);
+};
+
+ChildProcess.prototype._failPendingIpcSends = function(err) {
+  if (this._ipcFlushTimer) {
+    clearTimeout(this._ipcFlushTimer);
+    this._ipcFlushTimer = null;
+  }
+  var queue = this._ipcSendQueue;
+  if (!queue || queue.length === 0) return;
+  this._ipcSendQueue = [];
+  var failure = err || _makeIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed');
+  for (var i = 0; i < queue.length; i++) {
+    this._completeIpcSendEntry(queue[i], failure);
+  }
+};
+
+ChildProcess.prototype._scheduleIpcFlush = function() {
+  if (this._ipcFlushTimer) return;
+  var self = this;
+  // Referenced (not unref'd) on purpose: Node guarantees delivery of queued
+  // subprocess.send() payloads, so a parent with undelivered packets must not
+  // exit. Cleared as soon as the queue drains or the channel dies.
+  this._ipcFlushTimer = setTimeout(function() {
+    self._ipcFlushTimer = null;
+    self._flushIpcSendQueue();
+  }, 2);
+};
+
+// Drain the outbound queue head-first, preserving packet order. Returns true
+// when the queue is empty afterwards; false when a tail remains queued under
+// backpressure or the channel hard-failed (entries then observed the error).
+ChildProcess.prototype._flushIpcSendQueue = function() {
+  var queue = this._ipcSendQueue;
+  if (!queue) return true;
+  flushLoop: while (queue.length > 0) {
+    var entry = queue[0];
+    var total = _ipcPacketLength(entry.bytes);
+    while (entry.offset < total) {
+      var chunk = _ipcPacketSlice(entry.bytes, entry.offset);
+      // SCM_RIGHTS handles ride only on the packet's first chunk.
+      var sendFd = entry.offset === 0 ? entry.sendFd : -1;
+      var written;
+      try {
+        written = this._ipcWriteChunk(chunk, sendFd);
+      } catch (chunkErr) {
+        if (entry.offset > 0) {
+          // Mid-packet failure: a headless fragment is already in the pipe
+          // and the child's framing is unrecoverable.
+          this._failPendingIpcSends(chunkErr);
+          return false;
+        }
+        // Nothing of this packet was written (e.g. the fd failed its
+        // transferability check before sendmsg) — fail this entry alone and
+        // keep the channel usable for the rest of the queue.
+        queue.shift();
+        this._completeIpcSendEntry(entry, chunkErr);
+        continue flushLoop;
+      }
+      if (written < 0) {
+        this._failPendingIpcSends(null);
+        return false;
+      }
+      if (written === 0) {
+        this._scheduleIpcFlush();
+        return false;
+      }
+      if (entry.offset === 0 && entry.onFdSent) {
+        // The kernel accepted the chunk carrying SCM_RIGHTS, i.e. the fd has
+        // been dup'd into the message — the sender's copy may now be
+        // detached/closed.
+        var hook = entry.onFdSent;
+        entry.onFdSent = null;
+        try { hook(); } catch (hookErr) { _swallowDebug('IPC onFdSent hook threw', hookErr); }
+      }
+      entry.offset += written;
+    }
+    queue.shift();
+    this._completeIpcSendEntry(entry, null);
+  }
+  if (this._ipcFlushTimer) {
+    clearTimeout(this._ipcFlushTimer);
+    this._ipcFlushTimer = null;
+  }
+  return true;
+};
+
+// Queue-or-write one framed packet. Returns true when the whole queue was
+// flushed synchronously; false when (part of) it remains queued — it will
+// still be delivered in order — or the channel hard-failed.
+ChildProcess.prototype._enqueueIpcPacket = function(packet, sendFd, onFdSent, callback, counted) {
+  var entry = {
+    bytes: _ipcPacketToBytes(packet),
+    offset: 0,
+    sendFd: typeof sendFd === 'number' ? sendFd : -1,
+    onFdSent: onFdSent || null,
+    callback: callback || null,
+    counted: !!counted
+  };
+  if (_ipcPacketLength(entry.bytes) <= 0) {
+    this._completeIpcSendEntry(entry, null);
+    return true;
+  }
+  this._ipcSendQueue.push(entry);
+  return this._flushIpcSendQueue();
+};
+
 ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
   // Validate message argument
   if (message === undefined) {
@@ -3366,117 +3544,79 @@ ChildProcess.prototype.send = function(message, sendHandle, opts, callback) {
     handleFd = _extractHandleFd(sendHandle);
   }
   var packet = _createIpcPacket('message', message, handleType, this._serialization);
-  var writeSuccess = false;
-  var writeError = null;
-  if (handleFd >= 0 && typeof globalThis.__exactSpawnSendMsg === 'function') {
-    // Use sendmsg with SCM_RIGHTS to pass the file descriptor
-    writeSuccess = globalThis.__exactSpawnSendMsg(this._handle, packet, handleFd);
-    // When keepOpen is not set, Node.js detaches the handle from the sender.
-    // The fd is dup'd via SCM_RIGHTS so closing sender's copy is safe.
-    var keepOpen = opts && opts.keepOpen;
-    // Don't destroy dgram sockets or servers after sending - they're shared.
-    // Also skip detachment for raw native handles (not proper socket instances).
-    var isDgram = handleType === 'dgram.Socket';
-    var isServer = handleType === 'net.Server' || handleType === 'net.ServerHandle';
-    var net2;
-    try { net2 = require('net'); } catch (e) { /* ignored: optional net module; callers guard for null */ }
-    var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);
-    if (writeSuccess && sendHandle && !keepOpen && !isDgram && !isServer && !isRawHandle) {
-      var sentSocketEntry = null;
-      // Track the server for SocketList-like protocol: don't decrement
-      // _connections now; instead wait for NODE_SOCKET_CLOSED from child.
-      if (!this._sentSocketServers) this._sentSocketServers = [];
-      sentSocketEntry = {
-        server: sendHandle._server || null,
-        nativeHandle: null
-      };
-      this._sentSocketServers.push(sentSocketEntry);
-      if (sendHandle._server) {
-        sendHandle._server = null;
-        sendHandle.server = null;
-      }
-      // Clean up HTTP state if present
-      if (sendHandle.parser) sendHandle.parser = null;
-      if (sendHandle._httpMessage) sendHandle._httpMessage = null;
-      var kTimeout = Symbol.for('kTimeout');
-      sendHandle[kTimeout] = null;
-      // Detach the handle from the sender without emitting 'close'.
-      // The fd was dup'd via SCM_RIGHTS so closing the sender's copy is safe.
-      if (sendHandle._pollTimer != null) {
-        clearTimeout(sendHandle._pollTimer);
-        sendHandle._pollTimer = null;
-      }
-      if (sendHandle._timeoutTimer != null) {
-        clearTimeout(sendHandle._timeoutTimer);
-        sendHandle._timeoutTimer = null;
-      }
-      // Close the native fd
-      var nativeHandle = sendHandle._handle;
-      if (nativeHandle && nativeHandle._exactHandle !== undefined) {
-        nativeHandle = nativeHandle._exactHandle;
-      }
-      if (nativeHandle != null) {
-        sentSocketEntry.nativeHandle = nativeHandle;
-      }
-      sendHandle._handle = null;
-      sendHandle.destroyed = true;
-      sendHandle.readable = false;
-      sendHandle.writable = false;
-    }
-  } else if (typeof globalThis.__exactSpawnWrite === 'function') {
-    writeSuccess = globalThis.__exactSpawnWrite(this._handle, packet, 'ipc');
-  }
-  if (!writeSuccess) {
-    returnValue = false;
-    writeError = _makeIpcError('ERR_IPC_CHANNEL_CLOSED', 'IPC channel is closed');
-  }
-
   var self = this;
-  var callbackError = writeSuccess ? null : writeError;
-  if (typeof callback === 'function') {
-    self._sendCallbackQueue.push({ callback: callback, error: callbackError });
-    if (!self._sendCallbackDraining) {
-      self._sendCallbackDraining = true;
-      setTimeout(function() {
-        while (self._sendCallbackQueue.length > 0) {
-          var entry = self._sendCallbackQueue.shift();
-          if (self._ipcQueueSize > 0) {
-            self._ipcQueueSize--;
-          }
-          if (typeof entry.callback === 'function') {
-            entry.callback(entry.error);
-          }
-        }
-        self._sendCallbackDraining = false;
-      }, 0);
-    }
-    return returnValue;
-  }
 
-  self._sendCallbackQueue.push({ callback: null, error: null });
-  if (!self._sendCallbackDraining) {
-    self._sendCallbackDraining = true;
-    setTimeout(function() {
-      while (self._sendCallbackQueue.length > 0) {
-        var entry = self._sendCallbackQueue.shift();
-        if (self._ipcQueueSize > 0) {
-          self._ipcQueueSize--;
+  // (ENG-23231) The packet rides the outbound byte queue: a partial
+  // write/EAGAIN queues the unsent tail instead of dropping it, the queue is
+  // flushed before later sends and on a retry timer, and the callback fires
+  // on actual delivery. An SCM_RIGHTS handle rides the packet's first chunk.
+  var useSendMsg = handleFd >= 0 && typeof globalThis.__exactSpawnSendMsg === 'function';
+  var onFdSent = null;
+  if (useSendMsg) {
+    // Runs once the kernel accepts the chunk carrying SCM_RIGHTS (the fd is
+    // dup'd into the message at sendmsg time). Detaching the sender's copy
+    // any earlier would close the fd while it may still need to be resent
+    // after EAGAIN.
+    onFdSent = function() {
+      // When keepOpen is not set, Node.js detaches the handle from the sender.
+      // The fd is dup'd via SCM_RIGHTS so closing sender's copy is safe.
+      var keepOpen = opts && opts.keepOpen;
+      // Don't destroy dgram sockets or servers after sending - they're shared.
+      // Also skip detachment for raw native handles (not proper socket instances).
+      var isDgram = handleType === 'dgram.Socket';
+      var isServer = handleType === 'net.Server' || handleType === 'net.ServerHandle';
+      var net2;
+      try { net2 = require('net'); } catch (e) { /* ignored: optional net module; callers guard for null */ }
+      var isRawHandle = !isDgram && !isServer && !(net2 && net2.Socket && sendHandle instanceof net2.Socket);
+      if (sendHandle && !keepOpen && !isDgram && !isServer && !isRawHandle) {
+        var sentSocketEntry = null;
+        // Track the server for SocketList-like protocol: don't decrement
+        // _connections now; instead wait for NODE_SOCKET_CLOSED from child.
+        if (!self._sentSocketServers) self._sentSocketServers = [];
+        sentSocketEntry = {
+          server: sendHandle._server || null,
+          nativeHandle: null
+        };
+        self._sentSocketServers.push(sentSocketEntry);
+        if (sendHandle._server) {
+          sendHandle._server = null;
+          sendHandle.server = null;
         }
-        if (typeof entry.callback === 'function') {
-          entry.callback(entry.error);
+        // Clean up HTTP state if present
+        if (sendHandle.parser) sendHandle.parser = null;
+        if (sendHandle._httpMessage) sendHandle._httpMessage = null;
+        var kTimeout = Symbol.for('kTimeout');
+        sendHandle[kTimeout] = null;
+        // Detach the handle from the sender without emitting 'close'.
+        // The fd was dup'd via SCM_RIGHTS so closing the sender's copy is safe.
+        if (sendHandle._pollTimer != null) {
+          clearTimeout(sendHandle._pollTimer);
+          sendHandle._pollTimer = null;
         }
+        if (sendHandle._timeoutTimer != null) {
+          clearTimeout(sendHandle._timeoutTimer);
+          sendHandle._timeoutTimer = null;
+        }
+        // Close the native fd
+        var nativeHandle = sendHandle._handle;
+        if (nativeHandle && nativeHandle._exactHandle !== undefined) {
+          nativeHandle = nativeHandle._exactHandle;
+        }
+        if (nativeHandle != null) {
+          sentSocketEntry.nativeHandle = nativeHandle;
+        }
+        sendHandle._handle = null;
+        sendHandle.destroyed = true;
+        sendHandle.readable = false;
+        sendHandle.writable = false;
       }
-      self._sendCallbackDraining = false;
-    }, 0);
+    };
   }
 
-  if (!writeSuccess && writeError) {
-    setTimeout(function() {
-      self.emit('error', writeError);
-    }, 0);
-  }
-
-  return returnValue;
+  var userCallback = typeof callback === 'function' ? callback : null;
+  var fullyFlushed = this._enqueueIpcPacket(
+    packet, useSendMsg ? handleFd : -1, onFdSent, userCallback, true);
+  return fullyFlushed && returnValue;
 };
 
 ChildProcess.prototype.disconnect = function() {
@@ -3486,19 +3626,32 @@ ChildProcess.prototype.disconnect = function() {
   this._disconnectPending = true;
   this.connected = false;
   this._ipcMode = false;
-  if (typeof globalThis.__exactSpawnWrite === 'function') {
-    globalThis.__exactSpawnWrite(this._handle, _createIpcPacket('disconnect'), 'ipc');
-  }
   var self = this;
-  setTimeout(function() {
+  var finalized = false;
+  var finalize = function() {
+    if (finalized) return;
+    finalized = true;
     self._disconnectPending = false;
     if (typeof globalThis.__exactSpawnCloseStdin === 'function') {
       globalThis.__exactSpawnCloseStdin(self._handle, 'ipc');
     }
     _flushSentSocketEntries(self._sentSocketServers);
     self.channel = null;
+    if (self._disconnectEmitted) return;
+    self._disconnectEmitted = true;
     self.emit('disconnect');
-  }, 0);
+  };
+  // (ENG-23231) The disconnect packet rides the same outbound queue as
+  // messages: writing it directly would splice its bytes into the middle of
+  // any queued packet still being flushed and corrupt the child's framing.
+  // The channel closes only after everything queued ahead of it has been
+  // delivered (or the queue failed, which also resolves the entry).
+  if (typeof globalThis.__exactSpawnWrite === 'function' ||
+      typeof globalThis.__exactSpawnSendMsg === 'function') {
+    this._enqueueIpcPacket(_createIpcPacket('disconnect'), -1, null, finalize, false);
+  } else {
+    setTimeout(finalize, 0);
+  }
   return this;
 };
 

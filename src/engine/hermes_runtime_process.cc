@@ -243,7 +243,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
-        return facebook::jsi::Value(false);
+        // -1 (hard failure), not 0/false: 0 means EAGAIN to the JS send queue
+        // (ENG-23231), which would retry forever on platforms without spawn.
+        return facebook::jsi::Value(-1);
       });
   rt.global().setProperty(rt, "__exactSpawnSendMsg", std::move(sendMsgFn));
 
@@ -2078,9 +2080,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
 
-  // __exactSpawnSendMsg(handle, data, sendFd?) -> boolean
-  // Sends data to the child's IPC socket using sendmsg. If sendFd >= 0,
-  // passes the file descriptor via SCM_RIGHTS.
+  // __exactSpawnSendMsg(handle, data, sendFd?) -> number
+  // Sends data to the child's IPC socket using sendmsg and returns the byte
+  // count the kernel accepted (0 on EAGAIN — retry later) or -1 on a hard
+  // failure. `data` may be a string or a Uint8Array/ArrayBuffer view. If
+  // sendFd >= 0 the descriptor rides SCM_RIGHTS on this call, so the caller
+  // must attach it only to the FIRST chunk of a framed packet (ENG-23231:
+  // partial sends are queued and resumed by the JS side, mirroring the
+  // child-side __exactIpcSendMsg contract).
   auto spawnSendMsgFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSendMsg"),
@@ -2089,14 +2096,28 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
-        if (count < 2 || !args[0].isNumber() || !args[1].isString()) {
-          return facebook::jsi::Value(false);
+        if (count < 2 || !args[0].isNumber()) {
+          return facebook::jsi::Value(-1);
         }
         int handle = static_cast<int>(args[0].asNumber());
         if (!trySpawnHandle(runtime, handle, "__exactSpawnSendMsg")) {
-          return facebook::jsi::Value(false);
+          return facebook::jsi::Value(-1);
         }
-        auto data = args[1].toString(runtime).utf8(runtime);
+        std::string strHolder;
+        const uint8_t* payload = nullptr;
+        size_t payloadLen = 0;
+        if (args[1].isString()) {
+          strHolder = args[1].toString(runtime).utf8(runtime);
+          payload = reinterpret_cast<const uint8_t*>(strHolder.data());
+          payloadLen = strHolder.size();
+        } else if (args[1].isObject()) {
+          auto obj = args[1].asObject(runtime);
+          if (!extractArrayBufferView(runtime, obj, payload, payloadLen)) {
+            return facebook::jsi::Value(-1);
+          }
+        } else {
+          return facebook::jsi::Value(-1);
+        }
         int sendFd = -1;
         if (count > 2 && args[2].isNumber()) {
           sendFd = static_cast<int>(args[2].asNumber());
@@ -2109,14 +2130,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           auto it = s_spawnedProcesses.find(handle);
-          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(false);
+          if (it == s_spawnedProcesses.end()) return facebook::jsi::Value(-1);
           ipcFd = it->second.ipcFd;
         }
-        if (ipcFd < 0) return facebook::jsi::Value(false);
+        if (ipcFd < 0) return facebook::jsi::Value(-1);
 
         struct iovec iov;
-        iov.iov_base = const_cast<char*>(data.c_str());
-        iov.iov_len = data.size();
+        iov.iov_base = const_cast<uint8_t*>(payload);
+        iov.iov_len = payloadLen;
 
         struct msghdr msg = {};
         msg.msg_iov = &iov;
@@ -2138,8 +2159,17 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           memcpy(CMSG_DATA(cmsg), &sendFd, sizeof(int));
         }
 
-        ssize_t sent = ::sendmsg(ipcFd, &msg, 0);
-        return facebook::jsi::Value(sent > 0);
+        while (true) {
+          ssize_t sent = ::sendmsg(ipcFd, &msg, 0);
+          if (sent < 0) {
+            if (errno == EINTR) continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+              return facebook::jsi::Value(0);
+            }
+            return facebook::jsi::Value(-1);
+          }
+          return facebook::jsi::Value(static_cast<int>(sent));
+        }
       });
   rt.global().setProperty(rt, "__exactSpawnSendMsg", std::move(spawnSendMsgFn));
 

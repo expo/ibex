@@ -1,9 +1,13 @@
-//! End-to-end tests for the bootstrap IPC layer (ENG-23132), driving the real
-//! `ibex` binary:
+//! End-to-end tests for the bootstrap IPC layer (ENG-23132, ENG-23231),
+//! driving the real `ibex` binary:
 //!
 //!   * Fork-child `process.send` must queue on socket backpressure instead of
 //!     abandoning partially written packets (which corrupted the parent's
 //!     newline framing and silently dropped messages).
+//!   * The parent-side mirror (ENG-23231): `child.send()` must queue the
+//!     unsent tail on partial writes/EAGAIN instead of silently dropping
+//!     packets larger than the AF_UNIX send buffer (~16KB), preserve order,
+//!     and fire the send callback on actual delivery.
 //!   * The child's IPC receive path must decode UTF-8 with a persistent
 //!     streaming decoder so a multibyte sequence split across two reads does
 //!     not turn into U+FFFD on both sides.
@@ -247,6 +251,206 @@ fn fork_child_send_burst_survives_backpressure_legacy_ipc() {
     // (process.__exactProcessIpcBootstrapInstalled), which has its own send
     // queue implementation.
     assert_burst_delivered("burst-legacy", &[("IPC_TEST_LEGACY", "1")]);
+}
+
+// ---------------------------------------------------------------------------
+// Parent-side send backpressure (ENG-23231): parent → child direction
+// ---------------------------------------------------------------------------
+
+fn run_parent_child(
+    tag: &str,
+    parent_src: &str,
+    child_src: &str,
+    env: &[(&str, &str)],
+    timeout: Duration,
+) -> (String, String) {
+    let dir = unique_dir(tag);
+    write_text(&dir.join("child.js"), child_src);
+    write_text(&dir.join("app.js"), parent_src);
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("run")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("spawn ibex");
+    let mut out = child.stdout.take().expect("stdout pipe");
+    let mut err = child.stderr.take().expect("stderr pipe");
+    let out_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let err_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => break,
+        }
+    }
+    (
+        out_thread.join().unwrap_or_default(),
+        err_thread.join().unwrap_or_default(),
+    )
+}
+
+/// A single parent→child message whose framed packet (~300KB, multibyte)
+/// far exceeds the AF_UNIX send buffer. Before the parent-side queue fix the
+/// packet's tail was dropped on the first EAGAIN and the message never
+/// arrived (the ticket's repro table: everything >= 16000 ascii chars was
+/// lost). `cbDelivered` also proves the send callback fired by the time the
+/// child's echo arrived, i.e. on actual delivery, not on write attempt.
+const SINGLE_BIG_PARENT: &str = r#"
+const { fork } = require('child_process');
+const child = fork(__dirname + '/child.js');
+let delivered = false;
+child.on('message', (m) => {
+  console.log(`RESULT|len=${m.len}|ok=${m.ok}|cbDelivered=${delivered}`);
+  child.kill();
+  process.exit(0);
+});
+child.send({ type: 'blob', payload: 'é'.repeat(150000) + 'a'.repeat(150000) }, (err) => {
+  if (err) {
+    console.log('RESULT|cb-error|' + (err.code || err.message));
+    child.kill();
+    process.exit(1);
+  }
+  delivered = true;
+});
+setTimeout(() => {
+  console.log('RESULT|timeout');
+  child.kill();
+  process.exit(1);
+}, 30000);
+"#;
+
+const SINGLE_BIG_CHILD: &str = r#"
+process.on('message', (m) => {
+  const ok = m && m.type === 'blob' && m.payload === 'é'.repeat(150000) + 'a'.repeat(150000);
+  process.send({ len: m && m.payload ? m.payload.length : -1, ok: ok });
+});
+"#;
+
+fn assert_parent_single_big_delivered(tag: &str, env: &[(&str, &str)]) {
+    let (stdout, stderr) = run_parent_child(
+        tag,
+        SINGLE_BIG_PARENT,
+        SINGLE_BIG_CHILD,
+        env,
+        Duration::from_secs(60),
+    );
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with("RESULT|"))
+        .unwrap_or_else(|| panic!("no RESULT line\nstdout:\n{}\nstderr:\n{}", stdout, stderr));
+    assert_eq!(
+        line, "RESULT|len=300000|ok=true|cbDelivered=true",
+        "large parent->child message was dropped or corrupted\nstdout:\n{}\nstderr:\n{}",
+        stdout, stderr
+    );
+}
+
+#[test]
+fn parent_send_single_large_message_survives_backpressure() {
+    assert_parent_single_big_delivered("parent-big", &[]);
+}
+
+/// The parent bursts 300 x ~2KB sequenced messages, one ~300KB multibyte
+/// message, then 'done', all with delivery callbacks on the last two. The
+/// child verifies payload integrity and arrival order and reports a verdict.
+const PARENT_BURST_PARENT: &str = r#"
+const { fork } = require('child_process');
+const child = fork(__dirname + '/child.js');
+let cbFired = 0, cbErrs = 0;
+const cb = (err) => { cbFired++; if (err) cbErrs++; };
+child.on('message', (m) => {
+  if (m && m.type === 'verdict') {
+    console.log(`RESULT|seq=${m.seq}|bad=${m.bad}|outOfOrder=${m.outOfOrder}|gotBig=${m.gotBig}|bigOk=${m.bigOk}|cbFired=${cbFired}|cbErrs=${cbErrs}`);
+    child.kill();
+    process.exit(0);
+  }
+});
+for (let i = 0; i < 300; i++) {
+  child.send({ type: 'seq', i, payload: 'x'.repeat(2000) + '-' + i });
+}
+child.send({ type: 'big', payload: 'é'.repeat(150000) + 'a'.repeat(150000) }, cb);
+child.send({ type: 'done' }, cb);
+setTimeout(() => {
+  console.log(`RESULT|timeout|cbFired=${cbFired}|cbErrs=${cbErrs}`);
+  child.kill();
+  process.exit(1);
+}, 45000);
+"#;
+
+const PARENT_BURST_CHILD: &str = r#"
+let seq = 0, bad = 0, outOfOrder = 0, gotBig = false, bigOk = false;
+process.on('message', (m) => {
+  if (!m) return;
+  if (m.type === 'seq') {
+    if (m.i !== seq) outOfOrder++;
+    seq++;
+    if (m.payload !== 'x'.repeat(2000) + '-' + m.i) bad++;
+  } else if (m.type === 'big') {
+    if (!gotBig) {
+      gotBig = true;
+      bigOk = (m.payload === 'é'.repeat(150000) + 'a'.repeat(150000));
+    }
+  } else if (m.type === 'done') {
+    process.send({ type: 'verdict', seq: seq, bad: bad, outOfOrder: outOfOrder, gotBig: gotBig, bigOk: bigOk });
+  }
+});
+"#;
+
+fn assert_parent_burst_delivered(tag: &str, env: &[(&str, &str)]) {
+    let (stdout, stderr) = run_parent_child(
+        tag,
+        PARENT_BURST_PARENT,
+        PARENT_BURST_CHILD,
+        env,
+        Duration::from_secs(60),
+    );
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with("RESULT|"))
+        .unwrap_or_else(|| panic!("no RESULT line\nstdout:\n{}\nstderr:\n{}", stdout, stderr));
+    assert_eq!(
+        line, "RESULT|seq=300|bad=0|outOfOrder=0|gotBig=true|bigOk=true|cbFired=2|cbErrs=0",
+        "parent->child burst was corrupted, reordered or truncated\nstdout:\n{}\nstderr:\n{}",
+        stdout, stderr
+    );
+}
+
+#[test]
+fn parent_send_burst_survives_backpressure() {
+    assert_parent_burst_delivered("parent-burst", &[]);
+}
+
+#[test]
+fn parent_send_burst_survives_backpressure_legacy_ipc() {
+    // Runs the PARENT on the legacy bootstrap too (the child inherits the
+    // env via fork), covering the legacy-parent flavor of the send path.
+    assert_parent_burst_delivered(
+        "parent-burst-legacy",
+        &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")],
+    );
 }
 
 // ---------------------------------------------------------------------------
