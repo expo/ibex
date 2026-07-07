@@ -8,11 +8,15 @@
  */
 
 #include <atomic>
+#include <cctype>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <sstream>
@@ -61,6 +65,115 @@ void remove_fetch_request(uint32_t request_id) {
 
 bool request_cancelled(const std::shared_ptr<LinuxFetchRequest>& request) {
     return request && request->cancelled.load(std::memory_order_relaxed);
+}
+
+// ENG-23471 — bounded worker pool so N concurrent fetches can't spawn N OS
+// threads (a Promise.all over hundreds of URLs used to create hundreds of
+// detached threads). Same discipline as hermes_runtime_dns.cc's DnsWorkerPool
+// and hermes_runtime_http.cc's WaitWorkerPool: lazily spawn workers up to a
+// cap, bound the backlog, park idle workers on a condvar. Fetch jobs block in
+// curl_easy_perform, so the cap matches the HTTP wait pools (16) rather than
+// DNS's 8; excess work queues, and overflow past the queue bound fails the
+// fetch loudly instead of growing without bound.
+class FetchWorkerPool {
+public:
+    static FetchWorkerPool& instance() {
+        // Intentionally leaked: a function-local `static FetchWorkerPool` is
+        // destructed during exit() while workers are still parked in
+        // cv_.wait(), and destroying a mutex/condvar with waiters is UB that
+        // deadlocks the process inside glibc's pthread destructors (run-
+        // verified on Linux: `process.exit(0)` after any fetch hung forever
+        // with a static instance; macOS never reproduces it). Workers are
+        // detached, so leaking the pool lets exit() proceed normally.
+        static FetchWorkerPool* pool = new FetchWorkerPool();
+        return *pool;
+    }
+
+    bool enqueue(std::function<void()> job, std::string& error) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (queue_.size() >= kMaxQueue) {
+                error = "Fetch worker queue full";
+                return false;
+            }
+            spawn_worker_if_needed_locked();
+            queue_.push_back(std::move(job));
+        }
+        cv_.notify_one();
+        return true;
+    }
+
+private:
+    static constexpr size_t kMaxWorkers = 16;
+    static constexpr size_t kMaxQueue = 512;
+    std::mutex mutex_;
+    std::condition_variable cv_;
+    std::deque<std::function<void()>> queue_;
+    size_t idle_ = 0;
+    size_t total_ = 0;
+
+    void spawn_worker_if_needed_locked() {
+        if (idle_ > 0 || total_ >= kMaxWorkers) {
+            return;
+        }
+        total_ += 1;
+        std::thread([this]() {
+            for (;;) {
+                std::function<void()> job;
+                {
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    idle_ += 1;
+                    cv_.wait(lock, [this] { return !queue_.empty(); });
+                    idle_ -= 1;
+                    job = std::move(queue_.front());
+                    queue_.pop_front();
+                }
+                job();
+            }
+        }).detach();
+    }
+};
+
+// ENG-23471 — extract the reason phrase from the captured raw status line(s)
+// so Response.statusText reports what the server actually said ("Not Found")
+// instead of a hardcoded "OK". The header capture can contain several status
+// lines (1xx interim responses); the LAST one belongs to the final response.
+// HTTP/2+ status lines carry no reason phrase — return "" for those, which is
+// the fetch-spec default statusText.
+std::string parse_status_reason(const std::string& raw_headers) {
+    std::string reason;
+    size_t pos = 0;
+    while (pos < raw_headers.size()) {
+        size_t eol = raw_headers.find("\r\n", pos);
+        size_t end = eol == std::string::npos ? raw_headers.size() : eol;
+        if (raw_headers.compare(pos, 5, "HTTP/") == 0) {
+            reason.clear();
+            // Status line: HTTP/<version> SP <code> [SP <reason>]
+            size_t sp1 = raw_headers.find(' ', pos);
+            if (sp1 != std::string::npos && sp1 < end) {
+                size_t code = raw_headers.find_first_not_of(' ', sp1);
+                if (code != std::string::npos && code < end) {
+                    size_t sp2 = raw_headers.find(' ', code);
+                    if (sp2 != std::string::npos && sp2 < end) {
+                        size_t phrase = raw_headers.find_first_not_of(' ', sp2);
+                        if (phrase != std::string::npos && phrase < end) {
+                            reason = raw_headers.substr(phrase, end - phrase);
+                            while (!reason.empty() &&
+                                   (reason.back() == '\r' || reason.back() == '\n' ||
+                                    reason.back() == ' ' || reason.back() == '\t')) {
+                                reason.pop_back();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (eol == std::string::npos) {
+            break;
+        }
+        pos = eol + 2;
+    }
+    return reason;
 }
 
 #ifdef EXACT_HAS_CURL
@@ -160,12 +273,32 @@ static void native_fetch_perform_async(
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, linux_fetch_progress_callback);
     curl_easy_setopt(curl, CURLOPT_XFERINFODATA, request_state.get());
 
+    // ENG-23471 — CURLOPT_POSTFIELDS switches curl's *internal* method to POST
+    // even when the fields are null/empty (CURLOPT_CUSTOMREQUEST only rewrites
+    // the request-line verb), so every body-less request — notably plain GETs —
+    // used to carry `Content-Length: 0` plus curl's default
+    // `Content-Type: application/x-www-form-urlencoded`, headers the
+    // macOS/Windows backends never send. Only opt into POST framing when the
+    // request actually carries (or should advertise) a body.
+    std::string method_upper = method;
+    for (char& mc : method_upper) {
+        mc = static_cast<char>(std::toupper(static_cast<unsigned char>(mc)));
+    }
+    bool suppress_default_content_type = false;
     if (!body.empty()) {
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
-    } else {
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, nullptr);
+    } else if (method_upper == "HEAD") {
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+    } else if (method_upper == "POST" || method_upper == "PUT" || method_upper == "PATCH") {
+        // Body-carrying methods with an empty body still advertise
+        // `Content-Length: 0` (matching undici and the macOS/Windows
+        // backends), but must not inherit curl's default form Content-Type.
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
+        suppress_default_content_type = true;
+    } else {
+        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
     }
 
     curl_slist* curl_headers = nullptr;
@@ -187,6 +320,29 @@ static void native_fetch_perform_async(
         if (p > line_start) {
             std::string line(line_start, static_cast<size_t>(p - line_start));
             curl_headers = curl_slist_append(curl_headers, line.c_str());
+        }
+    }
+    if (suppress_default_content_type) {
+        bool has_content_type = false;
+        static const char kContentType[] = "content-type:";
+        for (size_t line = 0; line < headers.size();) {
+            size_t eol = headers.find("\r\n", line);
+            size_t line_end = eol == std::string::npos ? headers.size() : eol;
+            size_t i = 0;
+            while (kContentType[i] != '\0' && line + i < line_end &&
+                   std::tolower(static_cast<unsigned char>(headers[line + i])) == kContentType[i]) {
+                i++;
+            }
+            if (kContentType[i] == '\0') {
+                has_content_type = true;
+                break;
+            }
+            if (eol == std::string::npos) break;
+            line = eol + 2;
+        }
+        if (!has_content_type) {
+            // A valueless header tells curl to drop its internally generated one.
+            curl_headers = curl_slist_append(curl_headers, "Content-Type:");
         }
     }
     if (curl_headers) {
@@ -213,7 +369,9 @@ static void native_fetch_perform_async(
     }
 
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &result.status);
-    result.status_text = "OK";
+    // ENG-23471 — surface the server's real reason phrase (empty for HTTP/2+)
+    // instead of hardcoding "OK" for every status code.
+    result.status_text = parse_status_reason(result.response_headers);
 
     if (curl_headers) {
         curl_slist_free_all(curl_headers);
@@ -224,7 +382,7 @@ static void native_fetch_perform_async(
     if (cancelled || request_cancelled(request_state)) {
         return;
     }
-    const char* status_text = result.status_text.empty() ? "OK" : result.status_text.c_str();
+    const char* status_text = result.status_text.c_str();
     const char* response_headers = result.response_headers.empty() ? nullptr : result.response_headers.c_str();
     const uint8_t* body_ptr = result.response_body.empty() ? nullptr : result.response_body.data();
     response_callback(
@@ -370,10 +528,12 @@ static void native_fetch_perform_async(
     }
     const char* headers_ptr = response_headers.empty() ? nullptr : response_headers.c_str();
     const uint8_t* body_ptr = response_body.empty() ? nullptr : response_body.data();
+    // ENG-23471 — report the server's real reason phrase, not a hardcoded "OK".
+    const std::string reason = parse_status_reason(response_headers);
     response_callback(
         request_id,
         status_code,
-        status_code > 0 ? "OK" : "Network Error",
+        status_code > 0 ? reason.c_str() : "Network Error",
         headers_ptr,
         body_ptr,
         response_body.size(),
@@ -412,7 +572,10 @@ extern "C" void native_fetch_perform(
     auto request_state = std::make_shared<LinuxFetchRequest>();
     register_fetch_request(request_id, request_state);
 
-    std::thread(
+    // ENG-23471 — run the blocking transfer on the bounded FetchWorkerPool
+    // instead of a fresh detached thread per request.
+    std::string pool_error;
+    const bool queued = FetchWorkerPool::instance().enqueue(
         [request_id,
          request_state,
          method_copy = std::move(method_copy),
@@ -433,8 +596,13 @@ extern "C" void native_fetch_perform(
                 response_callback,
                 context
             );
-        }
-    ).detach();
+        },
+        pool_error
+    );
+    if (!queued) {
+        remove_fetch_request(request_id);
+        response_callback(request_id, 0, pool_error.c_str(), nullptr, nullptr, 0, context);
+    }
 }
 
 extern "C" void native_fetch_cancel(uint32_t request_id) {

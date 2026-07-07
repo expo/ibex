@@ -56,7 +56,10 @@ void appendFetchHeader(
     }
   }
   for (unsigned char c : value) {
-    if (c <= 0x1f || c == 0x7f) {
+    // ENG-23471 — per WHATWG fetch / RFC 9110 field values may contain
+    // interior HTAB (0x09); the JS Headers layer already trims leading/
+    // trailing whitespace. Ban the other C0 controls (incl. CR/LF) and DEL.
+    if ((c <= 0x1f && c != 0x09) || c == 0x7f) {
       throw facebook::jsi::JSError(runtime, "__nativeFetch: invalid header value");
     }
   }
@@ -669,11 +672,60 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
     }
     return new Uint8Array(0);
   }
+  // ENG-23471 — decode response bodies as UTF-8 (with U+FFFD replacement, per
+  // WHATWG). The previous per-byte String.fromCharCode loop was a Latin-1
+  // decode that mojibake'd every non-ASCII UTF-8 body.
   function textFromBody(body) {
     var bytes = bytesFromBody(body);
-    var text = '';
-    for (var i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]);
-    return text;
+    if (typeof g.TextDecoder === 'function') {
+      try {
+        return new g.TextDecoder('utf-8').decode(bytes);
+      } catch (e) {}
+    }
+    var out = '';
+    var i = 0;
+    var len = bytes.length;
+    while (i < len) {
+      var b = bytes[i];
+      if (b <= 0x7f) {
+        out += String.fromCharCode(b);
+        i++;
+        continue;
+      }
+      var cp, extra, lower = 0x80, upper = 0xbf;
+      if (b >= 0xc2 && b <= 0xdf) { cp = b & 0x1f; extra = 1; }
+      else if (b === 0xe0) { cp = b & 0x0f; extra = 2; lower = 0xa0; }
+      else if (b === 0xed) { cp = b & 0x0f; extra = 2; upper = 0x9f; }
+      else if (b >= 0xe1 && b <= 0xef) { cp = b & 0x0f; extra = 2; }
+      else if (b === 0xf0) { cp = b & 0x07; extra = 3; lower = 0x90; }
+      else if (b >= 0xf1 && b <= 0xf3) { cp = b & 0x07; extra = 3; }
+      else if (b === 0xf4) { cp = b & 0x07; extra = 3; upper = 0x8f; }
+      else { out += '\uFFFD'; i++; continue; }
+      var valid = true;
+      var next = i + 1;
+      for (var k = 0; k < extra; k++) {
+        var c = next < len ? bytes[next] : -1;
+        var lo = k === 0 ? lower : 0x80;
+        var hi = k === 0 ? upper : 0xbf;
+        if (c < lo || c > hi) { valid = false; break; }
+        cp = (cp << 6) | (c & 0x3f);
+        next++;
+      }
+      // On an invalid sequence, emit one replacement char and resume at the
+      // first unconsumed byte (WHATWG "restart" behavior).
+      i = next;
+      if (!valid) {
+        out += '\uFFFD';
+        continue;
+      }
+      if (cp > 0xffff) {
+        cp -= 0x10000;
+        out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+      } else {
+        out += String.fromCharCode(cp);
+      }
+    }
+    return out;
   }
   function emptyArrayBuffer() {
     return new ArrayBuffer(0);
@@ -694,6 +746,10 @@ void installFetchGlobals(ExactHermesRuntime* handle) {
   };
   FetchResponse.prototype.text = function() {
     return Promise.resolve(textFromBody(this._body));
+  };
+  // ENG-23471 — json() was missing entirely from the Windows fetch surface.
+  FetchResponse.prototype.json = function() {
+    return this.text().then(function(text) { return JSON.parse(text); });
   };
 
   function initForNative(init) {
