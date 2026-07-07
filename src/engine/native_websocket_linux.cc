@@ -207,6 +207,16 @@ static void remove_connection(uint32_t ws_id) {
 static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
     call_open(entry);
 
+    // Message reassembly state. curl_ws_recv returns at most one buffer's
+    // worth of a single frame per call (meta->bytesleft > 0 while the frame
+    // continues) and fragmented messages arrive as CURLWS_CONT frames, so a
+    // message event may only fire once the final chunk of the final frame
+    // has been appended. The text/binary type is latched from the first
+    // frame: continuation frames do not carry CURLWS_TEXT.
+    std::vector<uint8_t> message;
+    bool message_is_text = false;
+    bool message_in_progress = false;
+
     while (!entry->closed.load(std::memory_order_relaxed)) {
         // Drain outbound messages first.
         for (;;) {
@@ -252,20 +262,52 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
         const struct curl_ws_frame* meta = nullptr;
         const CURLcode recv_rc = curl_ws_recv(entry->curl, buffer, sizeof(buffer), &nrecv, &meta);
         if (recv_rc == CURLE_OK) {
-            if (meta && (meta->flags & CURLWS_CLOSE)) {
-                call_close(entry, 1000, "Normal closure", 1);
+            const unsigned int frame_flags = meta ? static_cast<unsigned int>(meta->flags) : 0u;
+            if (frame_flags & (CURLWS_PING | CURLWS_PONG)) {
+                // curl answers pings itself but still surfaces the frames;
+                // control frames must never become JS message events.
+                continue;
+            }
+            if (frame_flags & CURLWS_CLOSE) {
+                // RFC 6455 5.5.1: the first two payload bytes are the status
+                // code (big-endian) and the rest is a UTF-8 reason. Report
+                // 1005 ("no status") when the peer sent no code.
+                uint16_t close_code = 1005;
+                std::string close_reason;
+                if (nrecv >= 2) {
+                    close_code = static_cast<uint16_t>((buffer[0] << 8) | buffer[1]);
+                    close_reason.assign(reinterpret_cast<const char*>(buffer) + 2, nrecv - 2);
+                }
+                call_close(entry, close_code, close_reason.c_str(), 1);
                 entry->closed.store(true, std::memory_order_relaxed);
                 break;
             }
-            if (nrecv > 0) {
-                const bool is_text = meta ? ((meta->flags & CURLWS_TEXT) != 0) : false;
-                if (entry->flow_controlled_receive.load(std::memory_order_relaxed)) {
-                    entry->receive_paused.store(true, std::memory_order_relaxed);
+            if (message_in_progress ||
+                (frame_flags & (CURLWS_TEXT | CURLWS_BINARY | CURLWS_CONT)) != 0) {
+                if (!message_in_progress) {
+                    message_is_text = (frame_flags & CURLWS_TEXT) != 0;
+                    message_in_progress = true;
                 }
-                call_message(entry, buffer, nrecv, is_text);
-            } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                if (nrecv > 0) {
+                    message.insert(message.end(), buffer, buffer + nrecv);
+                }
+                const bool frame_complete = !meta || meta->bytesleft == 0;
+                const bool final_fragment = (frame_flags & CURLWS_CONT) == 0;
+                if (frame_complete && final_fragment) {
+                    if (entry->flow_controlled_receive.load(std::memory_order_relaxed)) {
+                        entry->receive_paused.store(true, std::memory_order_relaxed);
+                    }
+                    call_message(
+                        entry,
+                        message.empty() ? reinterpret_cast<const uint8_t*>("") : message.data(),
+                        message.size(),
+                        message_is_text);
+                    message.clear();
+                    message_in_progress = false;
+                }
+                continue;
             }
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
 
