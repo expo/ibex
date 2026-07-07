@@ -7,6 +7,7 @@
 // Windows is a no-OpenSSL crypto profile backed by CNG/BCrypt.
 #include <windows.h>
 #include <bcrypt.h>
+#include <zlib.h>
 
 #include <algorithm>
 #include <cctype>
@@ -138,6 +139,227 @@ std::string hexEncode(const std::vector<uint8_t>& bytes) {
   return out.str();
 }
 
+void installZlibHostFunctions(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+
+  // @ref LLP 0001#current-buildrs-support-honest-status — zlib is required on
+  // Windows too; this file is Windows' native host-registration root.
+  auto deflateSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDeflateSync"),
+      4,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactDeflateSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        int level = Z_DEFAULT_COMPRESSION;
+        if (count > 1 && args[1].isNumber()) {
+          level = static_cast<int>(args[1].asNumber());
+        }
+        int mode = 0;
+        if (count > 2 && args[2].isNumber()) {
+          mode = static_cast<int>(args[2].asNumber());
+        }
+
+        std::vector<uint8_t> dictionary;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          dictionary = extractBytes(runtime, args[3]);
+        }
+
+        z_stream strm = {};
+        int windowBits;
+        if (mode == 2) {
+          windowBits = -15;
+        } else if (mode == 1) {
+          windowBits = 15 + 16;
+        } else {
+          windowBits = 15;
+        }
+        if (deflateInit2(&strm, level, Z_DEFLATED, windowBits, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+          throw facebook::jsi::JSError(runtime, "deflateInit2 failed");
+        }
+
+        if (!dictionary.empty() && mode != 1) {
+          int dictRet = deflateSetDictionary(
+              &strm,
+              dictionary.data(),
+              static_cast<uInt>(dictionary.size()));
+          if (dictRet != Z_OK) {
+            deflateEnd(&strm);
+            throw facebook::jsi::JSError(runtime, "deflateSetDictionary failed");
+          }
+        }
+
+        strm.next_in = input.data();
+        strm.avail_in = static_cast<uInt>(input.size());
+
+        std::vector<uint8_t> output;
+        uint8_t outBuf[32768];
+        do {
+          strm.next_out = outBuf;
+          strm.avail_out = sizeof(outBuf);
+          deflate(&strm, Z_FINISH);
+          size_t have = sizeof(outBuf) - strm.avail_out;
+          output.insert(output.end(), outBuf, outBuf + have);
+        } while (strm.avail_out == 0);
+        deflateEnd(&strm);
+
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactDeflateSync", std::move(deflateSyncFn));
+
+  auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
+      5,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count == 0) {
+          throw facebook::jsi::JSError(runtime, "__exactInflateSync: data required");
+        }
+
+        auto input = extractBytes(runtime, args[0]);
+
+        bool strictMode = false;
+        bool lenientMode = false;
+        bool returnConsumed = false;
+        int mode = 0;
+        if (count > 1 && args[1].isNumber()) {
+          mode = static_cast<int>(args[1].asNumber());
+        }
+        if (count > 2 && args[2].isBool()) {
+          strictMode = args[2].getBool();
+        }
+        if (count > 3 && args[3].isNumber()) {
+          int flags = static_cast<int>(args[3].asNumber());
+          lenientMode = (flags & 1) != 0;
+          returnConsumed = (flags & 2) != 0;
+        }
+
+        std::vector<uint8_t> dictionary;
+        if (count > 4 && !args[4].isUndefined() && !args[4].isNull()) {
+          dictionary = extractBytes(runtime, args[4]);
+        }
+
+        z_stream strm = {};
+        int windowBits;
+        if (mode == 2) {
+          windowBits = -15;
+        } else if (mode == 1) {
+          windowBits = 15 + 32;
+        } else {
+          windowBits = 15;
+        }
+        if (inflateInit2(&strm, windowBits) != Z_OK) {
+          throw facebook::jsi::JSError(runtime, "inflateInit2 failed");
+        }
+
+        strm.next_in = const_cast<Bytef*>(input.data());
+        strm.avail_in = static_cast<uInt>(input.size());
+
+        std::vector<uint8_t> output;
+        uint8_t outBuf[32768];
+        int ret = Z_OK;
+
+        do {
+          do {
+            strm.next_out = outBuf;
+            strm.avail_out = sizeof(outBuf);
+            ret = inflate(&strm, Z_NO_FLUSH);
+            if (ret == Z_NEED_DICT) {
+              if (dictionary.empty()) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, "inflate failed: dictionary required");
+              }
+              int dictRet = inflateSetDictionary(
+                  &strm,
+                  dictionary.data(),
+                  static_cast<uInt>(dictionary.size()));
+              if (dictRet != Z_OK) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, "inflateSetDictionary failed");
+              }
+              continue;
+            }
+            if (ret == Z_MEM_ERROR) {
+              inflateEnd(&strm);
+              throw facebook::jsi::JSError(runtime, "inflate failed: memory error");
+            }
+            if (ret == Z_DATA_ERROR) {
+              std::string msg = "inflate failed: data error";
+              if (strm.msg) {
+                msg += ": ";
+                msg += strm.msg;
+              }
+              if (!lenientMode) {
+                inflateEnd(&strm);
+                throw facebook::jsi::JSError(runtime, msg);
+              }
+              ret = Z_STREAM_END;
+              break;
+            }
+            size_t have = sizeof(outBuf) - strm.avail_out;
+            output.insert(output.end(), outBuf, outBuf + have);
+          } while (strm.avail_out == 0);
+
+          if (ret == Z_STREAM_END && strm.avail_in > 0 && mode == 1) {
+            uInt remaining = strm.avail_in;
+            const Bytef* nextIn = strm.next_in;
+
+            if (remaining < 2 || nextIn[0] != 0x1f || nextIn[1] != 0x8b) {
+              inflateEnd(&strm);
+              strm = {};
+              strm.next_in = const_cast<Bytef*>(nextIn);
+              strm.avail_in = remaining;
+              break;
+            }
+
+            inflateEnd(&strm);
+            strm = {};
+            if (inflateInit2(&strm, windowBits) != Z_OK) {
+              throw facebook::jsi::JSError(runtime, "inflateInit2 failed for next gzip member");
+            }
+            strm.next_in = const_cast<Bytef*>(nextIn);
+            strm.avail_in = remaining;
+            ret = Z_OK;
+          } else {
+            break;
+          }
+        } while (true);
+
+        size_t bytesConsumed = input.size() - strm.avail_in;
+
+        if (ret != Z_STREAM_END && strm.avail_in == 0 && !lenientMode) {
+          inflateEnd(&strm);
+          throw facebook::jsi::JSError(runtime, "inflate failed: unexpected end of file");
+        }
+
+        inflateEnd(&strm);
+
+        if (strictMode && bytesConsumed < input.size()) {
+          throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
+        }
+
+        if (returnConsumed) {
+          auto arr = facebook::jsi::Array(runtime, 2);
+          arr.setValueAtIndex(runtime, 0, makeUint8Array(runtime, std::move(output)));
+          arr.setValueAtIndex(runtime, 1, facebook::jsi::Value(static_cast<double>(bytesConsumed)));
+          return arr;
+        }
+
+        return makeUint8Array(runtime, std::move(output));
+      });
+  rt.global().setProperty(rt, "__exactInflateSync", std::move(inflateSyncFn));
+}
+
 } // namespace
 
 void installCryptoHostFunctions(ExactHermesRuntime* handle) {
@@ -196,6 +418,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::String::createFromUtf8(runtime, hexEncode(digest));
       });
   rt.global().setProperty(rt, "__exactHmacSync", std::move(hmacSyncFn));
+
+  installZlibHostFunctions(handle);
 
   auto stdinReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,

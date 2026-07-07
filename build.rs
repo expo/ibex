@@ -1033,6 +1033,15 @@ fn main() {
             build.include(&brotli_include);
         }
         "windows" => {
+            // @ref LLP 0001#current-buildrs-support-honest-status — Windows is
+            // an active target; use the target libz-sys build for zlib headers
+            // instead of assuming a machine-wide C zlib install.
+            let zlib_include = std::env::var("DEP_Z_INCLUDE").unwrap_or_else(|_| {
+                panic!("Windows zlib host functions require libz-sys DEP_Z_INCLUDE metadata")
+            });
+            for include in zlib_include.split(',').filter(|p| !p.is_empty()) {
+                build.include(include);
+            }
             let brotli_include = manifest_dir.join("vendor").join("brotli").join("include");
             build.include(&brotli_include);
         }

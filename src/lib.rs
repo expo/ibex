@@ -11,6 +11,11 @@
 //! The `ibex` binary wraps these in async Rust (via tokio). The iOS app calls the C API
 //! directly from Swift via the bridging header.
 
+// Keep libz-sys in the Windows link graph; the C++ zlib host functions call
+// zlib symbols directly.
+#[cfg(windows)]
+use libz_sys as _;
+
 #[cfg(feature = "host-http-server")]
 pub mod cdp;
 pub mod engine;
