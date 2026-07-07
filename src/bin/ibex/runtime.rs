@@ -1511,27 +1511,60 @@ fn policy_is_explicit(cli: &Cli) -> bool {
 
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
     let policy_path = resolve_policy_path(cli);
-    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+    // Parse the policy artifact exactly ONCE per startup and thread the parsed
+    // struct through mode resolution, readiness, endowments, and (via
+    // HostConfig) Host::new — this path used to read + JSON-parse the same
+    // file four times. (ENG-22644)
+    let policy = load_policy_file(cli, policy_path.as_deref())?;
+    let mode = resolve_security_mode(cli, policy.as_deref(), policy_path.as_deref())?;
 
     enable_isolation_prerequisites(mode);
     for line in check_capsec_readiness(
         mode,
         CapsecStage::Run,
-        capsec_readiness(cli, policy_path.as_deref()),
+        capsec_readiness(cli, policy.as_deref()),
         capsec_advisory_allowed(cli),
     )? {
         eprintln!("{line}");
     }
-    apply_policy_endowments(policy_path.as_deref(), mode, cli.allow_env_endowments);
+    apply_policy_endowments(policy.as_deref(), mode, cli.allow_env_endowments);
 
     Ok(HostConfig {
         mode,
         policy_path,
+        policy,
         allow: cli.allow.clone(),
         deny: cli.deny.clone(),
         root_dir: None,
         allowed_hosts: None,
     })
+}
+
+/// Load + validate the policy artifact once. A configured policy that exists
+/// but cannot be parsed FAILS CLOSED as an error: a malformed committed policy
+/// (which may carry `mode: "enforce"`) must not silently degrade the run to
+/// permissive. An explicitly configured policy that is missing is likewise an
+/// error; only a MISSING auto-discovered default resolves to `None`.
+/// (ENG-22620/ENG-22644)
+fn load_policy_file(
+    cli: &Cli,
+    policy_path: Option<&Path>,
+) -> Result<Option<std::sync::Arc<crate::host::policy::PolicyFile>>> {
+    use crate::host::policy::PolicyFile;
+    match policy_path {
+        Some(p) if p.exists() => {
+            let policy = PolicyFile::load(p)
+                .with_context(|| format!("failed to load capability policy {}", p.display()))?;
+            Ok(Some(std::sync::Arc::new(policy)))
+        }
+        Some(p) => {
+            if policy_is_explicit(cli) {
+                anyhow::bail!("capability policy {} not found", p.display());
+            }
+            Ok(None)
+        }
+        None => Ok(None),
+    }
 }
 
 /// Resolve the effective `SecurityMode` from the CLI flags and the policy
@@ -1542,45 +1575,35 @@ fn build_host_config(cli: &Cli) -> Result<HostConfig> {
 /// single-principal bundle. (ENG-22760)
 fn resolve_security_mode(
     cli: &Cli,
+    policy: Option<&crate::host::policy::PolicyFile>,
     policy_path: Option<&Path>,
 ) -> Result<crate::host::SecurityMode> {
     use crate::cli::CapSecMode;
-    use crate::host::{policy::PolicyFile, SecurityMode};
+    use crate::host::SecurityMode;
 
-    // Load + validate the policy when its path exists. A configured policy that
-    // exists but cannot be parsed FAILS CLOSED: a malformed committed policy
-    // (which may carry `mode: "enforce"`) must not silently degrade the run to
-    // permissive. An explicitly configured policy that is missing is likewise an
-    // error; only a MISSING auto-discovered default falls back to permissive
-    // auto-mode. (ENG-22620) The declared mode reuses `SecurityMode::from_policy_str`
-    // — the single source of truth for mode-string parsing (formerly duplicated by
-    // `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
-    let declared_mode = match policy_path {
-        Some(p) if p.exists() => {
-            let policy = PolicyFile::load(p)
-                .with_context(|| format!("failed to load capability policy {}", p.display()))?;
-            match policy.mode.as_deref() {
-                None => None,
-                Some(raw) => match SecurityMode::from_policy_str(raw) {
-                    Some(m) => Some(m),
-                    // Present but unrecognized (a typo like "enfore"): fail closed
-                    // rather than silently degrading an Auto run to permissive —
-                    // the same class ENG-22620 targets. (review follow-up)
-                    None => anyhow::bail!(
-                        "capability policy {} declares an unrecognized mode {:?} \
-                         (expected enforce | audit | permissive)",
-                        p.display(),
-                        raw
-                    ),
-                },
-            }
-        }
-        Some(p) => {
-            if policy_is_explicit(cli) {
-                anyhow::bail!("capability policy {} not found", p.display());
-            }
-            None
-        }
+    // `policy` is the artifact `load_policy_file` parsed once for this
+    // startup (ENG-22644); loading/parse failures already failed closed there
+    // (ENG-22620). The declared mode reuses `SecurityMode::from_policy_str`
+    // — the single source of truth for mode-string parsing (formerly duplicated
+    // by `policy_declared_mode`). @ref LLP 0014#runtime-and-cli
+    let declared_mode = match policy {
+        Some(policy) => match policy.mode.as_deref() {
+            None => None,
+            Some(raw) => match SecurityMode::from_policy_str(raw) {
+                Some(m) => Some(m),
+                // Present but unrecognized (a typo like "enfore"): fail closed
+                // rather than silently degrading an Auto run to permissive —
+                // the same class ENG-22620 targets. (review follow-up)
+                None => anyhow::bail!(
+                    "capability policy {} declares an unrecognized mode {:?} \
+                     (expected enforce | audit | permissive)",
+                    policy_path
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "<unknown>".to_string()),
+                    raw
+                ),
+            },
+        },
         None => None,
     };
 
@@ -1614,12 +1637,13 @@ fn resolve_security_mode(
 /// @ref LLP 0013#mechanism-3 — (ENG-22760)
 pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMode> {
     let policy_path = resolve_policy_path(cli);
-    let mode = resolve_security_mode(cli, policy_path.as_deref())?;
+    let policy = load_policy_file(cli, policy_path.as_deref())?;
+    let mode = resolve_security_mode(cli, policy.as_deref(), policy_path.as_deref())?;
     enable_isolation_prerequisites(mode);
     for line in check_capsec_readiness(
         mode,
         CapsecStage::Build,
-        capsec_readiness(cli, policy_path.as_deref()),
+        capsec_readiness(cli, policy.as_deref()),
         capsec_advisory_allowed(cli),
     )? {
         eprintln!("{line}");
@@ -1678,14 +1702,15 @@ pub(crate) enum CapsecStage {
 /// Gather the live readiness snapshot. Call after
 /// `enable_isolation_prerequisites` so `IBEX_PER_PACKAGE_CHUNKS` reflects the
 /// enforce/audit default; a remaining `0` is an explicit operator opt-out.
-fn capsec_readiness(cli: &Cli, policy_path: Option<&Path>) -> CapsecReadiness {
+fn capsec_readiness(
+    cli: &Cli,
+    policy: Option<&crate::host::policy::PolicyFile>,
+) -> CapsecReadiness {
     let package_isolation = match std::env::var("IBEX_PER_PACKAGE_CHUNKS") {
         Ok(v) if v.trim() == "0" => PackageIsolation::DisabledByOperator,
         _ => PackageIsolation::Enabled,
     };
-    let dynamic_ceiling = policy_path
-        .filter(|p| p.exists())
-        .and_then(|p| crate::host::policy::PolicyFile::load(p).ok())
+    let dynamic_ceiling = policy
         .map(|policy| !policy.ceiling.is_empty())
         .unwrap_or(false);
     CapsecReadiness {
@@ -1882,34 +1907,30 @@ fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
 ///
 /// @ref LLP 0014#runtime-and-cli
 fn apply_policy_endowments(
-    policy_path: Option<&Path>,
+    policy: Option<&crate::host::policy::PolicyFile>,
     mode: crate::host::SecurityMode,
     allow_env: bool,
 ) {
     use crate::host::SecurityMode;
     static APPLIED: AtomicBool = AtomicBool::new(false);
     let fail_closed = matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) && !allow_env;
-    let mut groups: Vec<String> = match policy_path {
-        Some(path) if path.exists() => {
-            let Ok(policy) = crate::host::policy::PolicyFile::load(path) else {
-                // Unreadable policy files surface as errors in host setup;
-                // endowment wiring stays silent here to avoid double-reporting.
-                return;
-            };
-            policy
-                .packages
-                .iter()
-                .filter_map(|(pkg, package_policy)| {
-                    let endow = package_policy.endow.as_ref()?;
-                    if endow.is_empty() {
-                        None
-                    } else {
-                        Some(format!("{}:{}", pkg, endow.join(",")))
-                    }
-                })
-                .collect()
-        }
-        _ => Vec::new(),
+    // `policy` is the once-parsed artifact from `load_policy_file` (ENG-22644);
+    // an unreadable policy file already failed the run upstream, so there is no
+    // silent-return path to double-report here anymore.
+    let mut groups: Vec<String> = match policy {
+        Some(policy) => policy
+            .packages
+            .iter()
+            .filter_map(|(pkg, package_policy)| {
+                let endow = package_policy.endow.as_ref()?;
+                if endow.is_empty() {
+                    None
+                } else {
+                    Some(format!("{}:{}", pkg, endow.join(",")))
+                }
+            })
+            .collect(),
+        None => Vec::new(),
     };
     groups.sort();
 
@@ -3355,42 +3376,43 @@ mod tests {
         let audit = write_policy("audit");
         let permissive = write_policy("permissive");
 
+        // Load once + resolve, mirroring the production single-parse flow
+        // (build_host_config / apply_build_isolation). (ENG-22644)
+        let resolve = |cli: &Cli, path: Option<&Path>| {
+            let policy = load_policy_file(cli, path).unwrap();
+            resolve_security_mode(cli, policy.as_deref(), path).unwrap()
+        };
+
         // Default CLI (capsec = Auto): the committed policy's declared mode wins,
         // so an enforce policy resolves to Enforce — the build path then enables
         // per-package chunking instead of emitting a flat, single-principal bundle.
         let cli = Cli::parse_from(["ibex", "app.ts"]);
         assert_eq!(
-            resolve_security_mode(&cli, Some(enforce.as_path())).unwrap(),
+            resolve(&cli, Some(enforce.as_path())),
             SecurityMode::Enforce,
         );
         // Audit likewise implies per-package attribution.
+        assert_eq!(resolve(&cli, Some(audit.as_path())), SecurityMode::Audit);
         assert_eq!(
-            resolve_security_mode(&cli, Some(audit.as_path())).unwrap(),
-            SecurityMode::Audit,
-        );
-        assert_eq!(
-            resolve_security_mode(&cli, Some(permissive.as_path())).unwrap(),
+            resolve(&cli, Some(permissive.as_path())),
             SecurityMode::Permissive,
         );
 
         // No policy under Auto stays Permissive: an absent auto-discovered default
         // must not silently flip a build to chunked/enforced.
-        assert_eq!(
-            resolve_security_mode(&cli, None).unwrap(),
-            SecurityMode::Permissive,
-        );
+        assert_eq!(resolve(&cli, None), SecurityMode::Permissive);
 
         // The documented operator opt-outs override a committed enforce policy, so
         // a build under either stays flat: explicit `--capsec permissive` ...
         let forced = Cli::parse_from(["ibex", "--capsec", "permissive", "app.ts"]);
         assert_eq!(
-            resolve_security_mode(&forced, Some(enforce.as_path())).unwrap(),
+            resolve(&forced, Some(enforce.as_path())),
             SecurityMode::Permissive,
         );
         // ... and `--allow-all` (back-compat legacy escape hatch).
         let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
         assert_eq!(
-            resolve_security_mode(&allow_all, Some(enforce.as_path())).unwrap(),
+            resolve(&allow_all, Some(enforce.as_path())),
             SecurityMode::Permissive,
         );
     }

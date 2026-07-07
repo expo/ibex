@@ -409,11 +409,16 @@ prior "explicit env keeps precedence" behavior, which pre-dated the
 enforce-mode threat framing.) The artifact is also the security
 **mode** source: when no explicit `--capsec` is passed, the policy's `mode`
 field (`enforce`/`audit`/`permissive`) sets the runtime `SecurityMode`
-(`policy_declared_mode` → `build_host_config`), so a generated artifact that
-declares `mode: "enforce"` enforces without a redundant flag; `--allow-all` is
-the explicit permissive escape. (First-party root and the module loader are
-trusted under enforce so the app runs without self-granting — see LLP 0013
-§Mechanism 3.)
+(`load_policy_file` → `resolve_security_mode` → `build_host_config`), so a
+generated artifact that declares `mode: "enforce"` enforces without a
+redundant flag; `--allow-all` is the explicit permissive escape. (First-party
+root and the module loader are trusted under enforce so the app runs without
+self-granting — see LLP 0013 §Mechanism 3.) The CLI parses the artifact
+exactly once per startup (`load_policy_file`) and threads the parsed
+`PolicyFile` through mode resolution, capsec readiness, endowment
+composition, and `HostConfig.policy` into `Host::new` — one consistent
+snapshot rather than four independent reads of a file that could change
+between them (ENG-22644).
 
 #### Conformance
 
