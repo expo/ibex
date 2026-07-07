@@ -142,18 +142,10 @@ resolve_version() {
 # semantics in the llp0013 suites. Digest content + filenames so an edit,
 # add, remove, or reorder all miss the cache. (ENG-23131; mirrors the
 # hashFiles('patches/hermes/**') key compartment-conformance.yml already uses.)
-# @ref LLP 0013#upstream-tracking-and-re-derivation — the pin + patch stack is the fork
-patch_stack_digest() {
-    (
-        cd "$PROJECT_ROOT"
-        # shellcheck disable=SC2012 -- glob list feeds shasum; names matter.
-        ls patches/hermes/*.patch 2>/dev/null | LC_ALL=C sort \
-            | xargs shasum -a 256 2>/dev/null
-    ) | shasum -a 256 | awk '{ print substr($1, 1, 12) }'
-}
-
+# The digest derivation is shared with download-hermes.sh and the
+# hermes-artifacts publish workflow via scripts/hermes-version.sh (ENG-23147).
 VERSION_KEY=$(resolve_version "$HERMES_VERSION")
-PATCH_DIGEST=$(patch_stack_digest)
+PATCH_DIGEST=$(ibex_hermes_patch_digest)
 VERSION_CACHE="$CACHE_DIR/${VERSION_KEY}${DEBUG_SUFFIX}-p${PATCH_DIGEST}"
 
 echo "=== Hermes Build Script ==="

@@ -24,3 +24,39 @@ IBEX_HERMES_BUILD_REF="${IBEX_HERMES_BUILD_REF:-${IBEX_HERMES_SOURCE_COMMIT:-$IB
 
 IBEX_HERMES_ANDROID_VERSION="${IBEX_HERMES_ANDROID_VERSION:-250829098.0.14}"
 IBEX_REACT_ANDROID_VERSION="${IBEX_REACT_ANDROID_VERSION:-0.86.0}"
+
+# --- Shared build-identity helpers (ENG-23131 / ENG-23147) ---
+#
+# The Hermes artifact identity is <hermes-commit-12>-<patch-digest-12>: the
+# pinned upstream commit plus a digest of the carried patch stack (content AND
+# filenames, so an edit, add, remove, or rename all change the identity).
+# build-hermes.sh keys its local cache on it, the hermes-artifacts workflow
+# names published release bundles with it, and download-hermes.sh looks those
+# bundles up by it. There must be exactly ONE derivation of this digest — a
+# second scheme that drifted would let a stale bundle install as current.
+# @ref LLP 0013#upstream-tracking-and-re-derivation — the pin + patch stack is the fork
+
+# shasum (perl, preinstalled on macOS + GitHub runners) and sha256sum
+# (coreutils) emit identical "<hex>  <path>" lines, so either tool produces
+# the same digest below.
+ibex_sha256() {
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$@"
+    else
+        sha256sum "$@"
+    fi
+}
+
+ibex_hermes_patch_digest() {
+    local project_root
+    project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    (
+        cd "$project_root"
+        # shellcheck disable=SC2012 -- the sorted glob list feeds the digest;
+        # relative path names are part of the hashed content on purpose.
+        ls patches/hermes/*.patch 2>/dev/null | LC_ALL=C sort \
+            | while IFS= read -r patch_file; do
+                ibex_sha256 "$patch_file"
+            done
+    ) | ibex_sha256 | awk '{ print substr($1, 1, 12) }'
+}

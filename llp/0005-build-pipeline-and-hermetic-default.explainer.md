@@ -5,6 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-06 (download-first Hermes bootstrap via published artifact bundles — ENG-23147)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -182,19 +183,54 @@ data to Hermes host globals `[observed]` (`src/engine/native_android_networking.
 `platform/android/java/dev/ibex/runtime/IbexNetworking.java`; `build.rs`). This
 is a separate concern from the vendored-generated JS snapshot.
 
-The default Hermes source ref is centralized in `scripts/hermes-version.sh`.
-For Hermes `260318099.0.0`, upstream exposes the stable release as the
-`260318099.0.0-stable` source branch rather than as a GitHub release tag with
-Darwin runtime/CLI tarballs `[observed]`. `scripts/download-hermes.sh` is now an
-installer wrapper: on Darwin it delegates to `scripts/build-hermes.sh`, which
-builds host `hermesc`, iOS device/simulator frameworks, a macOS
-`hermesvm.framework`, headers, and CLI tools from the source ref; on Linux it
-delegates to `scripts/build-hermes-linux.sh` `[observed]`
-(`scripts/hermes-version.sh`; `scripts/download-hermes.sh`;
+The default Hermes source ref is centralized in `scripts/hermes-version.sh`,
+which pins an exact commit (`IBEX_HERMES_SOURCE_COMMIT`) because the upstream
+`260318099.0.0-stable` branch name moves (ENG-23092), and upstream publishes
+no prebuilt Darwin runtime/CLI tarballs for this release `[observed]`.
+`scripts/download-hermes.sh` is the installer entry point; the from-source
+builders are `scripts/build-hermes.sh` (Darwin: host `hermesc`/`hermes`, iOS
+device/simulator frameworks, a macOS `hermesvm.framework`, headers) and
+`scripts/build-hermes-linux.sh` (Linux: `libhermesvm`, `hermesc`, headers)
+`[observed]` (`scripts/hermes-version.sh`; `scripts/download-hermes.sh`;
 `scripts/build-hermes.sh`; `scripts/build-hermes-linux.sh`). `build.rs`
 resolves either `hermesvm.framework` or `hermes.framework` from a macOS
 framework parent and links the detected framework name; it intentionally does
 not treat a Catalyst slice as a macOS runtime `[observed]` (`build.rs`).
+
+### Prebuilt Hermes artifact bundles
+
+A cold clone should not pay the ~hour patched-Hermes build (nor inherit
+upstream toolchain breakage mid-bootstrap, the ENG-22565 failure class), so
+`download-hermes.sh` is download-first (ENG-23147): it derives the **artifact
+identity** `<hermes-commit-12>-<patch-digest-12>` — the pinned upstream commit
+plus a digest of the carried `patches/hermes/` stack, one shared derivation in
+`scripts/hermes-version.sh` (`ibex_hermes_patch_digest`), the same key
+`build-hermes.sh` uses for its local cache (ENG-23131) — and tries the GitHub
+Release `hermes-<identity>` on `ccheever/ibex` before building. Downloads are
+sha256-verified against the published `.sha256`, and a bundle is rejected
+unless it carries the patched `ex_hermes_vm_current_package_id` export and a
+runnable `hermesc` (an unpatched engine would make the LLP 0013
+frame-attribution suite skip vacuously). On Darwin the bundle is unpacked into
+`build-hermes.sh`'s cache and installed through its cache-hit path, so
+downloaded and built installs share one codepath. Any miss, checksum mismatch,
+or validation failure falls back to the from-source build; if the download
+path was attempted and the source build also fails, the script exits nonzero
+naming both causes (LLP 0018 — never a quiet partial install) `[observed]`
+(`scripts/download-hermes.sh`; `scripts/hermes-version.sh`).
+
+Bundles are published by `.github/workflows/hermes-artifacts.yml` (manual
+dispatch, or push to `main` touching the pin, the patch stack, or the build
+scripts). It builds via the same `build-hermes*.sh` builders (so the patch
+stack is applied), asserts the patched export with `nm` before uploading, and
+uploads per-platform tarballs + checksums idempotently (`--clobber`) to a
+prerelease tagged `hermes-<identity>` — clearly an artifact cache, not a
+product release. Because the identity includes the patch digest, editing a
+patch or bumping the pin makes downloads miss (falling back to source builds)
+until the workflow publishes the new identity. The download path only serves
+the pinned-commit, default-configuration build; non-default configurations
+(`HERMES_ENABLE_DEBUGGER=false`, Linux `HERMES_ENABLE_INTL=true`) and
+`IBEX_HERMES_FORCE_BUILD=1` go straight to source `[observed]`
+(`.github/workflows/hermes-artifacts.yml`; `scripts/download-hermes.sh`).
 
 Android remains a separate artifact channel. It consumes Maven/PREFAB artifacts
 through `scripts/install-android-hermes.sh`; Maven Central does not yet publish

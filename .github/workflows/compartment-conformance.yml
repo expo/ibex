@@ -66,6 +66,11 @@ jobs:
       - name: Build patched Hermes (on cache miss)
         if: steps.hermes-cache.outputs.cache-hit != 'true'
         run: ./scripts/download-hermes.sh
+        env:
+          # download-hermes.sh is download-first (ENG-23147): with a token, gh
+          # can fetch the prebuilt patched bundle from this repo's artifact-cache
+          # release instead of paying the ~hour source build on a key miss.
+          GH_TOKEN: ${{ github.token }}
 
       - name: Build ibex
         run: cargo build
