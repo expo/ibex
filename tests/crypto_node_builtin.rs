@@ -370,7 +370,10 @@ async fn dh_compute_secret_rejects_out_of_range_public_keys() {
     assert_eq!(parsed["p"], large, "y=p must be rejected: {result}");
     assert_eq!(parsed["pMinus1"], large, "y=p-1 must be rejected: {result}");
     assert_eq!(parsed["tooBig"], large, "y>p must be rejected: {result}");
-    assert_eq!(parsed["valid"], true, "in-range peer keys must keep working: {result}");
+    assert_eq!(
+        parsed["valid"], true,
+        "in-range peer keys must keep working: {result}"
+    );
 }
 
 /// ENG-23465 finding 1: bare string inputs to pbkdf2/scrypt/hkdf/
@@ -389,15 +392,26 @@ async fn kdf_and_cipher_string_inputs_default_to_utf8() {
         return JSON.stringify(out); })()";
     let result = eval(js).await;
     let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
-    assert_eq!(parsed["pbkdf2"], "f6305ae2b0e9cd43a1c04f7af100cbed", "pbkdf2 utf8 golden: {result}");
-    assert_eq!(parsed["scrypt"], "afa3397a7eda04ece515b3c965505918", "scrypt utf8 golden: {result}");
-    assert_eq!(parsed["hkdf"], "1df47305515732fb2567394402e29dbb", "hkdf utf8 golden: {result}");
     assert_eq!(
-        parsed["secretKeyHmac"],
-        "fc397a5e543c0c71e75934f428fc7478ae5fe0495bb2a53313b88f3410cdfa09",
+        parsed["pbkdf2"], "f6305ae2b0e9cd43a1c04f7af100cbed",
+        "pbkdf2 utf8 golden: {result}"
+    );
+    assert_eq!(
+        parsed["scrypt"], "afa3397a7eda04ece515b3c965505918",
+        "scrypt utf8 golden: {result}"
+    );
+    assert_eq!(
+        parsed["hkdf"], "1df47305515732fb2567394402e29dbb",
+        "hkdf utf8 golden: {result}"
+    );
+    assert_eq!(
+        parsed["secretKeyHmac"], "fc397a5e543c0c71e75934f428fc7478ae5fe0495bb2a53313b88f3410cdfa09",
         "createSecretKey utf8 golden: {result}"
     );
-    assert_eq!(parsed["cipher"], "fc8f3a5026024f880c5713abebd34526", "cipher.update utf8 golden: {result}");
+    assert_eq!(
+        parsed["cipher"], "fc8f3a5026024f880c5713abebd34526",
+        "cipher.update utf8 golden: {result}"
+    );
 }
 
 /// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
@@ -474,16 +488,41 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
     // silently generating a P-256 key (length 65) is not.
     let ecdh = &parsed["ecdh384"];
     assert!(
-        ecdh == 97 || ecdh.as_str().map(|s| s.starts_with("ERR:")).unwrap_or(false),
+        ecdh == 97
+            || ecdh
+                .as_str()
+                .map(|s| s.starts_with("ERR:"))
+                .unwrap_or(false),
         "secp384r1 keys must be P-384-sized or throw honestly, never P-256: {result}"
     );
-    assert_eq!(parsed["primeIsPrime"], true, "generatePrimeSync must return a real prime: {result}");
-    assert_eq!(parsed["primeBits"], 64, "generatePrimeSync must honor the exact bit length: {result}");
-    assert_eq!(parsed["primeAb"], true, "non-bigint generatePrimeSync returns an ArrayBuffer: {result}");
-    assert_eq!(parsed["dhHexPrime"], "bb", "createDiffieHellman must decode the prime encoding: {result}");
-    assert_eq!(parsed["der"], "buffer", "der-format key encoding must return a Buffer: {result}");
-    assert_eq!(parsed["badKey"], "ERR_CRYPTO_INVALID_KEYLEN", "Decipher must validate key length: {result}");
-    assert_eq!(parsed["badIv"], "ERR_CRYPTO_INVALID_IV", "CTR must validate IV length: {result}");
+    assert_eq!(
+        parsed["primeIsPrime"], true,
+        "generatePrimeSync must return a real prime: {result}"
+    );
+    assert_eq!(
+        parsed["primeBits"], 64,
+        "generatePrimeSync must honor the exact bit length: {result}"
+    );
+    assert_eq!(
+        parsed["primeAb"], true,
+        "non-bigint generatePrimeSync returns an ArrayBuffer: {result}"
+    );
+    assert_eq!(
+        parsed["dhHexPrime"], "bb",
+        "createDiffieHellman must decode the prime encoding: {result}"
+    );
+    assert_eq!(
+        parsed["der"], "buffer",
+        "der-format key encoding must return a Buffer: {result}"
+    );
+    assert_eq!(
+        parsed["badKey"], "ERR_CRYPTO_INVALID_KEYLEN",
+        "Decipher must validate key length: {result}"
+    );
+    assert_eq!(
+        parsed["badIv"], "ERR_CRYPTO_INVALID_IV",
+        "CTR must validate IV length: {result}"
+    );
 }
 
 /// ENG-23465 finding 3: verify.verify(key, signature, signatureEncoding)

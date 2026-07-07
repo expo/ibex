@@ -784,7 +784,8 @@ server.listen(0, '127.0.0.1', function() {
     let parsed = run_script(script, 60).await;
     assert_eq!(parsed["error"], Value::Null, "no watchdog/error: {parsed}");
     assert_eq!(
-        parsed["chained"], Value::Bool(true),
+        parsed["chained"],
+        Value::Bool(true),
         "setKeepAlive returns the socket: {parsed}"
     );
     assert_eq!(
