@@ -61,6 +61,94 @@ g.__exactUnlink = (p: string) => nodeFs.unlinkSync(p);
 g.__exactReaddir = (p: string) => JSON.stringify(nodeFs.readdirSync(p));
 g.__exactMkdir = (p: string, recursive: boolean) => nodeFs.mkdirSync(p, { recursive });
 
+// --- ENG-23497 — worker-pool async natives (__exactFs*Async). fs.js routes
+//     the callback/promise/stream paths through these when present, so they
+//     MUST be stubbed here or every fs test in this suite crashes (see the
+//     __exactChmod incident fixed in ENG-23480). Backed by Node's sync fs:
+//     the harness only needs the contract (resolve payload shape / reject
+//     with Node's own errno errors), not real off-thread execution. `flags`
+//     arrives numeric (fs.js normalizes flag strings before the native call).
+function readAllFromFd(fd: number): Uint8Array {
+  const chunks: Buffer[] = [];
+  const buf = Buffer.allocUnsafe(65536);
+  for (;;) {
+    const n = nodeFs.readSync(fd, buf, 0, buf.length, null);
+    if (n <= 0) break;
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+  }
+  const all = Buffer.concat(chunks);
+  return new Uint8Array(all.buffer, all.byteOffset, all.length);
+}
+function writeAllToFd(fd: number, bytes: Uint8Array): void {
+  let off = 0;
+  while (off < bytes.length) {
+    off += nodeFs.writeSync(fd, bytes, off, bytes.length - off, null);
+  }
+}
+g.__exactFsReadFileAsync = (target: string | number, flags: number, mode: number) => {
+  try {
+    if (typeof target === 'number') {
+      return Promise.resolve(readAllFromFd(target));
+    }
+    const fd = nodeFs.openSync(target, flags, mode);
+    try {
+      return Promise.resolve(readAllFromFd(fd));
+    } finally {
+      nodeFs.closeSync(fd);
+    }
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsWriteFileAsync = (
+  target: string | number, bytes: Uint8Array, flags: number | null, mode: number, flush: boolean,
+) => {
+  try {
+    if (typeof target === 'number') {
+      writeAllToFd(target, bytes);
+      if (flush) nodeFs.fsyncSync(target);
+      return Promise.resolve(undefined);
+    }
+    const fd = nodeFs.openSync(target, flags ?? 'w', mode);
+    try {
+      writeAllToFd(fd, bytes);
+      if (flush) nodeFs.fsyncSync(fd);
+    } finally {
+      nodeFs.closeSync(fd);
+    }
+    return Promise.resolve(undefined);
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsReadAsync = (fd: number, length: number, position: number) => {
+  try {
+    const buf = Buffer.allocUnsafe(length);
+    const pos = typeof position === 'number' && position >= 0 ? position : null;
+    const n = nodeFs.readSync(fd, buf, 0, length, pos);
+    return Promise.resolve(new Uint8Array(buf.buffer, buf.byteOffset, n));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsWriteAsync = (fd: number, bytes: Uint8Array, position: number) => {
+  try {
+    const pos = typeof position === 'number' && position >= 0 ? position : null;
+    return Promise.resolve(nodeFs.writeSync(fd, bytes, 0, bytes.length, pos));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsStatAsync = (target: string | number, kind: string) => {
+  try {
+    if (kind === 'fstat') return Promise.resolve(statJson(nodeFs.fstatSync(target as number)));
+    if (kind === 'lstat') return Promise.resolve(statJson(nodeFs.lstatSync(target as string)));
+    return Promise.resolve(statJson(nodeFs.statSync(target as string)));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+
 const require = createRequire(import.meta.url);
 const fs = require('../../../src/builtins/fs.js');
 const fsp = require('../../../src/builtins/fs-promises.js');

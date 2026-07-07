@@ -116,6 +116,50 @@ throwing timer). Likewise the JS-side `unhandledrejection` default action sets
 crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
 silent green for any CI or agent using the exit code as the pass/fail signal.
 
+### Blocking-work worker pools
+
+Anything that would block the JS thread for longer than a scheduling quantum
+runs on a bounded pool of detached worker threads and delivers its completion
+back through `pushRuntimeCallback` + `ex_hermes_notify_callback`: DNS
+resolution (`DnsWorkerPool`, ENG-22995), fetch on Linux (`FetchWorkerPool`,
+ENG-23471), and — since ENG-23497 — the async fs API (`FsWorkerPool`,
+`src/engine/hermes_runtime_fs.cc`). The fs pool backs
+`__exactFsReadFileAsync` / `__exactFsWriteFileAsync` / `__exactFsReadAsync` /
+`__exactFsWriteAsync` / `__exactFsStatAsync`; `src/builtins/fs.js` routes
+`readFile`/`writeFile`/`appendFile`/`read`/`write`/`stat`/`lstat`/`fstat`,
+`fs.promises`, `FileHandle`, and the ReadStream/WriteStream data paths through
+them when present, and falls back to the historical deferred-sync path when
+absent (the Windows fs backend does not implement them yet). `*Sync` entry
+points remain synchronous by design. Before ENG-23497 the whole "async" fs
+API ran its syscalls synchronously on the JS thread and only deferred the
+callback, so one large `readFile` starved timers and sockets for its full
+duration.
+
+The shared pool discipline, learned the hard way:
+
+- **Immortal heap singleton.** A pool with detached workers must be
+  `static Pool* pool = new Pool(); return *pool;` — never a function-local
+  by-value static. glibc deadlocks `exit()` when static destructors destroy a
+  mutex/condvar that still has parked waiters (Linux-only; macOS never
+  reproduces it). See `native_fetch_linux.cc`'s `FetchWorkerPool` and
+  ENG-23471/ENG-23498.
+- **Queue, don't early-reject.** Reject an enqueue only when the backlog is
+  genuinely full; an `idle == 0 && total >= kMaxWorkers` early-reject turns a
+  one-tick fan-out (`Promise.all`) into spurious failures (ENG-23022).
+- **Keepalive counter.** Each subsystem counts in-flight ops in an atomic on
+  the runtime handle (`pending_dns_lookups`, `pending_fs_ops`) that the loop's
+  referenced-work checks consult; otherwise the process exits before the
+  worker delivers its completion.
+- **No JSI off-thread; checks stay on the JS thread.** Workers touch plain
+  data only. Argument validation and capability checks (the deputy stack is
+  JS-thread-local) run before enqueue; errno capture happens on the worker at
+  failure time and is rehydrated into a Node-shaped error on delivery.
+- **Ordering matches Node.** Independent ops on the pool may reorder, exactly
+  like Node's libuv threadpool (verified against Node v25: `writeFile`
+  immediately followed by `readFile` of the same path can observe ENOENT).
+  Anything that needs ordering must chain on the completion, which is what
+  WriteStream's serialized `pendingWrites` queue does.
+
 ## The platform shims (map)
 
 Each `src/engine/hermes_runtime_*.cc` file installs a family of native host

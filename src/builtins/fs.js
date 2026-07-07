@@ -938,6 +938,135 @@ function _makeFileTooLargeError(size) {
   return err;
 }
 
+// --- True-async fs routing (ENG-23497) ---------------------------------------
+// The callback/promise fs API used to run its I/O synchronously on the JS
+// thread and merely defer the callback, so a large readFile stalled timers,
+// sockets, and every other JS task. When the worker-pool-backed async natives
+// (__exactFs*Async) are present, readFile/writeFile/appendFile/read/write/
+// stat/lstat/fstat and the stream data paths route through them; when absent
+// (Windows backend, partial test harnesses) they fall back to the historical
+// deferred-sync path. *Sync entry points always stay synchronous.
+// @ref LLP 0003#blocking-work-worker-pools — worker-pool discipline and why
+// independent async ops may reorder (Node-faithful).
+
+function _fsAsyncNative(name) {
+  ensureExactFs();
+  var fn = g[name];
+  return typeof fn === 'function' ? fn : null;
+}
+
+// Rehydrate a rejection from an async fs native into the same Node error
+// shape the sync path produces. The natives carry structured code/errno/
+// syscall/path properties (errno positive as captured on the worker thread;
+// _makeFsError flips it negative to match Node).
+function _asyncFsError(err, syscall, path, dest) {
+  if (err && err.code === 'ERR_FS_FILE_TOO_LARGE') {
+    return _makeFileTooLargeError(err.size);
+  }
+  var resolvedSyscall = err && typeof err.syscall === 'string' ? err.syscall : syscall;
+  return _makeFsError(err, resolvedSyscall, path, dest);
+}
+
+// Wrap bytes we exclusively own (fresh from an async native — no other JS
+// reference exists) as a Buffer without copying: Buffer.from(TypedArray)
+// copies the contents (which for a multi-hundred-MB readFile result would
+// stall the JS thread for seconds, defeating the async path), while
+// Buffer.from(ArrayBuffer, offset, length) wraps in place. (ENG-23497)
+function _wrapOwnedBytesAsBuffer(bytes) {
+  if (typeof Buffer !== 'undefined' && Buffer.from && bytes &&
+      !Buffer.isBuffer(bytes) && bytes.buffer &&
+      typeof bytes.byteOffset === 'number' && typeof bytes.length === 'number') {
+    try {
+      return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length);
+    } catch (e) { /* ignored: fall through to the copying wrapBuffer path */ }
+  }
+  return wrapBuffer(bytes);
+}
+
+// Whole-file read via __exactFsReadFileAsync. Mirrors readFileSync's
+// validation/encoding handling; returns a Promise. Throws synchronously for
+// argument errors (callers decide whether to surface those via callback).
+function _asyncReadFileImpl(native, pathOrFd, readOptions) {
+  var encoding = readOptions.encoding;
+  var signal = readOptions.signal;
+  var isFd = typeof pathOrFd === 'number';
+  var target;
+  if (isFd) {
+    target = pathOrFd;
+  } else {
+    _validatePath(pathOrFd);
+    target = _pathToString(pathOrFd);
+  }
+  var flags = _normalizeOpenFlagsValue(readOptions.flag || readOptions.flags || 'r');
+  var mode = _normalizeOpenModeValue(readOptions.mode);
+  return native(target, flags, mode).then(function(bytes) {
+    if (signal && signal.aborted === true) {
+      throw _makeAbortError(signal.reason);
+    }
+    if (encoding) return decodeBytes(bytes, encoding);
+    return _wrapOwnedBytesAsBuffer(bytes);
+  }, function(err) {
+    throw _asyncFsError(err, isFd ? 'read' : 'open', isFd ? undefined : target);
+  });
+}
+
+// Whole-file write via __exactFsWriteFileAsync (also serves appendFile with
+// defaultFlag 'a'). targetInfo is a _getFdOrPath result. Returns a Promise.
+function _asyncWriteFileImpl(native, targetInfo, data, writeOptions, defaultFlag) {
+  var bytes = toUint8Array(data, writeOptions.encoding);
+  var flush = writeOptions.flush === true;
+  if (targetInfo.fd !== null && targetInfo.fd !== undefined) {
+    return native(targetInfo.fd, bytes, null, 438, flush).then(undefined, function(err) {
+      throw _asyncFsError(err, 'write', targetInfo.path || undefined);
+    });
+  }
+  var p = targetInfo.path;
+  var flags = _normalizeOpenFlagsValue(writeOptions.flag || writeOptions.flags || defaultFlag);
+  var mode = _normalizeOpenModeValue(writeOptions.mode);
+  return native(p, bytes, flags, mode, flush).then(undefined, function(err) {
+    throw _asyncFsError(err, 'open', p);
+  });
+}
+
+// stat/lstat/fstat via __exactFsStatAsync; resolves a Stats object.
+function _asyncStatImpl(native, target, kind, statOptions) {
+  return native(target, kind).then(function(json) {
+    return _makeStats(json, statOptions);
+  }, function(err) {
+    throw _asyncFsError(err, kind, typeof target === 'string' ? target : undefined);
+  });
+}
+
+// fs.read-shaped chunk read via __exactFsReadAsync: reads into `buffer` at
+// the validated offset, resolves the byte count.
+function _asyncReadIntoBuffer(native, fd, buffer, offset, length, position) {
+  var readArgs = _normalizeFsReadArgs(buffer, offset, length, position);
+  return native(fd, readArgs.length, readArgs.position).then(function(data) {
+    if (data.length > 0) {
+      if (!readArgs.targetBuffer.__isExactBuffer && typeof readArgs.targetBuffer.set === 'function') {
+        readArgs.targetBuffer.set(data, readArgs.offset);
+      } else {
+        for (var i = 0; i < data.length; i++) {
+          readArgs.targetBuffer[readArgs.offset + i] = data[i];
+        }
+      }
+    }
+    return data.length;
+  }, function(err) {
+    throw _asyncFsError(err, 'read');
+  });
+}
+
+// fs.write-shaped chunk write via __exactFsWriteAsync; resolves bytesWritten.
+// Argument validation happens synchronously (in _prepareWriteArgs) before the
+// native is invoked, matching writeSync.
+function _asyncWriteFromArgs(native, fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+  var writeArgs = _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position);
+  return native(fd, writeArgs.bytes, writeArgs.position).then(undefined, function(err) {
+    throw _asyncFsError(err, 'write');
+  });
+}
+
 function _normalizeWatchOptions(options) {
   if (options === undefined || options === null) {
     return {};
@@ -1121,6 +1250,25 @@ function _promisesWriteFile(target, data, options) {
   var signal = writeOptions && writeOptions.signal;
   if (signal && signal.aborted === true) {
     return Promise.reject(_makeAbortError());
+  }
+
+  var asyncNative = _fsAsyncNative('__exactFsWriteFileAsync');
+  if (asyncNative) {
+    try {
+      return _asyncWriteFileImpl(asyncNative, targetInfo, data, writeOptions, 'w').then(function() {
+        if (signal && signal.aborted === true) {
+          throw _makeAbortError(signal.reason);
+        }
+        return undefined;
+      });
+    } catch (err) {
+      // Keep ERR_*-coded validation errors intact; only errno-style failures
+      // get the fs error shape.
+      if (err && typeof err.code === 'string' && err.code.indexOf('ERR_') === 0) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(_makeFsError(err, 'open', targetInfo.path));
+    }
   }
 
   var fd = targetInfo.fd;
@@ -2744,23 +2892,37 @@ function readFile(path, optOrCb, cb) {
   if (signal && typeof signal.addEventListener === 'function') {
     signal.addEventListener('abort', onAbort);
   }
+  var finish = function(err, result) {
+    if (completed) return;
+    completed = true;
+    if (signal && typeof signal.removeEventListener === 'function') {
+      signal.removeEventListener('abort', onAbort);
+    }
+    if (err) callback(err);
+    else callback(null, result);
+  };
+  var asyncNative = _fsAsyncNative('__exactFsReadFileAsync');
+  if (asyncNative) {
+    var readPromise;
+    try {
+      readPromise = _asyncReadFileImpl(asyncNative, path, readOptions);
+    } catch (err) {
+      // Validation errors surface via the callback, matching the deferred-sync
+      // path (which threw them from inside the deferred readFileSync call).
+      _deferFsCallback(function() { finish(err); });
+      return;
+    }
+    readPromise.then(function(result) { finish(null, result); },
+                     function(err) { finish(err); });
+    return;
+  }
   _deferFsCallback(function() {
     if (completed) return;
     try {
       var result = readFileSync(path, readOptions);
-      if (completed) return;
-      completed = true;
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      callback(null, result);
+      finish(null, result);
     } catch (err) {
-      if (completed) return;
-      completed = true;
-      if (signal && typeof signal.removeEventListener === 'function') {
-        signal.removeEventListener('abort', onAbort);
-      }
-      callback(err);
+      finish(err);
     }
   });
 }
@@ -2781,11 +2943,32 @@ function writeFile(path, data, optOrCb, cb) {
     }
     throw err;
   }
+  if (_routeAsyncWriteFileCallback(target, data, writeOptions, 'w', callback)) {
+    return;
+  }
   if (writeOptions.flush === true) {
     _writeFileWithFlushCallback(target, data, writeOptions, false, callback);
     return;
   }
   wrapCallback(function() { writeFileSync(target.path || target.fd, data, writeOptions); }, callback, 'open', target.path);
+}
+
+// Route a callback writeFile/appendFile through the async native (flush
+// included — the worker fsyncs before resolving). Returns false when the
+// native is unavailable so the caller falls back to the deferred-sync path.
+function _routeAsyncWriteFileCallback(target, data, writeOptions, defaultFlag, callback) {
+  var native = _fsAsyncNative('__exactFsWriteFileAsync');
+  if (!native) return false;
+  var writePromise;
+  try {
+    writePromise = _asyncWriteFileImpl(native, target, data, writeOptions, defaultFlag);
+  } catch (err) {
+    var error = _makeFsError(err, 'open', target.path);
+    _deferFsCallback(function() { callback(error); });
+    return true;
+  }
+  writePromise.then(function() { callback(null); }, function(err) { callback(err); });
+  return true;
 }
 
 function appendFile(path, data, optOrCb, cb) {
@@ -2804,6 +2987,9 @@ function appendFile(path, data, optOrCb, cb) {
     }
     throw err;
   }
+  if (_routeAsyncWriteFileCallback(target, data, writeOptions, 'a', callback)) {
+    return;
+  }
   if (writeOptions.flush === true) {
     _writeFileWithFlushCallback(target, data, writeOptions, true, callback);
     return;
@@ -2811,11 +2997,39 @@ function appendFile(path, data, optOrCb, cb) {
   wrapCallback(function() { appendFileSync(target.path || target.fd, data, writeOptions); }, callback, 'open', target.path);
 }
 
+// Shared callback routing for fs.stat/fs.lstat through the async stat native.
+// Preserves statSync's throwIfNoEntry:false → undefined-result contract.
+// Returns false when the native is unavailable.
+function _routeAsyncStatCallback(path, opts, kind, callback) {
+  var native = _fsAsyncNative('__exactFsStatAsync');
+  if (!native) return false;
+  var statPromise, statOptions;
+  try {
+    _coerceStatOptions(opts);
+    var p = _pathToString(path);
+    statOptions = _extractStatOptions(opts);
+    statPromise = _asyncStatImpl(native, p, kind, statOptions);
+  } catch (err) {
+    var error = _makeFsError(err, kind, _pathToString(path));
+    _deferFsCallback(function() { callback(error); });
+    return true;
+  }
+  statPromise.then(function(stats) { callback(null, stats); }, function(err) {
+    if (statOptions.throwIfNoEntry === false && err && err.code === 'ENOENT') {
+      callback(null);
+      return;
+    }
+    callback(err);
+  });
+  return true;
+}
+
 function stat(path, optOrCb, cb) {
   var opts, callback;
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
+  if (_routeAsyncStatCallback(path, opts, 'stat', callback)) return;
   wrapCallback(function() { return statSync(path, opts); }, callback, 'stat', _pathToString(path));
 }
 function lstat(path, optOrCb, cb) {
@@ -2823,6 +3037,7 @@ function lstat(path, optOrCb, cb) {
   if (typeof optOrCb === 'function') { callback = optOrCb; } else { opts = optOrCb; callback = cb; }
   _validateCallback(callback);
   _validatePath(path);
+  if (_routeAsyncStatCallback(path, opts, 'lstat', callback)) return;
   wrapCallback(function() { return lstatSync(path, opts); }, callback, 'lstat', _pathToString(path));
 }
 function readdir(path, optOrCb, cb) {
@@ -2907,10 +3122,7 @@ function exists(path, cb) {
   _deferFsCallback(function() { try { cb(existsSync(path)); } catch(e) {} });
 }
 
-function openSync(path, flags, mode) {
-  _validatePath(path);
-  ensureExactFs();
-  var p = _pathToString(path);
+function _normalizeOpenFlagsValue(flags) {
   var f = flags === undefined ? 'r' : flags;
   if (typeof f === 'number') {
     if (!Number.isFinite(f) || f % 1 !== 0 || f < 0 || f > 0x7fffffff) {
@@ -2918,28 +3130,41 @@ function openSync(path, flags, mode) {
       invalidNumErr.code = 'ERR_INVALID_ARG_VALUE';
       throw invalidNumErr;
     }
-  } else if (typeof f === 'string') {
-    f = _parseFsOpenFlags(f);
-  } else {
-    var flagsErr = new TypeError('The value of \"flags\" is invalid. It must be a string or a number. Received ' + JSON.stringify(f));
-    flagsErr.code = 'ERR_INVALID_ARG_VALUE';
-    throw flagsErr;
+    return f;
   }
-  var m;
+  if (typeof f === 'string') {
+    return _parseFsOpenFlags(f);
+  }
+  var flagsErr = new TypeError('The value of \"flags\" is invalid. It must be a string or a number. Received ' + JSON.stringify(f));
+  flagsErr.code = 'ERR_INVALID_ARG_VALUE';
+  throw flagsErr;
+}
+
+function _normalizeOpenModeValue(mode) {
   if (mode === undefined || mode === null) {
-    m = 438; // 0o666
-  } else if (typeof mode === 'number') {
-    m = mode;
-  } else if (typeof mode === 'string') {
-    m = parseInt(mode, 8);
+    return 438; // 0o666
+  }
+  if (typeof mode === 'number') {
+    return mode;
+  }
+  if (typeof mode === 'string') {
+    var m = parseInt(mode, 8);
     if (isNaN(m)) {
       var err = new TypeError('The argument \'mode\' must be a 32-bit unsigned integer or an octal string. Received ' + JSON.stringify(mode));
       err.code = 'ERR_INVALID_ARG_VALUE';
       throw err;
     }
-  } else {
-    throw _fsInvalidArgType('mode', 'number', mode);
+    return m;
   }
+  throw _fsInvalidArgType('mode', 'number', mode);
+}
+
+function openSync(path, flags, mode) {
+  _validatePath(path);
+  ensureExactFs();
+  var p = _pathToString(path);
+  var f = _normalizeOpenFlagsValue(flags);
+  var m = _normalizeOpenModeValue(mode);
   try { return g.__exactFsOpen(p, f, m); } catch(e) { throw _makeFsError(e, 'open', p); }
 }
 
@@ -2982,10 +3207,11 @@ function readSync(fd, buffer, offset, length, position) {
   }
 }
 
-function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
-  ensureExactFs();
-  _validateFd(fd);
-  // Handle writeSync(fd, buffer, options) form
+// Validate and normalize fs.write/writeSync arguments into the bytes + position
+// actually handed to the native. Shared by writeSync and the async write
+// routing so both paths apply identical validation and slicing. (ENG-23497)
+function _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+  // Handle (fd, buffer, options) form
   if (typeof bufferOrString !== 'string' && typeof offsetOrPosition === 'object' && offsetOrPosition !== null) {
     var wopts = offsetOrPosition;
     offsetOrPosition = wopts.offset === undefined ? 0 : wopts.offset;
@@ -2996,15 +3222,12 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
     if (offsetOrPosition !== undefined && offsetOrPosition !== null && typeof offsetOrPosition !== 'number') {
       throw _fsInvalidArgType('position', 'bigint or integer', offsetOrPosition);
     }
-    var pos = _validateReadWritePosition('position', offsetOrPosition);
+    var strPos = _validateReadWritePosition('position', offsetOrPosition);
     if (lengthOrEncoding !== undefined && lengthOrEncoding !== null && typeof lengthOrEncoding === 'string') {
       _assertEncoding(lengthOrEncoding);
       _validateStringWriteEncoding(bufferOrString, lengthOrEncoding);
     }
-    var bytes = toUint8Array(bufferOrString, lengthOrEncoding);
-    try {
-      return g.__exactFsWrite(fd, bytes, pos);
-    } catch(err) { throw _makeFsError(err, 'write'); }
+    return { bytes: toUint8Array(bufferOrString, lengthOrEncoding), position: strPos };
   }
   if (!_isBufferLike(bufferOrString)) {
     throw _fsInvalidArgType('buffer', 'an instance of Buffer, TypedArray, or DataView', bufferOrString);
@@ -3025,8 +3248,15 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
   if (off !== 0 || len !== bufferLen) {
     slice = bytesBuffer.subarray(off, off + len);
   }
+  return { bytes: slice, position: pos };
+}
+
+function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+  ensureExactFs();
+  _validateFd(fd);
+  var writeArgs = _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position);
   try {
-    return g.__exactFsWrite(fd, slice, pos);
+    return g.__exactFsWrite(fd, writeArgs.bytes, writeArgs.position);
   } catch(err) { throw _makeFsError(err, 'write'); }
 }
 
@@ -3340,6 +3570,13 @@ function fsRead(fd, buffer, offset, length, position, cb) {
   if (!validateCallbackFirst) {
     _validateCallback(cb);
   }
+  var asyncNative = _fsAsyncNative('__exactFsReadAsync');
+  if (asyncNative) {
+    _asyncReadIntoBuffer(asyncNative, fd, buffer, offset, length, position).then(
+        function(bytesRead) { cb(null, bytesRead, buffer); },
+        function(err) { cb(err); });
+    return;
+  }
   try {
     var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
     if (data.length > 0) {
@@ -3428,6 +3665,16 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
       throw _fsOutOfRange('length', len, 0, bufLen - off);
     }
   }
+  var asyncNative = _fsAsyncNative('__exactFsWriteAsync');
+  if (asyncNative) {
+    _validateFd(fd);
+    // Argument validation throws synchronously (ERR_* codes), matching the
+    // sync-backed path below; only I/O errors flow to the callback.
+    _asyncWriteFromArgs(asyncNative, fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position).then(
+        function(written) { cb(null, written, bufferOrString); },
+        function(err) { cb(err); });
+    return;
+  }
   try {
     var written = writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
     _deferFsWriteCallback(function() { cb(null, written, bufferOrString); });
@@ -3464,7 +3711,10 @@ function _initReadStream(rs, path, options) {
   var Stream = _getStreamModule();
   var opts = typeof options === 'string' ? { encoding: options } : (options || {});
   var fsModule = opts.fs || require('fs');
-  var useSyncReadFastPath = opts.fs === undefined;
+  // Prefer the true-async fs.read path when the worker-pool native exists so
+  // stream reads never block the JS thread; the sync fast path remains for
+  // backends without the async natives. (ENG-23497)
+  var useSyncReadFastPath = opts.fs === undefined && !_fsAsyncNative('__exactFsReadAsync');
   _validateFsOptions('options.fs', opts.fs, ['open', 'close', 'read']);
   var encoding = opts.encoding || null;
   var start = 0;
@@ -4197,6 +4447,38 @@ function emitWriteError(err, callback, operation) {
       ws.bytesWritten += writtenBytes;
       if (typeof callback === 'function') callback();
     };
+
+    // With the worker-pool write native available (and no custom opts.fs
+    // override), chain the batched chunks through async fs.write so a large
+    // cork/uncork flush never blocks the JS thread. pendingWrites already
+    // serializes stream writes, so the chain preserves order. (ENG-23497)
+    if (opts.fs === undefined && _fsAsyncNative('__exactFsWriteAsync')) {
+      var writtenTotalAsync = 0;
+      var nextIndex = 0;
+      var writeNext = function() {
+        if (nextIndex >= buffers.length) {
+          done(null, writtenTotalAsync);
+          return;
+        }
+        var chunkBuf = buffers[nextIndex];
+        nextIndex += 1;
+        var chunkOffset = position === null ? -1 : position + writtenTotalAsync;
+        try {
+          fsWrite(fd, chunkBuf, 0, chunkBuf.length, chunkOffset, function(err, written) {
+            if (err) {
+              done(err);
+              return;
+            }
+            writtenTotalAsync += typeof written === 'number' ? written : chunkBuf.length;
+            writeNext();
+          });
+        } catch (err) {
+          done(err);
+        }
+      };
+      writeNext();
+      return;
+    }
 
     try {
       var writtenTotal = 0;
@@ -5263,6 +5545,12 @@ FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
       var off = (typeof offset === 'number') ? offset : 0;
       var len = (typeof length === 'number') ? length : (buffer.length - off);
       var pos = (position === undefined || position === null) ? -1 : position;
+      var native = _fsAsyncNative('__exactFsReadAsync');
+      if (native) {
+        return _asyncReadIntoBuffer(native, handle.fd, buffer, off, len, pos).then(function(bytesRead) {
+          return { bytesRead: bytesRead, buffer: buffer };
+        });
+      }
       var bytesRead = readSync(handle.fd, buffer, off, len, pos);
       return { bytesRead: bytesRead, buffer: buffer };
     }
@@ -5276,6 +5564,12 @@ FileHandlePromise.prototype.write = function(buffer, offset, length, position) {
     var off = (typeof offset === 'number') ? offset : 0;
     var len = (typeof length === 'number') ? length : (buffer.length - off);
     var pos = (position === undefined || position === null) ? -1 : position;
+    var native = _fsAsyncNative('__exactFsWriteAsync');
+    if (native) {
+      return _asyncWriteFromArgs(native, handle.fd, buffer, off, len, pos).then(function(bytesWritten) {
+        return { bytesWritten: bytesWritten, buffer: buffer };
+      });
+    }
     var bytesWritten = writeSync(handle.fd, buffer, off, len, pos);
     return { bytesWritten: bytesWritten, buffer: buffer };
   })();
@@ -5313,6 +5607,13 @@ FileHandlePromise.prototype.appendFile = function(data, options) {
   return _resolveAsync(function() {
     handle._ensureOpen();
     // Resolves with undefined, matching Node (ENG-23480 #13).
+    var native = _fsAsyncNative('__exactFsWriteFileAsync');
+    if (native) {
+      _validateWriteData(data);
+      var writeOptions = _normalizeWriteOptions(options);
+      return _asyncWriteFileImpl(
+          native, { fd: handle.fd, path: handle.path }, data, writeOptions, 'a').then(function() {});
+    }
     appendFileSync(handle.fd, data, options);
   })();
 };
@@ -5363,6 +5664,11 @@ FileHandlePromise.prototype.stat = function(options) {
   var handle = this;
   return _resolveAsync(function() {
     handle._ensureOpen();
+    var native = _fsAsyncNative('__exactFsStatAsync');
+    if (native) {
+      _coerceStatOptions(options);
+      return _asyncStatImpl(native, handle.fd, 'fstat', _extractStatOptions(options));
+    }
     return fstatSync(handle.fd, options);
   })();
 };
@@ -5417,7 +5723,32 @@ function _promisesReadFileWithSignal(pathOrFd, options) {
   if (opts.signal && opts.signal.aborted === true) {
     throw _makeAbortError(opts.signal.reason);
   }
+  // Route through the worker-pool native when present; the callers wrap this
+  // in a promise chain, which flattens the returned Promise. (ENG-23497)
+  var native = _fsAsyncNative('__exactFsReadFileAsync');
+  if (native) {
+    return _asyncReadFileImpl(native, pathOrFd, opts);
+  }
   return readFileSync(pathOrFd, options);
+}
+
+// fsPromises.stat/lstat via the async stat native, preserving statSync's
+// throwIfNoEntry:false → undefined contract. Falls back to the sync path when
+// the native is unavailable. (ENG-23497)
+function _promisesStatViaAsync(path, options, kind) {
+  var native = _fsAsyncNative('__exactFsStatAsync');
+  if (!native) {
+    return kind === 'lstat' ? lstatSync(path, options) : statSync(path, options);
+  }
+  _validatePath(path);
+  _coerceStatOptions(options);
+  var statOptions = _extractStatOptions(options);
+  return _asyncStatImpl(native, _pathToString(path), kind, statOptions).then(undefined, function(err) {
+    if (statOptions.throwIfNoEntry === false && err && err.code === 'ENOENT') {
+      return undefined;
+    }
+    throw err;
+  });
 }
 
 var promises = {
@@ -5429,11 +5760,18 @@ var promises = {
     return _resolveAsync(function() {
       // Node resolves with undefined; a byte count is observable drift
       // (ENG-23480 #13).
+      var native = _fsAsyncNative('__exactFsWriteFileAsync');
+      if (native) {
+        _validateWriteData(d);
+        var writeOptions = _normalizeWriteOptions(o);
+        var targetInfo = _getFdOrPath(p, 'path');
+        return _asyncWriteFileImpl(native, targetInfo, d, writeOptions, 'a').then(function() {});
+      }
       appendFileSync(p, d, o);
     })();
   },
-  stat: function(p, o) { return _resolveAsync(function() { return statSync(p, o); })(); },
-  lstat: function(p, o) { return _resolveAsync(function() { return lstatSync(p, o); })(); },
+  stat: function(p, o) { return _resolveAsync(function() { return _promisesStatViaAsync(p, o, 'stat'); })(); },
+  lstat: function(p, o) { return _resolveAsync(function() { return _promisesStatViaAsync(p, o, 'lstat'); })(); },
   readdir: function(p, o) { return _resolveAsync(function() { return readdirSync(p, o); })(); },
   mkdir: function(p, o) {
     return _resolveAsync(function() {
@@ -5458,12 +5796,43 @@ var promises = {
   writev: function(fd, buffers, position) { return _resolveAsync(function() { return { bytesWritten: writevSync(fd, buffers, position), buffers: buffers }; })(); },
   fdatasync: function(fd) { return _resolveAsync(function() { fdatasyncSync(fd); })(); },
   fsync: function(fd) { return _resolveAsync(function() { fsyncSync(fd); })(); },
-  fstat: function(fd) { return _resolveAsync(function() { return fstatSync(fd); })(); },
+  fstat: function(fd) {
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsStatAsync');
+      if (native) {
+        _validateFd(fd);
+        return _asyncStatImpl(native, fd, 'fstat', _extractStatOptions(undefined));
+      }
+      return fstatSync(fd);
+    })();
+  },
   watch: function(p, o) {
     return _promisesWatch(p, o);
   },
-  read: function(fd, buffer, offset, length, position) { return _resolveAsync(function() { return { bytesRead: readSync(fd, buffer, offset, length, position), buffer: buffer }; })(); },
-  write: function(fd, bufferOrString, offset, length, position) { return _resolveAsync(function() { return { bytesWritten: writeSync(fd, bufferOrString, offset, length, position), buffer: bufferOrString }; })(); },
+  read: function(fd, buffer, offset, length, position) {
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsReadAsync');
+      if (native) {
+        _validateFd(fd);
+        return _asyncReadIntoBuffer(native, fd, buffer, offset, length, position).then(function(bytesRead) {
+          return { bytesRead: bytesRead, buffer: buffer };
+        });
+      }
+      return { bytesRead: readSync(fd, buffer, offset, length, position), buffer: buffer };
+    })();
+  },
+  write: function(fd, bufferOrString, offset, length, position) {
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsWriteAsync');
+      if (native) {
+        _validateFd(fd);
+        return _asyncWriteFromArgs(native, fd, bufferOrString, offset, length, position).then(function(written) {
+          return { bytesWritten: written, buffer: bufferOrString };
+        });
+      }
+      return { bytesWritten: writeSync(fd, bufferOrString, offset, length, position), buffer: bufferOrString };
+    })();
+  },
   open: function(p, f, m) {
     return _resolveAsync(function() { return new FileHandlePromise(openSync(p, f, m), _pathToString(p), f); })();
   },
@@ -5754,6 +6123,21 @@ function fstat(fd, opts, callback) {
   _validateFd(fd);
   _validateCallback(callback);
   ensureExactFs();
+  var native = _fsAsyncNative('__exactFsStatAsync');
+  if (native) {
+    var statPromise;
+    try {
+      _coerceStatOptions(opts);
+      statPromise = _asyncStatImpl(native, fd, 'fstat', _extractStatOptions(opts));
+    } catch (e) {
+      var error = _makeFsError(e, 'fstat');
+      _deferFsCallback(function() { callback(error); });
+      return;
+    }
+    statPromise.then(function(stats) { callback(null, stats); },
+                     function(err) { callback(err); });
+    return;
+  }
   try {
     var result = fstatSync(fd, opts);
     _deferFsCallback(function() { callback(null, result); });

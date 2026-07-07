@@ -104,6 +104,11 @@ struct ExactHermesRuntime {
   // as referenced work so a pending lookup keeps the event loop alive (matching
   // Node's ref'd getaddrinfo requests) without a polling timer. (ENG-22995)
   std::atomic<int> pending_dns_lookups{0};
+  // In-flight async fs operations dispatched to the fs worker pool (readFile/
+  // writeFile/read/write/stat). Same keepalive discipline as DNS: a pending op
+  // counts as referenced work so the loop survives until the worker delivers
+  // its completion via pushRuntimeCallback. (ENG-23497)
+  std::atomic<int> pending_fs_ops{0};
   std::mutex fetchMutex;
   uint32_t nextFetchId{1};
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;

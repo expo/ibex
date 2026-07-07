@@ -3234,6 +3234,9 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   } else if (runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
     // A pending async DNS resolution keeps the loop alive. (ENG-22995)
     has_referenced_work = true;
+  } else if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
+    // A pending async fs operation keeps the loop alive. (ENG-23497)
+    has_referenced_work = true;
   } else {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) has_referenced_work = true;
@@ -3381,6 +3384,10 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
   }
   // An in-flight async DNS resolution keeps the loop alive. (ENG-22995)
   if (runtime->pending_dns_lookups.load(std::memory_order_relaxed) > 0) {
+    return 1;
+  }
+  // An in-flight async fs operation keeps the loop alive. (ENG-23497)
+  if (runtime->pending_fs_ops.load(std::memory_order_relaxed) > 0) {
     return 1;
   }
   {

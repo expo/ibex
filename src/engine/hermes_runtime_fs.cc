@@ -7,9 +7,14 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <dirent.h>
+#include <functional>
+#include <memory>
+#include <thread>
 #include <fcntl.h>
 #include <iomanip>
 #include <mutex>
@@ -294,13 +299,12 @@ static bool parseIoVecArguments(
   return true;
 }
 
-static std::string fsErrorMessage(
+static void fsErrnoCodeAndDescription(
     int errn,
-    const char* syscall,
-    const std::string& path,
-    const std::string& dest = "") {
-  const char* code = "UNKNOWN";
-  const char* description = "unknown error";
+    const char*& code,
+    const char*& description) {
+  code = "UNKNOWN";
+  description = "unknown error";
   switch (errn) {
     case EACCES: code = "EACCES"; description = "permission denied"; break;
     case EBADF: code = "EBADF"; description = "bad file descriptor"; break;
@@ -328,6 +332,16 @@ static std::string fsErrorMessage(
 #endif
     default: break;
   }
+}
+
+static std::string fsErrorMessage(
+    int errn,
+    const char* syscall,
+    const std::string& path,
+    const std::string& dest = "") {
+  const char* code = nullptr;
+  const char* description = nullptr;
+  fsErrnoCodeAndDescription(errn, code, description);
   std::string msg = std::string(code) + ": " + description + ", " + syscall;
   if (!path.empty()) {
     msg += " '" + path + "'";
@@ -361,6 +375,610 @@ static void normalizeWriteErrno(int fd) {
     errno = EFBIG;
   }
 #endif
+}
+
+// Parse a Node open() flags argument (a string like "r"/"w+"/"ax", or numeric
+// POSIX flags) into POSIX open(2) flags. Shared by __exactFsOpen and the async
+// readFile/writeFile natives, which perform their own open on a worker thread.
+static int parseOpenFlagsArg(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value* args,
+    size_t count,
+    size_t index) {
+  int posixFlags = O_RDONLY;
+  if (count > index && args[index].isString()) {
+    auto flagStr = args[index].toString(runtime).utf8(runtime);
+    bool hasPlus = flagStr.find('+') != std::string::npos;
+    bool hasSync = false;
+    bool hasExclusive = false;
+    char modeChar = 0;
+    if (hasPlus && flagStr.find('+') != flagStr.rfind('+')) {
+      throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+    }
+    auto flagChars = hasPlus ? flagStr.substr(0, flagStr.size() - 1) : flagStr;
+    if (hasPlus && !flagChars.empty() && flagStr.back() != '+') {
+      throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+    }
+    for (char ch : flagChars) {
+      if (ch == 's') {
+        if (hasSync) {
+          throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+        }
+        hasSync = true;
+      } else if (ch == 'x') {
+        if (hasExclusive) {
+          throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+        }
+        hasExclusive = true;
+      } else if (ch == 'r' || ch == 'w' || ch == 'a') {
+        if (modeChar) {
+          throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+        }
+        modeChar = ch;
+      } else {
+        throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+      }
+    }
+    if (!modeChar || (modeChar == 'r' && hasExclusive)) {
+      throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
+    }
+    if (modeChar == 'r') {
+      posixFlags = O_RDONLY;
+    } else if (modeChar == 'w') {
+      posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
+    } else {
+      posixFlags = O_WRONLY | O_CREAT | O_APPEND;
+    }
+    if (hasPlus) {
+      posixFlags = (posixFlags & ~O_WRONLY) | O_RDWR;
+    }
+    if (hasSync) {
+      posixFlags |= O_SYNC;
+    }
+    if (hasExclusive) {
+      posixFlags |= O_EXCL;
+    }
+  } else if (count > index && args[index].isNumber()) {
+    posixFlags = static_cast<int>(args[index].asNumber());
+  }
+  return posixFlags;
+}
+
+// @ref LLP 0013#policy — gate the open on the access the flags actually
+// request: an open-for-write (w/a/r+/O_WRONLY/O_RDWR/O_CREAT/O_TRUNC/
+// O_APPEND) requires fs:write, not merely fs:read. Runs on the JS thread
+// (capability checks must never move to a worker: the deputy stack that
+// checkCapability consults is thread-local to the JS thread). (ENG-22639)
+static void requireOpenCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    int posixFlags,
+    bool& needsRead,
+    bool& needsWrite) {
+  int access = posixFlags & O_ACCMODE;
+  needsWrite = access == O_WRONLY || access == O_RDWR ||
+      (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
+  needsRead = access == O_RDONLY || access == O_RDWR;
+  // An exotic/invalid access mode (O_ACCMODE == 3 on Linux, where the fd
+  // still enables fstat/fchmod/existence probing) must not skip the gate.
+  // Every open requires at least fs:read, so the flag math can only
+  // *widen* the requirement, never eliminate it. (ENG-22639)
+  if (!needsWrite && !needsRead) {
+    needsRead = true;
+  }
+  if (!isAllowAll()) {
+    if (needsWrite && !checkCapability("fs:write:" + path)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (needsRead && !checkCapability("fs:read:" + path)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+  }
+}
+
+// Serialize a struct stat as the JSON payload shape shared by __exactStat /
+// __exactLstat (Rust side) and __exactFsFstatSync / __exactFsStatAsync.
+static std::string statJsonFromStat(const struct stat& sb) {
+  std::ostringstream oss;
+  oss << "{\"size\":" << sb.st_size
+      << ",\"mode\":" << sb.st_mode
+      << ",\"dev\":" << sb.st_dev
+      << ",\"ino\":" << sb.st_ino
+      << ",\"nlink\":" << sb.st_nlink
+      << ",\"uid\":" << sb.st_uid
+      << ",\"gid\":" << sb.st_gid
+      << ",\"rdev\":" << sb.st_rdev
+      << ",\"blksize\":" << sb.st_blksize
+      << ",\"blocks\":" << sb.st_blocks
+      << ",\"is_file\":" << (S_ISREG(sb.st_mode) ? "true" : "false")
+      << ",\"is_dir\":" << (S_ISDIR(sb.st_mode) ? "true" : "false")
+      << ",\"is_symlink\":" << (S_ISLNK(sb.st_mode) ? "true" : "false")
+      << ",\"is_char_device\":" << (S_ISCHR(sb.st_mode) ? "true" : "false")
+      << ",\"is_block_device\":" << (S_ISBLK(sb.st_mode) ? "true" : "false")
+      << ",\"is_fifo\":" << (S_ISFIFO(sb.st_mode) ? "true" : "false")
+      << ",\"is_socket\":" << (S_ISSOCK(sb.st_mode) ? "true" : "false");
+#if defined(__APPLE__)
+  double mtime_ms = sb.st_mtimespec.tv_sec * 1000.0 + sb.st_mtimespec.tv_nsec / 1e6;
+  double atime_ms = sb.st_atimespec.tv_sec * 1000.0 + sb.st_atimespec.tv_nsec / 1e6;
+  double ctime_ms = sb.st_ctimespec.tv_sec * 1000.0 + sb.st_ctimespec.tv_nsec / 1e6;
+  double birthtime_ms = sb.st_birthtimespec.tv_sec * 1000.0 + sb.st_birthtimespec.tv_nsec / 1e6;
+  long long atime_ns = sb.st_atimespec.tv_sec * 1000000000LL + sb.st_atimespec.tv_nsec;
+  long long mtime_ns = sb.st_mtimespec.tv_sec * 1000000000LL + sb.st_mtimespec.tv_nsec;
+  long long ctime_ns = sb.st_ctimespec.tv_sec * 1000000000LL + sb.st_ctimespec.tv_nsec;
+  long long birthtime_ns = sb.st_birthtimespec.tv_sec * 1000000000LL + sb.st_birthtimespec.tv_nsec;
+#else
+  double mtime_ms = sb.st_mtim.tv_sec * 1000.0 + sb.st_mtim.tv_nsec / 1e6;
+  double atime_ms = sb.st_atim.tv_sec * 1000.0 + sb.st_atim.tv_nsec / 1e6;
+  double ctime_ms = sb.st_ctim.tv_sec * 1000.0 + sb.st_ctim.tv_nsec / 1e6;
+  double birthtime_ms = ctime_ms;
+  long long atime_ns = sb.st_atim.tv_sec * 1000000000LL + sb.st_atim.tv_nsec;
+  long long mtime_ns = sb.st_mtim.tv_sec * 1000000000LL + sb.st_mtim.tv_nsec;
+  long long ctime_ns = sb.st_ctim.tv_sec * 1000000000LL + sb.st_ctim.tv_nsec;
+  long long birthtime_ns = ctime_ns;
+#endif
+  oss << ",\"mtime_ms\":" << std::fixed << std::setprecision(3) << mtime_ms
+      << ",\"atime_ms\":" << std::fixed << std::setprecision(3) << atime_ms
+      << ",\"ctime_ms\":" << std::fixed << std::setprecision(3) << ctime_ms
+      << ",\"birthtime_ms\":" << std::fixed << std::setprecision(3) << birthtime_ms
+      << ",\"atime_ns\":" << atime_ns
+      << ",\"mtime_ns\":" << mtime_ns
+      << ",\"ctime_ns\":" << ctime_ns
+      << ",\"birthtime_ns\":" << birthtime_ns
+      << "}";
+  return oss.str();
+}
+
+// ---------------------------------------------------------------------------
+// True-async fs natives (ENG-23497). The callback/promise fs API used to run
+// every syscall synchronously on the JS thread and merely defer the callback,
+// so a large readFile stalled timers and sockets. These natives run the
+// blocking I/O on a bounded worker pool and deliver the result back on the JS
+// thread via pushRuntimeCallback — the same wake-driven discipline as
+// __exactDnsLookupAsync. Argument validation and capability checks stay on the
+// JS thread (the capability deputy stack is JS-thread-local); the worker only
+// touches plain data. @ref LLP 0003#blocking-work-worker-pools — pool
+// discipline: immortal singleton, queue-don't-early-reject, keepalive
+// counter, no JSI off-thread.
+// ---------------------------------------------------------------------------
+
+// Result of a blocking fs call performed off the JS thread. Plain data only —
+// no JSI — so it can cross the thread boundary. errno/syscall/path are
+// captured on the worker thread at failure time and rehydrated into a
+// Node-shaped error (code/errno/syscall/path) on the JS thread.
+struct FsAsyncResult {
+  enum class Kind { Undefined, Bytes, Json, Number };
+  bool ok = false;
+  Kind kind = Kind::Undefined;
+  std::vector<uint8_t> bytes;
+  std::string json;
+  double number = 0;
+  int errnoValue = 0;
+  std::string syscall;
+  std::string path;
+  // fs.readFile refuses files above Node's 2 GiB I/O cap with
+  // ERR_FS_FILE_TOO_LARGE (a RangeError, not an errno error).
+  bool tooLarge = false;
+  double tooLargeSize = 0;
+};
+
+static FsAsyncResult fsAsyncOk(FsAsyncResult::Kind kind = FsAsyncResult::Kind::Undefined) {
+  FsAsyncResult result;
+  result.ok = true;
+  result.kind = kind;
+  return result;
+}
+
+static FsAsyncResult fsAsyncError(int errn, const char* syscall, const std::string& path = "") {
+  FsAsyncResult result;
+  result.ok = false;
+  result.errnoValue = errn;
+  result.syscall = syscall;
+  result.path = path;
+  return result;
+}
+
+// Bounded worker pool that runs blocking fs syscalls off the JS thread. Same
+// discipline as DnsWorkerPool / FetchWorkerPool: lazily spawn detached workers
+// up to a cap, bound the backlog, park idle workers on a condvar.
+class FsWorkerPool {
+ public:
+  static FsWorkerPool& instance() {
+    // Intentionally leaked (immortal heap singleton): a function-local
+    // `static FsWorkerPool` is destructed during exit() while workers are
+    // still parked in cv_.wait(), and destroying a mutex/condvar with waiters
+    // is UB that deadlocks the process inside glibc's pthread destructors
+    // (Linux-only; macOS never reproduces it — see native_fetch_linux.cc's
+    // FetchWorkerPool and ENG-23471/ENG-23498). Workers are detached, so
+    // leaking the pool lets exit() proceed normally.
+    static FsWorkerPool* pool = new FsWorkerPool();
+    return *pool;
+  }
+
+  bool enqueue(std::function<void()> job, std::string& error) {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.size() >= kMaxQueue) {
+        // Fail loudly rather than growing without bound.
+        // @ref LLP 0006#degrade-diagnostics-never-the-caller
+        error = "FS worker queue full";
+        return false;
+      }
+      spawnWorkerIfNeededLocked();
+      queue_.push_back(std::move(job));
+    }
+    cv_.notify_one();
+    return true;
+  }
+
+ private:
+  static constexpr size_t kMaxWorkers = 8;
+  static constexpr size_t kMaxQueue = 1024;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::deque<std::function<void()>> queue_;
+  size_t idle_ = 0;
+  size_t total_ = 0;
+
+  void spawnWorkerIfNeededLocked() {
+    if (idle_ > 0 || total_ >= kMaxWorkers) {
+      return;
+    }
+    total_ += 1;
+    std::thread([this]() {
+      for (;;) {
+        std::function<void()> job;
+        {
+          std::unique_lock<std::mutex> lock(mutex_);
+          idle_ += 1;
+          cv_.wait(lock, [this] { return !queue_.empty(); });
+          idle_ -= 1;
+          job = std::move(queue_.front());
+          queue_.pop_front();
+        }
+        job();
+      }
+    }).detach();
+  }
+};
+
+// Rehydrate an FsAsyncResult failure into a Node-shaped Error on the JS
+// thread: message matches the sync natives' fsErrorMessage format, and
+// code/errno/syscall/path ride as structured properties so fs.js does not
+// have to re-parse the message (the sync path derives them from the message;
+// carrying them structurally keeps the shapes identical without string
+// parsing).
+static facebook::jsi::Value makeFsAsyncErrorValue(
+    facebook::jsi::Runtime& rt,
+    const FsAsyncResult& result) {
+  if (result.tooLarge) {
+    std::ostringstream oss;
+    oss << "File size (" << static_cast<long long>(result.tooLargeSize)
+        << ") is greater than 2 GiB";
+    facebook::jsi::JSError jsError(rt, oss.str());
+    facebook::jsi::Value err(rt, jsError.value());
+    auto obj = err.asObject(rt);
+    obj.setProperty(
+        rt, "code", facebook::jsi::String::createFromUtf8(rt, "ERR_FS_FILE_TOO_LARGE"));
+    obj.setProperty(rt, "size", facebook::jsi::Value(result.tooLargeSize));
+    return err;
+  }
+  const char* code = nullptr;
+  const char* description = nullptr;
+  fsErrnoCodeAndDescription(result.errnoValue, code, description);
+  auto message = fsErrorMessage(result.errnoValue, result.syscall.c_str(), result.path);
+  facebook::jsi::JSError jsError(rt, message);
+  facebook::jsi::Value err(rt, jsError.value());
+  auto obj = err.asObject(rt);
+  obj.setProperty(rt, "code", facebook::jsi::String::createFromUtf8(rt, code));
+  obj.setProperty(rt, "errno", facebook::jsi::Value(result.errnoValue));
+  obj.setProperty(
+      rt, "syscall", facebook::jsi::String::createFromUtf8(rt, result.syscall));
+  if (!result.path.empty()) {
+    obj.setProperty(rt, "path", facebook::jsi::String::createFromUtf8(rt, result.path));
+  }
+  return err;
+}
+
+// Build a Promise whose `work` runs on an fs worker thread and whose
+// resolution runs on the JS thread via pushRuntimeCallback. The caller must
+// have already validated arguments and enforced capabilities on the JS
+// thread. pending_fs_ops keeps the event loop alive while the op is in
+// flight (same keepalive discipline as pending_dns_lookups).
+static facebook::jsi::Value startFsAsync(
+    ExactHermesRuntime* handle,
+    facebook::jsi::Runtime& runtime,
+    std::function<FsAsyncResult()> work) {
+  // Capture the scheduling principal on the JS thread so the resolved
+  // continuation is attributed to the caller, not a bare native frame.
+  uint64_t principal = currentPrincipalId();
+  auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
+  auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
+  auto executor = facebook::jsi::Function::createFromHostFunction(
+      runtime,
+      facebook::jsi::PropNameID::forAscii(runtime, "executor"),
+      2,
+      [handle, principal, workPtr](
+          facebook::jsi::Runtime& rt,
+          const facebook::jsi::Value&,
+          const facebook::jsi::Value* args,
+          size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+          throw facebook::jsi::JSError(rt, "FS async: malformed executor invocation");
+        }
+        auto resolve =
+            std::make_shared<facebook::jsi::Function>(args[0].asObject(rt).asFunction(rt));
+        auto reject =
+            std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
+
+        // Mark the op in flight before dispatching so the event loop stays
+        // alive across the worker call even with no other pending work.
+        handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
+
+        std::string enqueueError;
+        bool queued = FsWorkerPool::instance().enqueue(
+            [handle, principal, workPtr, resolve = std::move(resolve),
+             reject = std::move(reject)]() mutable {
+              // shared_ptr wrapper: std::function requires a copyable callable,
+              // and a readFile result can be hundreds of MB — share it instead
+              // of copying, and move the bytes into the JS heap at delivery.
+              auto resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
+              auto runtimeResolve = std::move(resolve);
+              auto runtimeReject = std::move(reject);
+              pushRuntimeCallback(
+                  handle,
+                  [handle, principal, resolve = std::move(runtimeResolve),
+                   reject = std::move(runtimeReject), resultPtr](
+                      facebook::jsi::Runtime& rt) {
+                    ScopedNativePrincipal nativePrincipal(principal);
+                    handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+                    try {
+                      if (resultPtr->ok) {
+                        switch (resultPtr->kind) {
+                          case FsAsyncResult::Kind::Bytes:
+                            resolve->call(
+                                rt, makeUint8Array(rt, std::move(resultPtr->bytes)));
+                            break;
+                          case FsAsyncResult::Kind::Json:
+                            resolve->call(
+                                rt,
+                                facebook::jsi::String::createFromUtf8(rt, resultPtr->json));
+                            break;
+                          case FsAsyncResult::Kind::Number:
+                            resolve->call(rt, facebook::jsi::Value(resultPtr->number));
+                            break;
+                          default:
+                            resolve->call(rt, facebook::jsi::Value::undefined());
+                            break;
+                        }
+                      } else {
+                        reject->call(rt, makeFsAsyncErrorValue(rt, *resultPtr));
+                      }
+                    } catch (...) {
+                    }
+                  });
+            },
+            enqueueError);
+        if (!queued) {
+          handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+          reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  return promiseCtor.callAsConstructor(runtime, executor);
+}
+
+// Node caps fs.readFile at 2 GiB (kIoMaxLength); fs.js enforces the same via
+// ERR_FS_FILE_TOO_LARGE on the sync path.
+static constexpr double kMaxReadFileBytes = 2147483647.0;
+
+// Read the remainder of an already-open fd. No JSI: safe on a worker thread.
+// Mirrors readFileSync: close errors after a successful read are ignored,
+// fstat failures are ignored (size is only a hint / too-large guard).
+static FsAsyncResult fsReadWholeFdWork(
+    int fd,
+    bool closeWhenDone,
+    const std::string& pathForError) {
+  struct stat sb = {};
+  bool haveStat = ::fstat(fd, &sb) == 0;
+  if (haveStat && S_ISREG(sb.st_mode) &&
+      static_cast<double>(sb.st_size) > kMaxReadFileBytes) {
+    FsAsyncResult result;
+    result.tooLarge = true;
+    result.tooLargeSize = static_cast<double>(sb.st_size);
+    if (closeWhenDone) {
+      ::close(fd);
+    }
+    return result;
+  }
+  std::vector<uint8_t> data;
+  if (haveStat && S_ISREG(sb.st_mode) && sb.st_size > 0) {
+    data.reserve(static_cast<size_t>(sb.st_size));
+  }
+  uint8_t buf[65536];
+  for (;;) {
+    ssize_t bytesRead;
+    do {
+      bytesRead = ::read(fd, buf, sizeof(buf));
+    } while (bytesRead < 0 && errno == EINTR);
+    if (bytesRead < 0) {
+      auto result = fsAsyncError(errno, "read", pathForError);
+      if (closeWhenDone) {
+        ::close(fd);
+      }
+      return result;
+    }
+    if (bytesRead == 0) {
+      break;
+    }
+    data.insert(data.end(), buf, buf + bytesRead);
+    if (static_cast<double>(data.size()) > kMaxReadFileBytes) {
+      // A file that grew past the cap mid-read (or a non-regular source).
+      FsAsyncResult result;
+      result.tooLarge = true;
+      result.tooLargeSize = static_cast<double>(data.size());
+      if (closeWhenDone) {
+        ::close(fd);
+      }
+      return result;
+    }
+  }
+  if (closeWhenDone) {
+    ::close(fd);  // readFileSync ignores close errors after a successful read
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(data);
+  return result;
+}
+
+static FsAsyncResult fsReadFilePathWork(
+    const std::string& path,
+    int openFlags,
+    int openMode) {
+  int fd;
+  do {
+    fd = ::open(path.c_str(), openFlags, openMode);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) {
+    return fsAsyncError(errno, "open", path);
+  }
+  return fsReadWholeFdWork(fd, true, path);
+}
+
+// Write all bytes to an already-open fd at its current position. Mirrors
+// _writeAllSync + __exactFsWrite: EINTR retries, RLIMIT_FSIZE errno
+// normalization, zero-byte write treated as EIO.
+static FsAsyncResult fsWriteAllFdWork(
+    int fd,
+    const std::vector<uint8_t>& bytes,
+    bool flush,
+    bool closeWhenDone,
+    const std::string& pathForError) {
+  size_t offset = 0;
+  while (offset < bytes.size()) {
+    ssize_t bytesWritten;
+    do {
+      bytesWritten = ::write(fd, bytes.data() + offset, bytes.size() - offset);
+    } while (bytesWritten < 0 && errno == EINTR);
+    if (bytesWritten < 0) {
+      normalizeWriteErrno(fd);
+      auto result = fsAsyncError(errno, "write", pathForError);
+      if (closeWhenDone) {
+        ::close(fd);
+      }
+      return result;
+    }
+    if (bytesWritten == 0) {
+      auto result = fsAsyncError(EIO, "write", pathForError);
+      if (closeWhenDone) {
+        ::close(fd);
+      }
+      return result;
+    }
+    offset += static_cast<size_t>(bytesWritten);
+  }
+  if (flush) {
+    int rc;
+    do {
+      rc = ::fsync(fd);
+    } while (rc != 0 && errno == EINTR);
+    if (rc != 0) {
+      auto result = fsAsyncError(errno, "fsync", pathForError);
+      if (closeWhenDone) {
+        ::close(fd);
+      }
+      return result;
+    }
+  }
+  if (closeWhenDone && ::close(fd) != 0) {
+    return fsAsyncError(errno, "close", pathForError);
+  }
+  return fsAsyncOk();
+}
+
+static FsAsyncResult fsWriteFilePathWork(
+    const std::string& path,
+    const std::vector<uint8_t>& bytes,
+    int openFlags,
+    int openMode,
+    bool flush) {
+  int fd;
+  do {
+    fd = ::open(path.c_str(), openFlags, openMode);
+  } while (fd < 0 && errno == EINTR);
+  if (fd < 0) {
+    return fsAsyncError(errno, "open", path);
+  }
+  return fsWriteAllFdWork(fd, bytes, flush, true, path);
+}
+
+// Single chunk read, mirroring __exactFsRead: positional reads use pread (fd
+// cursor unchanged), EINTR retries, EAGAIN/EWOULDBLOCK resolves empty.
+static FsAsyncResult fsReadChunkWork(
+    int fd,
+    size_t length,
+    bool positioned,
+    int64_t position) {
+  std::vector<uint8_t> data(length);
+  ssize_t bytesRead;
+  do {
+    bytesRead = positioned
+        ? ::pread(fd, data.data(), length, static_cast<off_t>(position))
+        : ::read(fd, data.data(), length);
+  } while (bytesRead < 0 && errno == EINTR);
+  if (bytesRead < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+    }
+    return fsAsyncError(errno, "read");
+  }
+  data.resize(static_cast<size_t>(bytesRead));
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(data);
+  return result;
+}
+
+// Single chunk write, mirroring __exactFsWrite: pwrite when positioned, EINTR
+// retries, RLIMIT_FSIZE errno normalization. Partial writes surface as the
+// returned count (same as writeSync).
+static FsAsyncResult fsWriteChunkWork(
+    int fd,
+    const std::vector<uint8_t>& bytes,
+    bool positioned,
+    int64_t position) {
+  ssize_t bytesWritten;
+  do {
+    bytesWritten = positioned
+        ? ::pwrite(fd, bytes.data(), bytes.size(), static_cast<off_t>(position))
+        : ::write(fd, bytes.data(), bytes.size());
+  } while (bytesWritten < 0 && errno == EINTR);
+  if (bytesWritten < 0) {
+    normalizeWriteErrno(fd);
+    return fsAsyncError(errno, "write");
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = static_cast<double>(bytesWritten);
+  return result;
+}
+
+static FsAsyncResult fsStatPathWork(const std::string& path, bool isLstat) {
+  char* json = isLstat ? ex_host_fs_lstat(path.c_str()) : ex_host_fs_stat(path.c_str());
+  if (!json) {
+    return fsAsyncError(errno, isLstat ? "lstat" : "stat", path);
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
+  result.json = json;
+  ex_host_free_string(json);
+  return result;
+}
+
+static FsAsyncResult fsFstatWork(int fd) {
+  struct stat sb = {};
+  if (::fstat(fd, &sb) != 0) {
+    return fsAsyncError(errno, "fstat");
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
+  result.json = statJsonFromStat(sb);
+  return result;
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
@@ -869,88 +1487,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto path = args[0].toString(runtime).utf8(runtime);
 
-        // Parse flags string to POSIX flags
-        int posixFlags = O_RDONLY;
-        if (count > 1 && args[1].isString()) {
-          auto flagStr = args[1].toString(runtime).utf8(runtime);
-          bool hasPlus = flagStr.find('+') != std::string::npos;
-          bool hasSync = false;
-          bool hasExclusive = false;
-          char modeChar = 0;
-          if (hasPlus && flagStr.find('+') != flagStr.rfind('+')) {
-            throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-          }
-          auto flagChars = hasPlus ? flagStr.substr(0, flagStr.size() - 1) : flagStr;
-          if (hasPlus && !flagChars.empty() && flagStr.back() != '+') {
-            throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-          }
-          for (char ch : flagChars) {
-            if (ch == 's') {
-              if (hasSync) {
-                throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-              }
-              hasSync = true;
-            } else if (ch == 'x') {
-              if (hasExclusive) {
-                throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-              }
-              hasExclusive = true;
-            } else if (ch == 'r' || ch == 'w' || ch == 'a') {
-              if (modeChar) {
-                throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-              }
-              modeChar = ch;
-            } else {
-              throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-            }
-          }
-          if (!modeChar || (modeChar == 'r' && hasExclusive)) {
-            throw facebook::jsi::JSError(runtime, "ERR_INVALID_ARG_VALUE: flags");
-          }
-          if (modeChar == 'r') {
-            posixFlags = O_RDONLY;
-          } else if (modeChar == 'w') {
-            posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
-          } else {
-            posixFlags = O_WRONLY | O_CREAT | O_APPEND;
-          }
-          if (hasPlus) {
-            posixFlags = (posixFlags & ~O_WRONLY) | O_RDWR;
-          }
-          if (hasSync) {
-            posixFlags |= O_SYNC;
-          }
-          if (hasExclusive) {
-            posixFlags |= O_EXCL;
-          }
-        } else if (count > 1 && args[1].isNumber()) {
-          posixFlags = static_cast<int>(args[1].asNumber());
-        }
-
-        // @ref LLP 0013#policy — gate the open on the access the flags actually
-        // request: an open-for-write (w/a/r+/O_WRONLY/O_RDWR/O_CREAT/O_TRUNC/
-        // O_APPEND) requires fs:write, not merely fs:read. Previously the open
-        // only ever checked fs:read, so writeFileSync (fd-based) bypassed the
-        // fs:write gate.
-        int access = posixFlags & O_ACCMODE;
-        bool needsWrite = access == O_WRONLY || access == O_RDWR ||
-            (posixFlags & (O_CREAT | O_TRUNC | O_APPEND)) != 0;
-        bool needsRead = access == O_RDONLY || access == O_RDWR;
-        // An exotic/invalid access mode (O_ACCMODE == 3 on Linux, where the fd
-        // still enables fstat/fchmod/existence probing) must not skip the gate.
-        // Every open requires at least fs:read, so the flag math can only
-        // *widen* the requirement, never eliminate it. (ENG-22639)
-        if (!needsWrite && !needsRead) {
-          needsRead = true;
-        }
-        if (!isAllowAll()) {
-          if (needsWrite && !checkCapability("fs:write:" + path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-          if (needsRead && !checkCapability("fs:read:" + path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
+        int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
+        bool needsRead = false;
+        bool needsWrite = false;
+        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
 
         int mode = 0666;
         if (count > 2 && args[2].isNumber()) {
@@ -1844,53 +2384,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (::fstat(fd, &sb) != 0) {
           throwFsError(runtime, "fstat", "");
         }
-        std::ostringstream oss;
-        oss << "{\"size\":" << sb.st_size
-            << ",\"mode\":" << sb.st_mode
-            << ",\"dev\":" << sb.st_dev
-            << ",\"ino\":" << sb.st_ino
-            << ",\"nlink\":" << sb.st_nlink
-            << ",\"uid\":" << sb.st_uid
-            << ",\"gid\":" << sb.st_gid
-            << ",\"rdev\":" << sb.st_rdev
-            << ",\"blksize\":" << sb.st_blksize
-            << ",\"blocks\":" << sb.st_blocks
-            << ",\"is_file\":" << (S_ISREG(sb.st_mode) ? "true" : "false")
-            << ",\"is_dir\":" << (S_ISDIR(sb.st_mode) ? "true" : "false")
-            << ",\"is_symlink\":" << (S_ISLNK(sb.st_mode) ? "true" : "false")
-            << ",\"is_char_device\":" << (S_ISCHR(sb.st_mode) ? "true" : "false")
-            << ",\"is_block_device\":" << (S_ISBLK(sb.st_mode) ? "true" : "false")
-            << ",\"is_fifo\":" << (S_ISFIFO(sb.st_mode) ? "true" : "false")
-            << ",\"is_socket\":" << (S_ISSOCK(sb.st_mode) ? "true" : "false");
-#if defined(__APPLE__)
-        double mtime_ms = sb.st_mtimespec.tv_sec * 1000.0 + sb.st_mtimespec.tv_nsec / 1e6;
-        double atime_ms = sb.st_atimespec.tv_sec * 1000.0 + sb.st_atimespec.tv_nsec / 1e6;
-        double ctime_ms = sb.st_ctimespec.tv_sec * 1000.0 + sb.st_ctimespec.tv_nsec / 1e6;
-        double birthtime_ms = sb.st_birthtimespec.tv_sec * 1000.0 + sb.st_birthtimespec.tv_nsec / 1e6;
-        long long atime_ns = sb.st_atimespec.tv_sec * 1000000000LL + sb.st_atimespec.tv_nsec;
-        long long mtime_ns = sb.st_mtimespec.tv_sec * 1000000000LL + sb.st_mtimespec.tv_nsec;
-        long long ctime_ns = sb.st_ctimespec.tv_sec * 1000000000LL + sb.st_ctimespec.tv_nsec;
-        long long birthtime_ns = sb.st_birthtimespec.tv_sec * 1000000000LL + sb.st_birthtimespec.tv_nsec;
-#else
-        double mtime_ms = sb.st_mtim.tv_sec * 1000.0 + sb.st_mtim.tv_nsec / 1e6;
-        double atime_ms = sb.st_atim.tv_sec * 1000.0 + sb.st_atim.tv_nsec / 1e6;
-        double ctime_ms = sb.st_ctim.tv_sec * 1000.0 + sb.st_ctim.tv_nsec / 1e6;
-        double birthtime_ms = ctime_ms;
-        long long atime_ns = sb.st_atim.tv_sec * 1000000000LL + sb.st_atim.tv_nsec;
-        long long mtime_ns = sb.st_mtim.tv_sec * 1000000000LL + sb.st_mtim.tv_nsec;
-        long long ctime_ns = sb.st_ctim.tv_sec * 1000000000LL + sb.st_ctim.tv_nsec;
-        long long birthtime_ns = ctime_ns;
-#endif
-        oss << ",\"mtime_ms\":" << std::fixed << std::setprecision(3) << mtime_ms
-            << ",\"atime_ms\":" << std::fixed << std::setprecision(3) << atime_ms
-            << ",\"ctime_ms\":" << std::fixed << std::setprecision(3) << ctime_ms
-            << ",\"birthtime_ms\":" << std::fixed << std::setprecision(3) << birthtime_ms
-            << ",\"atime_ns\":" << atime_ns
-            << ",\"mtime_ns\":" << mtime_ns
-            << ",\"ctime_ns\":" << ctime_ns
-            << ",\"birthtime_ns\":" << birthtime_ns
-            << "}";
-        return facebook::jsi::String::createFromUtf8(runtime, oss.str());
+        return facebook::jsi::String::createFromUtf8(runtime, statJsonFromStat(sb));
       });
   rt.global().setProperty(rt, "__exactFsFstatSync", std::move(fstatSyncFn));
 
@@ -2101,4 +2595,173 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactFsFutimesSync", std::move(futimesSyncFn));
 
+  // -------------------------------------------------------------------------
+  // True-async natives (ENG-23497): worker-pool-backed readFile/writeFile/
+  // read/write/stat. Validation + capability checks run here on the JS
+  // thread; the returned Promise settles on the JS thread after the worker
+  // completes. fs.js routes the callback/promise API through these when
+  // present and falls back to the deferred-sync path when absent (e.g. the
+  // Windows backend, which does not implement them yet).
+  // -------------------------------------------------------------------------
+
+  // __exactFsReadFileAsync(pathOrFd, flags, mode) -> Promise<Uint8Array>
+  // fd form reads from the fd's current position to EOF without closing it
+  // (mirroring readFileSync's fd branch); path form opens/reads/closes on the
+  // worker thread.
+  auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count == 0 || (!args[0].isString() && !args[0].isNumber())) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsReadFileAsync: path or fd required");
+        }
+        if (args[0].isNumber()) {
+          int fd = static_cast<int>(args[0].asNumber());
+          requireFdRead(runtime, fd, "read");
+          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
+            return fsReadWholeFdWork(fd, false, "");
+          });
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
+        bool needsRead = false;
+        bool needsWrite = false;
+        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        int mode = 0666;
+        if (count > 2 && args[2].isNumber()) {
+          mode = static_cast<int>(args[2].asNumber());
+        }
+        return startFsAsync(
+            handle, runtime, [path, posixFlags, mode]() -> FsAsyncResult {
+              return fsReadFilePathWork(path, posixFlags, mode);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsReadFileAsync", std::move(readFileAsyncFn));
+
+  // __exactFsWriteFileAsync(pathOrFd, data, flags, mode, flush) ->
+  // Promise<undefined>. fd form writes at the fd's current position without
+  // closing it; path form opens/writes/(fsyncs)/closes on the worker thread.
+  auto writeFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsWriteFileAsync"), 5,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || (!args[0].isString() && !args[0].isNumber())) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsWriteFileAsync: path/fd and data required");
+        }
+        // Copy the bytes on the JS thread: the caller may mutate or GC the
+        // source buffer while the worker is in flight.
+        auto dataBytes = std::make_shared<std::vector<uint8_t>>(
+            extractBytes(runtime, args[1]));
+        bool flush = count > 4 && args[4].isBool() && args[4].getBool();
+        if (args[0].isNumber()) {
+          int fd = static_cast<int>(args[0].asNumber());
+          requireFdWrite(runtime, fd, "write");
+          return startFsAsync(handle, runtime, [fd, dataBytes, flush]() -> FsAsyncResult {
+            return fsWriteAllFdWork(fd, *dataBytes, flush, false, "");
+          });
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        int posixFlags = O_WRONLY | O_CREAT | O_TRUNC;
+        if (count > 2 && !args[2].isNull() && !args[2].isUndefined()) {
+          posixFlags = parseOpenFlagsArg(runtime, args, count, 2);
+        }
+        bool needsRead = false;
+        bool needsWrite = false;
+        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        int mode = 0666;
+        if (count > 3 && args[3].isNumber()) {
+          mode = static_cast<int>(args[3].asNumber());
+        }
+        return startFsAsync(
+            handle, runtime,
+            [path, dataBytes, posixFlags, mode, flush]() -> FsAsyncResult {
+              return fsWriteFilePathWork(path, *dataBytes, posixFlags, mode, flush);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsWriteFileAsync", std::move(writeFileAsyncFn));
+
+  // __exactFsReadAsync(fd, length, position) -> Promise<Uint8Array>
+  // Async sibling of __exactFsRead (same positional/pread semantics).
+  auto fsReadAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsReadAsync: fd and length required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        size_t length = static_cast<size_t>(args[1].asNumber());
+        requireFdRead(runtime, fd, "read");
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        return startFsAsync(
+            handle, runtime, [fd, length, positioned, position]() -> FsAsyncResult {
+              return fsReadChunkWork(fd, length, positioned, position);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsReadAsync", std::move(fsReadAsyncFn));
+
+  // __exactFsWriteAsync(fd, data, position) -> Promise<number bytesWritten>
+  // Async sibling of __exactFsWrite (same positional/pwrite semantics).
+  auto fsWriteAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsWriteAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsWriteAsync: fd and data required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        requireFdWrite(runtime, fd, "write");
+        auto dataBytes = std::make_shared<std::vector<uint8_t>>(
+            extractBytes(runtime, args[1]));
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        return startFsAsync(
+            handle, runtime, [fd, dataBytes, positioned, position]() -> FsAsyncResult {
+              return fsWriteChunkWork(fd, *dataBytes, positioned, position);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsWriteAsync", std::move(fsWriteAsyncFn));
+
+  // __exactFsStatAsync(pathOrFd, kind) -> Promise<JSON string>
+  // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is
+  // identical to __exactStat / __exactLstat / __exactFsFstatSync.
+  auto fsStatAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsStatAsync"), 2,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[1].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsStatAsync: target and kind required");
+        }
+        auto kind = args[1].toString(runtime).utf8(runtime);
+        if (kind == "fstat") {
+          if (!args[0].isNumber()) {
+            throw facebook::jsi::JSError(runtime, "__exactFsStatAsync: fd required");
+          }
+          int fd = static_cast<int>(args[0].asNumber());
+          requireFdRead(runtime, fd, "fstat");
+          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
+            return fsFstatWork(fd);
+          });
+        }
+        if (!args[0].isString() || (kind != "stat" && kind != "lstat")) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsStatAsync: path and stat/lstat kind required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        // Same gate as __exactStat / __exactLstat.
+        if (!checkCapability("fs:read:" + path)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        bool isLstat = kind == "lstat";
+        return startFsAsync(handle, runtime, [path, isLstat]() -> FsAsyncResult {
+          return fsStatPathWork(path, isLstat);
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsStatAsync", std::move(fsStatAsyncFn));
 }

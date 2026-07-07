@@ -689,6 +689,75 @@ function _makeFileTooLargeError(size) {
 	err.code = "ERR_FS_FILE_TOO_LARGE";
 	return err;
 }
+function _fsAsyncNative(name) {
+	ensureExactFs();
+	var fn = g[name];
+	return typeof fn === "function" ? fn : null;
+}
+function _asyncFsError(err, syscall, path, dest) {
+	if (err && err.code === "ERR_FS_FILE_TOO_LARGE") return _makeFileTooLargeError(err.size);
+	return _makeFsError(err, err && typeof err.syscall === "string" ? err.syscall : syscall, path, dest);
+}
+function _wrapOwnedBytesAsBuffer(bytes) {
+	if (typeof Buffer !== "undefined" && Buffer.from && bytes && !Buffer.isBuffer(bytes) && bytes.buffer && typeof bytes.byteOffset === "number" && typeof bytes.length === "number") try {
+		return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length);
+	} catch (e) {}
+	return wrapBuffer(bytes);
+}
+function _asyncReadFileImpl(native, pathOrFd, readOptions) {
+	var encoding = readOptions.encoding;
+	var signal = readOptions.signal;
+	var isFd = typeof pathOrFd === "number";
+	var target;
+	if (isFd) target = pathOrFd;
+	else {
+		_validatePath(pathOrFd);
+		target = _pathToString(pathOrFd);
+	}
+	var flags = _normalizeOpenFlagsValue(readOptions.flag || readOptions.flags || "r");
+	var mode = _normalizeOpenModeValue(readOptions.mode);
+	return native(target, flags, mode).then(function(bytes) {
+		if (signal && signal.aborted === true) throw _makeAbortError(signal.reason);
+		if (encoding) return decodeBytes(bytes, encoding);
+		return _wrapOwnedBytesAsBuffer(bytes);
+	}, function(err) {
+		throw _asyncFsError(err, isFd ? "read" : "open", isFd ? void 0 : target);
+	});
+}
+function _asyncWriteFileImpl(native, targetInfo, data, writeOptions, defaultFlag) {
+	var bytes = toUint8Array(data, writeOptions.encoding);
+	var flush = writeOptions.flush === true;
+	if (targetInfo.fd !== null && targetInfo.fd !== void 0) return native(targetInfo.fd, bytes, null, 438, flush).then(void 0, function(err) {
+		throw _asyncFsError(err, "write", targetInfo.path || void 0);
+	});
+	var p = targetInfo.path;
+	return native(p, bytes, _normalizeOpenFlagsValue(writeOptions.flag || writeOptions.flags || defaultFlag), _normalizeOpenModeValue(writeOptions.mode), flush).then(void 0, function(err) {
+		throw _asyncFsError(err, "open", p);
+	});
+}
+function _asyncStatImpl(native, target, kind, statOptions) {
+	return native(target, kind).then(function(json) {
+		return _makeStats(json, statOptions);
+	}, function(err) {
+		throw _asyncFsError(err, kind, typeof target === "string" ? target : void 0);
+	});
+}
+function _asyncReadIntoBuffer(native, fd, buffer, offset, length, position) {
+	var readArgs = _normalizeFsReadArgs(buffer, offset, length, position);
+	return native(fd, readArgs.length, readArgs.position).then(function(data) {
+		if (data.length > 0) if (!readArgs.targetBuffer.__isExactBuffer && typeof readArgs.targetBuffer.set === "function") readArgs.targetBuffer.set(data, readArgs.offset);
+		else for (var i = 0; i < data.length; i++) readArgs.targetBuffer[readArgs.offset + i] = data[i];
+		return data.length;
+	}, function(err) {
+		throw _asyncFsError(err, "read");
+	});
+}
+function _asyncWriteFromArgs(native, fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+	var writeArgs = _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position);
+	return native(fd, writeArgs.bytes, writeArgs.position).then(void 0, function(err) {
+		throw _asyncFsError(err, "write");
+	});
+}
 function _normalizeWatchOptions(options) {
 	if (options === void 0 || options === null) return {};
 	if (typeof options === "string") {
@@ -812,6 +881,15 @@ function _promisesWriteFile(target, data, options) {
 	var targetInfo = _getFdOrPath(target, "path");
 	var signal = writeOptions && writeOptions.signal;
 	if (signal && signal.aborted === true) return Promise.reject(_makeAbortError());
+	var asyncNative = _fsAsyncNative("__exactFsWriteFileAsync");
+	if (asyncNative) try {
+		return _asyncWriteFileImpl(asyncNative, targetInfo, data, writeOptions, "w").then(function() {
+			if (signal && signal.aborted === true) throw _makeAbortError(signal.reason);
+		});
+	} catch (err) {
+		if (err && typeof err.code === "string" && err.code.indexOf("ERR_") === 0) return Promise.reject(err);
+		return Promise.reject(_makeFsError(err, "open", targetInfo.path));
+	}
 	var fd = targetInfo.fd;
 	var needsClose = false;
 	if (fd === null) {
@@ -2243,19 +2321,37 @@ function readFile(path, optOrCb, cb) {
 		callback(_makeAbortError(signal.reason));
 	};
 	if (signal && typeof signal.addEventListener === "function") signal.addEventListener("abort", onAbort);
+	var finish = function(err, result) {
+		if (completed) return;
+		completed = true;
+		if (signal && typeof signal.removeEventListener === "function") signal.removeEventListener("abort", onAbort);
+		if (err) callback(err);
+		else callback(null, result);
+	};
+	var asyncNative = _fsAsyncNative("__exactFsReadFileAsync");
+	if (asyncNative) {
+		var readPromise;
+		try {
+			readPromise = _asyncReadFileImpl(asyncNative, path, readOptions);
+		} catch (err) {
+			_deferFsCallback(function() {
+				finish(err);
+			});
+			return;
+		}
+		readPromise.then(function(result) {
+			finish(null, result);
+		}, function(err) {
+			finish(err);
+		});
+		return;
+	}
 	_deferFsCallback(function() {
 		if (completed) return;
 		try {
-			var result = readFileSync(path, readOptions);
-			if (completed) return;
-			completed = true;
-			if (signal && typeof signal.removeEventListener === "function") signal.removeEventListener("abort", onAbort);
-			callback(null, result);
+			finish(null, readFileSync(path, readOptions));
 		} catch (err) {
-			if (completed) return;
-			completed = true;
-			if (signal && typeof signal.removeEventListener === "function") signal.removeEventListener("abort", onAbort);
-			callback(err);
+			finish(err);
 		}
 	});
 }
@@ -2281,6 +2377,7 @@ function writeFile(path, data, optOrCb, cb) {
 		}
 		throw err;
 	}
+	if (_routeAsyncWriteFileCallback(target, data, writeOptions, "w", callback)) return;
 	if (writeOptions.flush === true) {
 		_writeFileWithFlushCallback(target, data, writeOptions, false, callback);
 		return;
@@ -2288,6 +2385,26 @@ function writeFile(path, data, optOrCb, cb) {
 	wrapCallback(function() {
 		writeFileSync(target.path || target.fd, data, writeOptions);
 	}, callback, "open", target.path);
+}
+function _routeAsyncWriteFileCallback(target, data, writeOptions, defaultFlag, callback) {
+	var native = _fsAsyncNative("__exactFsWriteFileAsync");
+	if (!native) return false;
+	var writePromise;
+	try {
+		writePromise = _asyncWriteFileImpl(native, target, data, writeOptions, defaultFlag);
+	} catch (err) {
+		var error = _makeFsError(err, "open", target.path);
+		_deferFsCallback(function() {
+			callback(error);
+		});
+		return true;
+	}
+	writePromise.then(function() {
+		callback(null);
+	}, function(err) {
+		callback(err);
+	});
+	return true;
 }
 function appendFile(path, data, optOrCb, cb) {
 	var opts, callback;
@@ -2311,6 +2428,7 @@ function appendFile(path, data, optOrCb, cb) {
 		}
 		throw err;
 	}
+	if (_routeAsyncWriteFileCallback(target, data, writeOptions, "a", callback)) return;
 	if (writeOptions.flush === true) {
 		_writeFileWithFlushCallback(target, data, writeOptions, true, callback);
 		return;
@@ -2318,6 +2436,33 @@ function appendFile(path, data, optOrCb, cb) {
 	wrapCallback(function() {
 		appendFileSync(target.path || target.fd, data, writeOptions);
 	}, callback, "open", target.path);
+}
+function _routeAsyncStatCallback(path, opts, kind, callback) {
+	var native = _fsAsyncNative("__exactFsStatAsync");
+	if (!native) return false;
+	var statPromise, statOptions;
+	try {
+		_coerceStatOptions(opts);
+		var p = _pathToString(path);
+		statOptions = _extractStatOptions(opts);
+		statPromise = _asyncStatImpl(native, p, kind, statOptions);
+	} catch (err) {
+		var error = _makeFsError(err, kind, _pathToString(path));
+		_deferFsCallback(function() {
+			callback(error);
+		});
+		return true;
+	}
+	statPromise.then(function(stats) {
+		callback(null, stats);
+	}, function(err) {
+		if (statOptions.throwIfNoEntry === false && err && err.code === "ENOENT") {
+			callback(null);
+			return;
+		}
+		callback(err);
+	});
+	return true;
 }
 function stat(path, optOrCb, cb) {
 	var opts, callback;
@@ -2328,6 +2473,7 @@ function stat(path, optOrCb, cb) {
 	}
 	_validateCallback(callback);
 	_validatePath(path);
+	if (_routeAsyncStatCallback(path, opts, "stat", callback)) return;
 	wrapCallback(function() {
 		return statSync(path, opts);
 	}, callback, "stat", _pathToString(path));
@@ -2341,6 +2487,7 @@ function lstat(path, optOrCb, cb) {
 	}
 	_validateCallback(callback);
 	_validatePath(path);
+	if (_routeAsyncStatCallback(path, opts, "lstat", callback)) return;
 	wrapCallback(function() {
 		return lstatSync(path, opts);
 	}, callback, "lstat", _pathToString(path));
@@ -2491,10 +2638,7 @@ function exists(path, cb) {
 		} catch (e) {}
 	});
 }
-function openSync(path, flags, mode) {
-	_validatePath(path);
-	ensureExactFs();
-	var p = _pathToString(path);
+function _normalizeOpenFlagsValue(flags) {
 	var f = flags === void 0 ? "r" : flags;
 	if (typeof f === "number") {
 		if (!Number.isFinite(f) || f % 1 !== 0 || f < 0 || f > 2147483647) {
@@ -2502,23 +2646,33 @@ function openSync(path, flags, mode) {
 			invalidNumErr.code = "ERR_INVALID_ARG_VALUE";
 			throw invalidNumErr;
 		}
-	} else if (typeof f === "string") f = _parseFsOpenFlags(f);
-	else {
-		var flagsErr = /* @__PURE__ */ new TypeError("The value of \"flags\" is invalid. It must be a string or a number. Received " + JSON.stringify(f));
-		flagsErr.code = "ERR_INVALID_ARG_VALUE";
-		throw flagsErr;
+		return f;
 	}
-	var m;
-	if (mode === void 0 || mode === null) m = 438;
-	else if (typeof mode === "number") m = mode;
-	else if (typeof mode === "string") {
-		m = parseInt(mode, 8);
+	if (typeof f === "string") return _parseFsOpenFlags(f);
+	var flagsErr = /* @__PURE__ */ new TypeError("The value of \"flags\" is invalid. It must be a string or a number. Received " + JSON.stringify(f));
+	flagsErr.code = "ERR_INVALID_ARG_VALUE";
+	throw flagsErr;
+}
+function _normalizeOpenModeValue(mode) {
+	if (mode === void 0 || mode === null) return 438;
+	if (typeof mode === "number") return mode;
+	if (typeof mode === "string") {
+		var m = parseInt(mode, 8);
 		if (isNaN(m)) {
 			var err = /* @__PURE__ */ new TypeError("The argument 'mode' must be a 32-bit unsigned integer or an octal string. Received " + JSON.stringify(mode));
 			err.code = "ERR_INVALID_ARG_VALUE";
 			throw err;
 		}
-	} else throw _fsInvalidArgType("mode", "number", mode);
+		return m;
+	}
+	throw _fsInvalidArgType("mode", "number", mode);
+}
+function openSync(path, flags, mode) {
+	_validatePath(path);
+	ensureExactFs();
+	var p = _pathToString(path);
+	var f = _normalizeOpenFlagsValue(flags);
+	var m = _normalizeOpenModeValue(mode);
 	try {
 		return g.__exactFsOpen(p, f, m);
 	} catch (e) {
@@ -2556,9 +2710,7 @@ function readSync(fd, buffer, offset, length, position) {
 		throw _makeFsError(err, "read");
 	}
 }
-function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
-	ensureExactFs();
-	_validateFd(fd);
+function _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
 	if (typeof bufferOrString !== "string" && typeof offsetOrPosition === "object" && offsetOrPosition !== null) {
 		var wopts = offsetOrPosition;
 		offsetOrPosition = wopts.offset === void 0 ? 0 : wopts.offset;
@@ -2567,17 +2719,15 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
 	}
 	if (typeof bufferOrString === "string") {
 		if (offsetOrPosition !== void 0 && offsetOrPosition !== null && typeof offsetOrPosition !== "number") throw _fsInvalidArgType("position", "bigint or integer", offsetOrPosition);
-		var pos = _validateReadWritePosition("position", offsetOrPosition);
+		var strPos = _validateReadWritePosition("position", offsetOrPosition);
 		if (lengthOrEncoding !== void 0 && lengthOrEncoding !== null && typeof lengthOrEncoding === "string") {
 			_assertEncoding(lengthOrEncoding);
 			_validateStringWriteEncoding(bufferOrString, lengthOrEncoding);
 		}
-		var bytes = toUint8Array(bufferOrString, lengthOrEncoding);
-		try {
-			return g.__exactFsWrite(fd, bytes, pos);
-		} catch (err) {
-			throw _makeFsError(err, "write");
-		}
+		return {
+			bytes: toUint8Array(bufferOrString, lengthOrEncoding),
+			position: strPos
+		};
 	}
 	if (!_isBufferLike(bufferOrString)) throw _fsInvalidArgType("buffer", "an instance of Buffer, TypedArray, or DataView", bufferOrString);
 	var bytesBuffer = toUint8Array(bufferOrString);
@@ -2590,8 +2740,17 @@ function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, posit
 	var pos = _validateReadWritePosition("position", position);
 	var slice = bytesBuffer;
 	if (off !== 0 || len !== bufferLen) slice = bytesBuffer.subarray(off, off + len);
+	return {
+		bytes: slice,
+		position: pos
+	};
+}
+function writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position) {
+	ensureExactFs();
+	_validateFd(fd);
+	var writeArgs = _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position);
 	try {
-		return g.__exactFsWrite(fd, slice, pos);
+		return g.__exactFsWrite(fd, writeArgs.bytes, writeArgs.position);
 	} catch (err) {
 		throw _makeFsError(err, "write");
 	}
@@ -2854,6 +3013,15 @@ function fsRead(fd, buffer, offset, length, position, cb) {
 	if (validateCallbackFirst) _validateCallback(cb);
 	var readArgs = _normalizeFsReadArgs(buffer, offset, length, position);
 	if (!validateCallbackFirst) _validateCallback(cb);
+	var asyncNative = _fsAsyncNative("__exactFsReadAsync");
+	if (asyncNative) {
+		_asyncReadIntoBuffer(asyncNative, fd, buffer, offset, length, position).then(function(bytesRead) {
+			cb(null, bytesRead, buffer);
+		}, function(err) {
+			cb(err);
+		});
+		return;
+	}
 	try {
 		var data = g.__exactFsRead(fd, readArgs.length, readArgs.position);
 		if (data.length > 0) if (!readArgs.targetBuffer.__isExactBuffer && typeof readArgs.targetBuffer.set === "function") readArgs.targetBuffer.set(data, readArgs.offset);
@@ -2906,6 +3074,16 @@ function fsWrite(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, positio
 		if (off < 0 || off > bufLen) throw _fsOutOfRange("offset", off, 0, bufLen);
 		if (typeof len === "number" && (len < 0 || off + len > bufLen)) throw _fsOutOfRange("length", len, 0, bufLen - off);
 	}
+	var asyncNative = _fsAsyncNative("__exactFsWriteAsync");
+	if (asyncNative) {
+		_validateFd(fd);
+		_asyncWriteFromArgs(asyncNative, fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position).then(function(written) {
+			cb(null, written, bufferOrString);
+		}, function(err) {
+			cb(err);
+		});
+		return;
+	}
 	try {
 		var written = writeSync(fd, bufferOrString, offsetOrPosition, lengthOrEncoding, position);
 		_deferFsWriteCallback(function() {
@@ -2936,7 +3114,7 @@ function _initReadStream(rs, path, options) {
 	var Stream = _getStreamModule();
 	var opts = typeof options === "string" ? { encoding: options } : options || {};
 	var fsModule = opts.fs || require("fs");
-	var useSyncReadFastPath = opts.fs === void 0;
+	var useSyncReadFastPath = opts.fs === void 0 && !_fsAsyncNative("__exactFsReadAsync");
 	_validateFsOptions("options.fs", opts.fs, [
 		"open",
 		"close",
@@ -3568,6 +3746,33 @@ function _initWriteStream(ws, path, options) {
 			ws.bytesWritten += writtenBytes;
 			if (typeof callback === "function") callback();
 		};
+		if (opts.fs === void 0 && _fsAsyncNative("__exactFsWriteAsync")) {
+			var writtenTotalAsync = 0;
+			var nextIndex = 0;
+			var writeNext = function() {
+				if (nextIndex >= buffers.length) {
+					done(null, writtenTotalAsync);
+					return;
+				}
+				var chunkBuf = buffers[nextIndex];
+				nextIndex += 1;
+				var chunkOffset = position === null ? -1 : position + writtenTotalAsync;
+				try {
+					fsWrite(fd, chunkBuf, 0, chunkBuf.length, chunkOffset, function(err, written) {
+						if (err) {
+							done(err);
+							return;
+						}
+						writtenTotalAsync += typeof written === "number" ? written : chunkBuf.length;
+						writeNext();
+					});
+				} catch (err) {
+					done(err);
+				}
+			};
+			writeNext();
+			return;
+		}
 		try {
 			var writtenTotal = 0;
 			for (var i = 0; i < buffers.length; i++) {
@@ -4549,6 +4754,13 @@ FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
 			var off = typeof offset === "number" ? offset : 0;
 			var len = typeof length === "number" ? length : buffer.length - off;
 			var pos = position === void 0 || position === null ? -1 : position;
+			var native = _fsAsyncNative("__exactFsReadAsync");
+			if (native) return _asyncReadIntoBuffer(native, handle.fd, buffer, off, len, pos).then(function(bytesRead) {
+				return {
+					bytesRead,
+					buffer
+				};
+			});
 			return {
 				bytesRead: readSync(handle.fd, buffer, off, len, pos),
 				buffer
@@ -4564,6 +4776,13 @@ FileHandlePromise.prototype.write = function(buffer, offset, length, position) {
 		var off = typeof offset === "number" ? offset : 0;
 		var len = typeof length === "number" ? length : buffer.length - off;
 		var pos = position === void 0 || position === null ? -1 : position;
+		var native = _fsAsyncNative("__exactFsWriteAsync");
+		if (native) return _asyncWriteFromArgs(native, handle.fd, buffer, off, len, pos).then(function(bytesWritten) {
+			return {
+				bytesWritten,
+				buffer
+			};
+		});
 		return {
 			bytesWritten: writeSync(handle.fd, buffer, off, len, pos),
 			buffer
@@ -4608,6 +4827,15 @@ FileHandlePromise.prototype.appendFile = function(data, options) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
+		var native = _fsAsyncNative("__exactFsWriteFileAsync");
+		if (native) {
+			_validateWriteData(data);
+			var writeOptions = _normalizeWriteOptions(options);
+			return _asyncWriteFileImpl(native, {
+				fd: handle.fd,
+				path: handle.path
+			}, data, writeOptions, "a").then(function() {});
+		}
 		appendFileSync(handle.fd, data, options);
 	})();
 };
@@ -4667,6 +4895,11 @@ FileHandlePromise.prototype.stat = function(options) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
+		var native = _fsAsyncNative("__exactFsStatAsync");
+		if (native) {
+			_coerceStatOptions(options);
+			return _asyncStatImpl(native, handle.fd, "fstat", _extractStatOptions(options));
+		}
 		return fstatSync(handle.fd, options);
 	})();
 };
@@ -4719,7 +4952,20 @@ function _extend(target, source) {
 function _promisesReadFileWithSignal(pathOrFd, options) {
 	var opts = _normalizeReadFileOptions(options, true);
 	if (opts.signal && opts.signal.aborted === true) throw _makeAbortError(opts.signal.reason);
+	var native = _fsAsyncNative("__exactFsReadFileAsync");
+	if (native) return _asyncReadFileImpl(native, pathOrFd, opts);
 	return readFileSync(pathOrFd, options);
+}
+function _promisesStatViaAsync(path, options, kind) {
+	var native = _fsAsyncNative("__exactFsStatAsync");
+	if (!native) return kind === "lstat" ? lstatSync(path, options) : statSync(path, options);
+	_validatePath(path);
+	_coerceStatOptions(options);
+	var statOptions = _extractStatOptions(options);
+	return _asyncStatImpl(native, _pathToString(path), kind, statOptions).then(void 0, function(err) {
+		if (statOptions.throwIfNoEntry === false && err && err.code === "ENOENT") return;
+		throw err;
+	});
 }
 var promises = {
 	readFile: function(p, o) {
@@ -4732,17 +4978,23 @@ var promises = {
 	},
 	appendFile: function(p, d, o) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsWriteFileAsync");
+			if (native) {
+				_validateWriteData(d);
+				var writeOptions = _normalizeWriteOptions(o);
+				return _asyncWriteFileImpl(native, _getFdOrPath(p, "path"), d, writeOptions, "a").then(function() {});
+			}
 			appendFileSync(p, d, o);
 		})();
 	},
 	stat: function(p, o) {
 		return _resolveAsync(function() {
-			return statSync(p, o);
+			return _promisesStatViaAsync(p, o, "stat");
 		})();
 	},
 	lstat: function(p, o) {
 		return _resolveAsync(function() {
-			return lstatSync(p, o);
+			return _promisesStatViaAsync(p, o, "lstat");
 		})();
 	},
 	readdir: function(p, o) {
@@ -4841,6 +5093,11 @@ var promises = {
 	},
 	fstat: function(fd) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsStatAsync");
+			if (native) {
+				_validateFd(fd);
+				return _asyncStatImpl(native, fd, "fstat", _extractStatOptions(void 0));
+			}
 			return fstatSync(fd);
 		})();
 	},
@@ -4849,6 +5106,16 @@ var promises = {
 	},
 	read: function(fd, buffer, offset, length, position) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsReadAsync");
+			if (native) {
+				_validateFd(fd);
+				return _asyncReadIntoBuffer(native, fd, buffer, offset, length, position).then(function(bytesRead) {
+					return {
+						bytesRead,
+						buffer
+					};
+				});
+			}
 			return {
 				bytesRead: readSync(fd, buffer, offset, length, position),
 				buffer
@@ -4857,6 +5124,16 @@ var promises = {
 	},
 	write: function(fd, bufferOrString, offset, length, position) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsWriteAsync");
+			if (native) {
+				_validateFd(fd);
+				return _asyncWriteFromArgs(native, fd, bufferOrString, offset, length, position).then(function(written) {
+					return {
+						bytesWritten: written,
+						buffer: bufferOrString
+					};
+				});
+			}
 			return {
 				bytesWritten: writeSync(fd, bufferOrString, offset, length, position),
 				buffer: bufferOrString
@@ -5197,6 +5474,26 @@ function fstat(fd, opts, callback) {
 	_validateFd(fd);
 	_validateCallback(callback);
 	ensureExactFs();
+	var native = _fsAsyncNative("__exactFsStatAsync");
+	if (native) {
+		var statPromise;
+		try {
+			_coerceStatOptions(opts);
+			statPromise = _asyncStatImpl(native, fd, "fstat", _extractStatOptions(opts));
+		} catch (e) {
+			var error = _makeFsError(e, "fstat");
+			_deferFsCallback(function() {
+				callback(error);
+			});
+			return;
+		}
+		statPromise.then(function(stats) {
+			callback(null, stats);
+		}, function(err) {
+			callback(err);
+		});
+		return;
+	}
 	try {
 		var result = fstatSync(fd, opts);
 		_deferFsCallback(function() {
