@@ -163,12 +163,12 @@ export class Statement<ReturnType = unknown, ParamsType extends any[] = any[]> {
     const origGet = this.get.bind(this);
 
     wrapped.all = function (...params: any[]) {
-      const rows = origAll(...params);
+      const rows = origAll(...(params as ParamsType));
       return rows.map((row: any) => Object.assign(Object.create(Class.prototype), row));
     };
 
     wrapped.get = function (...params: any[]) {
-      const row = origGet(...params);
+      const row = origGet(...(params as ParamsType));
       if (row === null) return null;
       return Object.assign(Object.create(Class.prototype), row);
     };

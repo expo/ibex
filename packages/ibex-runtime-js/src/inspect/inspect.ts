@@ -565,8 +565,9 @@ export function inspect(value: any, options?: InspectOptions): string {
 // `inspect` (possibly as a getter-only accessor), and a convenience install
 // must never hard-fail module evaluation (it broke native agent boot as the
 // follow-on failure behind LLP 0176).
-if (typeof globalThis.Exact !== 'undefined') {
-  const exactGlobal = (globalThis as { Exact?: Record<string, unknown> }).Exact!;
+const maybeExactGlobal = (globalThis as { Exact?: Record<string, unknown> }).Exact;
+if (typeof maybeExactGlobal !== 'undefined') {
+  const exactGlobal = maybeExactGlobal;
   const descriptor = Object.getOwnPropertyDescriptor(exactGlobal, 'inspect');
   if (!descriptor || descriptor.configurable || descriptor.writable) {
     try {

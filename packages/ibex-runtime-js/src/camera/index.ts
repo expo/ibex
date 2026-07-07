@@ -819,7 +819,7 @@ interface NativeCameraHostRecordingStopResponse {
 const CAMERA_OPERATION_PERMISSIONS = Object.freeze({
   takePhoto: Object.freeze(["device:camera:back", "device:camera:front"]),
   takeBurst: Object.freeze(["device:camera:back", "device:camera:front"]),
-  takeSnapshot: Object.freeze([]),
+  takeSnapshot: Object.freeze([] as string[]),
   startRecording: Object.freeze([
     "device:camera:back",
     "device:camera:front",

@@ -24,7 +24,7 @@ export function detectEngine(): "Hermes" | "JSC" | "V8" | "browser" | "unknown" 
   }
 
   // Browser detection (must come before V8 check since Chrome has both)
-  if (typeof document !== "undefined" && document.createElement) {
+  if (typeof document !== "undefined" && typeof document.createElement === "function") {
     return "browser";
   }
 
@@ -53,7 +53,7 @@ export function detectPlatform(): string {
   }
 
   // Browser/web detection (check for DOM document, not our window shim)
-  if (typeof document !== "undefined" && document.createElement) {
+  if (typeof document !== "undefined" && typeof document.createElement === "function") {
     return "web";
   }
 

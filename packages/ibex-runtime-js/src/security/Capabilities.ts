@@ -884,13 +884,15 @@ function getCapabilityDescription(capability: Capability): string {
  * @returns Bit position (0-55) or undefined if not a well-known capability
  */
 export function getCapabilityBit(capability: Capability): number | undefined {
-  // Fast path: direct lookup
-  const direct = CapabilityBit[capability];
+  // Fast path: direct lookup. Capability is an open string type, so read the
+  // generated const map through a string-keyed view.
+  const bits: Partial<Record<string, number>> = CapabilityBit;
+  const direct = bits[capability];
   if (direct !== undefined) return direct;
 
   // Parameterized capability: extract base
   const { category, action } = parseCapability(capability);
-  return CapabilityBit[`${category}:${action}`];
+  return bits[`${category}:${action}`];
 }
 
 /**
