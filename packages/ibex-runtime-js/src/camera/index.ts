@@ -621,7 +621,7 @@ export interface CameraAgentSessionHandle {
   takePhoto(options?: CameraPhotoOptions): Promise<CameraPhotoResult>;
   takeSnapshot?(options?: CameraSnapshotOptions): Promise<CameraSnapshotResult>;
   focus(point: CameraPoint): Promise<void>;
-  computeAnalysis(options: CameraAnalysisOptions): CameraAnalysisSnapshot | null;
+  computeAnalysis(options: CameraAnalysisOptions): Promise<CameraAnalysisSnapshot | null>;
   getProcessorState?(): CameraProcessorStateSnapshot | null;
   getScene?(options?: {
     features?: CameraSceneFeature[];
@@ -2259,7 +2259,7 @@ export async function getActiveCameraSessionScene(
 
   const snapshot = session.getSnapshot();
   const requestedFeatures = options.features ?? getCameraSceneFeatures();
-  const analysis = session.computeAnalysis({
+  const analysis = await session.computeAnalysis({
     histogram: requestedFeatures.includes("brightness"),
     clipping: requestedFeatures.includes("blur"),
     fps: 0,
@@ -2313,13 +2313,13 @@ export async function planActiveCameraSessionCapture(
   });
 }
 
-export function getActiveCameraSessionReadiness(
+export async function getActiveCameraSessionReadiness(
   sessionId: string | undefined,
   options: {
     intent: CameraIntent;
     readyThreshold?: number;
   },
-): CameraReadiness | null {
+): Promise<CameraReadiness | null> {
   const session = getActiveCameraSession(sessionId);
   if (!session) {
     return null;
@@ -2327,7 +2327,7 @@ export function getActiveCameraSessionReadiness(
 
   return evaluateCameraReadiness({
     snapshot: session.getSnapshot(),
-    analysis: session.computeAnalysis({
+    analysis: await session.computeAnalysis({
       histogram: true,
       clipping: true,
       fps: 0,
@@ -4014,7 +4014,7 @@ export class NativeCameraSessionController implements CameraAgentSessionHandle {
   async captureFrame(
     options: CameraAgentFrameCaptureOptions = {},
   ): Promise<Blob> {
-    const response = this.callNative<NativeCameraHostCaptureFrameResponse>(
+    const response = await this.callNativeAsync<NativeCameraHostCaptureFrameResponse>(
       "camera.frame.capture",
       {
         options,
@@ -4037,7 +4037,7 @@ export class NativeCameraSessionController implements CameraAgentSessionHandle {
 
   async takePhoto(options: CameraPhotoOptions = {}): Promise<CameraPhotoResult> {
     this.options.onShutter?.();
-    const response = this.callNative<unknown>(
+    const response = await this.callNativeAsync<unknown>(
       "camera.photo.take",
       {
         options,
@@ -4166,9 +4166,9 @@ export class NativeCameraSessionController implements CameraAgentSessionHandle {
     this.notify();
   }
 
-  computeAnalysis(options: CameraAnalysisOptions): CameraAnalysisSnapshot | null {
+  async computeAnalysis(options: CameraAnalysisOptions): Promise<CameraAnalysisSnapshot | null> {
     try {
-      const response = this.callNative<NativeCameraHostAnalysisResponse>(
+      const response = await this.callNativeAsync<NativeCameraHostAnalysisResponse>(
         "camera.analysis.get",
         {
           options,
@@ -4203,12 +4203,13 @@ export class NativeCameraSessionController implements CameraAgentSessionHandle {
 
     const snapshot = this.getSnapshot();
     const requestedFeatures = options.features ?? getCameraSceneFeatures();
+    const analysis = await this.computeAnalysis({
+      histogram: requestedFeatures.includes("brightness"),
+      clipping: requestedFeatures.includes("blur"),
+      fps: 0,
+    });
     return deriveSceneFromAnalysis(
-      this.computeAnalysis({
-        histogram: requestedFeatures.includes("brightness"),
-        clipping: requestedFeatures.includes("blur"),
-        fps: 0,
-      }),
+      analysis,
       snapshot.lastFrameId,
       requestedFeatures,
     );
@@ -4239,6 +4240,25 @@ export class NativeCameraSessionController implements CameraAgentSessionHandle {
   ): T {
     try {
       return invokeNativeCameraHostCall<T>(operation, {
+        sessionId: this.nativeSessionId,
+        ...(payload ?? {}),
+      }) as T;
+    } catch (error) {
+      const cameraError = makeNativeCameraError(operation, error, errorCode);
+      this.lastError = cameraError;
+      this.options.onError?.(cameraError);
+      this.currentRecordingOptions?.onError?.(cameraError);
+      throw error instanceof Error ? error : new Error(cameraError.message);
+    }
+  }
+
+  private async callNativeAsync<T>(
+    operation: string,
+    payload?: Record<string, unknown>,
+    errorCode?: CameraError["code"],
+  ): Promise<T> {
+    try {
+      return await invokeNativeCameraHostCallAsync<T>(operation, {
         sessionId: this.nativeSessionId,
         ...(payload ?? {}),
       }) as T;
@@ -4614,7 +4634,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       }
     }
 
-    const analysis = this.computeAnalysis({
+    const analysis = await this.computeAnalysis({
       histogram: true,
       clipping: true,
       fps: 0,
@@ -4711,7 +4731,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
       clamp01(options.quality ?? 0.85),
     );
 
-    const analysis = this.computeAnalysis({
+    const analysis = await this.computeAnalysis({
       histogram: true,
       clipping: true,
       fps: 0,
@@ -4953,7 +4973,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     await this.ensureSensorBufferFresh();
 
     const features = options.features ?? getCameraSceneFeatures();
-    const analysis = this.computeAnalysis({
+    const analysis = await this.computeAnalysis({
       histogram: features.includes("brightness"),
       clipping: features.includes("blur"),
       fps: 0,
@@ -5146,7 +5166,7 @@ export class WebCameraSessionController implements CameraAgentSessionHandle {
     };
   }
 
-  computeAnalysis(options: CameraAnalysisOptions): CameraAnalysisSnapshot | null {
+  async computeAnalysis(options: CameraAnalysisOptions): Promise<CameraAnalysisSnapshot | null> {
     // The raw canvas keeps its dimensions after the first drawn frame (and a
     // blank canvas already reports a non-zero default size in a browser), so a
     // width===0 guard would analyse a stale — or never-drawn, all-zero — buffer

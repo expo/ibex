@@ -282,7 +282,7 @@ test("finding 3: worker still processes frames once the processor compiles", asy
 // Finding 1 — computeAnalysis reads a fresh sensor frame, not a stale buffer.
 // ---------------------------------------------------------------------------
 
-test("finding 1: computeAnalysis redraws a fresh frame in a non-Path-B session", () => {
+test("finding 1: computeAnalysis redraws a fresh frame in a non-Path-B session", async () => {
   const session = new camera.WebCameraSessionController({ previewMode: "native" });
   const bindings = makeBindings();
   (session as any).bindings = bindings;
@@ -295,7 +295,7 @@ test("finding 1: computeAnalysis redraws a fresh frame in a non-Path-B session",
 
   // Scene goes dark; a correct snapshot must reflect the *current* frame.
   bindings.video.currentLuma = 10;
-  const analysis = session.computeAnalysis({ histogram: true, clipping: true, fps: 0 });
+  const analysis = await session.computeAnalysis({ histogram: true, clipping: true, fps: 0 });
 
   expect(analysis).not.toBeNull();
   const lum = analysis!.histogram!.lum;
