@@ -91,6 +91,26 @@ describe('process.kill signal table (ENG-23140 #1)', () => {
     };
     expect(constants.os.signals).toEqual(signalNameToNumberMap(shimProcess.platform));
   });
+
+  test('a leaked host-native map never rewrites a foreign platform table', () => {
+    // Loading builtins/child-process.js publishes the HOST's table as
+    // globalThis.__exactSignalNumbersMap (shared bun test process), which on
+    // Linux CI turned signalNameToNumberMap('darwin') into Linux numbers.
+    // The native override may only refine the host platform's own table.
+    const saved = g.__exactSignalNumbersMap;
+    try {
+      g.__exactSignalNumbersMap = { SIGUSR1: 999, SIGBUS: 998 };
+      expect(signalNameToNumberMap('darwin').SIGUSR1).toBe(
+        process.platform === 'darwin' ? 999 : 30
+      );
+      expect(signalNameToNumberMap('linux').SIGUSR1).toBe(
+        process.platform === 'linux' ? 999 : 10
+      );
+    } finally {
+      if (saved === undefined) delete g.__exactSignalNumbersMap;
+      else g.__exactSignalNumbersMap = saved;
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

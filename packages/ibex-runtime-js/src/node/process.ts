@@ -132,6 +132,15 @@ export function signalNameToNumberMap(platform: string): Record<string, number> 
     ? FALLBACK_SIGNAL_NAMES_LINUX
     : FALLBACK_SIGNAL_NAMES_DARWIN;
   const out: Record<string, number> = { ...fallback };
+  // The native table describes the kernel we are running on, so it can only
+  // refine the table for THIS host's platform. Merging it into a table
+  // requested for a foreign platform would hand out host numbers under the
+  // other platform's name (e.g. Linux SIGUSR1=10 in a 'darwin' table).
+  let hostPlatform: string | undefined;
+  try {
+    hostPlatform = (globalThis as any).process?.platform;
+  } catch (_err) {}
+  if (platform !== hostPlatform) return out;
   let nativeMap: any = undefined;
   try {
     nativeMap = (globalThis as any).__exactSignalNumbersMap;
