@@ -7,9 +7,11 @@
 #include <cstring>
 #include <iomanip>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if !defined(_WIN32)
@@ -79,10 +81,88 @@ extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capabil
 
 namespace {
 
-static std::atomic<int> g_pending_signal{0};
+// --- Signal trap machinery (ENG-23234) ---
+// The async-signal-safe half of Node-style signal dispatch. A sigaction
+// handler may only touch lock-free atomics and async-signal-safe syscalls,
+// so delivery is split in three stages:
+//   1. signal_handler marks the signal pending (per-signal counter — the old
+//      single shared slot lost distinct signals that coalesced between
+//      polls) and writes one doorbell byte to a self-pipe.
+//   2. A detached watcher thread blocks on the pipe's read end (no polling)
+//      and, outside signal context, pushes a runtime callback — the same
+//      cross-thread wake path fetch/WS/HTTP completions use — so a runtime
+//      parked in wait_for_callback_or_sleep wakes immediately. SA_RESTART
+//      stays on (other native code relies on uninterrupted syscalls); the
+//      pipe makes the wake-up independent of EINTR semantics.
+//   3. The callback invokes globalThis.__exactDispatchPendingSignals()
+//      (installed by stream-enhance.js), which drains __exactPollSignal()
+//      and emits on the *current* process object.
+static constexpr int kMaxTrappedSignal = 63;
+static std::atomic<unsigned> g_pending_signal_counts[kMaxTrappedSignal + 1];
+static int g_signal_wake_pipe[2] = {-1, -1};
+static std::atomic<ExactHermesRuntime*> g_signal_runtime{nullptr};
+static std::once_flag g_signal_watcher_once;
 
 static void signal_handler(int sig) {
-  g_pending_signal.store(sig, std::memory_order_relaxed);
+  if (sig <= 0 || sig > kMaxTrappedSignal) return;
+  int saved_errno = errno;
+  g_pending_signal_counts[sig].fetch_add(1, std::memory_order_relaxed);
+  int fd = g_signal_wake_pipe[1];
+  if (fd >= 0) {
+    unsigned char byte = static_cast<unsigned char>(sig);
+    ssize_t ignored = write(fd, &byte, 1);
+    (void)ignored;  // a full pipe still wakes the watcher; counters carry the data
+  }
+  errno = saved_errno;
+}
+
+static void signalWatcherThreadMain() {
+  for (;;) {
+    unsigned char buf[64];
+    ssize_t n = read(g_signal_wake_pipe[0], buf, sizeof(buf));
+    if (n < 0) {
+      if (errno == EINTR) continue;
+      return;
+    }
+    if (n == 0) return;  // write end closed (does not happen today)
+    ExactHermesRuntime* runtime = g_signal_runtime.load(std::memory_order_acquire);
+    if (!runtime) continue;
+    // pushRuntimeCallback re-checks the runtime registry under its own lock,
+    // so a stale pointer to a destroyed runtime degrades to a leaked no-op
+    // callback instead of a use-after-free (same contract as fetch/WS
+    // completions).
+    pushRuntimeCallback(runtime, [](facebook::jsi::Runtime& rt) {
+      auto dispatch =
+          rt.global().getProperty(rt, "__exactDispatchPendingSignals");
+      if (dispatch.isObject()) {
+        auto obj = dispatch.asObject(rt);
+        if (obj.isFunction(rt)) {
+          obj.asFunction(rt).call(rt);
+        }
+      }
+    });
+  }
+}
+
+// Lazily create the self-pipe + watcher thread on first trap. The watcher is
+// a detached native thread parked in read(); it holds no JS state and does
+// not count toward ex_hermes_has_pending_tasks, so watching a signal never
+// keeps the event loop alive (ENG-23132 semantics).
+static bool ensureSignalWatcher() {
+  std::call_once(g_signal_watcher_once, []() {
+    int fds[2] = {-1, -1};
+    if (pipe(fds) != 0) return;
+    fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+    fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+    // Write end nonblocking: the signal handler must never block on a full
+    // pipe (the byte is only a doorbell).
+    int wflags = fcntl(fds[1], F_GETFL, 0);
+    if (wflags >= 0) fcntl(fds[1], F_SETFL, wflags | O_NONBLOCK);
+    g_signal_wake_pipe[0] = fds[0];
+    g_signal_wake_pipe[1] = fds[1];
+    std::thread(signalWatcherThreadMain).detach();
+  });
+  return g_signal_wake_pipe[1] >= 0;
 }
 
 struct CFUniqueReleaser {
@@ -4780,8 +4860,10 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactBrotliDecompressSync", std::move(brotliDecompressSyncFn));
 #endif // !EXACT_NO_BROTLI
 
-  // --- Signal handling setup ---
+  // --- Signal handling setup (ENG-23234) ---
   // __exactPollSignal() -> signal number or 0
+  // Drains one pending delivery per call (callers loop until 0). Per-signal
+  // counters preserve distinct signals that arrived between drains.
   auto pollSignalFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactPollSignal"),
@@ -4790,17 +4872,24 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
-        int sig = g_pending_signal.exchange(0, std::memory_order_relaxed);
-        return facebook::jsi::Value(sig);
+        for (int sig = 1; sig <= kMaxTrappedSignal; sig++) {
+          if (g_pending_signal_counts[sig].load(std::memory_order_relaxed) > 0) {
+            g_pending_signal_counts[sig].fetch_sub(1, std::memory_order_relaxed);
+            return facebook::jsi::Value(sig);
+          }
+        }
+        return facebook::jsi::Value(0);
       });
   rt.global().setProperty(rt, "__exactPollSignal", std::move(pollSignalFn));
 
   // __exactTrapSignal(signalNumber) -> void
+  // Installs the sigaction and arms the watcher thread that wakes this
+  // runtime's event loop when a trapped signal arrives.
   auto trapSignalFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactTrapSignal"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -4808,6 +4897,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactTrapSignal: signal number required");
         }
         int sig = static_cast<int>(args[0].asNumber());
+        if (sig <= 0 || sig > kMaxTrappedSignal) {
+          throw facebook::jsi::JSError(runtime, "__exactTrapSignal: signal number out of range");
+        }
+        ensureSignalWatcher();
+        // Route dispatch to the runtime that trapped last; the CLI has one
+        // runtime for the process lifetime.
+        g_signal_runtime.store(handle, std::memory_order_release);
         struct sigaction sa = {};
         sa.sa_handler =
 #ifdef SIGXFSZ
@@ -4822,6 +4918,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactTrapSignal", std::move(trapSignalFn));
 
   // __exactResetSignal(signalNumber) -> void (restore default handler)
+  // Also discards that signal's pending deliveries: after the last JS
+  // listener is removed a stale pending must not be re-raised later by the
+  // dispatcher's default-behavior fallback.
   auto resetSignalFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactResetSignal"),
@@ -4838,9 +4937,70 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         sa.sa_handler = SIG_DFL;
         sigemptyset(&sa.sa_mask);
         sigaction(sig, &sa, nullptr);
+        if (sig > 0 && sig <= kMaxTrappedSignal) {
+          g_pending_signal_counts[sig].store(0, std::memory_order_relaxed);
+        }
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactResetSignal", std::move(resetSignalFn));
+
+  // __exactSignalNumbers() -> { SIGINT: n, ... }
+  // The authoritative platform-correct signal-name table, taken from the
+  // compiler's own constants — kernel-accurate by construction. JS layers
+  // must consume this instead of growing hand-copied Linux/Darwin tables
+  // (the stream-enhance map hardcoded Linux numbers, so trapping SIGUSR2
+  // trapped SIGSYS on Darwin). SIGKILL/SIGSTOP are deliberately absent:
+  // they are untrappable, so listeners for them must not arm a sigaction.
+  auto signalNumbersFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSignalNumbers"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        auto obj = facebook::jsi::Object(runtime);
+        auto set = [&](const char* name, int value) {
+          obj.setProperty(runtime, name, facebook::jsi::Value(value));
+        };
+        set("SIGHUP", SIGHUP);
+        set("SIGINT", SIGINT);
+        set("SIGQUIT", SIGQUIT);
+        set("SIGILL", SIGILL);
+        set("SIGTRAP", SIGTRAP);
+        set("SIGABRT", SIGABRT);
+        set("SIGBUS", SIGBUS);
+        set("SIGFPE", SIGFPE);
+        set("SIGUSR1", SIGUSR1);
+        set("SIGSEGV", SIGSEGV);
+        set("SIGUSR2", SIGUSR2);
+        set("SIGPIPE", SIGPIPE);
+        set("SIGALRM", SIGALRM);
+        set("SIGTERM", SIGTERM);
+        set("SIGCHLD", SIGCHLD);
+        set("SIGCONT", SIGCONT);
+        set("SIGTSTP", SIGTSTP);
+        set("SIGTTIN", SIGTTIN);
+        set("SIGTTOU", SIGTTOU);
+        set("SIGURG", SIGURG);
+        set("SIGXCPU", SIGXCPU);
+        set("SIGXFSZ", SIGXFSZ);
+        set("SIGVTALRM", SIGVTALRM);
+        set("SIGPROF", SIGPROF);
+        set("SIGWINCH", SIGWINCH);
+        set("SIGSYS", SIGSYS);
+#ifdef SIGIO
+        set("SIGIO", SIGIO);
+#endif
+#ifdef SIGINFO
+        set("SIGINFO", SIGINFO);
+#endif
+#ifdef SIGPWR
+        set("SIGPWR", SIGPWR);
+#endif
+        return obj;
+      });
+  rt.global().setProperty(rt, "__exactSignalNumbers", std::move(signalNumbersFn));
 
   // --- Stdin reading ---
   // __exactStdinRead(maxBytes) -> string or null (EOF/no data)

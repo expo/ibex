@@ -74,6 +74,31 @@ const _nativeGetegid: (() => number) | undefined =
   typeof (globalThis as any).process?.getegid === 'function'
     ? (globalThis as any).process.getegid.bind((globalThis as any).process)
     : undefined;
+// (ENG-23234) Real OS pid/ppid from the native process object this shim
+// replaces. The old hardcoded `pid = 1` made process.kill(process.pid, sig)
+// a silent no-op on desktop: kill(1, sig) fails EPERM, the catch below fell
+// through, and `pid === this.pid` (1 === 1) faked success — so self-signaling
+// delivered nothing. Mobile embeds without a native process keep the 1/0
+// placeholders.
+const _nativePid: number | undefined =
+  typeof (globalThis as any).process?.pid === 'number' && (globalThis as any).process.pid > 0
+    ? (globalThis as any).process.pid
+    : undefined;
+const _nativePpid: number | undefined =
+  typeof (globalThis as any).process?.ppid === 'number' && (globalThis as any).process.ppid >= 0
+    ? (globalThis as any).process.ppid
+    : undefined;
+// (ENG-23234) Reconcile native signal traps with this emitter's listener
+// table. Installed by the ibex bootstrap (stream-enhance.js); absent on
+// mobile embeds, where this is a no-op.
+function _syncSignalTrap(event?: string): void {
+  const hook = (globalThis as any).__exactSignalWatchSync;
+  if (typeof hook === 'function') {
+    try {
+      hook(event);
+    } catch (_err) {}
+  }
+}
 const _nativePromiseThen = Promise.prototype.then;
 const _nativeQueueMicrotask =
   typeof queueMicrotask === 'function' ? queueMicrotask.bind(globalThis) : undefined;
@@ -1416,17 +1441,19 @@ class Process {
   }
 
   /**
-   * Process ID (not meaningful in mobile context, always returns 1).
+   * Process ID. Real OS pid on desktop (captured from the native process
+   * object before this shim replaced it — ENG-23234); 1 on mobile embeds
+   * where there is no meaningful pid.
    */
   get pid(): number {
-    return 1;
+    return _nativePid ?? 1;
   }
 
   /**
-   * Parent process ID (always 0 in mobile context).
+   * Parent process ID. Real OS ppid on desktop; 0 on mobile embeds.
    */
   get ppid(): number {
-    return 0;
+    return _nativePpid ?? 0;
   }
 
   binding(name: string): unknown {
@@ -2307,6 +2334,7 @@ class Process {
     if (event === 'unhandledRejection') {
       this._hookUnhandledRejection();
     }
+    _syncSignalTrap(event);
     return this;
   }
 
@@ -2328,6 +2356,7 @@ class Process {
     if (event === 'unhandledRejection') {
       this._hookUnhandledRejection();
     }
+    _syncSignalTrap(event);
     return this;
   }
 
@@ -2335,6 +2364,7 @@ class Process {
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: false });
     this._events.set(event, listeners);
+    _syncSignalTrap(event);
     return this;
   }
 
@@ -2342,6 +2372,7 @@ class Process {
     const listeners = this._events.get(event) || [];
     listeners.unshift({ fn: listener, once: true });
     this._events.set(event, listeners);
+    _syncSignalTrap(event);
     return this;
   }
 
@@ -2370,6 +2401,7 @@ class Process {
     if (listeners) {
       this._events.set(event, listeners.filter(e => e.fn !== listener));
     }
+    _syncSignalTrap(event);
     return this;
   }
 
@@ -2379,6 +2411,8 @@ class Process {
     } else {
       this._events.clear();
     }
+    // No argument = every event was cleared; sync every trapped signal.
+    _syncSignalTrap(event);
     return this;
   }
 

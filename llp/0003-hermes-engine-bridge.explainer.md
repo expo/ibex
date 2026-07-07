@@ -93,9 +93,17 @@ responses etc.), runs queued cross-thread tasks on the runtime thread, runs the
 `nextTick` queue, and drains microtasks `[observed]`
 (`src/engine/hermes_runtime.cc:1820-1849`). Background threads signal readiness
 via `ex_hermes_notify_callback`, whose default implementation sets an atomic
-flag polled by the host `[observed]` (`src/engine/mod.rs:33-43`); the
-`cli-notify` feature replaces it with a tokio `Notify`-based version
-`[observed]` (`src/engine/mod.rs:18-32`; `Cargo.toml:66-80`).
+flag and invokes a registerable host wake hook `[observed]`
+(`src/engine/mod.rs`); the `cli-notify` feature replaces it with a tokio
+`Notify`-based version. Since ENG-23234 the CLI's default (non-`cli-notify`)
+profile registers that hook at engine creation to signal the same parked
+`select!` — previously the default profile had no wake-up at all, so a
+cross-thread callback push racing a long timer park was not dispatched until
+the timer expired. OS signal delivery rides this same path: the sigaction
+handler marks a per-signal pending counter and writes to a self-pipe; a
+detached watcher thread turns that into a `pushRuntimeCallback` that drains
+pending signals into the JS `process` emitter `[observed]`
+(`src/engine/hermes_runtime_crypto.cc`, `src/engine/bootstrap/stream-enhance.js`).
 
 Async failures are fatal, matching Node: a callback that throws with no
 `uncaughtException` handler consuming it — a timer, a `process.nextTick`, a

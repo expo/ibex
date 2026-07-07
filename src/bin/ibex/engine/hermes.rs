@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::process::Command;
 use tokio::sync::Mutex;
-#[cfg(feature = "cli-notify")]
 use {std::sync::OnceLock, tokio::sync::Notify};
 
 const REQUIRED_RUNTIME_MARKERS: &[&[u8]] = &[b"globalThis.__exactRuntime", b"ExactBundle"];
@@ -124,10 +123,8 @@ extern "C" {
 
 // Event loop notification: wakes the event loop when a callback is pushed
 // from C++ (e.g. HTTP request arrives, timer fires, etc.)
-#[cfg(feature = "cli-notify")]
 static CALLBACK_NOTIFY: OnceLock<Arc<Notify>> = OnceLock::new();
 
-#[cfg(feature = "cli-notify")]
 fn callback_notify() -> &'static Arc<Notify> {
     CALLBACK_NOTIFY.get_or_init(|| Arc::new(Notify::new()))
 }
@@ -138,18 +135,39 @@ pub extern "C" fn ex_hermes_notify_callback() {
     callback_notify().notify_one();
 }
 
-async fn wait_for_callback_or_sleep(duration: std::time::Duration) {
-    #[cfg(feature = "cli-notify")]
-    {
-        tokio::select! {
-            _ = callback_notify().notified() => {},
-            _ = tokio::time::sleep(duration) => {},
-        }
-    }
+// (ENG-23234) Default-profile wake-up. Without `cli-notify` the library's
+// ex_hermes_notify_callback (engine/mod.rs) is linked instead of the tokio
+// override above, and the parked select! below never woke: a cross-thread
+// callback push (fetch/WS completion, HTTP request — and now signal
+// dispatch) sat queued until the next due timer expired, so an external
+// SIGINT to a runtime parked on a long setTimeout was not delivered until
+// that timer fired. The library impl invokes a registerable host wake hook
+// on every push; registering one that signals CALLBACK_NOTIFY gives the
+// default profile the same zero-latency wake as `cli-notify` while keeping
+// LLP 0010's feature split (exactly one ex_hermes_notify_callback symbol).
+#[cfg(not(feature = "cli-notify"))]
+extern "C" fn default_profile_wake_hook(_context: *mut std::ffi::c_void) {
+    callback_notify().notify_one();
+}
 
-    #[cfg(not(feature = "cli-notify"))]
-    {
-        tokio::time::sleep(duration).await;
+#[cfg(not(feature = "cli-notify"))]
+fn register_default_profile_wake_hook() {
+    static REGISTERED: OnceLock<()> = OnceLock::new();
+    REGISTERED.get_or_init(|| {
+        ibex_runtime::engine::ex_hermes_set_host_wake_hook(
+            Some(default_profile_wake_hook),
+            std::ptr::null_mut(),
+        );
+    });
+}
+
+#[cfg(feature = "cli-notify")]
+fn register_default_profile_wake_hook() {}
+
+async fn wait_for_callback_or_sleep(duration: std::time::Duration) {
+    tokio::select! {
+        _ = callback_notify().notified() => {},
+        _ = tokio::time::sleep(duration) => {},
     }
 }
 
@@ -165,8 +183,10 @@ async fn wait_for_callback_or_sleep(duration: std::time::Duration) {
 // here instead made an idle server re-poll ~200×/sec forever, each iteration
 // taking the tokio Mutex, the ffi_lock, and four FFI calls.
 //
-// Without `cli-notify` there is no wakeup source, so the loop genuinely must
-// poll; a short interval keeps it responsive to incoming requests.
+// Without `cli-notify` the wakeup source is the host wake hook registered by
+// register_default_profile_wake_hook (ENG-23234) — every callback push still
+// signals the parked select! — but the short interval is kept as a
+// conservative safety net for that profile.
 #[cfg(feature = "cli-notify")]
 const IDLE_PARK: std::time::Duration = std::time::Duration::from_secs(1);
 #[cfg(not(feature = "cli-notify"))]
@@ -741,6 +761,10 @@ impl CdpBackend for HermesCdpBackend {
 impl HermesEngine {
     /// Create a new Hermes engine instance
     pub fn new() -> Result<Self> {
+        // (ENG-23234) Must run before the first event-loop park so callback
+        // pushes wake the select! in wait_for_callback_or_sleep even without
+        // the `cli-notify` feature. No-op under `cli-notify`.
+        register_default_profile_wake_hook();
         Ok(Self {
             runtime_loaded: Mutex::new(false),
             runtime: Mutex::new(None),

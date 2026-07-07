@@ -893,95 +893,130 @@
   };
   globalThis.__exactUnhandledRejectionHandler = p._unhandledRejectionHandler;
 
-  // --- Signal handling ---
-  // Map signal names to numbers
-  var _signals = { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGTERM: 15, SIGUSR1: 10, SIGUSR2: 12 };
-  var _trappedSignals = {};
+  // --- Signal handling (ENG-23234) ---
+  // ONE live dispatch path: __exactTrapSignal installs the native sigaction,
+  // the native self-pipe watcher wakes the event loop through the same
+  // cross-thread callback push fetch/WS/HTTP use, and the pushed callback
+  // invokes __exactDispatchPendingSignals below to drain pending signal
+  // numbers and emit on the *current* globalThis.process (the shared runtime
+  // bundle replaces the process object after this file runs). There is no JS
+  // poll timer, so signal watching never keeps the process alive (ENG-23132)
+  // and dispatch latency is one event-loop wake, not a 100ms poll tick.
+  //
+  // The name->number map comes from __exactSignalNumbers (compiled kernel
+  // constants — the previous hardcoded table used Linux numbers, so trapping
+  // SIGUSR2 (12) actually trapped SIGSYS on Darwin). The platform-branched
+  // fallback below only serves natives older than that host function.
+  // SIGKILL/SIGSTOP are absent everywhere: untrappable by the kernel.
+  var _signals = null;
+  if (typeof __exactSignalNumbers === 'function') {
+    try { _signals = __exactSignalNumbers(); } catch (_) {}
+  }
+  if (!_signals) {
+    var _sigPlatform = (p && p.platform) || 'darwin';
+    _signals = (_sigPlatform === 'linux' || _sigPlatform === 'android')
+      ? { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+          SIGBUS: 7, SIGFPE: 8, SIGUSR1: 10, SIGSEGV: 11, SIGUSR2: 12,
+          SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 17, SIGCONT: 18,
+          SIGTSTP: 20, SIGTTIN: 21, SIGTTOU: 22, SIGURG: 23, SIGXCPU: 24,
+          SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27, SIGWINCH: 28, SIGIO: 29,
+          SIGSYS: 31 }
+      : { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
+          SIGFPE: 8, SIGBUS: 10, SIGSEGV: 11, SIGSYS: 12, SIGPIPE: 13,
+          SIGALRM: 14, SIGTERM: 15, SIGURG: 16, SIGTSTP: 18, SIGCONT: 19,
+          SIGCHLD: 20, SIGTTIN: 21, SIGTTOU: 22, SIGIO: 23, SIGXCPU: 24,
+          SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27, SIGWINCH: 28, SIGINFO: 29,
+          SIGUSR1: 30, SIGUSR2: 31 };
+  }
+  // Published as the shared table so other layers stop growing hand-copied
+  // Linux/Darwin variants (child-process.js's _signalMap predates this).
+  globalThis.__exactSignalNumbersMap = _signals;
   var _signalNames = {};
-  var _signalPollEnabled = typeof __exactPollSignal === 'function';
-  var _signalPollActive = false;
-  var _signalPollTimer = 0;
+  for (var _sk in _signals) _signalNames[_signals[_sk]] = _sk;
 
-  if (_signalPollEnabled) {
-    for (var _sk in _signals) {
-      _signalNames[_signals[_sk]] = _sk;
-    }
+  var _trappedSignals = {};
+  // Checked lazily so wiring still works if the trap host functions are
+  // installed after this bootstrap evaluates.
+  function _signalTrapEnabled() {
+    return typeof globalThis.__exactTrapSignal === 'function' &&
+           typeof globalThis.__exactPollSignal === 'function';
   }
 
-  function _unrefSignalPollTimer(timer) {
-    // The signal poll must never keep the event loop alive: in Node, signal
-    // listeners are not refs, so a CLI script that registers a SIGINT cleanup
-    // handler still exits once its real work is done (ENG-23132).
-    if (timer == null) return;
-    if (typeof timer === 'object' && typeof timer.unref === 'function') {
-      try { timer.unref(); } catch (_) {}
-      return;
-    }
-    if (typeof globalThis.__exactTimerUnref === 'function') {
-      try { globalThis.__exactTimerUnref(timer); } catch (_) {}
-    }
-  }
-
-  function _startSignalPolling() {
-    if (!_signalPollEnabled || _signalPollActive) {
-      return;
-    }
-
-    _signalPollActive = true;
-
-    (function pollSignals() {
-      if (!_signalPollActive) return;
-      var sig = __exactPollSignal();
-      if (sig > 0 && _signalNames[sig]) {
-        var name = _signalNames[sig];
-        if (p.listenerCount(name) > 0) {
-          p.emit(name);
-        } else {
-          // No listeners, restore default behavior
-          if (typeof __exactResetSignal === 'function') {
-            __exactResetSignal(sig);
-          }
-          // Re-raise the signal
-          if (p.kill) p.kill(p.pid, sig);
+  // Drain every pending signal delivery. Runs on the runtime thread via the
+  // native watcher's pushed callback; also safe to call directly.
+  globalThis.__exactDispatchPendingSignals = function() {
+    if (typeof __exactPollSignal !== 'function') return;
+    for (;;) {
+      var sig = 0;
+      try { sig = __exactPollSignal(); } catch (_) { return; }
+      if (!(sig > 0)) return;
+      var name = _signalNames[sig];
+      var proc = globalThis.process;
+      var hasListener = false;
+      if (name && proc && typeof proc.listenerCount === 'function' &&
+          typeof proc.emit === 'function') {
+        try { hasListener = proc.listenerCount(name) > 0; } catch (_) {}
+      }
+      if (hasListener) {
+        try {
+          proc.emit(name, name);
+        } catch (emitErr) {
+          // A throwing signal handler is an uncaughtException (the caller
+          // routes it), but the remaining pending signals must still be
+          // dispatched — schedule a follow-up drain before rethrowing.
+          try { setTimeout(globalThis.__exactDispatchPendingSignals, 0); } catch (_) {}
+          throw emitErr;
+        }
+      } else {
+        // Trap armed but no JS listener (e.g. removed in a race): restore the
+        // default disposition and re-deliver so the OS default applies.
+        if (name) _trappedSignals[name] = false;
+        if (typeof __exactResetSignal === 'function') {
+          try { __exactResetSignal(sig); } catch (_) {}
+        }
+        if (proc && typeof proc.kill === 'function' &&
+            typeof proc.pid === 'number' && proc.pid > 0) {
+          try { proc.kill(proc.pid, sig); } catch (_) {}
         }
       }
-
-      if (_signalPollActive) {
-        _signalPollTimer = setTimeout(pollSignals, 100);
-        _unrefSignalPollTimer(_signalPollTimer);
-      }
-    })();
-  }
-
-  function _stopSignalPolling() {
-    if (!_signalPollActive) return;
-    _signalPollActive = false;
-    if (_signalPollTimer) {
-      try { clearTimeout(_signalPollTimer); } catch (_) {}
-      _signalPollTimer = 0;
     }
-  }
+  };
 
-  function _hasAnySignalListener() {
-    if (typeof p.listenerCount !== 'function') return false;
-    try {
-      for (var sigName in _signals) {
-        if (p.listenerCount(sigName) > 0) return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  // Stop polling when the last signal listener is removed; the trap itself
-  // stays installed (cheap) and polling restarts if a listener is re-added.
-  function _syncSignalPolling() {
-    if (!_signalPollEnabled) return;
-    if (_hasAnySignalListener()) {
-      _startSignalPolling();
+  // Reconcile the native trap for `event` (or all signal names when called
+  // with no argument) against the CURRENT process object's listener count:
+  // first listener installs the sigaction, last removal restores SIG_DFL so
+  // the default disposition (e.g. SIGINT kills) comes back — Node semantics.
+  // Called from the wrappers below (legacy path) and from the shared runtime
+  // bundle's Process emitter, whichever object ends up as globalThis.process.
+  globalThis.__exactSignalWatchSync = function(event) {
+    if (!_signalTrapEnabled()) return;
+    var proc = globalThis.process;
+    if (!proc || typeof proc.listenerCount !== 'function') return;
+    var names;
+    if (event === undefined) {
+      names = [];
+      for (var k in _signals) names.push(k);
     } else {
-      _stopSignalPolling();
+      if (!_signals[event]) return;
+      names = [event];
     }
-  }
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i];
+      var num = _signals[name];
+      if (!num) continue;
+      var want = false;
+      try { want = proc.listenerCount(name) > 0; } catch (_) {}
+      if (want && !_trappedSignals[name]) {
+        _trappedSignals[name] = true;
+        try { __exactTrapSignal(num); } catch (_) { _trappedSignals[name] = false; }
+      } else if (!want && _trappedSignals[name]) {
+        _trappedSignals[name] = false;
+        if (typeof __exactResetSignal === 'function') {
+          try { __exactResetSignal(num); } catch (_) {}
+        }
+      }
+    }
+  };
 
   var _origOn = p.on;
   p.on = function(event, fn) {
@@ -990,18 +1025,8 @@
         p.channel && typeof p.channel.ref === 'function') {
       p.channel.ref();
     }
-    // Auto-trap OS signal when first listener is added; restart polling if a
-    // listener is re-added after the last one was removed.
     if (_signals[event]) {
-      if (!_trappedSignals[event]) {
-        _trappedSignals[event] = true;
-        if (typeof __exactTrapSignal === 'function') {
-          __exactTrapSignal(_signals[event]);
-        }
-      }
-      if (_signalPollEnabled) {
-        _startSignalPolling();
-      }
+      globalThis.__exactSignalWatchSync(event);
     }
     return p;
   };
@@ -1011,7 +1036,7 @@
     p.removeListener = function(event) {
       var result = _origSignalRemoveListener.apply(p, arguments);
       if (_signals[event]) {
-        _syncSignalPolling();
+        globalThis.__exactSignalWatchSync(event);
       }
       return result;
     };
@@ -1023,8 +1048,10 @@
     var _origSignalRemoveAll = p.removeAllListeners;
     p.removeAllListeners = function(event) {
       var result = _origSignalRemoveAll.apply(p, arguments);
-      if (event === undefined || _signals[event]) {
-        _syncSignalPolling();
+      if (event === undefined) {
+        globalThis.__exactSignalWatchSync();
+      } else if (_signals[event]) {
+        globalThis.__exactSignalWatchSync(event);
       }
       return result;
     };
@@ -1036,7 +1063,11 @@
           p.channel && typeof p.channel.ref === 'function') {
         p.channel.ref();
       }
-      return _origOnce.call(p, event, fn);
+      var result = _origOnce.call(p, event, fn);
+      if (_signals[event]) {
+        globalThis.__exactSignalWatchSync(event);
+      }
+      return result;
     };
   }
 
