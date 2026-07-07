@@ -42,12 +42,8 @@ struct AppRun {
 fn unique_dir(tag: &str) -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let dir = std::env::temp_dir().join(format!(
-        "ibex-fs23480-{}-{}-{}",
-        tag,
-        std::process::id(),
-        n
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("ibex-fs23480-{}-{}-{}", tag, std::process::id(), n));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create temp dir");
     dir
@@ -246,7 +242,10 @@ function part2() {
 }
 "#;
     let run = run_app("streams", app, Duration::from_secs(30));
-    assert_lines(&run, &["read-open-eager|true", "ws-no-open-after-close|true"]);
+    assert_lines(
+        &run,
+        &["read-open-eager|true", "ws-no-open-after-close|true"],
+    );
 }
 
 #[test]
@@ -281,7 +280,10 @@ setTimeout(function() {
 }, 900);
 "#;
     let run = run_app("watch", app, Duration::from_secs(30));
-    assert_lines(&run, &["persistent-false-event|true", "watchfile-bigint|true"]);
+    assert_lines(
+        &run,
+        &["persistent-false-event|true", "watchfile-bigint|true"],
+    );
 }
 
 #[test]
