@@ -3064,6 +3064,13 @@ ChildProcess.prototype.spawn = function(options) {
   opts.stdio = normalizedOptions.stdio;
 
   if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      normalizedOptions.stdio && normalizedOptions.stdio.indexOf('ipc') !== -1 &&
+      typeof globalThis.__exactSpawnRecvMsg !== 'function') {
+    throw _makeWin32IpcUnsupportedError(command);
+  }
+
+  if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      typeof globalThis.__exactSpawn !== 'function' &&
       typeof globalThis.__exactSpawnSync === 'function') {
     return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
   }
@@ -3398,18 +3405,22 @@ var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
 // behavior is visible instead of a silent freeze.
 var _win32SyncSpawnWarned = false;
 
+function _makeWin32IpcUnsupportedError(command) {
+  var err = new Error(
+    "child_process IPC (fork / stdio 'ipc') is not supported on Windows: " +
+    'the native async spawn backend does not implement IPC yet');
+  err.code = 'ENOTSUP';
+  err.syscall = 'spawn ' + command;
+  return err;
+}
+
 function _spawnSyncBackedChildProcess(command, args, options, normalizedOptions) {
   // IPC can never deliver a message to or from a live child under the
   // sync-backed model (fork/'ipc' stdio would silently drop every message),
   // so fail loudly instead.
   var win32Stdio = normalizedOptions && normalizedOptions.stdio;
   if (win32Stdio && typeof win32Stdio.indexOf === 'function' && win32Stdio.indexOf('ipc') !== -1) {
-    var ipcSyncErr = new Error(
-      "child_process IPC (fork / stdio 'ipc') is not supported on Windows: " +
-      'async spawn is emulated with spawnSync and cannot exchange messages with a live child');
-    ipcSyncErr.code = 'ENOTSUP';
-    ipcSyncErr.syscall = 'spawn ' + command;
-    throw ipcSyncErr;
+    throw _makeWin32IpcUnsupportedError(command);
   }
   if (!_win32SyncSpawnWarned && typeof process !== 'undefined' &&
       typeof process.emitWarning === 'function') {
@@ -4006,6 +4017,13 @@ cp.spawn = function spawn(command, args, options) {
   opts.stdio = normalizedOptions.stdio;
 
   if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      normalizedOptions.stdio && normalizedOptions.stdio.indexOf('ipc') !== -1 &&
+      typeof globalThis.__exactSpawnRecvMsg !== 'function') {
+    throw _makeWin32IpcUnsupportedError(command);
+  }
+
+  if (typeof process !== 'undefined' && process.platform === 'win32' &&
+      typeof globalThis.__exactSpawn !== 'function' &&
       typeof globalThis.__exactSpawnSync === 'function') {
     return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
   }

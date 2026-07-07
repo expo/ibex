@@ -2372,7 +2372,8 @@ ChildProcess.prototype.spawn = function(options) {
 	if (normalizedOptions.detached !== void 0) opts.detached = normalizedOptions.detached;
 	opts.windowsHide = normalizedOptions.windowsHide;
 	opts.stdio = normalizedOptions.stdio;
-	if (typeof process !== "undefined" && process.platform === "win32" && typeof globalThis.__exactSpawnSync === "function") return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
+	if (typeof process !== "undefined" && process.platform === "win32" && normalizedOptions.stdio && normalizedOptions.stdio.indexOf("ipc") !== -1 && typeof globalThis.__exactSpawnRecvMsg !== "function") throw _makeWin32IpcUnsupportedError(command);
+	if (typeof process !== "undefined" && process.platform === "win32" && typeof globalThis.__exactSpawn !== "function" && typeof globalThis.__exactSpawnSync === "function") return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
 	var argsJson = JSON.stringify(args);
 	var optsJson = JSON.stringify(opts);
 	var result;
@@ -2641,14 +2642,15 @@ ChildProcess.prototype.spawn = function(options) {
 };
 var _childProcessPrototypeSpawnImpl = ChildProcess.prototype.spawn;
 var _win32SyncSpawnWarned = false;
+function _makeWin32IpcUnsupportedError(command) {
+	var err = /* @__PURE__ */ new Error("child_process IPC (fork / stdio 'ipc') is not supported on Windows: the native async spawn backend does not implement IPC yet");
+	err.code = "ENOTSUP";
+	err.syscall = "spawn " + command;
+	return err;
+}
 function _spawnSyncBackedChildProcess(command, args, options, normalizedOptions) {
 	var win32Stdio = normalizedOptions && normalizedOptions.stdio;
-	if (win32Stdio && typeof win32Stdio.indexOf === "function" && win32Stdio.indexOf("ipc") !== -1) {
-		var ipcSyncErr = /* @__PURE__ */ new Error("child_process IPC (fork / stdio 'ipc') is not supported on Windows: async spawn is emulated with spawnSync and cannot exchange messages with a live child");
-		ipcSyncErr.code = "ENOTSUP";
-		ipcSyncErr.syscall = "spawn " + command;
-		throw ipcSyncErr;
-	}
+	if (win32Stdio && typeof win32Stdio.indexOf === "function" && win32Stdio.indexOf("ipc") !== -1) throw _makeWin32IpcUnsupportedError(command);
 	if (!_win32SyncSpawnWarned && typeof process !== "undefined" && typeof process.emitWarning === "function") {
 		_win32SyncSpawnWarned = true;
 		process.emitWarning("child_process async spawn on Windows is emulated with spawnSync: the event loop blocks until the child exits, and stdin/kill() cannot reach the running child.", "ExactWarning");
@@ -3095,7 +3097,8 @@ cp.spawn = function spawn(command, args, options) {
 	if (normalizedOptions.detached !== void 0) opts.detached = normalizedOptions.detached;
 	opts.windowsHide = normalizedOptions.windowsHide;
 	opts.stdio = normalizedOptions.stdio;
-	if (typeof process !== "undefined" && process.platform === "win32" && typeof globalThis.__exactSpawnSync === "function") return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
+	if (typeof process !== "undefined" && process.platform === "win32" && normalizedOptions.stdio && normalizedOptions.stdio.indexOf("ipc") !== -1 && typeof globalThis.__exactSpawnRecvMsg !== "function") throw _makeWin32IpcUnsupportedError(command);
+	if (typeof process !== "undefined" && process.platform === "win32" && typeof globalThis.__exactSpawn !== "function" && typeof globalThis.__exactSpawnSync === "function") return _spawnSyncBackedChildProcess(command, args, options, normalizedOptions);
 	var argsJson = JSON.stringify(args);
 	var optsJson = JSON.stringify(opts);
 	var result;

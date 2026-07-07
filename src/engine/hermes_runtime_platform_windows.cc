@@ -17,6 +17,7 @@
 #include <cstring>
 #include <deque>
 #include <initializer_list>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -818,6 +819,417 @@ std::string spawnSyncWindowsJson(
   return result;
 }
 
+struct WindowsSpawnPipeBuffer {
+  std::mutex mutex;
+  std::deque<std::vector<uint8_t>> chunks;
+  bool closed = false;
+};
+
+struct WindowsSpawnedProcess {
+  uint64_t owner = 0;
+  std::string capability;
+  HANDLE process = nullptr;
+  HANDLE stdinWrite = nullptr;
+  DWORD pid = 0;
+  std::shared_ptr<WindowsSpawnPipeBuffer> stdoutBuffer;
+  std::shared_ptr<WindowsSpawnPipeBuffer> stderrBuffer;
+  bool exited = false;
+  int exitCode = -1;
+};
+
+std::unordered_map<int, std::shared_ptr<WindowsSpawnedProcess>> g_windows_spawned_processes;
+int g_windows_next_spawn_handle = 1;
+std::mutex g_windows_spawn_mutex;
+
+bool isValidHandle(HANDLE handle) {
+  return handle != nullptr && handle != INVALID_HANDLE_VALUE;
+}
+
+void closeHandleIfValid(HANDLE& handle) {
+  if (isValidHandle(handle)) {
+    CloseHandle(handle);
+  }
+  handle = nullptr;
+}
+
+std::string normalizeWindowsStdioMode(const std::string& value) {
+  if (value == "ignore") return "ignore";
+  if (value == "inherit") return "inherit";
+  if (value == "pipe") return "pipe";
+  if (value == "overlapped") return "pipe";
+  if (value == "ipc") return "ipc";
+  if (value.size() > 3 && value.substr(0, 3) == "fd:") return value;
+  return "pipe";
+}
+
+std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson) {
+  std::vector<std::string> modes = {"pipe", "pipe", "pipe", "pipe"};
+  size_t stdioPos = optsJson.find("\"stdio\":");
+  if (stdioPos == std::string::npos) return modes;
+  size_t pos = stdioPos + 8;
+  skipJsonWhitespace(optsJson, pos);
+  if (pos >= optsJson.size()) return modes;
+  if (optsJson[pos] == '"') {
+    std::string mode = normalizeWindowsStdioMode(parseJsonString(optsJson, pos));
+    modes[0] = mode;
+    modes[1] = mode;
+    modes[2] = mode;
+    modes[3] = mode;
+    return modes;
+  }
+  if (optsJson[pos] != '[') return modes;
+  ++pos;
+  size_t slot = 0;
+  while (pos < optsJson.size()) {
+    skipJsonWhitespace(optsJson, pos);
+    if (pos >= optsJson.size() || optsJson[pos] == ']') break;
+    std::string parsed;
+    if (optsJson[pos] == '"') {
+      parsed = parseJsonString(optsJson, pos);
+    } else {
+      while (pos < optsJson.size() && optsJson[pos] != ',' && optsJson[pos] != ']') {
+        parsed.push_back(optsJson[pos++]);
+      }
+    }
+    if (slot >= modes.size()) modes.resize(slot + 1, "ignore");
+    modes[slot++] = normalizeWindowsStdioMode(parsed);
+    skipJsonWhitespace(optsJson, pos);
+    if (pos < optsJson.size() && optsJson[pos] == ',') ++pos;
+  }
+  return modes;
+}
+
+bool parseJsonBoolProperty(const std::string& json, const char* key, bool fallback) {
+  std::string pattern = std::string("\"") + key + "\":";
+  size_t pos = json.find(pattern);
+  if (pos == std::string::npos) return fallback;
+  pos += pattern.size();
+  skipJsonWhitespace(json, pos);
+  if (json.compare(pos, 4, "true") == 0) return true;
+  if (json.compare(pos, 5, "false") == 0) return false;
+  return fallback;
+}
+
+std::string spawnErrorJson(
+    const std::string& code,
+    int errnoValue,
+    const std::string& message) {
+  return "{\"error\":\"" + jsonEscape(message)
+      + "\",\"code\":\"" + jsonEscape(code)
+      + "\",\"errno\":" + std::to_string(errnoValue)
+      + ",\"message\":\"" + jsonEscape(message) + "\"}";
+}
+
+void readWindowsPipeToBuffer(
+    HANDLE readHandle,
+    std::shared_ptr<WindowsSpawnPipeBuffer> output) {
+  char buffer[4096];
+  DWORD bytesRead = 0;
+  while (ReadFile(readHandle, buffer, sizeof(buffer), &bytesRead, nullptr) && bytesRead > 0) {
+    std::vector<uint8_t> chunk(
+        reinterpret_cast<uint8_t*>(buffer),
+        reinterpret_cast<uint8_t*>(buffer) + bytesRead);
+    std::lock_guard<std::mutex> lock(output->mutex);
+    output->chunks.push_back(std::move(chunk));
+  }
+  CloseHandle(readHandle);
+  std::lock_guard<std::mutex> lock(output->mutex);
+  output->closed = true;
+}
+
+std::vector<uint8_t> drainWindowsPipeBuffer(
+    const std::shared_ptr<WindowsSpawnPipeBuffer>& buffer) {
+  std::vector<uint8_t> out;
+  if (!buffer) return out;
+  std::lock_guard<std::mutex> lock(buffer->mutex);
+  size_t total = 0;
+  for (const auto& chunk : buffer->chunks) total += chunk.size();
+  out.reserve(total);
+  while (!buffer->chunks.empty()) {
+    auto chunk = std::move(buffer->chunks.front());
+    buffer->chunks.pop_front();
+    out.insert(out.end(), chunk.begin(), chunk.end());
+  }
+  return out;
+}
+
+std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  std::shared_ptr<WindowsSpawnedProcess> proc;
+  {
+    std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+    auto it = g_windows_spawned_processes.find(handle);
+    if (it == g_windows_spawned_processes.end()) {
+      throw facebook::jsi::JSError(runtime, std::string(operation) + ": invalid handle");
+    }
+    proc = it->second;
+  }
+  if (!isAllowAll()) {
+    if (proc->owner != currentPrincipalId()) {
+      throw facebook::jsi::JSError(runtime, std::string(operation) + ": handle belongs to a different principal");
+    }
+    if (!proc->capability.empty() && !checkCapability(proc->capability)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
+    }
+  }
+  return proc;
+}
+
+std::shared_ptr<WindowsSpawnedProcess> tryWindowsSpawnProcess(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  try {
+    return requireWindowsSpawnProcess(runtime, handle, operation);
+  } catch (const facebook::jsi::JSError&) {
+    return nullptr;
+  }
+}
+
+std::string buildWindowsSpawnCommandLine(
+    const std::string& file,
+    const std::vector<std::string>& spawnArgs,
+    const std::string& optsJson) {
+  std::string argv0;
+  parseJsonStringProperty(optsJson, "argv0", argv0);
+
+  bool useShell = parseJsonBoolProperty(optsJson, "shell", false);
+  std::string shellPath;
+  if (parseJsonStringProperty(optsJson, "shell", shellPath)) {
+    useShell = true;
+  }
+  if (!useShell) {
+    return wideToUtf8(buildCommandLine(file, spawnArgs, argv0));
+  }
+
+  std::string shell = shellPath;
+  if (shell.empty()) {
+    shell = getenvString("ComSpec");
+  }
+  if (shell.empty()) {
+    shell = "cmd.exe";
+  }
+  std::wstring childCommand = buildCommandLine(file, spawnArgs, argv0);
+  std::wstring commandLine = quoteWindowsArg(utf8ToWide(shell));
+  commandLine += L" /d /s /c ";
+  commandLine += quoteWindowsArg(childCommand);
+  return wideToUtf8(commandLine);
+}
+
+std::string spawnAsyncWindowsJson(
+    const std::string& file,
+    const std::vector<std::string>& spawnArgs,
+    const std::string& optsJson) {
+  std::string cwd;
+  parseJsonStringProperty(optsJson, "cwd", cwd);
+  auto envEntries = parseEnvFromOptionsJson(optsJson);
+  auto stdioModes = parseWindowsStdioModes(optsJson);
+  if (stdioModes.size() > 3 && stdioModes[3] == "ipc") {
+    return spawnErrorJson(
+        "ENOTSUP",
+        -1,
+        "child_process IPC is not supported by the Windows async spawn backend");
+  }
+  for (size_t i = 0; i < stdioModes.size(); ++i) {
+    if (stdioModes[i].size() > 3 && stdioModes[i].substr(0, 3) == "fd:") {
+      return spawnErrorJson(
+          "ENOTSUP",
+          -1,
+          "child_process fd:N stdio is not supported by the Windows async spawn backend");
+    }
+  }
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+
+  HANDLE childStdIn = nullptr;
+  HANDLE childStdOut = nullptr;
+  HANDLE childStdErr = nullptr;
+  HANDLE parentStdInWrite = nullptr;
+  HANDLE parentStdOutRead = nullptr;
+  HANDLE parentStdErrRead = nullptr;
+  std::vector<HANDLE> childOwnedHandles;
+
+  auto fail = [&](const std::string& code, int errnoValue, const std::string& message) {
+    closeHandleIfValid(parentStdInWrite);
+    closeHandleIfValid(parentStdOutRead);
+    closeHandleIfValid(parentStdErrRead);
+    for (HANDLE& handle : childOwnedHandles) {
+      closeHandleIfValid(handle);
+    }
+    return spawnErrorJson(code, errnoValue, message);
+  };
+
+  auto openNul = [&](DWORD access) -> HANDLE {
+    HANDLE handle = CreateFileW(
+        L"NUL",
+        access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        &sa,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    return handle == INVALID_HANDLE_VALUE ? nullptr : handle;
+  };
+
+  auto setupStdin = [&]() -> bool {
+    const std::string& mode = stdioModes.size() > 0 ? stdioModes[0] : std::string("pipe");
+    if (mode == "pipe") {
+      HANDLE readHandle = nullptr;
+      HANDLE writeHandle = nullptr;
+      if (!CreatePipe(&readHandle, &writeHandle, &sa, 0)) return false;
+      SetHandleInformation(writeHandle, HANDLE_FLAG_INHERIT, 0);
+      childStdIn = readHandle;
+      parentStdInWrite = writeHandle;
+      childOwnedHandles.push_back(readHandle);
+      return true;
+    }
+    if (mode == "ignore") {
+      childStdIn = openNul(GENERIC_READ);
+      if (!childStdIn) return false;
+      childOwnedHandles.push_back(childStdIn);
+      return true;
+    }
+    childStdIn = GetStdHandle(STD_INPUT_HANDLE);
+    return true;
+  };
+
+  auto setupStdout = [&]() -> bool {
+    const std::string& mode = stdioModes.size() > 1 ? stdioModes[1] : std::string("pipe");
+    if (mode == "pipe") {
+      HANDLE readHandle = nullptr;
+      HANDLE writeHandle = nullptr;
+      if (!CreatePipe(&readHandle, &writeHandle, &sa, 0)) return false;
+      SetHandleInformation(readHandle, HANDLE_FLAG_INHERIT, 0);
+      parentStdOutRead = readHandle;
+      childStdOut = writeHandle;
+      childOwnedHandles.push_back(writeHandle);
+      return true;
+    }
+    if (mode == "ignore") {
+      childStdOut = openNul(GENERIC_WRITE);
+      if (!childStdOut) return false;
+      childOwnedHandles.push_back(childStdOut);
+      return true;
+    }
+    childStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    return true;
+  };
+
+  auto setupStderr = [&]() -> bool {
+    const std::string& mode = stdioModes.size() > 2 ? stdioModes[2] : std::string("pipe");
+    if (mode == "pipe") {
+      HANDLE readHandle = nullptr;
+      HANDLE writeHandle = nullptr;
+      if (!CreatePipe(&readHandle, &writeHandle, &sa, 0)) return false;
+      SetHandleInformation(readHandle, HANDLE_FLAG_INHERIT, 0);
+      parentStdErrRead = readHandle;
+      childStdErr = writeHandle;
+      childOwnedHandles.push_back(writeHandle);
+      return true;
+    }
+    if (mode == "ignore") {
+      childStdErr = openNul(GENERIC_WRITE);
+      if (!childStdErr) return false;
+      childOwnedHandles.push_back(childStdErr);
+      return true;
+    }
+    childStdErr = GetStdHandle(STD_ERROR_HANDLE);
+    return true;
+  };
+
+  if (!setupStdin()) {
+    return fail("EMFILE", -24, "Failed to create stdin handle");
+  }
+  if (!setupStdout()) {
+    return fail("EMFILE", -24, "Failed to create stdout handle");
+  }
+  if (!setupStderr()) {
+    return fail("EMFILE", -24, "Failed to create stderr handle");
+  }
+
+  STARTUPINFOW startup{};
+  startup.cb = sizeof(startup);
+  startup.dwFlags = STARTF_USESTDHANDLES;
+  startup.hStdInput = childStdIn;
+  startup.hStdOutput = childStdOut;
+  startup.hStdError = childStdErr;
+
+  PROCESS_INFORMATION processInfo{};
+  std::string commandLineUtf8 = buildWindowsSpawnCommandLine(file, spawnArgs, optsJson);
+  std::wstring commandLine = utf8ToWide(commandLineUtf8);
+  std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+  mutableCommandLine.push_back(L'\0');
+  std::wstring wideCwd = cwd.empty() ? std::wstring() : utf8ToWide(cwd);
+  std::wstring envBlock = buildEnvironmentBlock(envEntries);
+
+  DWORD flags = CREATE_NO_WINDOW;
+  if (parseJsonBoolProperty(optsJson, "detached", false)) {
+    flags |= CREATE_NEW_PROCESS_GROUP;
+  }
+  if (!envBlock.empty()) flags |= CREATE_UNICODE_ENVIRONMENT;
+  BOOL created = CreateProcessW(
+      nullptr,
+      mutableCommandLine.data(),
+      nullptr,
+      nullptr,
+      TRUE,
+      flags,
+      envBlock.empty() ? nullptr : const_cast<wchar_t*>(envBlock.data()),
+      wideCwd.empty() ? nullptr : wideCwd.c_str(),
+      &startup,
+      &processInfo);
+
+  for (HANDLE& handle : childOwnedHandles) {
+    closeHandleIfValid(handle);
+  }
+
+  if (!created) {
+    DWORD err = GetLastError();
+    closeHandleIfValid(parentStdInWrite);
+    closeHandleIfValid(parentStdOutRead);
+    closeHandleIfValid(parentStdErrRead);
+    std::string code = err == ERROR_ACCESS_DENIED ? "EACCES" : "ENOENT";
+    int errnoValue = err == ERROR_ACCESS_DENIED ? -13 : -2;
+    return spawnErrorJson(code, errnoValue, windowsErrorMessage(err) + ": " + file);
+  }
+
+  CloseHandle(processInfo.hThread);
+
+  auto proc = std::make_shared<WindowsSpawnedProcess>();
+  proc->owner = currentPrincipalId();
+  proc->capability = "process:spawn";
+  proc->process = processInfo.hProcess;
+  proc->stdinWrite = parentStdInWrite;
+  proc->pid = processInfo.dwProcessId;
+  parentStdInWrite = nullptr;
+
+  if (parentStdOutRead) {
+    proc->stdoutBuffer = std::make_shared<WindowsSpawnPipeBuffer>();
+    std::thread(readWindowsPipeToBuffer, parentStdOutRead, proc->stdoutBuffer).detach();
+    parentStdOutRead = nullptr;
+  }
+  if (parentStdErrRead) {
+    proc->stderrBuffer = std::make_shared<WindowsSpawnPipeBuffer>();
+    std::thread(readWindowsPipeToBuffer, parentStdErrRead, proc->stderrBuffer).detach();
+    parentStdErrRead = nullptr;
+  }
+
+  int handle = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+    handle = g_windows_next_spawn_handle++;
+    g_windows_spawned_processes[handle] = proc;
+  }
+
+  return "{\"handle\":" + std::to_string(handle)
+      + ",\"pid\":" + std::to_string(static_cast<unsigned long>(processInfo.dwProcessId))
+      + "}";
+}
+
 } // namespace
 
 void installOsInfoGlobals(ExactHermesRuntime* handle) {
@@ -1135,16 +1547,259 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::String::createFromUtf8(runtime, resultJson);
       });
   rt.global().setProperty(rt, "__exactSpawnSync", std::move(spawnSyncFn));
-  installUnsupportedModule(handle, {
-      "__exactSpawn",
-      "__exactSpawnRead",
-      "__exactSpawnWrite",
-      "__exactSpawnKill",
-      "__exactSpawnCloseStdin",
-      "__exactSpawnPoll",
-      "__exactSpawnGetFd",
-      "__exactSpawnSendMsg",
-      "__exactSpawnRecvMsg"});
+
+  auto spawnFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawn"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (!checkCapability("process:spawn")) {
+          throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
+        }
+        if (count == 0 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactSpawn: file path required");
+        }
+        std::string file = args[0].toString(runtime).utf8(runtime);
+        std::vector<std::string> spawnArgs;
+        if (count > 1 && args[1].isString()) {
+          spawnArgs = parseArgsJson(args[1].toString(runtime).utf8(runtime));
+        }
+        std::string optsJson = "{}";
+        if (count > 2 && args[2].isString()) {
+          optsJson = args[2].toString(runtime).utf8(runtime);
+        }
+        std::string resultJson = spawnAsyncWindowsJson(file, spawnArgs, optsJson);
+        return facebook::jsi::String::createFromUtf8(runtime, resultJson);
+      });
+  rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
+
+  auto spawnReadFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnRead"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          return makeUint8Array(runtime, std::vector<uint8_t>());
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnRead");
+        if (!proc) {
+          return makeUint8Array(runtime, std::vector<uint8_t>());
+        }
+
+        std::string streamName;
+        if (args[1].isNumber()) {
+          int stream = static_cast<int>(args[1].asNumber());
+          if (stream == 1) streamName = "stdout";
+          else if (stream == 2) streamName = "stderr";
+        } else if (args[1].isString()) {
+          streamName = args[1].toString(runtime).utf8(runtime);
+        }
+
+        if (streamName == "stdout") {
+          return makeUint8Array(runtime, drainWindowsPipeBuffer(proc->stdoutBuffer));
+        }
+        if (streamName == "stderr") {
+          return makeUint8Array(runtime, drainWindowsPipeBuffer(proc->stderrBuffer));
+        }
+        return makeUint8Array(runtime, std::vector<uint8_t>());
+      });
+  rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
+
+  auto spawnWriteFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnWrite"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          return facebook::jsi::Value(-1);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnWrite");
+        if (!proc) {
+          return facebook::jsi::Value(-1);
+        }
+        std::string streamName = "stdin";
+        if (count > 2 && args[2].isString()) {
+          streamName = args[2].toString(runtime).utf8(runtime);
+        }
+        if (streamName != "stdin") {
+          return facebook::jsi::Value(-1);
+        }
+        std::vector<uint8_t> bytes = jsiValueToBytes(runtime, args[1]);
+        if (bytes.empty()) {
+          return facebook::jsi::Value(0);
+        }
+
+        HANDLE stdinWrite = nullptr;
+        {
+          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+          stdinWrite = proc->stdinWrite;
+        }
+        if (!isValidHandle(stdinWrite)) {
+          return facebook::jsi::Value(-1);
+        }
+        DWORD written = 0;
+        BOOL ok = WriteFile(
+            stdinWrite,
+            bytes.data(),
+            static_cast<DWORD>(bytes.size()),
+            &written,
+            nullptr);
+        if (!ok) {
+          return facebook::jsi::Value(-1);
+        }
+        return facebook::jsi::Value(static_cast<int>(written));
+      });
+  rt.global().setProperty(rt, "__exactSpawnWrite", std::move(spawnWriteFn));
+
+  auto spawnPollFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnPoll"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}");
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnPoll");
+        if (!proc) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"exited\":true,\"exitCode\":-1,\"signal\":0}");
+        }
+
+        if (!proc->exited && isValidHandle(proc->process)) {
+          DWORD wait = WaitForSingleObject(proc->process, 0);
+          if (wait == WAIT_OBJECT_0) {
+            DWORD exitCode = 0;
+            if (GetExitCodeProcess(proc->process, &exitCode)) {
+              proc->exitCode = static_cast<int>(exitCode);
+            } else {
+              proc->exitCode = -1;
+            }
+            proc->exited = true;
+          }
+        }
+        if (!proc->exited) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"exited\":false,\"exitCode\":-1,\"signal\":0}");
+        }
+        std::string json = "{\"exited\":true,\"exitCode\":" + std::to_string(proc->exitCode)
+            + ",\"signal\":0}";
+        return facebook::jsi::String::createFromUtf8(runtime, json);
+      });
+  rt.global().setProperty(rt, "__exactSpawnPoll", std::move(spawnPollFn));
+
+  auto spawnKillFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnKill"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value(false);
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnKill");
+        if (!proc || !isValidHandle(proc->process)) {
+          return facebook::jsi::Value(false);
+        }
+        int sig = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].asNumber()) : 15;
+        DWORD wait = WaitForSingleObject(proc->process, 0);
+        if (wait == WAIT_OBJECT_0) {
+          return facebook::jsi::Value(false);
+        }
+        if (sig == 0) {
+          return facebook::jsi::Value(true);
+        }
+        BOOL ok = TerminateProcess(proc->process, 1);
+        return facebook::jsi::Value(ok != FALSE);
+      });
+  rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
+
+  auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::undefined();
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = tryWindowsSpawnProcess(runtime, handle, "__exactSpawnCloseStdin");
+        if (!proc) {
+          return facebook::jsi::Value::undefined();
+        }
+        std::string streamName = "stdin";
+        if (count > 1 && args[1].isString()) {
+          streamName = args[1].toString(runtime).utf8(runtime);
+        }
+        if (streamName == "stdin") {
+          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+          closeHandleIfValid(proc->stdinWrite);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSpawnCloseStdin", std::move(spawnCloseStdinFn));
+
+  auto spawnGetFdFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnGetFd"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(-1);
+      });
+  rt.global().setProperty(rt, "__exactSpawnGetFd", std::move(spawnGetFdFn));
+
+  auto spawnDisposeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnDispose"),
+      1,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          return facebook::jsi::Value::undefined();
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        std::shared_ptr<WindowsSpawnedProcess> proc;
+        {
+          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+          auto it = g_windows_spawned_processes.find(handle);
+          if (it != g_windows_spawned_processes.end()) {
+            proc = it->second;
+            g_windows_spawned_processes.erase(it);
+          }
+        }
+        if (proc) {
+          closeHandleIfValid(proc->stdinWrite);
+          closeHandleIfValid(proc->process);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
 }
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {
