@@ -756,8 +756,7 @@ fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
             )
         });
     assert!(
-        line.contains("removed-nothing:count=1")
-            && line.contains("after-remove-received:count=1"),
+        line.contains("removed-nothing:count=1") && line.contains("after-remove-received:count=1"),
         "delivery stopped (or listenerCount drifted) after removing a \
          never-registered listener: {}\nstderr:\n{}",
         line,
