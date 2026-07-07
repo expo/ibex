@@ -51,6 +51,8 @@ struct WebSocketEntry {
     curl_slist* headers = nullptr;
     std::string url;
     std::string protocols;
+    std::string selected_protocol;
+    std::string extensions;
 
     NativeWsOpenCallback open_cb = nullptr;
     NativeWsMessageCallback message_cb = nullptr;
@@ -157,6 +159,80 @@ static int connect_progress_callback(
         : 0;
 }
 
+static char ascii_lower(char value) {
+    return (value >= 'A' && value <= 'Z') ? static_cast<char>(value - 'A' + 'a') : value;
+}
+
+static bool ascii_equals_ignore_case(const std::string& left, const char* right) {
+    if (!right) {
+        return false;
+    }
+    size_t i = 0;
+    for (; i < left.size() && right[i] != '\0'; ++i) {
+        if (ascii_lower(left[i]) != ascii_lower(right[i])) {
+            return false;
+        }
+    }
+    return i == left.size() && right[i] == '\0';
+}
+
+static std::string trim_header_value(std::string value) {
+    size_t start = 0;
+    while (start < value.size() && (value[start] == ' ' || value[start] == '\t')) {
+        ++start;
+    }
+
+    size_t end = value.size();
+    while (end > start) {
+        const char ch = value[end - 1];
+        if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') {
+            break;
+        }
+        --end;
+    }
+
+    return value.substr(start, end - start);
+}
+
+static void capture_handshake_header(WebSocketEntry* entry, const char* data, size_t length) {
+    if (!entry || !data || length == 0) {
+        return;
+    }
+
+    std::string line(data, length);
+    while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) {
+        line.pop_back();
+    }
+    if (line.empty()) {
+        return;
+    }
+
+    if (line.rfind("HTTP/", 0) == 0) {
+        entry->selected_protocol.clear();
+        entry->extensions.clear();
+        return;
+    }
+
+    const auto colon = line.find(':');
+    if (colon == std::string::npos) {
+        return;
+    }
+
+    const std::string name = line.substr(0, colon);
+    const std::string value = trim_header_value(line.substr(colon + 1));
+    if (ascii_equals_ignore_case(name, "Sec-WebSocket-Protocol")) {
+        entry->selected_protocol = value;
+    } else if (ascii_equals_ignore_case(name, "Sec-WebSocket-Extensions")) {
+        entry->extensions = value;
+    }
+}
+
+static size_t handshake_header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
+    const size_t length = size * nitems;
+    capture_handshake_header(static_cast<WebSocketEntry*>(userdata), buffer, length);
+    return length;
+}
+
 static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
     if (!entry || !entry->error_cb || !entry->context) {
         return;
@@ -171,7 +247,12 @@ static void call_open(const std::shared_ptr<WebSocketEntry>& entry) {
         return;
     }
     native_ws_retain_context(entry->context);
-    entry->open_cb(entry->ws_id, "", "", entry->context);
+    entry->open_cb(
+        entry->ws_id,
+        entry->selected_protocol.c_str(),
+        entry->extensions.c_str(),
+        entry->context
+    );
     native_ws_release_context(entry->context);
 }
 
@@ -258,6 +339,8 @@ static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, handshake_header_callback);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, entry.get());
     // close()/destroy during CONNECTING must not keep the runtime alive until
     // libcurl's 30s timeout. The progress callback is the documented,
     // same-thread way to abort curl_easy_perform without touching the easy
