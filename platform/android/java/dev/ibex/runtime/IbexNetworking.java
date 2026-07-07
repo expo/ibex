@@ -734,7 +734,7 @@ public final class IbexNetworking {
     try {
       builder = new Request.Builder().url(url);
     } catch (RuntimeException error) {
-      webSockets.remove(wsId);
+      webSockets.remove(wsId, entry);
       nativeWebSocketDidError(wsId, error.getMessage());
       nativeWebSocketDidClose(wsId, 1006, "Invalid URL", false);
       return;
@@ -747,6 +747,10 @@ public final class IbexNetworking {
       WebSocket socket = client.newWebSocket(builder.build(), new WebSocketListener() {
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
+          if (entry.closed) {
+            webSocket.cancel();
+            return;
+          }
           entry.socket = webSocket;
           nativeWebSocketDidOpen(
               wsId,
@@ -773,21 +777,24 @@ public final class IbexNetworking {
 
         @Override
         public void onClosed(WebSocket webSocket, int code, String reason) {
-          webSockets.remove(wsId);
+          webSockets.remove(wsId, entry);
           nativeWebSocketDidClose(wsId, code, valueOrEmpty(reason), true);
         }
 
         @Override
         public void onFailure(WebSocket webSocket, Throwable error, Response response) {
-          webSockets.remove(wsId);
+          webSockets.remove(wsId, entry);
           String message = error == null ? "WebSocket error" : error.getMessage();
           nativeWebSocketDidError(wsId, valueOrEmpty(message));
           nativeWebSocketDidClose(wsId, 1006, valueOrEmpty(message), false);
         }
       });
       entry.socket = socket;
+      if (entry.closed) {
+        socket.cancel();
+      }
     } catch (RuntimeException error) {
-      webSockets.remove(wsId);
+      webSockets.remove(wsId, entry);
       nativeWebSocketDidError(wsId, error.getMessage());
       nativeWebSocketDidClose(wsId, 1006, "WebSocket connect failed", false);
     }
@@ -796,7 +803,7 @@ public final class IbexNetworking {
   public static void sendWebSocket(int wsId, byte[] data, boolean isText) {
     WsEntry entry = webSockets.get(wsId);
     WebSocket socket = entry == null ? null : entry.socket;
-    if (socket == null) {
+    if (entry == null || entry.closed || socket == null) {
       return;
     }
     byte[] bytes = data == null ? EMPTY_BYTES : data;
@@ -813,6 +820,9 @@ public final class IbexNetworking {
   public static void closeWebSocket(int wsId, int code, String reason) {
     WsEntry entry = webSockets.get(wsId);
     WebSocket socket = entry == null ? null : entry.socket;
+    if (entry != null) {
+      entry.closed = true;
+    }
     if (socket != null) {
       socket.close(validCloseCode(code), valueOrEmpty(reason));
     }
@@ -1948,6 +1958,9 @@ public final class IbexNetworking {
 
   private static void deliverOrQueue(WsEntry entry, WsMessage message) {
     synchronized (entry) {
+      if (entry.closed) {
+        return;
+      }
       if (entry.paused) {
         entry.pending.add(message);
         return;
@@ -1990,6 +2003,7 @@ public final class IbexNetworking {
     final int id;
     final ArrayDeque<WsMessage> pending = new ArrayDeque<>();
     volatile WebSocket socket;
+    volatile boolean closed;
     boolean paused;
     boolean flowControlled;
 

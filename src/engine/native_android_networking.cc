@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
@@ -97,6 +98,8 @@ struct AndroidFetchRequest {
 
 struct AndroidWebSocketEntry {
   uint32_t ws_id = 0;
+  std::string url;
+  std::string protocols;
   NativeWsOpenCallback open_cb = nullptr;
   NativeWsMessageCallback message_cb = nullptr;
   NativeWsCloseCallback close_cb = nullptr;
@@ -104,9 +107,15 @@ struct AndroidWebSocketEntry {
   NativeWsBytesSentCallback bytes_sent_cb = nullptr;
 
   std::mutex context_mutex;
+  std::mutex connect_mutex;
   void* context = nullptr;
-  std::atomic<bool> closed{false};
+  std::atomic<int> state{0};
 };
+
+constexpr int kWsConnecting = 0;
+constexpr int kWsOpen = 1;
+constexpr int kWsClosing = 2;
+constexpr int kWsClosed = 3;
 
 struct AndroidNetworkingMethods {
   jclass cls = nullptr;
@@ -523,7 +532,7 @@ void remove_ws_entry(uint32_t ws_id) {
     g_ws_connections.erase(it);
   }
   if (entry) {
-    entry->closed.store(true, std::memory_order_relaxed);
+    entry->state.store(kWsClosed, std::memory_order_relaxed);
     release_ws_entry_context(entry);
   }
 }
@@ -612,7 +621,12 @@ void JNICALL android_ws_did_open(
     jstring protocol,
     jstring extensions) {
   auto entry = get_ws_entry(static_cast<uint32_t>(ws_id));
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry) {
+    return;
+  }
+  int expected = kWsConnecting;
+  if (!entry->state.compare_exchange_strong(
+          expected, kWsOpen, std::memory_order_acq_rel, std::memory_order_relaxed)) {
     return;
   }
   std::string protocol_copy = jstring_to_string(env, protocol);
@@ -627,7 +641,7 @@ void JNICALL android_ws_did_message(
     jbyteArray data,
     jboolean is_text) {
   auto entry = get_ws_entry(static_cast<uint32_t>(ws_id));
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry || entry->state.load(std::memory_order_relaxed) == kWsClosed) {
     return;
   }
   std::vector<uint8_t> body = jarray_to_bytes(env, data);
@@ -642,7 +656,7 @@ void JNICALL android_ws_did_close(
     jstring reason,
     jboolean was_clean) {
   auto entry = get_ws_entry(static_cast<uint32_t>(ws_id));
-  if (!entry) {
+  if (!entry || entry->state.exchange(kWsClosed, std::memory_order_acq_rel) == kWsClosed) {
     return;
   }
   std::string reason_copy = jstring_to_string(env, reason);
@@ -656,7 +670,7 @@ void JNICALL android_ws_did_close(
 
 void JNICALL android_ws_did_error(JNIEnv* env, jclass, jint ws_id, jstring message) {
   auto entry = get_ws_entry(static_cast<uint32_t>(ws_id));
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry || entry->state.load(std::memory_order_relaxed) == kWsClosed) {
     return;
   }
   std::string message_copy = jstring_to_string(env, message);
@@ -665,7 +679,7 @@ void JNICALL android_ws_did_error(JNIEnv* env, jclass, jint ws_id, jstring messa
 
 void JNICALL android_ws_did_send_bytes(JNIEnv*, jclass, jint ws_id, jlong bytes_sent) {
   auto entry = get_ws_entry(static_cast<uint32_t>(ws_id));
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry || entry->state.load(std::memory_order_relaxed) != kWsOpen) {
     return;
   }
   call_ws_bytes_sent(entry, static_cast<size_t>(bytes_sent));
@@ -2170,33 +2184,57 @@ extern "C" uint32_t native_ws_connect(
 
   auto entry = std::make_shared<AndroidWebSocketEntry>();
   entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
+  entry->url = url;
+  entry->protocols = protocols ? protocols : "";
   entry->open_cb = open_cb;
   entry->message_cb = message_cb;
   entry->close_cb = close_cb;
   entry->error_cb = error_cb;
   entry->bytes_sent_cb = bytes_sent_cb;
+  // Adopt the caller's reference: the Hermes bridge creates the callback
+  // context with ref_count == 1 and transfers ownership when native connect
+  // returns a nonzero ws_id. The balancing release happens in remove_ws_entry.
+  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — ownership
+  // transfers on nonzero ws_id; never retain at connect
   entry->context = context;
-  if (entry->context) {
-    native_ws_retain_context(entry->context);
-  }
 
   {
     std::lock_guard<std::mutex> lock(g_ws_mutex);
     g_ws_connections[entry->ws_id] = entry;
   }
 
-  if (!call_android_connect_ws(entry->ws_id, url, protocols)) {
-    call_ws_error(entry, "Android networking bridge is not initialized");
-    remove_ws_entry(entry->ws_id);
-    return 0;
-  }
+  // Run Java/OkHttp setup off the JS thread. Class lookup, Android framework
+  // dispatch, and OkHttp request setup can otherwise stall WebSocket()
+  // construction even though connection establishment must run in parallel.
+  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — connect
+  // returns immediately; handshake/setup runs off the runtime thread
+  std::thread([entry]() {
+    bool connected = false;
+    {
+      std::lock_guard<std::mutex> lock(entry->connect_mutex);
+      if (entry->state.load(std::memory_order_acquire) != kWsConnecting) {
+        return;
+      }
+      connected = call_android_connect_ws(
+          entry->ws_id,
+          entry->url.c_str(),
+          entry->protocols.empty() ? nullptr : entry->protocols.c_str());
+    }
+    if (!connected) {
+      if (entry->state.exchange(kWsClosed, std::memory_order_acq_rel) != kWsClosed) {
+        call_ws_error(entry, "Android networking bridge is not initialized");
+        call_ws_close(entry, 1006, "Android networking bridge is not initialized", false);
+      }
+      remove_ws_entry(entry->ws_id);
+    }
+  }).detach();
 
   return entry->ws_id;
 }
 
 extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text) {
   auto entry = get_ws_entry(ws_id);
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry || entry->state.load(std::memory_order_relaxed) != kWsOpen) {
     return;
   }
   call_android_send_ws(ws_id, data, length, is_text != 0);
@@ -2204,10 +2242,37 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
 
 extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reason) {
   auto entry = get_ws_entry(ws_id);
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry) {
     return;
   }
-  call_android_close_ws(ws_id, code, reason);
+  for (;;) {
+    int state = entry->state.load(std::memory_order_acquire);
+    if (state == kWsClosed || state == kWsClosing) {
+      return;
+    }
+    if (state == kWsConnecting) {
+      if (!entry->state.compare_exchange_weak(
+              state, kWsClosed, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        continue;
+      }
+      {
+        std::lock_guard<std::mutex> lock(entry->connect_mutex);
+        call_android_close_ws(ws_id, code, reason);
+      }
+      call_ws_error(entry, "WebSocket was closed before the connection was established");
+      call_ws_close(entry, 1006, "", false);
+      remove_ws_entry(ws_id);
+      return;
+    }
+    if (state == kWsOpen) {
+      if (!entry->state.compare_exchange_weak(
+              state, kWsClosing, std::memory_order_acq_rel, std::memory_order_relaxed)) {
+        continue;
+      }
+      call_android_close_ws(ws_id, code, reason);
+      return;
+    }
+  }
 }
 
 extern "C" void native_ws_pause(uint32_t ws_id) {
@@ -2236,14 +2301,21 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
 
 extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled) {
   auto entry = get_ws_entry(ws_id);
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+  if (!entry || entry->state.load(std::memory_order_relaxed) != kWsOpen) {
     return;
   }
   call_android_ws_flow_control(ws_id, enabled != 0);
 }
 
 extern "C" void native_ws_destroy(uint32_t ws_id) {
-  call_android_close_ws(ws_id, 1000, "");
+  auto entry = get_ws_entry(ws_id);
+  if (!entry || entry->state.exchange(kWsClosed, std::memory_order_acq_rel) == kWsClosed) {
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(entry->connect_mutex);
+    call_android_close_ws(ws_id, 1000, "");
+  }
   remove_ws_entry(ws_id);
 }
 
@@ -2251,7 +2323,7 @@ extern "C" int native_ws_has_active(void) {
   std::lock_guard<std::mutex> lock(g_ws_mutex);
   for (const auto& pair : g_ws_connections) {
     const auto& entry = pair.second;
-    if (entry && !entry->closed.load(std::memory_order_relaxed)) {
+    if (entry && entry->state.load(std::memory_order_relaxed) != kWsClosed) {
       return 1;
     }
   }
