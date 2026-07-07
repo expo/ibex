@@ -13,7 +13,7 @@
 # vendored-generated output — closing the "green build over stale bytes" gap
 # (LLP 0018 item 5).
 #
-# Usage: scripts/run-tests.sh [--scope lib|bin|test|all] [--allow-zero]
+# Usage: scripts/run-tests.sh [--scope lib|bin|test|all] [--test NAME] [--allow-zero]
 #                             [--features LIST] [FILTER]
 #                             [-- <extra cargo/harness args>]
 #   Default scope is `all` (the whole package). Narrowing is explicit and
@@ -26,6 +26,7 @@
 #     scripts/run-tests.sh deep_freeze          # every matching test, all targets
 #     scripts/run-tests.sh --scope lib          # lib unit tests only
 #     scripts/run-tests.sh --scope bin cli      # binary tests matching `cli`
+#     scripts/run-tests.sh --test llp0013_compartments -- --nocapture
 #     scripts/run-tests.sh --features openssl-crypto crypto
 #     scripts/run-tests.sh -- --nocapture       # forward harness args
 set -uo pipefail
@@ -34,6 +35,7 @@ scope="all"
 allow_zero=0
 filter=""
 features=""
+test_target=""
 passthrough=()
 
 usage() { sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
@@ -43,6 +45,8 @@ while [ "$#" -gt 0 ]; do
     -h|--help) usage; exit 0 ;;
     --scope) scope="${2:-}"; shift 2 ;;
     --scope=*) scope="${1#--scope=}"; shift ;;
+    --test) test_target="${2:-}"; shift 2 ;;
+    --test=*) test_target="${1#--test=}"; shift ;;
     --features) features="${features:+$features,}${2:-}"; shift 2 ;;
     --features=*) features="${features:+$features,}${1#--features=}"; shift ;;
     --allow-zero) allow_zero=1; shift ;;
@@ -52,13 +56,18 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-case "$scope" in
-  all)  targets=() ;;
-  lib)  targets=(--lib) ;;
-  bin)  targets=(--bins) ;;
-  test) targets=(--tests) ;;
-  *) echo "error: --scope must be one of lib|bin|test|all (got '$scope')" >&2; exit 2 ;;
-esac
+if [ -n "$test_target" ]; then
+  targets=(--test "$test_target")
+  scope="test:$test_target"
+else
+  case "$scope" in
+    all)  targets=() ;;
+    lib)  targets=(--lib) ;;
+    bin)  targets=(--bins) ;;
+    test) targets=(--tests) ;;
+    *) echo "error: --scope must be one of lib|bin|test|all (got '$scope')" >&2; exit 2 ;;
+  esac
+fi
 
 # Build the command without expanding a possibly-empty array (bash 3.2 + set -u
 # treats "${empty[@]}" as an unbound-variable error).

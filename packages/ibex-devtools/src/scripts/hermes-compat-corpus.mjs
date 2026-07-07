@@ -494,6 +494,55 @@ async function runFixture() {
 `,
   },
   {
+    id: 'nested-yield-expression',
+    note: 'ENG-23454: nested `yield` operands (`yield (yield x)`) must rewrite both suspension points and thread resume values through each one',
+    source: `
+async function* g() {
+  const sent = yield (yield "inner");
+  yield "sent:" + sent;
+  return "done";
+}
+async function runFixture() {
+  const it = g();
+  return [
+    await it.next(),
+    await it.next("outer"),
+    await it.next("tail"),
+    await it.next(),
+    await it.next(),
+  ];
+}
+`,
+  },
+  {
+    id: 'yield-star-return-closes-delegate',
+    note: 'ENG-23454: return() while suspended in `yield*` must close the delegated iterator before settling the outer return',
+    source: `
+const log = [];
+async function* inner() {
+  try {
+    yield "a";
+    yield "b";
+  } finally {
+    log.push("inner-closed");
+  }
+}
+async function* outer() {
+  yield "before";
+  const r = yield* inner();
+  yield "after:" + r;
+}
+async function runFixture() {
+  const it = outer();
+  const first = await it.next();
+  const second = await it.next();
+  const returned = await it.return("stop");
+  const done = await it.next();
+  return { first, second, returned, done, log };
+}
+`,
+  },
+  {
     id: 'wrapper-preserves-this-and-arguments',
     note: 'ENG-23124 #3: the body runs with the original call’s `this` (object receiver) and `arguments`, not the driver plumbing’s',
     source: `
@@ -570,7 +619,11 @@ async function runFixture() {
 async function* g() {
   yield Promise.resolve(41);
   try {
-    yield Promise.reject(new Error("nope"));
+    yield {
+      then(_resolve, reject) {
+        reject(new Error("nope"));
+      },
+    };
   } catch (e) {
     yield "caught:" + e.message;
   }

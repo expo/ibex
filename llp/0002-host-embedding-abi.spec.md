@@ -5,6 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-07 (SecurityMode vocabulary updated after the capsec mode collapse: `Permissive | Audit | Enforce`)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -113,13 +114,14 @@ process-global `Host` singleton.
 `Arc<CapabilityManager>`, and an `Arc<ModuleLoader>` `[observed]`. Constructors
 include `Host::new(config)`, `Host::default_legacy()` (permissive), and
 `Host::strict()` `[observed]` (`src/host/mod.rs:80, 130, 138`). `HostConfig`
-itself defaults to `SecurityMode::Strict`, so "default host" is ambiguous:
-Rust configuration defaults strict, while `ex_host_install()` intentionally
+itself defaults to `SecurityMode::Enforce`, so "default host" is ambiguous:
+Rust configuration defaults enforce, while `ex_host_install()` intentionally
 installs the legacy permissive host `[observed]`
 (`src/host/mod.rs:57-68, 129-143`; `src/host/abi.rs:586-592`). `Host` exposes
 `check_capability`, `is_allow_all`, and `resolve_module` `[observed]`
-(`src/host/mod.rs:146-174`). `SecurityMode` is `Permissive | Capability |
-Strict` `[observed]` (`src/host/mod.rs:29-38`); the C++ bridge short-circuits
+(`src/host/mod.rs:146-174`). `SecurityMode` is `Permissive | Audit | Enforce`
+`[observed]` (`src/host/mod.rs:37-45`); the legacy `strict`/`capability`
+strings parse to `Enforce` for compatibility. The C++ bridge short-circuits
 capability checks when `ex_host_is_allow_all()` returns 1 `[observed]`
 (`src/host/abi.rs:597-599`).
 

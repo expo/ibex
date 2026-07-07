@@ -32,6 +32,8 @@ if ! bun run generate:identity --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/identity.generated.ts" "src/identity_generated.rs")
 fi
 if ! bun run generate:modules --check >/dev/null 2>&1; then
+  # `generate:modules` carries `--rust-out-dir vendored-generated`, so this
+  # one check covers both the JS helper and the Rust builtin manifest.
   stale+=("vendored-generated/builtin_manifest.generated.rs" "src/builtins/helpers/runtime-module-manifest.cjs")
 fi
 

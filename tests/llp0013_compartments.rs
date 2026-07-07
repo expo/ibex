@@ -1433,6 +1433,44 @@ try {
         "denied mkdtemp must not leave behind a suffixed directory"
     );
 
+    let allowed_policy = serde_json::json!({
+        "mode": "enforce",
+        "allow": [
+            format!("fs:read:{base_str}/**"),
+            format!("fs:write:{base_str}/**"),
+            "network",
+            "process",
+            "crypto",
+            "time",
+            "env",
+            "os",
+            "device",
+            "worker",
+            "ffi"
+        ],
+        "ceiling": ["network:fetch:example.invalid"]
+    })
+    .to_string();
+    std::fs::write(base.join("ibex-policy.json"), allowed_policy).unwrap();
+    let allowed = run_ibex(
+        &[
+            "--capsec",
+            "enforce",
+            "--policy",
+            &base.join("ibex-policy.json").to_string_lossy(),
+            "run",
+            "app.js",
+        ],
+        &[("PREFIX", &prefix_str), ("EXACT_COMPAT_TEST", "1")],
+        Some(&base),
+    );
+    assert!(
+        allowed.stdout.contains("mkdtemp-exact-prefix: SUCCEEDED"),
+        "positive control: mkdtemp should succeed when the actual suffixed path is allowed:\nstdout:\n{}\nstderr:\n{}",
+        allowed.stdout,
+        allowed.stderr
+    );
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1462,6 +1500,8 @@ fn native_byte_extraction_rejects_forged_arraybuffer_view_bounds() {
         r#"var fs = require("fs");
 var fd = fs.openSync(process.env.OUTFILE, "w");
 try {
+  globalThis.__exactFsWrite(fd, new Uint8Array([1, 2, 3, 4]), -1);
+  console.log("real-view: WROTE");
   var forged = { buffer: new ArrayBuffer(4), byteOffset: 3, byteLength: 4 };
   globalThis.__exactFsWrite(fd, forged, -1);
   console.log("forged-view: ACCEPTED");
@@ -1492,9 +1532,10 @@ console.log("forged-size: " + fs.statSync(process.env.OUTFILE).size);
     );
     assert!(
         out.stdout.contains("forged-view: REJECTED")
-            && out.stdout.contains("forged-size: 0")
+            && out.stdout.contains("real-view: WROTE")
+            && out.stdout.contains("forged-size: 4")
             && !out.stdout.contains("forged-view: ACCEPTED"),
-        "native byte extraction must reject forged view bounds before writing:\nstdout:\n{}\nstderr:\n{}",
+        "native byte extraction must accept real views but reject forged view bounds before the second write:\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

@@ -5,7 +5,7 @@
 **Systems:** Module Loader, Build, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-13
-**Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities)
+**Revised:** 2026-06-13 (Claude independent review — `llp/reviews/0007-vite-rolldown-oxc-runtime-transforms.claude.md`); 2026-06-14 (Codex second-pass revision); 2026-07-04 (devtools parser convergence: Acorn removed from first-party transform/import-grants scripts in favor of Rolldown/Oxc parser utilities); 2026-07-07 (Hermes-compat for-of / async-generator authority delegated to LLP 0019)
 **Related:** LLP 0000; LLP 0004 (module loading); LLP 0005 (build pipeline); LLP 0006 (design principles); LLP 0009
 
 ## Summary
@@ -149,11 +149,13 @@ runs no compat/down-level pass — there is no `swc_ecma_transforms_compat`
 dependency `[observed]` (`src/module_loader/transpile.rs:68,88-120`;
 `Cargo.toml:56-64`). The `target` is consumed only by the cache key
 (`src/module_loader/mod.rs:828`) and by the opt-in `EXACT_TRANSPILE_SCRIPT`
-subprocess (`src/module_loader/mod.rs:966-967`). The for-of/async-generator
-*rewrites* themselves live only in build-time `transforms.mjs`, applied to
-generated builtins and the runtime bundle via a Rolldown plugin, not to
-runtime-loaded on-disk files `[observed]`
-(`packages/ibex-devtools/src/scripts/transforms.mjs:62-251,392-597,796-814`).
+subprocess (`src/module_loader/mod.rs:966-967`). The Hermes-compat
+for-of/async-generator rewrite authority is now specified by LLP 0019: the
+canonical AST implementation is `hermes-compat.mjs` (re-exported by
+`transforms.mjs`), with a constrained loader scanner held to the shared corpus.
+Those build-time rewrites apply to generated builtins and the runtime bundle via
+a Rolldown plugin, not to runtime-loaded on-disk files `[observed]`
+([LLP 0019](./0019-hermes-compat-transform-authority.decision.md)).
 So "down-leveled when scanners detect unsupported syntax" holds for the
 *generated* layer and the subprocess path, but **not** for the default
 in-process loader, which today strips types, compiles JSX, and lowers modules
@@ -226,13 +228,14 @@ loader depends on. At minimum:
 - NodeNext-style extension aliases (`./x.js` resolving to `./x.ts` where
   appropriate) `[observed]` (`src/module_loader/mod.rs:88-98`).
 - Hermes compatibility lowerings: async generators, `for await`, `using`,
-  block-scoped loop closures, and the for-of scoping workaround. These are
-  *detected* by runtime scanners `[observed]`
+  block-scoped loop closures, and the for-of scoping workaround. LLP 0019 owns
+  the for-of / async-generator conformance seam; this RFC only records that the
+  runtime-loader transform contract must make the generated and on-disk paths
+  converge. These are *detected* by runtime scanners `[observed]`
   (`src/module_loader/mod.rs:217-228,585-605`) but *applied* only by build-time
-  `transforms.mjs` over generated artifacts `[observed]`
-  (`packages/ibex-devtools/src/scripts/transforms.mjs:62-251,392-597`); the
-  default in-process runtime path applies neither today (see Current state). The
-  fixture suite should pin the behavior we *want*, then make the engine match it.
+  Hermes-compat transforms over generated artifacts; the default in-process
+  runtime path applies neither today (see Current state). The fixture suite
+  should pin the behavior we *want*, then make the engine match it.
 - No unresolved runtime helper imports unless those helpers are embedded
   builtins.
 - Diagnostics that preserve useful filenames and source locations.

@@ -5,6 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
+**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -173,8 +174,6 @@ or Windows process/socket primitives provided by the platform files.
 - Linux full AES/asymmetric crypto still requires `openssl-crypto`; the default
   profile is intentionally reduced.
 - The degraded Linux curl CLI fallback is not a production networking backend.
-- Local macOS Cargo test builds are blocked by the currently installed Hermes
-  headers not matching the C++ runtime API used by this checkout.
 
 ## Android Verification Required
 

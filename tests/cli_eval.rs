@@ -688,7 +688,12 @@ async fn cli_legacy_env_names_warn_once() {
         .expect("CLI run timed out")
         .expect("failed to spawn or read ibex process output");
     let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "stderr: {stderr}");
+    assert!(
+        stdout.contains("legacy-env-ok"),
+        "legacy env test file did not execute; stdout={stdout}, stderr={stderr}"
+    );
     for (legacy, ibex) in [
         ("EX_NO_BYTECODE", "IBEX_NO_BYTECODE"),
         ("EX_STARTUP_TRACE", "IBEX_STARTUP_TRACE"),

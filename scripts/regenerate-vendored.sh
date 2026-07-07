@@ -24,7 +24,11 @@ fi
 bun run generate:capability-bits
 bun run generate:identity
 bun run generate:modules
+# Postcondition: the module generator writes both the JS runtime manifest and
+# the Rust builtin manifest. Check immediately so a future package-script edit
+# cannot silently stop refreshing one side.
+bun run generate:modules --check
 bun run build:builtins
 bun run build:runtime
 
-echo "Regenerated vendored artifacts. Review with: git status vendored-generated/ src/identity_generated.rs packages/ibex-runtime-js/src" >&2
+echo "Regenerated vendored artifacts. Review with: git status vendored-generated/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2

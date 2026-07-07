@@ -20,12 +20,18 @@ on:
       - "scripts/apply-hermes-patches.sh"
       - "scripts/hermes-version.sh"
       - "scripts/build-hermes*.sh"
+      - "modules.ts"
+      - "packages/ibex-devtools/src/scripts/**"
+      - "packages/ibex-runtime-js/src/security/**"
+      - "src/builtins/**"
       - "src/engine/**"
       - "src/host/**"
       - "src/bin/ibex/**"
       - "src/module_loader/**"
+      - "vendored-generated/**"
       - "tests/llp0013_compartments.rs"
       - "tests/fixtures/llp0013/**"
+      - "examples/llp0013-supply-chain/**"
       - "build.rs"
 
 jobs:
@@ -86,9 +92,12 @@ jobs:
       # of self-skipping to PASS if the patched framework ever fails to link
       # (LLP 0018). The nm check above guards the binary; this guards the suite.
       - name: Compartment conformance / red-team suite
-        run: cargo test --test llp0013_compartments -- --nocapture
+        run: scripts/run-tests.sh --test llp0013_compartments -- --nocapture
         env:
           IBEX_REQUIRE_FRAME_ATTRIBUTION: "1"
 
       - name: Host + handle unit tests
-        run: cargo test --lib
+        run: scripts/run-tests.sh --scope lib
+
+      - name: RSA-PSS OpenSSL feature bridge
+        run: scripts/run-tests.sh --features openssl-crypto --test crypto_rsa_pss
