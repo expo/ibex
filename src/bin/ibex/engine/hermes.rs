@@ -1742,6 +1742,29 @@ fn temporary_output_path(path: &std::path::Path) -> std::path::PathBuf {
     path.with_file_name(format!(".{file_name}.tmp"))
 }
 
+/// Classify an eval failure from a bytecode (`.hbc`) buffer as a LOAD failure
+/// — the buffer was rejected before any of the program ran — as opposed to the
+/// program executing and throwing. Callers may recover from a load failure by
+/// deleting the cached bytecode and re-running the JS source; an eval throw
+/// must propagate as-is, or every side effect the program already performed
+/// would run a second time (ENG-23484). Matches the three surfaces
+/// `ex_hermes_eval` can report a rejected buffer through:
+///  * `Wrong bytecode version …` — Hermes' version-mismatch reason;
+///  * `Bytecode sanity check failed: …` — hermes_runtime.cc's prefix on
+///    `hermesBytecodeSanityCheck` rejections;
+///  * `Compiling JS failed: …` — `prepareJavaScript` rejecting the buffer
+///    inside `evaluateJavaScript` (builds without the sanity check).
+///
+/// A thrown JS error whose message text happens to contain one of these
+/// markers is misclassified and falls back to source — that narrow false
+/// positive costs exactly what every error cost before this classification
+/// existed.
+pub(crate) fn is_bytecode_load_error(message: &str) -> bool {
+    message.contains("Wrong bytecode version")
+        || message.contains("Bytecode sanity check failed")
+        || message.contains("Compiling JS failed")
+}
+
 /// Compile a JavaScript file to Hermes bytecode
 pub async fn compile_to_bytecode(
     input: &str,

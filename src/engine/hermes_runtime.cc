@@ -2658,14 +2658,11 @@ extern "C" int ex_hermes_eval(
         std::string reason;
         if (!facebook::hermes::HermesRuntime::hermesBytecodeSanityCheck(
                 aligned_data, len, &reason)) {
-          if (out_value) {
-            char* heap = static_cast<char*>(malloc(reason.size() + 1));
-            if (heap) {
-              memcpy(heap, reason.data(), reason.size());
-              heap[reason.size()] = '\0';
-              *out_value = heap;
-            }
-          }
+          // Stable prefix so the Rust caller can tell "the bytecode buffer
+          // was rejected before any code ran" apart from "the program ran
+          // and threw" — only the former may delete a cached .hbc and
+          // re-run the JS source (see is_bytecode_load_error, ENG-23484).
+          writeOutError("Bytecode sanity check failed: " + reason);
           return 1;
         }
       }

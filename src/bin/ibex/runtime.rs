@@ -1336,8 +1336,19 @@ impl Runtime {
             self.engine.eval_immediate(&argv_code).await?;
             match self.engine.run_file(&entry_str).await {
                 Ok(result) => return Ok(result),
-                Err(_e) => {
-                    // Bytecode version mismatch or other error.
+                Err(e) => {
+                    // Only a genuine load failure — the bytecode buffer was
+                    // rejected before any of the program ran — may delete the
+                    // cached .hbc and re-run from JS source. The engine
+                    // reports an eval THROW through the same Err surface; it
+                    // must propagate as-is, or every side effect the program
+                    // already performed (stdout, writes, network) runs a
+                    // second time and the still-valid cache is discarded on
+                    // every future run. (ENG-23484)
+                    if !engine::hermes::is_bytecode_load_error(&format!("{e:#}")) {
+                        return Err(e);
+                    }
+                    // Bytecode failed to load (version mismatch or corrupt).
                     // Mark bytecode as incompatible so we don't re-compile.
                     BYTECODE_INCOMPATIBLE.store(true, Ordering::Relaxed);
                     // Delete the stale .hbc and fall through to require() with JS source.
