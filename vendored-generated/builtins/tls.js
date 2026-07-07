@@ -1308,7 +1308,20 @@ TLSSocket.prototype.getSharedSigalgs = function() {
 	return [];
 };
 TLSSocket.prototype.renegotiate = function(options, callback) {
-	if (typeof options === "function") callback = options;
+	if (options === null || typeof options !== "object") throw _createError("ERR_INVALID_ARG_TYPE", "The \"options\" argument must be of type object. Received " + (options === null ? "null" : typeof options));
+	if (callback !== void 0 && typeof callback !== "function") throw _createError("ERR_INVALID_ARG_TYPE", "The \"callback\" argument must be of type function. Received " + typeof callback);
+	if (this.destroyed) return void 0;
+	if (this._protocol === "TLSv1.3") {
+		if (typeof callback === "function") {
+			var err = _createError("ERR_SSL_WRONG_SSL_VERSION", "error:0A00010A:SSL routines::wrong ssl version");
+			err.library = "SSL routines";
+			err.reason = "wrong ssl version";
+			setTimeout(function() {
+				callback(err);
+			}, 0);
+		}
+		return false;
+	}
 	if (typeof callback === "function") setTimeout(function() {
 		callback(null);
 	}, 0);

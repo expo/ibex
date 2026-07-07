@@ -1727,8 +1727,46 @@ TLSSocket.prototype.getSharedSigalgs = function() {
   return [];
 };
 
+// Node contract for renegotiate(), verified against Node v25.9.0 (ENG-23448):
+//   * options must be an object and callback (if given) a function — otherwise
+//     ERR_INVALID_ARG_TYPE is thrown, even on a destroyed socket;
+//   * a destroyed socket returns undefined without invoking the callback;
+//   * on TLSv1.3 renegotiation does not exist in the protocol: returns false
+//     and the callback receives an ERR_SSL_WRONG_SSL_VERSION error;
+//   * disableRenegotiation() does NOT block a self-initiated renegotiate() —
+//     in Node it errors the disabled socket only when the PEER renegotiates
+//     (ERR_TLS_RENEGOTIATION_DISABLED via 'error'); the emulation has no real
+//     renegotiation, and cross-socket peer notification is not emulated.
 TLSSocket.prototype.renegotiate = function(options, callback) {
-  if (typeof options === 'function') callback = options;
+  if (options === null || typeof options !== 'object') {
+    throw _createError(
+      'ERR_INVALID_ARG_TYPE',
+      'The "options" argument must be of type object. Received ' +
+        (options === null ? 'null' : typeof options)
+    );
+  }
+  if (callback !== undefined && typeof callback !== 'function') {
+    throw _createError(
+      'ERR_INVALID_ARG_TYPE',
+      'The "callback" argument must be of type function. Received ' + typeof callback
+    );
+  }
+  if (this.destroyed) return undefined;
+  var protocol = this._protocol;
+  if (protocol === 'TLSv1.3') {
+    if (typeof callback === 'function') {
+      var err = _createError(
+        'ERR_SSL_WRONG_SSL_VERSION',
+        'error:0A00010A:SSL routines::wrong ssl version'
+      );
+      err.library = 'SSL routines';
+      err.reason = 'wrong ssl version';
+      setTimeout(function() { callback(err); }, 0);
+    }
+    return false;
+  }
+  // TLSv1.2 and below: the emulated renegotiation is an immediate no-op
+  // success, matching Node's observable result for a loopback renegotiate.
   if (typeof callback === 'function') {
     setTimeout(function() { callback(null); }, 0);
   }

@@ -78,3 +78,66 @@ setTimeout(function () {
     assert_eq!(v["emitWorks"], true, "{v}");
     assert_eq!(v["readReturns"], "null", "read() on an idle wrapper returns null: {v}");
 }
+
+#[tokio::test]
+async fn tls_renegotiate_matches_node_contract() {
+    // ENG-23448 finding 4: the stub claimed success unconditionally. Node
+    // v25.9.0 oracle: TLSv1.3 -> false + cb(ERR_SSL_WRONG_SSL_VERSION);
+    // TLSv1.2 self-initiated renegotiate succeeds even after
+    // disableRenegotiation() (the disabled flag only errors the socket whose
+    // peer renegotiates); destroyed socket -> undefined without callback;
+    // non-object options / non-function callback -> throw ERR_INVALID_ARG_TYPE.
+    let script = r#"
+var tls = require('tls');
+var net = require('net');
+var out = {};
+
+// Default protocol is TLSv1.3.
+var s13 = new tls.TLSSocket(new net.Socket());
+out.protocol13 = s13.getProtocol();
+s13.disableRenegotiation();
+var ret13 = s13.renegotiate({}, function (err) {
+  out.tls13 = { ret: ret13, cbErr: err ? err.code : null, reason: err ? err.reason : null };
+  next();
+});
+
+function next() {
+  var s12 = new tls.TLSSocket(new net.Socket(), { maxVersion: 'TLSv1.2' });
+  out.protocol12 = s12.getProtocol();
+  s12.disableRenegotiation();
+  var ret12 = s12.renegotiate({}, function (err) {
+    out.tls12_disabled_self = { ret: ret12, cbErr: err ? err.code : null };
+    finish(s12);
+  });
+}
+
+function finish(s12) {
+  var sd = new tls.TLSSocket(new net.Socket());
+  sd.destroy();
+  out.destroyed = { ret: String(sd.renegotiate({}, function () { out.destroyedCbFired = true; })) };
+  try { s12.renegotiate(function () {}); out.fnAsOptions = 'no throw'; }
+  catch (e) { out.fnAsOptions = e.code; }
+  try { s12.renegotiate({}, 'not a function'); out.badCallback = 'no throw'; }
+  catch (e) { out.badCallback = e.code; }
+  setTimeout(function () {
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }, 50);
+}
+"#;
+    let v = run_script(script, 20).await;
+    assert_eq!(v["protocol13"], "TLSv1.3", "{v}");
+    assert_eq!(v["tls13"]["ret"], false, "TLSv1.3 renegotiate returns false: {v}");
+    assert_eq!(v["tls13"]["cbErr"], "ERR_SSL_WRONG_SSL_VERSION", "{v}");
+    assert_eq!(v["tls13"]["reason"], "wrong ssl version", "{v}");
+    assert_eq!(v["protocol12"], "TLSv1.2", "{v}");
+    assert_eq!(
+        v["tls12_disabled_self"]["ret"], true,
+        "self-initiated renegotiate succeeds on TLSv1.2 even when disabled (Node v25 contract): {v}"
+    );
+    assert_eq!(v["tls12_disabled_self"]["cbErr"], Value::Null, "{v}");
+    assert_eq!(v["destroyed"]["ret"], "undefined", "{v}");
+    assert!(v.get("destroyedCbFired").is_none(), "destroyed socket must not invoke callback: {v}");
+    assert_eq!(v["fnAsOptions"], "ERR_INVALID_ARG_TYPE", "{v}");
+    assert_eq!(v["badCallback"], "ERR_INVALID_ARG_TYPE", "{v}");
+}
