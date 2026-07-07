@@ -421,11 +421,18 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 }
               };
 
-              static WaitWorkerPool workerPool;
+              // ENG-23498 — intentionally leaked (same fix as FetchWorkerPool
+              // in native_fetch_linux.cc, ENG-23471): a by-value static pool
+              // is destructed during exit() while detached workers are still
+              // parked in cv.wait(), and destroying a mutex/condvar with
+              // waiters is UB that deadlocks exit() inside glibc's pthread
+              // destructors on Linux. Workers are detached, so leaking the
+              // pool lets exit() proceed normally.
+              static WaitWorkerPool* workerPool = new WaitWorkerPool();
 
               auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
               std::string enqueueError;
-              if (!workerPool.enqueue(std::move(task), enqueueError)) {
+              if (!workerPool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
                     runtime,
                     facebook::jsi::JSError(runtime, enqueueError.c_str()).value());
@@ -904,12 +911,19 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 }
               };
 
-              static WritableWorkerPool writablePool;
+              // ENG-23498 — intentionally leaked (same fix as FetchWorkerPool
+              // in native_fetch_linux.cc, ENG-23471): a by-value static pool
+              // is destructed during exit() while detached workers are still
+              // parked in cv.wait(), and destroying a mutex/condvar with
+              // waiters is UB that deadlocks exit() inside glibc's pthread
+              // destructors on Linux. Workers are detached, so leaking the
+              // pool lets exit() proceed normally.
+              static WritableWorkerPool* writablePool = new WritableWorkerPool();
 
               auto task = WritableTask{
                   handle, server_id, request_id, timeout_ms, waitPrincipal, resolve, reject};
               std::string enqueueError;
-              if (!writablePool.enqueue(std::move(task), enqueueError)) {
+              if (!writablePool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
                     runtime,
                     facebook::jsi::JSError(runtime, enqueueError.c_str()).value());

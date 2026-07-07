@@ -492,8 +492,17 @@ DnsResult doDnsReverse(const std::string& ip) {
 class DnsWorkerPool {
  public:
   static DnsWorkerPool& instance() {
-    static DnsWorkerPool pool;
-    return pool;
+    // ENG-23498 — intentionally leaked (same fix as FetchWorkerPool in
+    // native_fetch_linux.cc, ENG-23471): a function-local
+    // `static DnsWorkerPool` is destructed during exit() while detached
+    // workers are still parked in cv_.wait(), and destroying a mutex/condvar
+    // with waiters is UB that deadlocks the process inside glibc's pthread
+    // destructors (run-verified on Linux: one dns.lookup followed by
+    // `process.exit(0)` hung forever with a by-value static; macOS never
+    // reproduces it). Workers are detached, so leaking the pool lets exit()
+    // proceed normally.
+    static DnsWorkerPool* pool = new DnsWorkerPool();
+    return *pool;
   }
 
   bool enqueue(std::function<void()> job, std::string& error) {
