@@ -813,23 +813,23 @@ function brotliDecompress(data, options, callback) {
 // ---------------------------------------------------------------------------
 
 function inflateStreamFn(buf) {
-  var r = inflateSyncConsumed(toBytes(buf), 0);
+  var r = inflateSyncConsumed(toBytes(buf), 0, this._finishFlush === 2 ? 3 : 2);
   return { output: r[0], consumed: r[1] };
 }
 
 function gunzipStreamFn(buf) {
-  var r = inflateSyncConsumed(toBytes(buf), 1);
+  var r = inflateSyncConsumed(toBytes(buf), 1, this._finishFlush === 2 ? 3 : 2);
   return { output: r[0], consumed: r[1] };
 }
 
 function inflateRawStreamFn(buf) {
-  var r = inflateSyncConsumed(toBytes(buf), 2);
+  var r = inflateSyncConsumed(toBytes(buf), 2, this._finishFlush === 2 ? 3 : 2);
   return { output: r[0], consumed: r[1] };
 }
 
 function unzipStreamFn(buf) {
   // mode=1: auto-detect gzip/deflate (handles both via windowBits=15+32)
-  var r = inflateSyncConsumed(toBytes(buf), 1);
+  var r = inflateSyncConsumed(toBytes(buf), 1, this._finishFlush === 2 ? 3 : 2);
   return { output: r[0], consumed: r[1] };
 }
 
@@ -850,6 +850,8 @@ function ZlibTransform(syncFn, opts, isDecoder) {
 
   this._level = (opts && opts.level !== undefined && !isNaN(opts.level) && isFinite(opts.level)) ? opts.level : -1;
   this._strategy = (opts && opts.strategy !== undefined && !isNaN(opts.strategy) && isFinite(opts.strategy)) ? opts.strategy : 0;
+  this._finishFlush = opts && opts.finishFlush;
+  this._maxOutputLength = isDecoder ? validateMaxOutputLength(opts) : Infinity;
 
   var self = this;
   var defaultFinal = this._final;
@@ -949,11 +951,8 @@ ZlibTransform.prototype._flush = function(callback) {
       while (remaining.length > 0) {
         var resultRaw;
         try {
-          resultRaw = this._syncFn(remaining);
+          resultRaw = this._syncFn.call(this, remaining);
         } catch (innerErr) {
-          // If we already decompressed at least one member and we get an error
-          // on subsequent data, stop (it might be trailing garbage)
-          if (allOutputs.length > 0) break;
           throw innerErr;
         }
 
@@ -976,6 +975,7 @@ ZlibTransform.prototype._flush = function(callback) {
       }
 
       var finalResult = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
+      checkMaxOutputLength(finalResult.length, this._maxOutputLength);
 
       if (this._isDecoder) {
         this._bytesWritten = totalConsumed;
@@ -988,7 +988,7 @@ ZlibTransform.prototype._flush = function(callback) {
       return;
     }
 
-    var resultRaw = this._syncFn(input);
+    var resultRaw = this._syncFn.call(this, input);
 
     var result;
     if (resultRaw && typeof resultRaw === 'object' && resultRaw.output !== undefined) {
@@ -1003,6 +1003,7 @@ ZlibTransform.prototype._flush = function(callback) {
 
     if (this._isDecoder) {
       this.bytesRead = this.bytesWritten;
+      checkMaxOutputLength(result.length, this._maxOutputLength);
     }
 
     this.push(result);
@@ -1092,7 +1093,7 @@ ZlibTransform.prototype._destroy = function(err, callback) {
 
 // _processChunk: synchronous compress/decompress (used by tests)
 ZlibTransform.prototype._processChunk = function(chunk, flushFlag) {
-  var resultRaw = this._syncFn(chunk);
+  var resultRaw = this._syncFn.call(this, chunk);
   if (resultRaw && typeof resultRaw === 'object' && resultRaw.output !== undefined) {
     return resultRaw.output;
   }
@@ -1106,10 +1107,9 @@ ZlibTransform.prototype._processChunk = function(chunk, flushFlag) {
 function Deflate(opts) {
   if (!(this instanceof Deflate)) return new Deflate(opts);
   validateZlibOptions(opts, true, false);
-  var _opts = opts;
-  var _dict = (_opts && _opts.dictionary) ? toBytes(_opts.dictionary) : undefined;
+  var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    var level = this._level;
     return toBuffer(__exactDeflateSync(toBytes(buf), level, 0, _dict));
   }, opts, false);
 }
@@ -1118,9 +1118,10 @@ Deflate.prototype.constructor = Deflate;
 
 function Inflate(opts) {
   if (!(this instanceof Inflate)) return new Inflate(opts);
+  validateZlibOptions(opts, false, false);
   var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var r = __exactInflateSync(toBytes(buf), 0, false, 2, _dict);
+    var r = __exactInflateSync(toBytes(buf), 0, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
   }, opts, true);
@@ -1131,9 +1132,8 @@ Inflate.prototype.constructor = Inflate;
 function Gzip(opts) {
   if (!(this instanceof Gzip)) return new Gzip(opts);
   validateZlibOptions(opts, true, true);
-  var _opts = opts;
   ZlibTransform.call(this, function(buf) {
-    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    var level = this._level;
     return toBuffer(__exactDeflateSync(toBytes(buf), level, 1));
   }, opts, false);
 }
@@ -1142,6 +1142,7 @@ Gzip.prototype.constructor = Gzip;
 
 function Gunzip(opts) {
   if (!(this instanceof Gunzip)) return new Gunzip(opts);
+  validateZlibOptions(opts, false, true);
   ZlibTransform.call(this, gunzipStreamFn, opts, true);
   this._multiMember = true;
 }
@@ -1154,7 +1155,7 @@ function DeflateRaw(opts) {
   var _opts = opts;
   var _dict = (_opts && _opts.dictionary) ? toBytes(_opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var level = (_opts && _opts.level !== undefined) ? _opts.level : -1;
+    var level = this._level;
     return toBuffer(__exactDeflateSync(toBytes(buf), level, 2, _dict));
   }, opts, false);
 }
@@ -1163,9 +1164,10 @@ DeflateRaw.prototype.constructor = DeflateRaw;
 
 function InflateRaw(opts) {
   if (!(this instanceof InflateRaw)) return new InflateRaw(opts);
+  validateZlibOptions(opts, false, false);
   var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var r = __exactInflateSync(toBytes(buf), 2, false, 2, _dict);
+    var r = __exactInflateSync(toBytes(buf), 2, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
   }, opts, true);
@@ -1175,6 +1177,7 @@ InflateRaw.prototype.constructor = InflateRaw;
 
 function Unzip(opts) {
   if (!(this instanceof Unzip)) return new Unzip(opts);
+  validateZlibOptions(opts, false, true);
   ZlibTransform.call(this, unzipStreamFn, opts, true);
   this._multiMember = true;
 }

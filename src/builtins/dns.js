@@ -17,6 +17,7 @@ function _deliverLookupResult(hostname, options, results, callback) {
     _emitLookupNotFound(hostname, callback, false);
     return;
   }
+  results = _orderLookupResults(results, options);
   var result = results[0];
   if (options.all) {
     if (callback) callback(null, results);
@@ -588,6 +589,10 @@ function _usesCustomResolverQueries(resolver) {
   return !!(resolver && resolver._usesCustomServers);
 }
 
+function _isEmptyDnsResult(result) {
+  return result == null || (Array.isArray(result) && result.length === 0);
+}
+
 function _finishResolverQuery(query, err, result) {
   if (!query || query.finished) return;
   query.finished = true;
@@ -678,6 +683,10 @@ function _startResolverQuery(resolver, hostname, rrtype, options, callback, isRe
       _finishResolverQuery(query, _createDnsError('EBADRESP', query.syscall, query.hostname));
       return;
     }
+    if (_isEmptyDnsResult(result)) {
+      _finishResolverQuery(query, _createDnsError('ENODATA', query.syscall, query.hostname));
+      return;
+    }
     _finishResolverQuery(query, null, result);
   });
   query.socket.on('error', function(err) {
@@ -726,6 +735,10 @@ function _resolveViaQuery(hostname, rrtype, callback) {
         var records;
         try { records = JSON.parse(json); }
         catch (parseErr) { _resolveQueryError(hostname, rrtype, parseErr, callback, false); return; }
+        if (!records || records.length === 0) {
+          if (callback) callback(_createDnsError('ENODATA', _getResolverSyscall(rrtype, false), hostname));
+          return;
+        }
         if (callback) callback(null, records);
       }, function(e) {
         _resolveQueryError(hostname, rrtype, e, callback, false);
@@ -738,16 +751,47 @@ function _resolveViaQuery(hostname, rrtype, callback) {
   try {
     var json = __exactDnsResolve(hostname, rrtype);
     var records = JSON.parse(json);
+    if (!records || records.length === 0) {
+      if (callback) setTimeout(function() {
+        callback(_createDnsError('ENODATA', _getResolverSyscall(rrtype, false), hostname));
+      }, 0);
+      return;
+    }
     if (callback) setTimeout(function() { callback(null, records); }, 0);
   } catch(e) {
     _resolveQueryError(hostname, rrtype, e, callback, true);
   }
 }
 
+function _makeModuleResolver() {
+  return {
+    _servers: _servers.slice(),
+    _pendingQueries: 0,
+    _activeQueries: [],
+    _usesCustomServers: true,
+    _timeout: 5000,
+    _tries: 1,
+    _localAddressIPv4: undefined,
+    _localAddressIPv6: undefined
+  };
+}
+
+function _moduleResolverQuery(hostname, rrtype, options, callback, isReverseLookup) {
+  if (!_servers || _servers.length === 0) {
+    var err = _createDnsError('ENOTSUP', _getResolverSyscall(rrtype, isReverseLookup), hostname, 'custom DNS resolver has no configured servers');
+    if (callback) setTimeout(function() { callback(err); }, 0);
+    return;
+  }
+  return _startResolverQuery(_makeModuleResolver(), hostname, rrtype, options || {}, callback, !!isReverseLookup);
+}
+
 function resolve(hostname, rrtype, callback) {
   if (typeof rrtype === 'function') {
     callback = rrtype;
     rrtype = 'A';
+  }
+  if (_moduleUsesCustomServers) {
+    return _moduleResolverQuery(hostname, rrtype, {}, callback, false);
   }
   if (rrtype === 'A') {
     lookup(hostname, { family: 4, all: true }, function(err, results) {
@@ -770,6 +814,9 @@ function resolve(hostname, rrtype, callback) {
 
 function resolve4(hostname, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
+  if (_moduleUsesCustomServers || (options && options.ttl)) {
+    return _moduleResolverQuery(hostname, 'A', options || {}, callback, false);
+  }
   lookup(hostname, { family: 4, all: true }, function(err, results) {
     if (err) { callback(err); return; }
     var addresses = [];
@@ -780,6 +827,9 @@ function resolve4(hostname, options, callback) {
 
 function resolve6(hostname, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
+  if (_moduleUsesCustomServers || (options && options.ttl)) {
+    return _moduleResolverQuery(hostname, 'AAAA', options || {}, callback, false);
+  }
   lookup(hostname, { family: 6, all: true }, function(err, results) {
     if (err) { callback(err); return; }
     var addresses = [];
@@ -789,26 +839,32 @@ function resolve6(hostname, options, callback) {
 }
 
 function resolveMx(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'MX', {}, callback, false);
   _resolveViaQuery(hostname, 'MX', callback);
 }
 
 function resolveTxt(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'TXT', {}, callback, false);
   _resolveViaQuery(hostname, 'TXT', callback);
 }
 
 function resolveSrv(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'SRV', {}, callback, false);
   _resolveViaQuery(hostname, 'SRV', callback);
 }
 
 function resolveNs(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'NS', {}, callback, false);
   _resolveViaQuery(hostname, 'NS', callback);
 }
 
 function resolveCname(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'CNAME', {}, callback, false);
   _resolveViaQuery(hostname, 'CNAME', callback);
 }
 
 function resolveSoa(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'SOA', {}, callback, false);
   _resolveViaQuery(hostname, 'SOA', function(err, records) {
     if (err) { callback(err); return; }
     // SOA returns a single record, not an array
@@ -817,14 +873,17 @@ function resolveSoa(hostname, callback) {
 }
 
 function resolvePtr(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'PTR', {}, callback, false);
   _resolveViaQuery(hostname, 'PTR', callback);
 }
 
 function resolveCaa(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'CAA', {}, callback, false);
   _resolveViaQuery(hostname, 'CAA', callback);
 }
 
 function resolveNaptr(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'NAPTR', {}, callback, false);
   _resolveViaQuery(hostname, 'NAPTR', callback);
 }
 
@@ -837,6 +896,7 @@ function _reverseError(e, callback, defer) {
 }
 
 function reverse(ip, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(ip, 'PTR', {}, callback, true);
   if (!_hasDnsReverse && !_hasDnsReverseAsync) {
     var err = new Error('dns.reverse requires native resolver');
     err.code = 'ENOTIMP';
@@ -957,8 +1017,41 @@ function getDefaultResultOrder() {
   return _defaultResultOrder;
 }
 
-// Server management (stub)
-var _servers = ['127.0.0.1'];
+function _orderLookupResults(results, options) {
+  if (!Array.isArray(results) || results.length < 2) return results;
+  var order = options && options.order ? options.order : _defaultResultOrder;
+  if (order !== 'ipv4first' && order !== 'ipv6first') return results;
+  var copy = results.slice();
+  copy.sort(function(a, b) {
+    var af = a && a.family;
+    var bf = b && b.family;
+    if (af === bf) return 0;
+    if (order === 'ipv4first') return af === 4 ? -1 : bf === 4 ? 1 : 0;
+    return af === 6 ? -1 : bf === 6 ? 1 : 0;
+  });
+  return copy;
+}
+
+function _readSystemServers() {
+  try {
+    var fs = require('fs');
+    var text = fs.readFileSync('/etc/resolv.conf', 'utf8');
+    var servers = [];
+    var lines = String(text).split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i].replace(/#.*/, '').trim();
+      var match = /^nameserver\s+(\S+)/.exec(line);
+      if (match) servers.push(match[1]);
+    }
+    return servers;
+  } catch (_) {
+    return [];
+  }
+}
+
+// Server management.
+var _servers = _readSystemServers();
+var _moduleUsesCustomServers = false;
 
 function getServers() {
   return _servers.slice();
@@ -979,9 +1072,22 @@ function setServers(servers) {
     }
   }
   _servers = servers.slice();
+  _moduleUsesCustomServers = true;
 }
 
-// lookupService stub
+var _serviceNamesByPort = {
+  21: 'ftp',
+  22: 'ssh',
+  25: 'smtp',
+  53: 'domain',
+  80: 'http',
+  110: 'pop3',
+  143: 'imap',
+  443: 'https',
+  993: 'imaps',
+  995: 'pop3s'
+};
+
 function lookupService(address, port, callback) {
   if (typeof address !== 'string') {
     var err = new TypeError('The "address" argument must be of type string. Received type ' + typeof address);
@@ -998,16 +1104,29 @@ function lookupService(address, port, callback) {
     err.code = 'ERR_SOCKET_BAD_PORT';
     throw err;
   }
-  // Basic stub - returns generic names
-  if (callback) {
+  if (typeof callback !== 'function') return;
+  if (!_hasDnsReverse && !_hasDnsReverseAsync && !_moduleUsesCustomServers) {
     setTimeout(function() {
-      callback(null, address, String(port));
+      callback(_createDnsError('ENOTSUP', 'getnameinfo', address, 'dns.lookupService is not supported by this runtime'));
     }, 0);
+    return;
   }
+  reverse(address, function(err, names) {
+    if (err) {
+      callback(err);
+      return;
+    }
+    if (!names || names.length === 0) {
+      callback(_createDnsError('ENODATA', 'getnameinfo', address));
+      return;
+    }
+    callback(null, names[0], _serviceNamesByPort[port] || String(port));
+  });
 }
 
 // resolveAny stub
 function resolveAny(hostname, callback) {
+  if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, 'ANY', {}, callback, false);
   _resolveViaQuery(hostname, 'ANY', callback);
 }
 

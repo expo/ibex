@@ -415,6 +415,20 @@ describe('dns async native bridge (ENG-22995 / #5)', () => {
     ]);
   });
 
+  test('setDefaultResultOrder affects lookup result ordering', async () => {
+    g.__exactDnsLookupAsync = () => Promise.resolve(JSON.stringify([
+      { address: '2001:db8::1', family: 6 },
+      { address: '1.2.3.4', family: 4 },
+    ]));
+    const dns = loadFreshDns();
+    dns.setDefaultResultOrder('ipv4first');
+    const res: any = await new Promise((resolve) => {
+      dns.lookup('example.com', (err: any, address: string, family: number) => resolve({ err, address, family }));
+    });
+    expect(res.err).toBeNull();
+    expect(res).toMatchObject({ address: '1.2.3.4', family: 4 });
+  });
+
   test('lookup maps an empty async result to ENOTFOUND', async () => {
     g.__exactDnsLookupAsync = () => Promise.resolve('[]');
     const dns = loadFreshDns();
@@ -459,6 +473,38 @@ describe('dns async native bridge (ENG-22995 / #5)', () => {
     expect(err.code).toBe('ENOTFOUND');
     expect(String(err.message)).toContain('queryTXT');
     expect(String(err.message)).toContain('SERVFAIL');
+  });
+
+  test('resolve empty record sets map to ENODATA', async () => {
+    g.__exactDnsResolveAsync = () => Promise.resolve('[]');
+    const dns = loadFreshDns();
+    const err: any = await new Promise((resolve) => {
+      dns.resolveTxt('example.com', (e: any) => resolve(e));
+    });
+    expect(err).toBeTruthy();
+    expect(err.code).toBe('ENODATA');
+    expect(err.syscall).toBe('queryTXT');
+  });
+
+  test('lookupService fails honestly when reverse lookup is unavailable', async () => {
+    const dns = loadFreshDns();
+    const err: any = await new Promise((resolve) => {
+      dns.lookupService('127.0.0.1', 22, (e: any) => resolve(e));
+    });
+    expect(err).toBeTruthy();
+    expect(err.code).toBe('ENOTSUP');
+    expect(err.syscall).toBe('getnameinfo');
+  });
+
+  test('lookupService uses reverse lookup and maps known service names', async () => {
+    g.__exactDnsReverseAsync = () => Promise.resolve(JSON.stringify(['localhost']));
+    const dns = loadFreshDns();
+    const res: any = await new Promise((resolve) => {
+      dns.lookupService('127.0.0.1', 22, (err: any, hostname: string, service: string) => resolve({ err, hostname, service }));
+    });
+    expect(res.err).toBeNull();
+    expect(res.hostname).toBe('localhost');
+    expect(res.service).toBe('ssh');
   });
 
   test('reverse prefers the async resolver and returns hostnames', async () => {

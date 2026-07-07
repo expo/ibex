@@ -42,6 +42,7 @@ g.__exactInflateSync = (
 ) => {
   const opts: nodeZlib.ZlibOptions = {};
   if (dict) opts.dictionary = Buffer.from(dict);
+  if ((flags & 1) === 1) opts.finishFlush = nodeZlib.constants.Z_SYNC_FLUSH;
   let out: Buffer;
   if (mode === 1) out = nodeZlib.gunzipSync(bytes, opts);
   else if (mode === 2) out = nodeZlib.inflateRawSync(bytes, opts);
@@ -149,5 +150,51 @@ describe('zstd surfaces ENOSYS with no native backend (ENG-22967 #2)', () => {
       s.end(Buffer.from([0x28, 0xb5, 0x2f, 0xfd]));
     });
     expect(err && err.code).toBe('ENOSYS');
+  });
+});
+
+describe('zlib stream parity fixes (ENG-23478)', () => {
+  test('params() changes the compression level used for subsequently-ended data', async () => {
+    const input = Buffer.from('abc123\n'.repeat(4096));
+    const stream = zlib.createDeflate({ level: 0 });
+    const done = collect(stream);
+    await new Promise<void>((resolve, reject) => {
+      stream.params(9, 0, (err: any) => err ? reject(err) : resolve());
+    });
+    stream.end(input);
+    const actual = await done;
+    const levelNine = nodeZlib.deflateSync(input, { level: 9 });
+    const levelZero = nodeZlib.deflateSync(input, { level: 0 });
+    expect(actual.length).toBe(levelNine.length);
+    expect(actual.length).toBeLessThan(levelZero.length);
+  });
+
+  test('decoder streams enforce maxOutputLength', async () => {
+    const compressed = nodeZlib.deflateSync(Buffer.alloc(10_000, 65));
+    const stream = zlib.createInflate({ maxOutputLength: 100 });
+    const err = await new Promise<any>((resolve) => {
+      stream.on('error', resolve);
+      stream.end(compressed);
+    });
+    expect(err && err.code).toBe('ERR_BUFFER_TOO_LARGE');
+  });
+
+  test('decoder streams honor finishFlush: Z_SYNC_FLUSH for truncated deflate', async () => {
+    const compressed = nodeZlib.deflateSync(Buffer.from('prefix that survives truncation'));
+    const stream = zlib.createInflate({ finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    const done = collect(stream);
+    stream.end(compressed.subarray(0, -6));
+    expect((await done).toString()).toContain('prefix');
+  });
+
+  test('gunzip streams reject a truncated later gzip member instead of returning partial data', async () => {
+    const member = nodeZlib.gzipSync(Buffer.from('hello'));
+    const stream = zlib.createGunzip();
+    const err = await new Promise<any>((resolve) => {
+      stream.on('error', resolve);
+      stream.end(Buffer.concat([member, member.subarray(0, 8)]));
+    });
+    expect(err).toBeTruthy();
+    expect(err.code).toMatch(/^Z_/);
   });
 });
