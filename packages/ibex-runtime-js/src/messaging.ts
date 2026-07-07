@@ -109,24 +109,13 @@ export class MessagePort extends EventTarget {
       }
     }
 
-    // Clone the message data
-    let clonedData: unknown;
-    let transferredPorts: MessagePort[];
-    try {
-      clonedData = structuredClone(value, { transfer: bufferTransfers as ArrayBuffer[] });
-      // Transfer (neuter) each listed port after the message clone succeeds; the
-      // returned instance is entangled with the original's remote and is what the
-      // receiver observes in event.ports.
-      transferredPorts = portsToTransfer.map((port) => port[structuredCloneTransferSymbol]());
-    } catch (err) {
-      // Cloning failed — dispatch messageerror on the remote port
-      queueMicrotask(() => {
-        if (!remote.#closed) {
-          remote.#dispatchMessageError(err);
-        }
-      });
-      return;
-    }
+    // Clone failures are sender-side StructuredSerialize failures and must
+    // throw synchronously. messageerror is reserved for receive-side failures.
+    const clonedData = structuredClone(value, { transfer: bufferTransfers as ArrayBuffer[] });
+    // Transfer (neuter) each listed port after the message clone succeeds; the
+    // returned instance is entangled with the original's remote and is what the
+    // receiver observes in event.ports.
+    const transferredPorts = portsToTransfer.map((port) => port[structuredCloneTransferSymbol]());
 
     // Deliver asynchronously
     if (remote.#started) {

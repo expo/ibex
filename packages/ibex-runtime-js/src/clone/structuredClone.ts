@@ -201,6 +201,27 @@ function isImageDataInstance(value: object): value is ImageDataLike {
   return typeof ImageDataCtor === 'function' && value instanceof ImageDataCtor;
 }
 
+function nativeErrorConstructorForName(name: string): ErrorConstructor {
+  switch (name) {
+    case 'EvalError':
+      return EvalError;
+    case 'RangeError':
+      return RangeError;
+    case 'ReferenceError':
+      return ReferenceError;
+    case 'SyntaxError':
+      return SyntaxError;
+    case 'TypeError':
+      return TypeError;
+    case 'URIError':
+      return URIError;
+    case 'AggregateError':
+      return typeof AggregateError === 'function' ? AggregateError as unknown as ErrorConstructor : Error;
+    default:
+      return Error;
+  }
+}
+
 function cloneInternal<T>(
   value: T,
   cloneMap: Map<object, object>,
@@ -276,9 +297,6 @@ function cloneInternal<T>(
 
   if (isDomExceptionInstance(obj)) {
     const DOMExceptionCtor =
-      (typeof (obj as any).constructor === 'function'
-        ? ((obj as any).constructor as new (message?: string, name?: string) => DOMException)
-        : undefined) ??
       getGlobalDOMExceptionConstructor() ??
       DOMException;
     const clone = new DOMExceptionCtor(obj.message, obj.name);
@@ -293,7 +311,7 @@ function cloneInternal<T>(
   }
 
   if (obj instanceof Error) {
-    const ErrorConstructor = obj.constructor as ErrorConstructor;
+    const ErrorConstructor = nativeErrorConstructorForName(obj.name);
     const clone = new ErrorConstructor(obj.message);
     clone.name = obj.name;
     if (typeof (obj as any).stack === 'string') {

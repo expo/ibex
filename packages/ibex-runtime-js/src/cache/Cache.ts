@@ -61,6 +61,30 @@ function toFetchHeaders(headers: Headers): Record<string, string> {
   return result;
 }
 
+function hasVaryStar(response: Response): boolean {
+  return (response.headers.get('vary') ?? '')
+    .split(',')
+    .some((field) => field.trim() === '*');
+}
+
+function validatePutResponse(response: Response): void {
+  if (response.status === 206) {
+    throw new TypeError('Cannot cache partial (206) responses');
+  }
+  if (hasVaryStar(response)) {
+    throw new TypeError('Cannot cache responses with Vary: *');
+  }
+}
+
+function validateAddAllResponse(response: Response, url: string): void {
+  if (!response.ok) {
+    throw new TypeError(
+      `Request failed with status ${response.status}: ${url}`
+    );
+  }
+  validatePutResponse(response);
+}
+
 /**
  * The Cache interface provides a persistent storage mechanism for
  * Request/Response object pairs. In this implementation, storage
@@ -235,12 +259,7 @@ export class Cache {
 
     // Validate all responses
     for (let i = 0; i < responses.length; i++) {
-      const response = responses[i];
-      if (!response.ok) {
-        throw new TypeError(
-          `Request failed with status ${response.status}: ${reqs[i].url}`
-        );
-      }
+      validateAddAllResponse(responses[i] as unknown as Response, reqs[i].url);
     }
 
     // Store all entries
@@ -265,10 +284,7 @@ export class Cache {
       throw new TypeError('Request method must be GET for Cache.put');
     }
 
-    // Per spec, cannot store responses with status 206 (Partial Content)
-    if (response.status === 206) {
-      throw new TypeError('Cannot cache partial (206) responses');
-    }
+    validatePutResponse(response);
 
     // Per the Cache "Batch Cache Operations" put step, replace only entries the
     // new request would match via Query Cache — which honors each stored

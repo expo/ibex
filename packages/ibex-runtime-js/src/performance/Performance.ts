@@ -181,6 +181,10 @@ export class Performance {
    * Create a performance mark
    */
   mark(markName: string, markOptions?: PerformanceMarkOptions): PerformanceMark {
+    if (markOptions?.startTime !== undefined && markOptions.startTime < 0) {
+      throw new TypeError("Failed to execute 'mark': startTime must not be negative.");
+    }
+
     const mark = new PerformanceMark(markName, {
       ...markOptions,
       startTime: markOptions?.startTime ?? this.now(),

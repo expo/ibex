@@ -1869,11 +1869,8 @@ function fetchDataUrl(url: string, method?: string): Response {
       for (let i = 0; i < binaryString.length; i++) {
         bodyBytes[i] = binaryString.charCodeAt(i);
       }
-    } else if (isBunCompatEnv()) {
-      bodyBytes = decodeDataUrlPayloadLoose(dataStr);
     } else {
-      const decoded = decodeURIComponent(dataStr);
-      bodyBytes = getTextEncoder().encode(decoded);
+      bodyBytes = decodeDataUrlPayloadLoose(dataStr);
     }
   } catch {
     throw createDataUrlFetchError();
@@ -1898,6 +1895,10 @@ export async function fetch(
   // Handle data: URLs before creating Request (to avoid URL validation issues)
   const inputUrl = typeof input === 'string' ? input : (input instanceof URL ? input.href : input.url);
   if (isDataUrl(inputUrl)) {
+    const dataSignal = init?.signal ?? (input instanceof Request ? input.signal : null);
+    if (dataSignal?.aborted) {
+      throw dataSignal.reason ?? new DOMException('The operation was aborted.', 'AbortError');
+    }
     try {
       const method = typeof input === 'string' ? init?.method : (input instanceof Request ? input.method : init?.method);
       return fetchDataUrl(inputUrl, method);
@@ -2486,13 +2487,6 @@ export async function fetch(
         nativeHeaders.push(['cache-control', 'no-cache']);
         if (!hasHeader(nativeHeaders, 'pragma')) {
           nativeHeaders.push(['pragma', 'no-cache']);
-        }
-      }
-
-      if (redirected) {
-        const cookieIdx = nativeHeaders.findIndex(([n]) => n.toLowerCase() === 'cookie');
-        if (cookieIdx !== -1) {
-          nativeHeaders.splice(cookieIdx, 1);
         }
       }
 

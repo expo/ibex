@@ -42,6 +42,11 @@ interface AppearanceChangePayload {
   colorScheme: ColorSchemeName;
 }
 
+interface AppearanceState {
+  colorScheme?: 'light' | 'dark';
+  reducedMotion?: boolean;
+}
+
 interface LinkingUrlEvent {
   url: string;
 }
@@ -221,23 +226,40 @@ function currentColorScheme(): ColorSchemeName {
 
 const appearanceListeners = new Set<AppearanceChangeHandler>();
 const previousAppearanceNotifier = globalThis.__exactWindowNotifyMediaChange;
+let hostAppearanceState: AppearanceState = {
+  ...(globalThis.__exactAppearanceState ?? {}),
+};
+let forcedColorScheme: 'light' | 'dark' | null = null;
 
-function notifyAppearance(next: AppearancePreferences): void {
-  previousAppearanceNotifier?.({
-    colorScheme: next.colorScheme === 'dark' ? 'dark' : 'light',
-  });
+function emitAppearanceChange(): void {
   const payload = { colorScheme: currentColorScheme() };
   for (const listener of [...appearanceListeners]) {
     listener(payload);
   }
 }
 
+function effectiveAppearanceState(): AppearanceState {
+  return {
+    ...hostAppearanceState,
+    ...(forcedColorScheme === null ? {} : { colorScheme: forcedColorScheme }),
+  };
+}
+
+function notifyAppearance(next: AppearancePreferences): void {
+  forcedColorScheme = next.colorScheme === 'dark' || next.colorScheme === 'light'
+    ? next.colorScheme
+    : null;
+  previousAppearanceNotifier?.(effectiveAppearanceState());
+  emitAppearanceChange();
+}
+
 globalThis.__exactWindowNotifyMediaChange = (next) => {
-  previousAppearanceNotifier?.(next);
-  const payload = { colorScheme: currentColorScheme() };
-  for (const listener of [...appearanceListeners]) {
-    listener(payload);
-  }
+  hostAppearanceState = {
+    ...hostAppearanceState,
+    ...next,
+  };
+  previousAppearanceNotifier?.(effectiveAppearanceState());
+  emitAppearanceChange();
 };
 
 export const Appearance = {

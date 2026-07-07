@@ -102,12 +102,15 @@ export class WebSocket extends EventTarget {
 
   // Send queue to maintain ordering for native sends and async Blob conversion.
   _sendQueue: Array<() => Promise<void>> = [];
+  _sendQueueOffset = 0;
   _isSendingQueue = false;
   _pendingSendAcks: Array<{
     remaining: number;
     resolve: () => void;
   }> = [];
+  _pendingSendAckOffset = 0;
   _eventQueue: Array<() => void> = [];
+  _eventQueueOffset = 0;
   _eventQueueScheduled = false;
 
   // Event handlers
@@ -277,8 +280,8 @@ export class WebSocket extends EventTarget {
     this._eventQueueScheduled = true;
     setTimeout(() => {
       this._eventQueueScheduled = false;
-      while (this._eventQueue.length > 0) {
-        const next = this._eventQueue.shift();
+      while (this._eventQueueOffset < this._eventQueue.length) {
+        const next = this._eventQueue[this._eventQueueOffset++];
         if (next) {
           try {
             next();
@@ -290,6 +293,8 @@ export class WebSocket extends EventTarget {
           }
         }
       }
+      this._eventQueue.length = 0;
+      this._eventQueueOffset = 0;
     }, 0);
   }
 
@@ -390,8 +395,8 @@ export class WebSocket extends EventTarget {
 
     this._isSendingQueue = true;
 
-    while (this._sendQueue.length > 0) {
-      const fn = this._sendQueue.shift()!;
+    while (this._sendQueueOffset < this._sendQueue.length) {
+      const fn = this._sendQueue[this._sendQueueOffset++]!;
       try {
         await fn();
       } catch (e) {
@@ -399,6 +404,8 @@ export class WebSocket extends EventTarget {
       }
     }
 
+    this._sendQueue.length = 0;
+    this._sendQueueOffset = 0;
     this._isSendingQueue = false;
   }
 
@@ -433,10 +440,12 @@ export class WebSocket extends EventTarget {
   }
 
   _resolvePendingSendAcks(): void {
-    while (this._pendingSendAcks.length > 0) {
-      const ack = this._pendingSendAcks.shift();
+    while (this._pendingSendAckOffset < this._pendingSendAcks.length) {
+      const ack = this._pendingSendAcks[this._pendingSendAckOffset++];
       ack?.resolve();
     }
+    this._pendingSendAcks.length = 0;
+    this._pendingSendAckOffset = 0;
   }
 
   _pauseIncoming(): void {
@@ -682,16 +691,23 @@ export class WebSocket extends EventTarget {
     this._bufferedAmount = Math.max(0, this._bufferedAmount - bytesSent);
 
     let remainingBytes = bytesSent;
-    while (remainingBytes > 0 && this._pendingSendAcks.length > 0) {
-      const current = this._pendingSendAcks[0];
+    while (remainingBytes > 0 && this._pendingSendAckOffset < this._pendingSendAcks.length) {
+      const current = this._pendingSendAcks[this._pendingSendAckOffset];
       if (remainingBytes >= current.remaining) {
         remainingBytes -= current.remaining;
-        this._pendingSendAcks.shift();
+        this._pendingSendAckOffset++;
         current.resolve();
       } else {
         current.remaining -= remainingBytes;
         remainingBytes = 0;
       }
+    }
+    if (this._pendingSendAckOffset === this._pendingSendAcks.length) {
+      this._pendingSendAcks.length = 0;
+      this._pendingSendAckOffset = 0;
+    } else if (this._pendingSendAckOffset > 64 && this._pendingSendAckOffset * 2 >= this._pendingSendAcks.length) {
+      this._pendingSendAcks.splice(0, this._pendingSendAckOffset);
+      this._pendingSendAckOffset = 0;
     }
   }
 

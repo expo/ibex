@@ -214,7 +214,7 @@ export class EventSource extends EventTarget {
         if (done) {
           // Stream ended - attempt reconnect
           if (this.#readyState !== CLOSED) {
-            this.#scheduleReconnect();
+            this.#reestablishConnection();
           }
           return;
         }
@@ -360,6 +360,7 @@ export class EventSource extends EventTarget {
       return;
     }
 
+    this.#readyState = CONNECTING;
     const errorEvent = new Event('error');
     if (this.onerror) {
       this.onerror.call(this, errorEvent);

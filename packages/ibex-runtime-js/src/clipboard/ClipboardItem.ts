@@ -8,6 +8,13 @@
  * @see https://w3c.github.io/clipboard-apis/#clipboarditem
  */
 
+import { DOMException as RuntimeDOMException } from '../events/DOMException';
+
+const DOMExceptionCtor =
+  typeof globalThis.DOMException === 'function'
+    ? globalThis.DOMException
+    : RuntimeDOMException;
+
 /**
  * A ClipboardItem represents data that can be placed on or read from
  * the system clipboard. Each item can have multiple MIME-typed representations.
@@ -61,7 +68,7 @@ export class ClipboardItem {
   async getType(type: string): Promise<Blob> {
     const data = this.#items.get(type);
     if (data === undefined) {
-      throw new DOMException(
+      throw new DOMExceptionCtor(
         `ClipboardItem.getType: type '${type}' not found`,
         'NotFoundError',
       );
@@ -84,14 +91,5 @@ export class ClipboardItem {
 
   get [Symbol.toStringTag](): string {
     return 'ClipboardItem';
-  }
-}
-
-// DOMException polyfill for this module
-class DOMException extends Error {
-  readonly code: number = 0;
-  constructor(message: string, name: string) {
-    super(message);
-    this.name = name;
   }
 }

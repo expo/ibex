@@ -9,7 +9,6 @@
  */
 
 import { EventTarget } from '../events/EventTarget';
-import { Event } from '../events/Event';
 import { ProgressEvent } from '../events/ProgressEvent';
 import { DOMException, createInvalidStateError, createNotSupportedError } from '../events/DOMException';
 import { Blob } from '../blob/Blob';
@@ -35,6 +34,7 @@ export class FileReader extends EventTarget {
   #result: string | ArrayBuffer | null = null;
   #error: DOMException | null = null;
   #aborted = false;
+  #total = 0;
 
   // Event handlers
   onloadstart: ((this: FileReader, ev: ProgressEvent) => any) | null = null;
@@ -113,8 +113,8 @@ export class FileReader extends EventTarget {
       this.#result = null;
       this.#aborted = true;
 
-      this.#fireEvent('abort');
-      this.#fireEvent('loadend');
+      this.#fireProgressEvent('abort', 0, this.#total);
+      this.#fireProgressEvent('loadend', 0, this.#total);
     }
   }
 
@@ -127,6 +127,7 @@ export class FileReader extends EventTarget {
     this.#result = null;
     this.#error = null;
     this.#aborted = false;
+    this.#total = blob.size;
 
     this.#fireProgressEvent('loadstart', 0, blob.size);
 
@@ -194,20 +195,6 @@ export class FileReader extends EventTarget {
       this.#fireProgressEvent('error', 0, blob.size);
       this.#fireProgressEvent('loadend', 0, blob.size);
     }
-  }
-
-  /**
-   * Fire a simple event.
-   */
-  #fireEvent(type: string): void {
-    const event = new Event(type);
-    
-    const handler = (this as any)[`on${type}`];
-    if (handler) {
-      handler.call(this, event);
-    }
-    
-    this.dispatchEvent(event);
   }
 
   /**
