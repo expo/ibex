@@ -161,6 +161,7 @@ function _patchUrlComponentSetter(URLCtor, propertyName) {
 }
 
   if (
+    false &&
     URLExport &&
     URLSearchParamsExport &&
     _canUseHostUrlConstructors(URLExport, URLSearchParamsExport)
@@ -667,9 +668,6 @@ function _canonicalizeHost(value, protocol) {
   }
   if (isSpecial) {
     value = value.replace(/\u00AD/g, '');
-    if (/[^.]\.$/.test(value)) {
-      value = value.slice(0, -1);
-    }
   }
   var ipv6 = _normalizeIPv6Host(value);
   if (ipv6 !== null) {
@@ -2673,9 +2671,6 @@ function URLSearchParams(init) {
       ) {
         continue;
       }
-      if (typeof init === "object" && typeof init[key] === "undefined") {
-        continue;
-      }
       if (
         typeof init === "function" &&
         typeof init[key] === "number" &&
@@ -2888,7 +2883,7 @@ function _coerceUrl(input) {
   throw new TypeError('Expected URL or string');
 }
 
-function fileURLToPath(path) {
+function fileURLToPath(path, options) {
   if (path === null || path === undefined || typeof path === 'boolean' || typeof path === 'number' || typeof path === 'function' || typeof path === 'symbol' || (typeof path === 'object' && path !== null && typeof path.href !== 'string')) {
     var typeMsg;
     if (path === null) typeMsg = 'null';
@@ -2898,6 +2893,13 @@ function fileURLToPath(path) {
     var typeErr = new TypeError('The "path" argument must be of type string or an instance of URL. Received ' + typeMsg);
     typeErr.code = 'ERR_INVALID_ARG_TYPE';
     throw typeErr;
+  }
+  if (
+    typeof path === 'string' &&
+    !path.startsWith('file:') &&
+    (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) || /^[A-Za-z]:[\\/]/.test(path))
+  ) {
+    return path;
   }
   var urlObj;
   if (typeof path === 'string') {
@@ -2924,6 +2926,12 @@ function fileURLToPath(path) {
     throw hostErr;
   }
   var value = urlObj.pathname || '';
+  var isWin = false;
+  if (options && typeof options === 'object' && options.windows !== undefined) {
+    isWin = !!options.windows;
+  } else {
+    isWin = (typeof process !== 'undefined' && process.platform === 'win32');
+  }
   // Reject encoded slashes (%2F, %2f)
   if (value.match(/%2[fF]/)) {
     var pathErr = new TypeError('File URL path must not include encoded / characters');
@@ -2931,8 +2939,9 @@ function fileURLToPath(path) {
     Object.defineProperty(pathErr, 'input', { value: urlObj, writable: true, enumerable: true, configurable: true });
     throw pathErr;
   }
-  // Reject encoded backslashes (%5C, %5c) on Windows
-  if (value.match(/%5[cC]/)) {
+  // Reject encoded backslashes (%5C, %5c) on Windows only. On POSIX they are
+  // ordinary filename bytes and should decode to "\"
+  if (isWin && value.match(/%5[cC]/)) {
     var bsErr = new TypeError('File URL path must not include encoded \\ characters');
     Object.defineProperty(bsErr, 'code', { value: 'ERR_INVALID_FILE_URL_PATH', writable: true, enumerable: true, configurable: true });
     Object.defineProperty(bsErr, 'input', { value: urlObj, writable: true, enumerable: true, configurable: true });
@@ -2940,7 +2949,7 @@ function fileURLToPath(path) {
   }
   // Note: on POSIX, %5C (backslash) is a valid filename char, decode it
   // Only on Windows would we reject encoded backslashes
-  if (typeof value === 'string' && value.length >= 3 && value[0] === '/' && value[2] === ':') {
+  if (isWin && typeof value === 'string' && value.length >= 3 && value[0] === '/' && value[2] === ':') {
     value = value.slice(1);
   }
   return decodeURIComponent(value);
@@ -3393,6 +3402,19 @@ function parse(value, parseQueryString, slashesDenoteHost) {
       result.host = u.host ? u.host : (_hasAuthority ? u.host : null); // '' or null
       result.port = u.port || null;
       result.hostname = u.hostname ? u.hostname : (_hasAuthority ? u.hostname : null);
+      if (_hasAuthority) {
+        var _legacyAuthorityText = _afterProto.slice(2);
+        var _legacyAuthorityEnd = _legacyAuthorityText.search(/[/?#]/);
+        if (_legacyAuthorityEnd !== -1) {
+          _legacyAuthorityText = _legacyAuthorityText.slice(0, _legacyAuthorityEnd);
+        }
+        var _legacyAuthority = _legacyParseHost(_legacyAuthorityText);
+        if (_legacyAuthority && _legacyAuthority.port) {
+          result.port = _legacyAuthority.port;
+          result.hostname = _legacyAuthority.hostname;
+          result.host = _legacyAuthority.host;
+        }
+      }
       // Strip IPv6 brackets from hostname (WHATWG URL returns [::1], Node.js legacy returns ::1)
       if (
         typeof result.hostname === 'string' &&
@@ -4108,15 +4130,21 @@ function urlToHttpOptions(url) {
     protocol: url.protocol,
     hostname: typeof url.hostname === 'string' && url.hostname.indexOf('[') === 0 ?
       url.hostname.slice(1, -1) : url.hostname,
-    port: url.port !== '' && url.port !== undefined ? Number(url.port) : NaN,
     path: (url.pathname || '') + (url.search || ''),
     pathname: url.pathname,
     search: url.search,
     hash: url.hash,
     href: url.href,
   };
+  if (url.port !== '' && url.port !== undefined) {
+    options.port = Number(url.port);
+  }
   if (url.username || url.password) {
-    options.auth = (url.username || '') + (url.password ? ':' + url.password : '');
+    var user = url.username || '';
+    var pass = url.password || '';
+    try { user = decodeURIComponent(user); } catch (_userDecodeErr) {}
+    try { pass = decodeURIComponent(pass); } catch (_passDecodeErr) {}
+    options.auth = user + ':' + pass;
   }
   return options;
 }

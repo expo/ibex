@@ -200,6 +200,21 @@
       }, 0);
     }
 
+    function deferWritableCallback(fn) {
+      if (typeof fn !== 'function') return;
+      if (p && typeof p.nextTick === 'function') {
+        p.nextTick(fn);
+      } else {
+        setTimeout(fn, 0);
+      }
+    }
+
+    function makeWriteAfterEndError() {
+      var err = new Error('write after end');
+      err.code = 'ERR_STREAM_WRITE_AFTER_END';
+      return err;
+    }
+
     stream.writable = true;
     stream.writableEnded = false;
     stream.writableFinished = false;
@@ -218,6 +233,14 @@
         callback = encoding;
         encoding = undefined;
       }
+      if (stream.writableEnded || stream.destroyed) {
+        var endedErr = makeWriteAfterEndError();
+        deferWritableCallback(function() {
+          if (typeof callback === 'function') callback(endedErr);
+          stream.emit('error', endedErr);
+        });
+        return false;
+      }
       // Honor the encoding argument: the fs/native write paths treat strings
       // as UTF-8, so write('aGVsbG8=', 'base64') must be converted to bytes
       // here or the literal base64 text is emitted (ENG-23132).
@@ -233,7 +256,7 @@
       chunk = normalizeWritableChunk(chunk);
       try {
         if (writeViaFs(chunk)) {
-          if (typeof callback === 'function') callback();
+          deferWritableCallback(callback);
           return true;
         }
       } catch (_) {
@@ -244,7 +267,7 @@
           }
           return fallbackResult;
         } catch (_) {
-          if (typeof callback === 'function') callback();
+          deferWritableCallback(callback);
           return false;
         }
       }
@@ -272,9 +295,11 @@
       stream.writable = false;
       stream.writableEnded = true;
       stream.writableFinished = true;
-      stream.emit('finish');
-      stream.emit('close');
-      if (typeof callback === 'function') callback();
+      deferWritableCallback(function() {
+        stream.emit('finish');
+        if (typeof callback === 'function') callback();
+        stream.emit('close');
+      });
       return stream;
     };
 
@@ -909,7 +934,10 @@
   // fallback below only serves natives older than that host function.
   // SIGKILL/SIGSTOP are absent everywhere: untrappable by the kernel.
   var _signals = null;
-  if (typeof __exactSignalNumbers === 'function') {
+  if (globalThis.__exactSignalNumbersMap) {
+    _signals = globalThis.__exactSignalNumbersMap;
+  }
+  if (!_signals && typeof __exactSignalNumbers === 'function') {
     try { _signals = __exactSignalNumbers(); } catch (_) {}
   }
   if (!_signals) {
@@ -928,11 +956,19 @@
           SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27, SIGWINCH: 28, SIGINFO: 29,
           SIGUSR1: 30, SIGUSR2: 31 };
   }
+  var _trapSignals = {};
+  for (var _sigName in _signals) {
+    if (_sigName !== 'SIGKILL' && _sigName !== 'SIGSTOP') {
+      _trapSignals[_sigName] = _signals[_sigName];
+    }
+  }
+  _signals = _trapSignals;
   // Published as the shared table so other layers stop growing hand-copied
   // Linux/Darwin variants (child-process.js's _signalMap predates this).
   globalThis.__exactSignalNumbersMap = _signals;
   var _signalNames = {};
   for (var _sk in _signals) _signalNames[_signals[_sk]] = _sk;
+  globalThis.__exactSignalNamesMap = _signalNames;
 
   var _trappedSignals = {};
   // Checked lazily so wiring still works if the trap host functions are

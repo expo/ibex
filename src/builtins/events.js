@@ -139,11 +139,11 @@ function checkListener(listener) {
   }
 }
 
-function EventEmitter() {
+function EventEmitter(opts) {
   if (!(this instanceof EventEmitter) && this && this.constructor !== EventEmitter) {
     // Called via .call() on a foreign object - init it
   }
-  EventEmitter.init.call(this);
+  EventEmitter.init.call(this, opts);
 }
 
 function EventEmitterAsyncResource(type, options) {
@@ -176,6 +176,9 @@ EventEmitter.init = function init(opts) {
     this._events = Object.create(null);
   }
   this._maxListeners = this._maxListeners || undefined;
+  if (opts && Object.prototype.hasOwnProperty.call(opts, 'captureRejections')) {
+    this.captureRejections = opts.captureRejections === true;
+  }
 };
 
 EventEmitter.prototype._events = undefined;

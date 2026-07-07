@@ -845,14 +845,13 @@ function _validateSignalOption(signal) {
   }
 }
 
-// (ENG-23032) Signal numbers are platform-specific, and they diverge for the
+// (ENG-23032/ENG-23316) Signal numbers are platform-specific, and they diverge for the
 // common ones: e.g. SIGUSR1 is 30 on Darwin but 10 on Linux, SIGBUS is 10 on
-// Darwin but 7 on Linux. A single Darwin table (see ENG-22965) makes both
-// child.kill('SIGUSR1') send the wrong signal on Linux and a Linux-signaled
-// child (WTERMSIG=10) get reported as the wrong name. Linux is a target
-// platform (LLP 0001), so branch on process.platform at load time. Android runs
-// on the Linux kernel, so it uses the Linux numbers.
-var _signalMapDarwin = {
+// Darwin but 7 on Linux. Prefer the native/global table introduced for signal
+// traps, but merge with the local fallback because that native table
+// deliberately omits untrappable SIGKILL/SIGSTOP and child.kill still accepts
+// them.
+var _signalMapDarwinFallback = {
   SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
   SIGIOT: 6, SIGBUS: 10, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 30, SIGSEGV: 11,
   SIGUSR2: 31, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 20,
@@ -860,7 +859,7 @@ var _signalMapDarwin = {
   SIGURG: 16, SIGXCPU: 24, SIGXFSZ: 25, SIGVTALRM: 26, SIGPROF: 27,
   SIGWINCH: 28, SIGIO: 23, SIGINFO: 29, SIGSYS: 12
 };
-var _signalMapLinux = {
+var _signalMapLinuxFallback = {
   SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGILL: 4, SIGTRAP: 5, SIGABRT: 6,
   SIGIOT: 6, SIGBUS: 7, SIGFPE: 8, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11,
   SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGSTKFLT: 16,
@@ -869,14 +868,35 @@ var _signalMapLinux = {
   SIGWINCH: 28, SIGIO: 29, SIGPOLL: 29, SIGPWR: 30, SIGSYS: 31
 };
 var _signalPlatform = (typeof process !== 'undefined' && process.platform) || 'darwin';
-var _signalMap = (_signalPlatform === 'linux' || _signalPlatform === 'android')
-  ? _signalMapLinux
-  : _signalMapDarwin;
+function _loadSignalMap() {
+  var fallback = (_signalPlatform === 'linux' || _signalPlatform === 'android')
+    ? _signalMapLinuxFallback
+    : _signalMapDarwinFallback;
+  var out = {};
+  for (var fk in fallback) out[fk] = fallback[fk];
+  var nativeMap = null;
+  if (typeof globalThis !== 'undefined' && globalThis.__exactSignalNumbersMap) {
+    nativeMap = globalThis.__exactSignalNumbersMap;
+  } else if (typeof __exactSignalNumbers === 'function') {
+    try { nativeMap = __exactSignalNumbers(); } catch (_) {}
+  }
+  if (nativeMap) {
+    for (var nk in nativeMap) {
+      if (typeof nativeMap[nk] === 'number') out[nk] = nativeMap[nk];
+    }
+  }
+  return out;
+}
+var _signalMap = _loadSignalMap();
 var _signalNumbers = {};
 // First-wins so aliased numbers resolve to the canonical name Node reports for
 // an exit (e.g. signal 6 -> SIGABRT, not SIGIOT).
 for (var _sk in _signalMap) {
   if (_signalNumbers[_signalMap[_sk]] === undefined) _signalNumbers[_signalMap[_sk]] = _sk;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.__exactSignalNumbersMap = globalThis.__exactSignalNumbersMap || _signalMap;
+  globalThis.__exactSignalNamesMap = globalThis.__exactSignalNamesMap || _signalNumbers;
 }
 
 function _isValidSignal(signal) {
