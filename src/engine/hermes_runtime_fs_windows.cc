@@ -625,26 +625,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactMkdtemp", std::move(mkdtempFn));
 
-  auto noopFdFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsFsyncSync"),
-      1,
-      [](facebook::jsi::Runtime&,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value*,
-         size_t) -> facebook::jsi::Value {
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactFsFsyncSync", std::move(noopFdFn));
-  auto noopFdataFn = facebook::jsi::Function::createFromHostFunction(
-      rt,
-      facebook::jsi::PropNameID::forAscii(rt, "__exactFsFdatasyncSync"),
-      1,
-      [](facebook::jsi::Runtime&,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value*,
-         size_t) -> facebook::jsi::Value {
-        return facebook::jsi::Value::undefined();
-      });
-  rt.global().setProperty(rt, "__exactFsFdatasyncSync", std::move(noopFdataFn));
+  // __exactFsFsyncSync / __exactFsFdatasyncSync are deliberately NOT
+  // registered here. fs.js raises ENOSYS when these hooks are absent because
+  // a silent no-op "success" reports false durability (ENG-22963); the
+  // previous no-op registrations reintroduced exactly that on Windows
+  // (ENG-23480 #7). A real implementation needs a host-side flush hook
+  // (FlushFileBuffers via a new ex_host_fs_sync on the Rust-owned handle) —
+  // the fds in g_files map to opaque host handles, not CRT fds, so _commit()
+  // cannot be used from this shim. Until that hook exists, fsync/fdatasync
+  // on Windows throw ENOSYS honestly instead of lying about durability.
 }
