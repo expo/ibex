@@ -22,6 +22,9 @@ declare global {
   var __hostCall:
     | ((operation: string, argsJson: string) => unknown)
     | undefined;
+  var __hostCallAsync:
+    | ((operation: string, argsJson: string) => Promise<unknown>)
+    | undefined;
   var __exactPlatform: string | undefined;
   var __exactAndroidCameraHostCall:
     | ((operation: string, argsJson: string) => unknown)
@@ -1100,6 +1103,35 @@ export function invokeNativeCameraHostCall<T>(
     operation,
     typeof payload === "undefined" ? "{}" : JSON.stringify(payload),
   ) as T;
+}
+
+/**
+ * ENG-23317: promise-transport variant for host calls that block on native
+ * completion (system permission dialogs). Prefers `__hostCallAsync` — the
+ * host resolves the call from its completion handler without parking any
+ * thread — and falls back to the synchronous bridge on hosts that have not
+ * installed it (older hosts, Android's dedicated sync bridge).
+ */
+export function invokeNativeCameraHostCallAsync<T>(
+  operation: string,
+  payload?: unknown,
+): Promise<T | undefined> {
+  if (
+    globalThis.__exactPlatform === "android" &&
+    typeof globalThis.__exactAndroidCameraHostCall === "function"
+  ) {
+    return Promise.resolve(invokeNativeCameraHostCall<T>(operation, payload));
+  }
+
+  const hostCallAsync = globalThis.__hostCallAsync;
+  if (typeof hostCallAsync === "function") {
+    return hostCallAsync(
+      operation,
+      typeof payload === "undefined" ? "{}" : JSON.stringify(payload),
+    ) as Promise<T>;
+  }
+
+  return Promise.resolve(invokeNativeCameraHostCall<T>(operation, payload));
 }
 
 function getNativeCameraProviderInfo(): NativeCameraHostProviderResponse | null {
@@ -2690,8 +2722,11 @@ export async function getCameraPermissionDetails(): Promise<CameraPermissionDeta
 export async function requestCameraPermission(): Promise<CameraPermissionDetails> {
   if (hasNativeCameraHost()) {
     try {
+      // ENG-23317: the request can hold the system permission dialog open
+      // indefinitely — ride the promise transport so the native host resolves
+      // it from the dialog completion instead of blocking a thread.
       return normalizeNativePermissionResponse(
-        invokeNativeCameraHostCall<NativeCameraHostPermissionResponse>(
+        await invokeNativeCameraHostCallAsync<NativeCameraHostPermissionResponse>(
           "camera.permission.request",
           { name: "camera" },
         ),
@@ -2746,8 +2781,10 @@ export async function getMicrophonePermissionDetails(): Promise<CameraPermission
 export async function requestMicrophonePermission(): Promise<CameraPermissionDetails> {
   if (hasNativeCameraHost()) {
     try {
+      // ENG-23317: same promise transport as requestCameraPermission — the
+      // microphone request rides the same native dialog wait.
       return normalizeNativePermissionResponse(
-        invokeNativeCameraHostCall<NativeCameraHostPermissionResponse>(
+        await invokeNativeCameraHostCallAsync<NativeCameraHostPermissionResponse>(
           "camera.permission.request",
           { name: "microphone" },
         ),
