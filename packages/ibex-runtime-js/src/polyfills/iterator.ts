@@ -105,6 +105,20 @@ export function installIteratorPolyfills(): void {
     return iter;
   }
 
+  function closeIterator(iterator: any): void {
+    if (iterator && typeof iterator.return === 'function') {
+      iterator.return();
+    }
+  }
+
+  function closeIteratorAfterThrow(iterator: any): void {
+    try {
+      closeIterator(iterator);
+    } catch {
+      // Preserve the original callback/source error.
+    }
+  }
+
   // --------------------------------------------------------------------------
   // Iterator.prototype.map
   // --------------------------------------------------------------------------
@@ -120,7 +134,12 @@ export function installIteratorPolyfills(): void {
           function next() {
             const result = source.next();
             if (result.done) return result;
-            return { value: mapper(result.value, index++), done: false };
+            try {
+              return { value: mapper(result.value, index++), done: false };
+            } catch (error) {
+              closeIteratorAfterThrow(source);
+              throw error;
+            }
           },
           function returnFn() {
             if (typeof source.return === 'function') return source.return();
@@ -150,7 +169,14 @@ export function installIteratorPolyfills(): void {
             while (true) {
               const result = source.next();
               if (result.done) return result;
-              if (predicate(result.value, index++)) {
+              let selected: boolean;
+              try {
+                selected = predicate(result.value, index++);
+              } catch (error) {
+                closeIteratorAfterThrow(source);
+                throw error;
+              }
+              if (selected) {
                 return { value: result.value, done: false };
               }
             }
@@ -176,14 +202,20 @@ export function installIteratorPolyfills(): void {
         const n = toLimitIntegerOrInfinity(limit, 'take');
         const source = this;
         let remaining = n;
+        let done = false;
         return createIteratorHelper(
           function next() {
+            if (done) {
+              return { value: undefined, done: true };
+            }
             if (remaining <= 0) {
+              done = true;
+              closeIterator(source);
               return { value: undefined, done: true };
             }
             remaining--;
             const result = source.next();
-            if (result.done) remaining = 0;
+            if (result.done) done = true;
             return result;
           },
           function returnFn() {
@@ -254,9 +286,16 @@ export function installIteratorPolyfills(): void {
               }
               const result = source.next();
               if (result.done) return result;
-              const mapped = mapper(result.value, index++);
+              let mapped: any;
+              try {
+                mapped = mapper(result.value, index++);
+              } catch (error) {
+                closeIteratorAfterThrow(source);
+                throw error;
+              }
               // Per TC39 spec, the result must be an object (GetIteratorFlattenable)
               if (mapped == null || typeof mapped !== 'object') {
+                closeIterator(source);
                 throw new TypeError(
                   'GetIteratorFlattenable expects its first argument to be an object',
                 );
@@ -266,6 +305,7 @@ export function installIteratorPolyfills(): void {
               } else if (typeof mapped.next === 'function') {
                 innerIterator = mapped;
               } else {
+                closeIterator(source);
                 throw new TypeError(
                   'GetIteratorFlattenable expects its first argument to be an object',
                 );
@@ -384,7 +424,17 @@ export function installIteratorPolyfills(): void {
         while (true) {
           const result = this.next();
           if (result.done) return false;
-          if (predicate(result.value, index++)) return true;
+          let selected: boolean;
+          try {
+            selected = predicate(result.value, index++);
+          } catch (error) {
+            closeIteratorAfterThrow(this);
+            throw error;
+          }
+          if (selected) {
+            closeIterator(this);
+            return true;
+          }
         }
       },
       writable: true,
@@ -406,7 +456,17 @@ export function installIteratorPolyfills(): void {
         while (true) {
           const result = this.next();
           if (result.done) return true;
-          if (!predicate(result.value, index++)) return false;
+          let selected: boolean;
+          try {
+            selected = predicate(result.value, index++);
+          } catch (error) {
+            closeIteratorAfterThrow(this);
+            throw error;
+          }
+          if (!selected) {
+            closeIterator(this);
+            return false;
+          }
         }
       },
       writable: true,
@@ -431,7 +491,17 @@ export function installIteratorPolyfills(): void {
         while (true) {
           const result = this.next();
           if (result.done) return undefined;
-          if (predicate(result.value, index++)) return result.value;
+          let selected: boolean;
+          try {
+            selected = predicate(result.value, index++);
+          } catch (error) {
+            closeIteratorAfterThrow(this);
+            throw error;
+          }
+          if (selected) {
+            closeIterator(this);
+            return result.value;
+          }
         }
       },
       writable: true,

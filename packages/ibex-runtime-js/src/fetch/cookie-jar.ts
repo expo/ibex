@@ -341,6 +341,10 @@ export class CookieJar {
       return; // too large
     }
 
+    if (parsed.sameSite === 'none' && !parsed.secure) {
+      return; // SameSite=None requires Secure
+    }
+
     const cookie: StoredCookie = {
       name: parsed.name,
       value: parsed.value,

@@ -371,9 +371,7 @@ export function checkCapability(capability: Capability, moduleId?: number): Capa
 
   // Test mode - check in-memory grants
   if (_testMode) {
-    const allowed = _testGrants.has(capability) || 
-                    _testGrants.has('*') ||
-                    _testGrants.has(capability.split(':')[0] + ':*');
+    const allowed = [..._testGrants].some((grant) => capabilityMatches(capability, grant));
     
     logAuditEvent({
       event: allowed ? 'capability_granted' : 'capability_denied',
@@ -895,6 +893,11 @@ export function getCapabilityBit(capability: Capability): number | undefined {
   return bits[`${category}:${action}`];
 }
 
+function getDirectCapabilityBit(capability: Capability): number | undefined {
+  const bits: Partial<Record<string, number>> = CapabilityBit;
+  return bits[capability];
+}
+
 /**
  * Module effective bitmasks: moduleId -> [lo32, hi32]
  * Precomputed intersection of all 4 security layers for each module.
@@ -942,7 +945,7 @@ export function setModuleCapabilities(moduleId: number, capabilities: Capability
   let lo = 0;
   let hi = 0;
   for (const cap of capabilities) {
-    const bit = getCapabilityBit(cap);
+    const bit = getDirectCapabilityBit(cap);
     if (bit !== undefined) {
       if (bit < 32) {
         lo |= (1 << bit);
@@ -1027,15 +1030,28 @@ export function capabilityMatches(capability: Capability, grant: Capability): bo
   
   const capParts = capability.split(':');
   const grantParts = grant.split(':');
-  
-  // Check each part
-  for (let i = 0; i < grantParts.length; i++) {
-    if (grantParts[i] === '*') return true;
+
+  const wildcardIndex = grantParts.indexOf('*');
+  if (wildcardIndex !== -1 && wildcardIndex !== grantParts.length - 1) {
+    return false;
+  }
+
+  const compareLength = wildcardIndex === grantParts.length - 1
+    ? grantParts.length - 1
+    : grantParts.length;
+
+  if (capParts.length < compareLength) {
+    return false;
+  }
+
+  for (let i = 0; i < compareLength; i++) {
     if (grantParts[i] !== capParts[i]) return false;
   }
-  
-  // Grant must be at least as specific as capability
-  return grantParts.length <= capParts.length;
+
+  // @ref LLP 0013#current-state — native matching allows a base grant to cover
+  // parameterized checks; resource-scoped grants only match exact resources
+  // unless they end in a trailing wildcard.
+  return wildcardIndex === grantParts.length - 1 || grantParts.length <= capParts.length;
 }
 
 // ============================================================================

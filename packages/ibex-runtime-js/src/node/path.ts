@@ -450,6 +450,9 @@ export function resolve(...paths: string[]): string {
 
   // Normalize and remove trailing slash
   resolvedPath = normalize(resolvedPath);
+  if (resolvedPath.length > 1 && resolvedPath.endsWith('/')) {
+    resolvedPath = resolvedPath.slice(0, -1);
+  }
 
   if (resolvedAbsolute) {
     return resolvedPath.length > 0 ? resolvedPath : '/';

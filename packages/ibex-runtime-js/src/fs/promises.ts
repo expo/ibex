@@ -39,6 +39,8 @@ import {
   readlinkNative,
   truncateNative,
   utimesNative,
+  fstatJson,
+  ftruncateFd,
 } from './shared';
 
 export { Dirent, Stats, constants };
@@ -318,8 +320,142 @@ export async function mkdtemp(prefix: string): Promise<string> {
   return runAsync(() => mkdtempNative(prefix));
 }
 
-export async function open(path: string, flags?: string | number, mode?: number): Promise<number> {
-  return runAsync(() => openFileDescriptor(path, flags, mode));
+interface FileHandleReadOptions {
+  buffer?: Uint8Array;
+  offset?: number;
+  length?: number;
+  position?: number | null;
+}
+
+function concatChunks(chunks: Uint8Array[], totalLength: number): Uint8Array {
+  const bytes = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+export class FileHandle {
+  #fd: number | null;
+
+  constructor(fd: number, readonly path: string, readonly flags?: string | number) {
+    this.#fd = fd;
+  }
+
+  get fd(): number | null {
+    return this.#fd;
+  }
+
+  #requireOpenFd(): number {
+    if (this.#fd === null) {
+      throw new Error('File descriptor is not open');
+    }
+    return this.#fd;
+  }
+
+  async close(): Promise<void> {
+    if (this.#fd === null) {
+      return;
+    }
+    const fd = this.#fd;
+    this.#fd = null;
+    return runAsync(() => closeFileDescriptor(fd));
+  }
+
+  async read(
+    bufferOrOptions?: Uint8Array | FileHandleReadOptions,
+    offsetOrOptions?: number | FileHandleReadOptions,
+    length?: number,
+    position?: number | null,
+  ): Promise<{ bytesRead: number; buffer: Uint8Array }> {
+    return runAsync(() => {
+      const fd = this.#requireOpenFd();
+      let buffer: Uint8Array | undefined;
+      let offset: number | undefined;
+
+      if (
+        bufferOrOptions &&
+        typeof bufferOrOptions === 'object' &&
+        !ArrayBuffer.isView(bufferOrOptions)
+      ) {
+        buffer = bufferOrOptions.buffer;
+        offset = bufferOrOptions.offset;
+        length = bufferOrOptions.length;
+        position = bufferOrOptions.position;
+      } else {
+        buffer = bufferOrOptions;
+        if (
+          offsetOrOptions &&
+          typeof offsetOrOptions === 'object' &&
+          !ArrayBuffer.isView(offsetOrOptions)
+        ) {
+          offset = offsetOrOptions.offset;
+          length = offsetOrOptions.length;
+          position = offsetOrOptions.position;
+        } else {
+          offset = offsetOrOptions;
+        }
+      }
+
+      buffer ??= new Uint8Array(16384);
+      offset ??= 0;
+      length ??= buffer.byteLength - offset;
+      const chunk = readFileDescriptor(fd, length, position);
+      buffer.set(chunk, offset);
+      return { bytesRead: chunk.byteLength, buffer };
+    });
+  }
+
+  async write(
+    buffer: string | Uint8Array,
+    offsetOrPosition?: number | null,
+    lengthOrEncoding?: number | string,
+    position?: number | null,
+  ): Promise<{ bytesWritten: number; buffer: string | Uint8Array }> {
+    return write(this.#requireOpenFd(), buffer, offsetOrPosition, lengthOrEncoding, position);
+  }
+
+  async stat(): Promise<Stats> {
+    return runAsync(() => toStats(fstatJson(this.#requireOpenFd())));
+  }
+
+  async readFile(options?: { encoding?: string } | string): Promise<Uint8Array | Buffer | string> {
+    return runAsync(() => {
+      const fd = this.#requireOpenFd();
+      const chunks: Uint8Array[] = [];
+      let totalLength = 0;
+      for (;;) {
+        const chunk = readFileDescriptor(fd, 64 * 1024, null);
+        if (chunk.byteLength === 0) {
+          break;
+        }
+        chunks.push(chunk);
+        totalLength += chunk.byteLength;
+        if (chunk.byteLength < 64 * 1024) {
+          break;
+        }
+      }
+      const bytes = concatChunks(chunks, totalLength);
+      const encoding = typeof options === 'string' ? options : options?.encoding;
+      return encoding ? decodeBytes(bytes, encoding) : wrapBuffer(bytes);
+    });
+  }
+
+  async writeFile(data: FileData, _options?: { encoding?: string } | string): Promise<void> {
+    return runAsync(() => {
+      writeFileDescriptor(this.#requireOpenFd(), toUint8Array(data));
+    });
+  }
+
+  async truncate(len = 0): Promise<void> {
+    return runAsync(() => ftruncateFd(this.#requireOpenFd(), len));
+  }
+}
+
+export async function open(path: string, flags?: string | number, mode?: number): Promise<FileHandle> {
+  return runAsync(() => new FileHandle(openFileDescriptor(path, flags, mode), path, flags));
 }
 
 export async function close(fd: number): Promise<void> {

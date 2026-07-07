@@ -260,7 +260,7 @@ function convertToBytes(part: BlobPart, endings: 'transparent' | 'native'): Uint
     return new Uint8Array(part.buffer, part.byteOffset, part.byteLength).slice();
   }
 
-  throw new TypeError('Invalid blob part type');
+  return new TextEncoder().encode(String(part));
 }
 
 export default Blob;

@@ -5,12 +5,24 @@
  * @see https://html.spec.whatwg.org/multipage/webstorage.html
  */
 
-import { DOMException, createQuotaExceededError } from '../events/DOMException';
+import { createQuotaExceededError } from '../events/DOMException';
 import { getNativeModule } from '../native/NativeModules';
 import { requireCapability, Capabilities, type Capability } from '../security/Capabilities';
 
 // Default quota: 10MB
 const DEFAULT_QUOTA = 10 * 1024 * 1024;
+
+function isNativeQuotaSignal(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { name?: unknown; code?: unknown };
+  return (
+    candidate.code === 'QuotaExceededError' ||
+    candidate.code === 'QUOTA_EXCEEDED_ERR' ||
+    candidate.code === 22
+  );
+}
 
 /**
  * Storage provides synchronous key-value storage.
@@ -97,11 +109,13 @@ export class Storage {
       try {
         this.#nativeStorage.setItem(keyStr, valueStr);
       } catch (e: any) {
-        // Native module should throw QuotaExceededError
-        if (e.name === 'QuotaExceededError') {
+        if (e?.name === 'QuotaExceededError') {
           throw e;
         }
-        throw createQuotaExceededError('Storage quota exceeded');
+        if (isNativeQuotaSignal(e)) {
+          throw createQuotaExceededError('Storage quota exceeded');
+        }
+        throw e;
       }
       return;
     }

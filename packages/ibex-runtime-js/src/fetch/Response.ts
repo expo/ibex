@@ -441,13 +441,15 @@ export class Response extends BodyMixin {
       }
     }
 
-    return new Response(null, {
+    const response = new Response(null, {
       status: normalizedStatus,
       statusText: '',
       headers: {
         Location: finalUrl,
       },
     });
+    response._headers._guard = 'immutable';
+    return response;
   }
 
   /**
@@ -530,7 +532,7 @@ export class Response extends BodyMixin {
     // NSURLSession on macOS and HTTP/2 don't provide reason phrases.
     response._statusText = nativeResponse.statusText || DEFAULT_STATUS_TEXT[status] || '';
     response._headers = Headers.fromTupleArray(nativeResponse.headers);
-    response._headers._guard = 'response';
+    response._headers._guard = 'immutable';
     response._url = nativeResponse.url;
     response._redirected = Response._detectRedirected(
       nativeResponse.redirected,

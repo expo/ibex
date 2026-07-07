@@ -444,22 +444,14 @@ export async function bodyToUint8Array(
   }
 
   if (isFormData(body)) {
-    // Check cache first (populated by getContentTypeForBody)
-    let cached = formDataEncodeCache.get(body);
-    if (cached) {
-      return cached.body;
-    }
-    
     // Use FormData's built-in multipart encoding if available
     if (typeof (body as any)._encode === 'function') {
       const result = (body as any)._encode();
-      formDataEncodeCache.set(body, result);
       return result.body;
     }
     
     // Fallback: Convert FormData to multipart/form-data format
     const encoded = await encodeFormDataInternalAsync(body);
-    formDataEncodeCache.set(body, encoded);
     return encoded.body;
   }
 
@@ -607,15 +599,7 @@ export function generateBoundary(): string {
 }
 
 /**
- * Cache for FormData encoding results to ensure consistent boundaries.
- * Using WeakMap so FormData objects can be garbage collected.
- */
-const formDataEncodeCache = new WeakMap<FormData, { body: Uint8Array; contentType: string }>();
-
-/**
  * Get the Content-Type header for a body type.
- * For FormData, this will cache the encoding result so that bodyToUint8Array
- * returns the same bytes with matching boundary.
  */
 export function getContentTypeForBody(body: BodyInit | null): string | null {
   if (body === null || body === undefined) {
@@ -632,17 +616,6 @@ export function getContentTypeForBody(body: BodyInit | null): string | null {
 
   if (isBlob(body) && body.type) {
     return body.type;
-  }
-
-  if (isFormData(body)) {
-    // Check cache first
-    let cached = formDataEncodeCache.get(body);
-    if (!cached) {
-      // Encode once and cache the result
-      cached = encodeFormDataInternal(body);
-      formDataEncodeCache.set(body, cached);
-    }
-    return cached.contentType;
   }
 
   // For ArrayBuffer, TypedArray, etc., no default Content-Type
@@ -755,21 +728,12 @@ async function encodeFormDataInternalAsync(body: FormData): Promise<{ body: Uint
  * Returns both the body bytes and content-type header.
  */
 export function encodeFormData(body: FormData): { body: Uint8Array; contentType: string } {
-  // Check cache first — getContentTypeForBody() may have already encoded this FormData
-  // with a specific boundary. We must reuse it to keep Content-Type and body consistent.
-  let cached = formDataEncodeCache.get(body);
-  if (cached) return cached;
-
   if (typeof (body as any)._encode === 'function') {
-    const result = (body as any)._encode();
-    formDataEncodeCache.set(body, result);
-    return result;
+    return (body as any)._encode();
   }
 
   // Fallback encoding
-  const result = encodeFormDataInternal(body);
-  formDataEncodeCache.set(body, result);
-  return result;
+  return encodeFormDataInternal(body);
 }
 
 /**

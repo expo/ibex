@@ -25,7 +25,7 @@ BASE64_LOOKUP["=".charCodeAt(0)] = 0; // Padding
  * @throws DOMException if string contains characters outside Latin-1
  */
 export function btoa(data: string): string {
-  if (data === undefined || data === null) {
+  if (data === undefined) {
     data = "undefined";
   }
 

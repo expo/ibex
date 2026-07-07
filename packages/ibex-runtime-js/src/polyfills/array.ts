@@ -136,8 +136,9 @@ export function installArrayPolyfills(): void {
 
         // Normalize deleteCount (ToIntegerOrInfinity, then clamp to [0, len-start])
         let actualDeleteCount: number;
-        if (deleteCount === undefined && items.length === 0) {
-          // If called with only start, delete everything from start
+        if (arguments.length === 1) {
+          // If called with only start, delete everything from start. An explicit
+          // undefined deleteCount is present and therefore deletes zero.
           actualDeleteCount = len - actualStart;
         } else {
           actualDeleteCount = Math.min(

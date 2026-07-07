@@ -828,12 +828,18 @@ export class URL {
       return;
     }
 
-    const colonIndex = hostInput.lastIndexOf(":");
-    if (colonIndex !== -1 && !input.includes("[")) {
-      this._hostname = canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+    if (hostInput.startsWith("[")) {
+      const closeIndex = hostInput.indexOf("]");
+      if (
+        closeIndex === -1 ||
+        (closeIndex + 1 < hostInput.length && hostInput.charAt(closeIndex + 1) !== ":")
+      ) {
+        return;
+      }
+      this._hostname = canonicalizeHost(hostInput.slice(0, closeIndex + 1), this._protocol);
       this._hasHost = true;
-      if (colonIndex < hostInput.length - 1) {
-        const port = hostInput.slice(colonIndex + 1);
+      if (closeIndex + 1 < hostInput.length) {
+        const port = hostInput.slice(closeIndex + 2);
         const parsedPort = normalizePort(port);
         if (parsedPort) {
           const portNumber = Number(parsedPort);
@@ -847,12 +853,33 @@ export class URL {
           this._port = "";
         }
       }
-    } else if (hostInput !== "") {
+    } else {
+      const colonIndex = hostInput.lastIndexOf(":");
+      if (colonIndex !== -1) {
+        this._hostname = canonicalizeHost(hostInput.slice(0, colonIndex), this._protocol);
+        this._hasHost = true;
+        if (colonIndex < hostInput.length - 1) {
+          const port = hostInput.slice(colonIndex + 1);
+          const parsedPort = normalizePort(port);
+          if (parsedPort) {
+            const portNumber = Number(parsedPort);
+            if (!Number.isNaN(portNumber) && portNumber <= 65535) {
+              this._port = parsedPort;
+            }
+          } else if (port === "") {
+            this._port = "";
+          }
+          if (this._port && this._protocol.slice(0, -1) && this._port === DEFAULT_PORTS[this._protocol.slice(0, -1)]) {
+            this._port = "";
+          }
+        }
+      } else if (hostInput !== "") {
         this._hostname = canonicalizeHost(hostInput, this._protocol);
         this._hasHost = true;
-    } else {
-      this._hostname = "";
-      this._port = "";
+      } else {
+        this._hostname = "";
+        this._port = "";
+      }
     }
   }
 

@@ -115,15 +115,9 @@ export class BroadcastChannel extends EventTarget {
       );
     }
 
-    // Clone the message to ensure isolation
-    let clonedMessage: unknown;
-    try {
-      clonedMessage = structuredClone(message);
-    } catch (error) {
-      // If cloning fails, dispatch messageerror to all channels
-      this.#dispatchMessageError(error);
-      return;
-    }
+    // Clone failure is a sender-side StructuredSerialize failure and must
+    // throw synchronously; messageerror is reserved for receive-side failures.
+    const clonedMessage = structuredClone(message);
 
     // Deliver to all other local channels with the same name
     const channels = channelRegistry.get(this.name);
@@ -202,36 +196,6 @@ export class BroadcastChannel extends EventTarget {
 
     // Dispatch event
     this.dispatchEvent(event);
-  }
-
-  /**
-   * Dispatch a messageerror event when message cloning fails.
-   */
-  #dispatchMessageError(error: unknown): void {
-    const channels = channelRegistry.get(this.name);
-    if (channels) {
-      for (const channel of channels) {
-        if (channel !== this && !channel.#closed) {
-          queueMicrotask(() => {
-            if (!channel.#closed) {
-              const event = new MessageEvent('messageerror', {
-                data: error,
-              });
-
-              if (channel.onmessageerror) {
-                try {
-                  channel.onmessageerror.call(channel, event);
-                } catch (e) {
-                  console.error('[BroadcastChannel] onmessageerror handler threw:', e);
-                }
-              }
-
-              channel.dispatchEvent(event);
-            }
-          });
-        }
-      }
-    }
   }
 
   /**

@@ -46,6 +46,7 @@ const METHODS_WITHOUT_BODY = ['GET', 'HEAD'];
  * These must throw TypeError when used in a Request constructor.
  */
 const FORBIDDEN_METHODS = ['CONNECT', 'TRACE', 'TRACK'];
+const UPPERCASE_METHODS = new Set(['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT']);
 
 /**
  * Ports that are considered "bad" per the Fetch spec.
@@ -58,6 +59,11 @@ const BAD_PORTS = new Set([
   548, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045,
   4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
 ]);
+
+function normalizeMethod(method: string): string {
+  const upper = method.toUpperCase();
+  return UPPERCASE_METHODS.has(upper) ? upper : method;
+}
 
 function isBunCompatRequestTest(): boolean {
   if ((globalThis as { __exactRuntimeContext?: string }).__exactRuntimeContext === 'shell') {
@@ -205,10 +211,10 @@ export class Request extends BodyMixin {
     if (typeof rawMethod === 'string' && !/^[\w!#$%&'*+.^`|~-]+$/.test(rawMethod)) {
       throw new TypeError(`Failed to construct 'Request': '${rawMethod}' is not a valid HTTP method.`);
     }
-    this._method = (rawMethod as string).toUpperCase() as RequestMethod;
+    this._method = normalizeMethod(rawMethod as string) as RequestMethod;
 
     // Validate forbidden methods per Fetch spec
-    if (FORBIDDEN_METHODS.includes(this._method)) {
+    if (FORBIDDEN_METHODS.includes(this._method.toUpperCase())) {
       throw new TypeError(`Failed to construct 'Request': '${this._method}' HTTP method is unsupported.`);
     }
 
@@ -362,16 +368,13 @@ export class Request extends BodyMixin {
       throw new TypeError(`Request with ${this._method} method cannot have body`);
     }
 
-    // Track whether init.headers was explicitly provided — when it is,
-    // we must NOT auto-set Content-Type from the body (per Fetch spec).
-    const hasExplicitInitHeaders = init !== undefined && init !== null && 'headers' in (init || {});
-
     if (body !== null) {
       this._bodyInit = body;
 
-      // Set Content-Type header if not already set and init didn't provide explicit headers
+      // Set Content-Type header if not already set. Unrelated explicit headers
+      // do not suppress the body-derived Content-Type.
       const contentType = getContentTypeForBody(body);
-      if (contentType && !hasExplicitInitHeaders && !this._headers.has('content-type')) {
+      if (contentType && !this._headers.has('content-type')) {
         this._headers.set('content-type', contentType);
       }
 
@@ -458,8 +461,8 @@ export class Request extends BodyMixin {
       }
     }
 
-    // Disturb source request when it is used as the input to a new request.
-    if (inputRequest && !inputRequest.bodyUsed) {
+    // Disturb the source request only when this request inherits its body.
+    if (inputRequest && init?.body === undefined && sourceBody !== null && !inputRequest.bodyUsed) {
       inputRequest.markBodyAsUsedForFetch();
     }
   }
@@ -732,7 +735,7 @@ export class Request extends BodyMixin {
     // without setting the raw `_bodyUsed` flag, which only `_consumeBody()`
     // sets). Gating on the `bodyUsed` getter — not the raw field — catches
     // that case; `tee()` below still separately rejects a locked stream.
-    if (this.bodyUsed) {
+    if (this.bodyUsed || (this._body !== null && (this._body as any).locked)) {
       throw new TypeError('Cannot clone a Request whose body has already been used');
     }
 
