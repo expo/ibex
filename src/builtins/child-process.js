@@ -878,7 +878,7 @@ function _loadSignalMap() {
   if (typeof globalThis !== 'undefined' && globalThis.__exactSignalNumbersMap) {
     nativeMap = globalThis.__exactSignalNumbersMap;
   } else if (typeof __exactSignalNumbers === 'function') {
-    try { nativeMap = __exactSignalNumbers(); } catch (_) {}
+    try { nativeMap = __exactSignalNumbers(); } catch (_) { /* ignored: optional native signal table; the platform fallback map stands */ }
   }
   if (nativeMap) {
     for (var nk in nativeMap) {

@@ -4142,8 +4142,8 @@ function urlToHttpOptions(url) {
   if (url.username || url.password) {
     var user = url.username || '';
     var pass = url.password || '';
-    try { user = decodeURIComponent(user); } catch (_userDecodeErr) {}
-    try { pass = decodeURIComponent(pass); } catch (_passDecodeErr) {}
+    try { user = decodeURIComponent(user); } catch (_userDecodeErr) { /* ignored: malformed percent-encoding; Node keeps the raw username */ }
+    try { pass = decodeURIComponent(pass); } catch (_passDecodeErr) { /* ignored: malformed percent-encoding; Node keeps the raw password */ }
     options.auth = user + ':' + pass;
   }
   return options;

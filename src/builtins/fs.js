@@ -158,7 +158,7 @@ function _normalizeRmError(err, path, recursive) {
     path
   ) {
     var entries = null;
-    try { entries = readdirSync(path); } catch (_e) {}
+    try { entries = readdirSync(path); } catch (_e) { /* ignored: probe only; an unreadable dir keeps the original EACCES */ }
     if (entries && entries.length > 0) {
       err.code = 'ENOTEMPTY';
       err.path = path;
@@ -4043,7 +4043,7 @@ function emitWriteError(err, callback, operation) {
           } else {
             closeSync(newFd);
           }
-        } catch (_ignore) {}
+        } catch (_ignore) { /* ignored: best-effort close of the orphaned fd; the stream is already destroyed */ }
       }
       return;
     }

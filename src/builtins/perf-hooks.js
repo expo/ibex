@@ -26,7 +26,7 @@ function _perfNow() {
     try {
       var nativeNow = __exactPerformanceNow();
       if (typeof nativeNow === 'number' && isFinite(nativeNow)) return nativeNow;
-    } catch (_) {}
+    } catch (_) { /* ignored: optional native clock; fall through to __exactHrtime */ }
   }
   if (typeof __exactHrtime === 'function') {
     var parts = __exactHrtime();

@@ -155,7 +155,7 @@ function _defineOwnDataProperty(target, name, value) {
         configurable: true
       });
       return;
-    } catch (_definePropErr) {}
+    } catch (_definePropErr) { /* ignored: non-configurable inherited property; fall back to plain assignment below */ }
   }
   target[name] = value;
 }

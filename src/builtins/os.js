@@ -239,7 +239,7 @@ function pickConstants(prefixRe) {
         out[keys[i]] = nodeConstants[keys[i]];
       }
     }
-  } catch (_) {}
+  } catch (_) { /* ignored: optional constants module; the section stays empty */ }
   return out;
 }
 

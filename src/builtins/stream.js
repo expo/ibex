@@ -4119,7 +4119,7 @@ Readable.from = function(iterable, options) {
       _suppressHermesAsyncIteratorUnhandledRejections();
       var asyncPumpTask = pumpAsyncIterable();
       if (asyncPumpTask && typeof asyncPumpTask.catch === 'function') {
-        asyncPumpTask.catch(function() {});
+        asyncPumpTask.catch(function() { /* ignored: pump errors already reach the consumer via readableStream.destroy(err) inside pumpAsyncIterable; this only silences the duplicate rejection */ });
       }
     }
 
@@ -4458,12 +4458,12 @@ Readable.toWeb = function(nodeReadable) {
       nodeReadable.on('end', function() {
         if (closedOrErrored) return;
         closedOrErrored = true;
-        try { controller.close(); } catch (_closeErr) {}
+        try { controller.close(); } catch (_closeErr) { /* ignored: controller may already be closed/errored by a racing cancel */ }
       });
       nodeReadable.on('error', function(err) {
         if (closedOrErrored) return;
         closedOrErrored = true;
-        try { controller.error(err); } catch (_errorErr) {}
+        try { controller.error(err); } catch (_errorErr) { /* ignored: controller may already be closed/errored by a racing cancel */ }
       });
     },
     pull: function() {
