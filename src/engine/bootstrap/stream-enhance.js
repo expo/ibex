@@ -369,11 +369,76 @@
     stream._paused = true;
     stream._ended = false;
     stream._pollTimer = 0;
+    stream._decoder = null;
 
     stream.setEncoding = function(enc) {
       stream._encoding = enc;
+      stream._decoder = null;
       return stream;
     };
+
+    function stdinBytes(data) {
+      if (typeof data === 'string') {
+        if (typeof Buffer !== 'undefined' && Buffer.from) {
+          return Buffer.from(data, 'binary');
+        }
+        var out = new Uint8Array(data.length);
+        for (var i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
+        return out;
+      }
+      if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+      }
+      if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || 0);
+      }
+      return data;
+    }
+
+    function stdinChunk(data, flush) {
+      var bytes = stdinBytes(data);
+      if (!stream._encoding) {
+        if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(bytes);
+        return bytes;
+      }
+      if (typeof TextDecoder === 'function') {
+        try {
+          if (!stream._decoder) {
+            stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
+          }
+          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+        } catch (_decodeErr) {
+          stream._decoder = null;
+        }
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        return Buffer.from(bytes).toString(stream._encoding);
+      }
+      return String(data || '');
+    }
+
+    function emitStdinData(data) {
+      var chunk = stdinChunk(data, false);
+      stream.readableLength += (chunk && (chunk.byteLength || chunk.length)) || 0;
+      stream.emit('data', chunk);
+      stream.readableLength = 0;
+    }
+
+    function emitStdinEnd() {
+      if (stream._encoding && stream._decoder) {
+        var tail = stdinChunk(new Uint8Array(0), true);
+        if (tail) {
+          stream.readableLength += tail.length || 0;
+          stream.emit('data', tail);
+          stream.readableLength = 0;
+        }
+      }
+      stream._ended = true;
+      stream._pollTimer = 0;
+      stream.readableEnded = true;
+      stream.emit('end');
+      stream.emit('close');
+    }
 
     stream.resume = function() {
       stream.readable = true;
@@ -389,16 +454,10 @@
             stream._pollTimer = setTimeout(pollStdin, 1);
           } else if (data === '') {
             // EOF
-            stream._ended = true;
-            stream._pollTimer = 0;
-            stream.readableEnded = true;
-            stream.emit('end');
-            stream.emit('close');
+            emitStdinEnd();
           } else {
             // Got data
-            stream.readableLength += data.length;
-            stream.emit('data', data);
-            stream.readableLength = 0;
+            emitStdinData(data);
             if (!stream._paused && !stream._ended) {
               stream._pollTimer = setTimeout(pollStdin, 0);
             }
@@ -422,7 +481,8 @@
       if (typeof __exactStdinRead === 'function') {
         var data = __exactStdinRead(size || 262144);
         if (data === '') return null; // EOF
-        return data;
+        if (data === null) return null;
+        return stdinChunk(data, false);
       }
       return null;
     };

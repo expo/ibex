@@ -140,7 +140,7 @@ function encodeFrame(opcode, payload, fin) {
 	}
 	else if (payload instanceof Uint8Array) payloadU8 = payload;
 	else if (Array.isArray(payload)) payloadU8 = Uint8Array.from(payload);
-	else payloadU8 = new Uint8Array(0);
+	else payloadU8 = /* @__PURE__ */ new Uint8Array(0);
 	var len = payloadU8.length;
 	var header = [];
 	header.push((fin ? 128 : 0) | opcode & 15);

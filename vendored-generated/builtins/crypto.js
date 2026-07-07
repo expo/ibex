@@ -90,7 +90,7 @@ function _validateBuffer(value, name) {
 	if (!_isStringOrBuffer(value)) throw _errInvalidArgType(name, "of type string or an instance of Buffer, TypedArray, or DataView", value);
 }
 function _toBytes(value) {
-	if (value === null || value === void 0) return new Uint8Array(0);
+	if (value === null || value === void 0) return /* @__PURE__ */ new Uint8Array(0);
 	if (value instanceof Uint8Array) return value;
 	if (value instanceof ArrayBuffer) return new Uint8Array(value);
 	if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
@@ -105,7 +105,7 @@ function _toBytes(value) {
 		for (var j = 0; j < value.length; j++) fromArray[j] = value[j];
 		return fromArray;
 	}
-	return new Uint8Array(0);
+	return /* @__PURE__ */ new Uint8Array(0);
 }
 function _toBytesUtf8(value) {
 	if (typeof value === "string") {
@@ -1221,7 +1221,7 @@ function pbkdf2Sync(password, salt, iterations, keylen, digest) {
 	if (iterations === 0) throw _errOutOfRange("iterations", ">= 1", iterations);
 	if (typeof keylen !== "number" || !Number.isFinite(keylen)) throw _errInvalidArgType("keylen", "of type number", keylen);
 	if (keylen < 0) throw _errOutOfRange("keylen", ">= 0", keylen);
-	if (keylen === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	if (keylen === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 	_validateString(digest, "digest");
 	var passBytes = _toBytesUtf8(password);
 	var saltBytes = _toBytesUtf8(salt);
@@ -1883,7 +1883,7 @@ function Cipher(algorithm, key, iv, options) {
 	var keyBytes = _validateCipherKeyIv(normalized, key, iv);
 	this._algo = normalized.algorithm;
 	this._key = keyBytes;
-	this._iv = iv === null || iv === void 0 ? new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== void 0 ? normalized.ivOverride : iv));
+	this._iv = iv === null || iv === void 0 ? /* @__PURE__ */ new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== void 0 ? normalized.ivOverride : iv));
 	this._chunks = [];
 	this._finalized = false;
 	this._streamEnded = false;
@@ -1966,7 +1966,7 @@ Cipher.prototype.update = function(data, inputEncoding, outputEncoding) {
 	if (_isWrapAlgorithm(this._algo)) {
 		if (this._inlineFinalized && this._finalized) {
 			if (outputEncoding && outputEncoding !== "buffer") return "";
-			return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+			return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 		}
 		var wrapResult = this.final();
 		this._inlineFinalized = true;
@@ -1975,7 +1975,7 @@ Cipher.prototype.update = function(data, inputEncoding, outputEncoding) {
 		return wrapResult;
 	}
 	if (outputEncoding && outputEncoding !== "buffer") return "";
-	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 };
 Cipher.prototype.final = function(outputEncoding) {
 	if (outputEncoding !== void 0 && outputEncoding !== null) {
@@ -1988,7 +1988,7 @@ Cipher.prototype.final = function(outputEncoding) {
 	}
 	if (this._inlineFinalized && this._finalized) {
 		if (outputEncoding && outputEncoding !== "buffer") return "";
-		return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+		return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 	}
 	this._finalized = true;
 	var combined = _concatChunks(this._chunks);
@@ -2018,7 +2018,7 @@ Cipher.prototype.final = function(outputEncoding) {
 	} else if (typeof __exactEvpCipherEncrypt === "function" && this._opensslName) {
 		var evpResult;
 		if (this._algo.indexOf("ccm") !== -1) {
-			var ccmAad = this._aad ? this._aad : new Uint8Array(0);
+			var ccmAad = this._aad ? this._aad : /* @__PURE__ */ new Uint8Array(0);
 			evpResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined, ccmAad, this._authTagLength);
 		} else evpResult = __exactEvpCipherEncrypt(this._opensslName, this._key, this._iv, combined);
 		if (this._isAead && evpResult.length > 16) {
@@ -2047,7 +2047,7 @@ Cipher.prototype.setAutoPadding = function() {
 Cipher.prototype[Symbol.toStringTag] = "Cipher";
 Cipher.prototype.getAuthTag = function() {
 	if (!this._finalized) throw new Error("Cannot get auth tag before calling final()");
-	if (this._authTag === null) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	if (this._authTag === null) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 	return this._authTag;
 };
 Cipher.prototype.setAAD = function(aad, options) {
@@ -2067,7 +2067,7 @@ function Decipher(algorithm, key, iv, options) {
 	var keyBytes = _validateCipherKeyIv(normalized, key, iv);
 	this._algo = normalized.algorithm;
 	this._key = keyBytes;
-	this._iv = iv === null || iv === void 0 ? new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== void 0 ? normalized.ivOverride : iv));
+	this._iv = iv === null || iv === void 0 ? /* @__PURE__ */ new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== void 0 ? normalized.ivOverride : iv));
 	this._chunks = [];
 	this._finalized = false;
 	this._streamEnded = false;
@@ -2141,7 +2141,7 @@ Decipher.prototype.update = function(data, inputEncoding, outputEncoding) {
 	if (_isWrapAlgorithm(this._algo)) {
 		if (this._inlineFinalized && this._finalized) {
 			if (outputEncoding && outputEncoding !== "buffer") return "";
-			return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+			return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 		}
 		var decodeResult = this.final();
 		this._inlineFinalized = true;
@@ -2150,12 +2150,12 @@ Decipher.prototype.update = function(data, inputEncoding, outputEncoding) {
 		return decodeResult;
 	}
 	if (outputEncoding && outputEncoding !== "buffer") return "";
-	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 };
 Decipher.prototype.final = function(outputEncoding) {
 	if (this._inlineFinalized && this._finalized) {
 		if (outputEncoding && outputEncoding !== "buffer") return "";
-		return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : new Uint8Array(0);
+		return typeof Buffer !== "undefined" && Buffer.alloc ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 	}
 	this._finalized = true;
 	var combined = _concatChunks(this._chunks);
@@ -2181,7 +2181,7 @@ Decipher.prototype.final = function(outputEncoding) {
 	} else if (typeof __exactEvpCipherDecrypt === "function" && this._opensslName) {
 		var authTag = this._isAead && this._authTag ? _toUint8Array(this._authTag) : void 0;
 		if (this._algo.indexOf("ccm") !== -1) {
-			var ccmAad = this._aad ? this._aad : new Uint8Array(0);
+			var ccmAad = this._aad ? this._aad : /* @__PURE__ */ new Uint8Array(0);
 			result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag, ccmAad, this._authTagLength);
 		} else if (this._isAead) result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined, authTag);
 		else result = __exactEvpCipherDecrypt(this._opensslName, this._key, this._iv, combined);
@@ -2286,7 +2286,7 @@ function scryptSync(password, salt, keylen, options) {
 	if (!Number.isInteger(keylen) || keylen < 0 || keylen > 2147483647) throw _errOutOfRange("keylen", ">= 0 && <= 2147483647", keylen);
 	if (options !== void 0 && options !== null && typeof options !== "object") throw _errInvalidArgType("options", "of type object", options);
 	var normalized = _normalizeScryptOption(options);
-	if (keylen === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	if (keylen === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 	var passBytes = _toBytesUtf8(password);
 	var saltBytes = _toBytesUtf8(salt);
 	var result = __exactScryptSync(passBytes, saltBytes, normalized.N, normalized.r, normalized.p, keylen);
@@ -3050,12 +3050,12 @@ DiffieHellman.prototype.getGenerator = function(encoding) {
 	return _bytesToBufferLike(_toByteArray(g));
 };
 DiffieHellman.prototype.getPrivateKey = function(encoding) {
-	var k = this._privateKey || new Uint8Array(0);
+	var k = this._privateKey || /* @__PURE__ */ new Uint8Array(0);
 	if (encoding === "hex") return _bytesToBufferLike(k).toString ? _bytesToBufferLike(k).toString("hex") : _toHex(_toByteArray(k));
 	return _bytesToBufferLike(_toByteArray(k));
 };
 DiffieHellman.prototype.getPublicKey = function(encoding) {
-	var k = this._publicKey || new Uint8Array(0);
+	var k = this._publicKey || /* @__PURE__ */ new Uint8Array(0);
 	if (encoding === "hex") return _bytesToBufferLike(k).toString ? _bytesToBufferLike(k).toString("hex") : _toHex(_toByteArray(k));
 	return _bytesToBufferLike(_toByteArray(k));
 };
@@ -3183,12 +3183,12 @@ ECDH.prototype.setPublicKey = function(key, encoding) {
 	else this._publicKey = _bytesToBufferLike(_toBytes(key));
 };
 ECDH.prototype.getPrivateKey = function(encoding) {
-	var k = this._privateKey || new Uint8Array(0);
+	var k = this._privateKey || /* @__PURE__ */ new Uint8Array(0);
 	if (encoding === "hex") return _bytesToBufferLike(k).toString("hex");
 	return _bytesToBufferLike(_toByteArray(k));
 };
 ECDH.prototype.getPublicKey = function(encoding, format) {
-	var k = this._publicKey || new Uint8Array(0);
+	var k = this._publicKey || /* @__PURE__ */ new Uint8Array(0);
 	if (encoding === "hex") return _bytesToBufferLike(k).toString("hex");
 	return _bytesToBufferLike(_toByteArray(k));
 };
@@ -3214,7 +3214,7 @@ function _validateSpkacArg(spkac) {
 }
 Certificate.prototype.exportChallenge = function(spkac) {
 	_validateSpkacArg(spkac);
-	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 };
 Certificate.prototype.exportPublicKey = function(spkac) {
 	_validateSpkacArg(spkac);
@@ -3226,7 +3226,7 @@ Certificate.prototype.verifySpkac = function(spkac) {
 };
 Certificate.exportChallenge = function(spkac) {
 	_validateSpkacArg(spkac);
-	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
+	return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
 };
 Certificate.exportPublicKey = function(spkac) {
 	_validateSpkacArg(spkac);

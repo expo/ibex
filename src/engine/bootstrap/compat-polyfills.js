@@ -1172,6 +1172,64 @@
       });
     }
 
+    function __exactStdinBytes(data) {
+      if (typeof data === 'string') {
+        if (typeof Buffer !== 'undefined' && Buffer.from) {
+          return Buffer.from(data, 'binary');
+        }
+        var out = new Uint8Array(data.length);
+        for (var i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
+        return out;
+      }
+      if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+      }
+      if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || 0);
+      }
+      return data;
+    }
+
+    function __exactStdinChunk(stream, data, flush) {
+      var bytes = __exactStdinBytes(data);
+      if (!stream._encoding) {
+        if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(bytes);
+        return bytes;
+      }
+      if (typeof TextDecoder === 'function') {
+        try {
+          if (!stream._decoder) {
+            stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
+          }
+          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+        } catch (_) {
+          stream._decoder = null;
+        }
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        return Buffer.from(bytes).toString(stream._encoding);
+      }
+      return String(data || '');
+    }
+
+    function __exactEmitStdinChunk(stream, data) {
+      if (!stream || typeof stream.emit !== 'function') return;
+      var chunk = __exactStdinChunk(stream, data, false);
+      stream.readableLength += (chunk && (chunk.byteLength || chunk.length)) || 0;
+      stream.emit('data', chunk);
+      stream.readableLength = 0;
+    }
+
+    function __exactFlushStdinDecoder(stream) {
+      if (!stream || typeof stream.emit !== 'function') return;
+      if (!stream._encoding || !stream._decoder) return;
+      var tail = __exactStdinChunk(stream, new Uint8Array(0), true);
+      if (!tail) return;
+      stream.readableLength += tail.length || 0;
+      stream.emit('data', tail);
+      stream.readableLength = 0;
+    }
+
     function __exactInstallReadableStdinFallback() {
       var stream = globalThis.process.stdin;
       if (!stream || typeof stream !== 'object') return;
@@ -1197,6 +1255,7 @@
       if (typeof globalThis.__exactStdinRead !== 'function') return;
 
       stream._encoding = null;
+      stream._decoder = null;
       stream._paused = true;
       stream._ended = false;
       stream._pollTimer = 0;
@@ -1208,6 +1267,7 @@
 
       stream.setEncoding = function(enc) {
         stream._encoding = enc;
+        stream._decoder = null;
         return stream;
       };
 
@@ -1224,6 +1284,7 @@
               return;
             }
             if (data === '') {
+              __exactFlushStdinDecoder(stream);
               stream._ended = true;
               stream._pollTimer = 0;
               stream.readableEnded = true;
@@ -1232,12 +1293,7 @@
               return;
             }
             stream._pollTimer = 0;
-            if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
-              data = Buffer.from(data, 'binary').toString(stream._encoding);
-            }
-            stream.readableLength += data.length || 0;
-            stream.emit('data', data);
-            stream.readableLength = 0;
+            __exactEmitStdinChunk(stream, data);
             if (!stream._paused && !stream._ended) {
               stream._pollTimer = setTimeout(pollStdin, 0);
             }
@@ -1259,10 +1315,8 @@
       stream.read = function(size) {
         var data = globalThis.__exactStdinRead(size || 262144);
         if (data === '') return null;
-        if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
-          return Buffer.from(data, 'binary').toString(stream._encoding);
-        }
-        return data;
+        if (data === null) return null;
+        return __exactStdinChunk(stream, data, false);
       };
 
       var originalOn = typeof stream.on === 'function' ? stream.on : null;
@@ -2605,8 +2659,8 @@
     } catch (err) {}
 
     // Compatibility helpers expected by a small subset of Node fixture patterns.
-    // Exposed globally so rewritten fixture files (created at runtime) still see
-    // `ok`/`failed` helpers without requiring '../common'.
+    // Exposed only inside the compat harness so ordinary programs keep Node's
+    // ambient-global contract (`typeof ok === "undefined"`).
     try {
       var __global = (typeof globalThis !== 'undefined') ? globalThis : (typeof global !== 'undefined' ? global : null);
       function __exactBuildCompatFailed(value) {
@@ -2618,36 +2672,44 @@
         }
         return !value;
       }
-      if (__global && typeof globalThis.__exactRequire === 'function') {
-        var __exactAssert = globalThis.__exactRequire('assert');
-        if (__global && __exactAssert && typeof __exactAssert.ok === 'function') {
-          __global.failed = __exactBuildCompatFailed;
-          if (typeof __global.badly !== 'function') {
-            __global.badly = function() {
-              return undefined;
+      var __exactInstallFixtureGlobals = !!(
+        __global &&
+        globalThis.process &&
+        globalThis.process.env &&
+        globalThis.process.env.EXACT_COMPAT_TEST === '1'
+      );
+      if (__exactInstallFixtureGlobals) {
+        if (typeof globalThis.__exactRequire === 'function') {
+          var __exactAssert = globalThis.__exactRequire('assert');
+          if (__exactAssert && typeof __exactAssert.ok === 'function') {
+            __global.failed = __exactBuildCompatFailed;
+            if (typeof __global.badly !== 'function') {
+              __global.badly = function() {
+                return undefined;
+              };
+            }
+          }
+          if (typeof __global.ok !== 'function' && __exactAssert && typeof __exactAssert.ok === 'function') {
+            __global.ok = function(value, message) {
+              __exactAssert.ok(value, message);
             };
           }
         }
-        if (__global && typeof __global.ok !== 'function' && __exactAssert && typeof __exactAssert.ok === 'function') {
-          __global.ok = function(value, message) {
-            __exactAssert.ok(value, message);
+        if (typeof __global.failed !== 'function') {
+          __global.failed = __exactBuildCompatFailed;
+        }
+        if (typeof __global.badly !== 'function') {
+          __global.badly = function() {
+            return undefined;
           };
         }
-      }
-      if (__global && typeof __global.failed !== 'function') {
-        __global.failed = __exactBuildCompatFailed;
-      }
-      if (__global && typeof __global.badly !== 'function') {
-        __global.badly = function() {
-          return undefined;
-        };
-      }
-      if (__global && typeof __global.ok !== 'function') {
-        __global.ok = function(value, message) {
-          if (!value) {
-            throw new Error(message || 'The expression evaluated to a falsy value');
-          }
-        };
+        if (typeof __global.ok !== 'function') {
+          __global.ok = function(value, message) {
+            if (!value) {
+              throw new Error(message || 'The expression evaluated to a falsy value');
+            }
+          };
+        }
       }
     } catch (err) {}
   }
@@ -3113,6 +3175,7 @@
             return;
           }
           stream._encoding = null;
+          stream._decoder = null;
           stream._paused = true;
           stream._ended = false;
           stream._pollTimer = 0;
@@ -3122,6 +3185,7 @@
           stream.readableLength = 0;
           stream.setEncoding = function(enc) {
             stream._encoding = enc;
+            stream._decoder = null;
             return stream;
           };
           stream.resume = function() {
@@ -3137,6 +3201,7 @@
                   return;
                 }
                 if (data === '') {
+                  __exactFlushStdinDecoder(stream);
                   stream._ended = true;
                   stream._pollTimer = 0;
                   stream.readableEnded = true;
@@ -3147,14 +3212,11 @@
                   return;
                 }
                 stream._pollTimer = 0;
-                if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
-                  data = Buffer.from(data, 'binary').toString(stream._encoding);
-                }
-                stream.readableLength += data.length || 0;
                 if (typeof stream.emit === 'function') {
-                  stream.emit('data', data);
+                  __exactEmitStdinChunk(stream, data);
+                } else {
+                  stream.readableLength = 0;
                 }
-                stream.readableLength = 0;
                 if (!stream._paused && !stream._ended) {
                   stream._pollTimer = setTimeout(exactPollStdin, 0);
                 }
@@ -3174,10 +3236,8 @@
           stream.read = function(size) {
             var data = globalThis.__exactStdinRead(size || 262144);
             if (data === '') return null;
-            if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
-              return Buffer.from(data, 'binary').toString(stream._encoding);
-            }
-            return data;
+            if (data === null) return null;
+            return __exactStdinChunk(stream, data, false);
           };
           if (typeof stream.on === 'function') {
             var exactStdinOn = stream.on;

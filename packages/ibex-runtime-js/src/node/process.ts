@@ -1018,8 +1018,61 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
     },
   };
   if (fd === 0) {
+    const stdinBytes = (data: any): any => {
+      if (typeof data === 'string') {
+        if (typeof Buffer !== 'undefined' && Buffer.from) {
+          return Buffer.from(data, 'binary');
+        }
+        const out = new Uint8Array(data.length);
+        for (let i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
+        return out;
+      }
+      if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+        return new Uint8Array(data);
+      }
+      if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+        return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || 0);
+      }
+      return data;
+    };
+    const stdinChunk = (data: any, flush = false): any => {
+      const bytes = stdinBytes(data);
+      if (!stream._encoding) {
+        if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(bytes);
+        return bytes;
+      }
+      if (typeof TextDecoder === 'function') {
+        try {
+          if (!stream._decoder) {
+            stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
+          }
+          return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+        } catch {
+          stream._decoder = null;
+        }
+      }
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        return Buffer.from(bytes).toString(stream._encoding);
+      }
+      return String(data || '');
+    };
+    const emitStdinChunk = (data: any) => {
+      const chunk = stdinChunk(data, false);
+      stream.readableLength += chunk?.byteLength || chunk?.length || 0;
+      stream.emit('data', chunk);
+      stream.readableLength = 0;
+    };
+    const flushStdinDecoder = () => {
+      if (!stream._encoding || !stream._decoder) return;
+      const tail = stdinChunk(new Uint8Array(0), true);
+      if (!tail) return;
+      stream.readableLength += tail.length || 0;
+      stream.emit('data', tail);
+      stream.readableLength = 0;
+    };
     stream.setEncoding = function(enc: string) {
       stream._encoding = enc;
+      stream._decoder = null;
       return stream;
     };
     stream.resume = function() {
@@ -1038,6 +1091,7 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
             return;
           }
           if (data === '') {
+            flushStdinDecoder();
             stream._ended = true;
             stream._pollTimer = 0;
             stream.readableEnded = true;
@@ -1046,13 +1100,7 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
             return;
           }
           stream._pollTimer = 0;
-          let chunk: any = data;
-          if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
-            chunk = Buffer.from(data, 'binary').toString(stream._encoding);
-          }
-          stream.readableLength += chunk.length || 0;
-          stream.emit('data', chunk);
-          stream.readableLength = 0;
+          emitStdinChunk(data);
           if (!stream._paused && !stream._ended) {
             stream._pollTimer = setTimeout(pollStdin, 10);
           }
@@ -1078,10 +1126,10 @@ function _makeProcessStream(fd: number, isTTY: boolean, writeFn?: (data: string 
       if (data === '') {
         return null;
       }
-      if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
-        return Buffer.from(data, 'binary').toString(stream._encoding);
+      if (data === null) {
+        return null;
       }
-      return data;
+      return stdinChunk(data, false);
     };
     stream.pipe = function(destination: any) {
       stream.on('data', (chunk: any) => {

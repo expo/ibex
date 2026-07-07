@@ -209,11 +209,70 @@ function _installReadableStdinFallback(proc) {
   stream.readableEnded = false;
   stream.readableFlowing = null;
   stream.readableLength = 0;
+  stream._decoder = null;
 
   stream.setEncoding = function(enc) {
     stream._encoding = enc;
+    stream._decoder = null;
     return stream;
   };
+
+  function stdinBytes(data) {
+    if (typeof data === 'string') {
+      if (typeof Buffer !== 'undefined' && Buffer.from) {
+        return Buffer.from(data, 'binary');
+      }
+      var out = new Uint8Array(data.length);
+      for (var i = 0; i < data.length; i++) out[i] = data.charCodeAt(i) & 0xff;
+      return out;
+    }
+    if (typeof ArrayBuffer !== 'undefined' && data instanceof ArrayBuffer) {
+      return new Uint8Array(data);
+    }
+    if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(data)) {
+      return new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength || 0);
+    }
+    return data;
+  }
+
+  function stdinChunk(data, flush) {
+    var bytes = stdinBytes(data);
+    if (!stream._encoding) {
+      if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(bytes);
+      return bytes;
+    }
+    if (typeof TextDecoder === 'function') {
+      try {
+        if (!stream._decoder) {
+          stream._decoder = new TextDecoder(stream._encoding === 'utf8' ? 'utf-8' : stream._encoding);
+        }
+        return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
+      } catch (_) {
+        stream._decoder = null;
+      }
+    }
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      return Buffer.from(bytes).toString(stream._encoding);
+    }
+    return String(data || '');
+  }
+
+  function emitStdinChunk(data) {
+    if (typeof stream.emit !== 'function') return;
+    var chunk = stdinChunk(data, false);
+    stream.readableLength += (chunk && (chunk.byteLength || chunk.length)) || 0;
+    stream.emit('data', chunk);
+    stream.readableLength = 0;
+  }
+
+  function flushStdinDecoder() {
+    if (!stream._encoding || !stream._decoder || typeof stream.emit !== 'function') return;
+    var tail = stdinChunk(new Uint8Array(0), true);
+    if (!tail) return;
+    stream.readableLength += tail.length || 0;
+    stream.emit('data', tail);
+    stream.readableLength = 0;
+  }
 
   stream.resume = function() {
     stream.readable = true;
@@ -228,6 +287,7 @@ function _installReadableStdinFallback(proc) {
           return;
         }
         if (data === '') {
+          flushStdinDecoder();
           stream._ended = true;
           stream._pollTimer = 0;
           stream.readableEnded = true;
@@ -238,14 +298,7 @@ function _installReadableStdinFallback(proc) {
           return;
         }
         stream._pollTimer = 0;
-        if (stream._encoding && typeof Buffer !== 'undefined' && Buffer.from) {
-          data = Buffer.from(data, 'binary').toString(stream._encoding);
-        }
-        stream.readableLength += data.length || 0;
-        if (typeof stream.emit === 'function') {
-          stream.emit('data', data);
-        }
-        stream.readableLength = 0;
+        emitStdinChunk(data);
         if (!stream._paused && !stream._ended) {
           stream._pollTimer = setTimeout(pollStdin, 0);
         }
@@ -267,10 +320,8 @@ function _installReadableStdinFallback(proc) {
   stream.read = function(size) {
     var data = __exactStdinRead(size || 262144);
     if (data === '') return null;
-    if (stream._encoding && data && typeof Buffer !== 'undefined' && Buffer.from) {
-      return Buffer.from(data, 'binary').toString(stream._encoding);
-    }
-    return data;
+    if (data === null) return null;
+    return stdinChunk(data, false);
   };
 
   var originalOn = typeof stream.on === 'function' ? stream.on : null;

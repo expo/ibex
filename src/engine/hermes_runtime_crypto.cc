@@ -5020,8 +5020,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSignalNumbers", std::move(signalNumbersFn));
 
   // --- Stdin reading ---
-  // __exactStdinRead(maxBytes) -> string or null (EOF/no data)
-  // Non-blocking read from fd 0. Returns null when no data available or EOF.
+  // __exactStdinRead(maxBytes) -> Uint8Array, "" for EOF, or null for no data.
+  // Non-blocking read from fd 0. Keep stdin byte-exact; the JS stream layers
+  // decide whether to expose Buffer chunks or stream-decode text.
   auto stdinReadFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactStdinRead"),
@@ -5042,7 +5043,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         if (flags == -1) return facebook::jsi::Value::null();
         fcntl(0, F_SETFL, flags | O_NONBLOCK);
 
-        std::vector<char> buf(maxBytes);
+        std::vector<uint8_t> buf(maxBytes);
         ssize_t nread = ::read(0, buf.data(), maxBytes);
 
         // Restore blocking mode
@@ -5061,8 +5062,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::String::createFromUtf8(runtime, "");
         }
 
-        return facebook::jsi::String::createFromUtf8(
-            runtime, reinterpret_cast<const uint8_t*>(buf.data()), nread);
+        buf.resize(static_cast<size_t>(nread));
+        return makeUint8Array(runtime, std::move(buf));
       });
   rt.global().setProperty(rt, "__exactStdinRead", std::move(stdinReadFn));
 

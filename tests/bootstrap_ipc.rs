@@ -112,6 +112,71 @@ fn run_app_env(tag: &str, app: &str, env: &[(&str, &str)], timeout: Duration) ->
     }
 }
 
+fn run_app_env_stdin(
+    tag: &str,
+    app: &str,
+    stdin_bytes: Vec<u8>,
+    env: &[(&str, &str)],
+    timeout: Duration,
+) -> AppRun {
+    let dir = unique_dir(tag);
+    write_text(&dir.join("app.js"), app);
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("run")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().expect("spawn ibex binary");
+
+    let mut child_stdin = child.stdin.take().expect("stdin pipe");
+    let writer = thread::spawn(move || {
+        let _ = child_stdin.write_all(&stdin_bytes);
+    });
+    let mut out = child.stdout.take().expect("stdout pipe");
+    let mut err = child.stderr.take().expect("stderr pipe");
+    let out_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = out.read_to_string(&mut s);
+        s
+    });
+    let err_thread = thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
+
+    let deadline = Instant::now() + timeout;
+    let mut timed_out = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    timed_out = true;
+                    break;
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(_) => break,
+        }
+    }
+    let _ = writer.join();
+
+    AppRun {
+        stdout: out_thread.join().unwrap_or_default(),
+        stderr: err_thread.join().unwrap_or_default(),
+        timed_out,
+    }
+}
+
 fn result_line<'a>(run: &'a AppRun) -> &'a str {
     assert!(
         !run.timed_out,
@@ -898,6 +963,224 @@ fn legacy_web_crypto_preserves_hmac_params_and_binary_hashes() {
         result_line(&run),
         "RESULT|1b28450642394cac2cd61bbfb2b88c6325ac0c94944091bfd1ffdd8fad6571f9|32a877ecf1da16c451665baf2bae55e3792573b48f3c9d6d4df704c53dcc5f85|SHA-256|32|SHA-512|1024",
         "legacy web crypto did not preserve HMAC metadata/raw bytes\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+#[test]
+fn legacy_web_storage_persists_utf8_values() {
+    let home = unique_dir("legacy-storage-home");
+    let home_str = home.to_str().expect("utf8 temp path");
+    let env = [
+        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
+        ("HOME", home_str),
+    ];
+
+    let writer = r#"
+localStorage.setItem('k', 'Ģ and π');
+console.log('RESULT|write|' + localStorage.length);
+process.exit(0);
+"#;
+    let write_run = run_app_env(
+        "legacy-storage-write",
+        writer,
+        &env,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&write_run),
+        "RESULT|write|1",
+        "legacy localStorage write failed\nstdout:\n{}\nstderr:\n{}",
+        write_run.stdout,
+        write_run.stderr
+    );
+
+    let reader = r#"
+console.log('RESULT|read|' + localStorage.length + '|' + localStorage.getItem('k'));
+process.exit(0);
+"#;
+    let read_run = run_app_env("legacy-storage-read", reader, &env, Duration::from_secs(30));
+    assert_eq!(
+        result_line(&read_run),
+        "RESULT|read|1|Ģ and π",
+        "legacy localStorage UTF-8 value did not round-trip\nstdout:\n{}\nstderr:\n{}",
+        read_run.stdout,
+        read_run.stderr
+    );
+}
+
+#[test]
+fn legacy_fetch_wrappers_and_fixture_globals_match_node_contracts() {
+    let app = r#"
+let bodyThrows = false;
+try {
+  new Request('http://example.test/', { body: 'x' });
+} catch (err) {
+  bodyThrows = err instanceof TypeError;
+}
+const accept = new Request('http://example.test/', {
+  headers: [['accept', 'a'], ['accept', 'b']]
+}).headers.get('accept');
+console.log('RESULT|' + [
+  bodyThrows,
+  accept,
+  typeof ok,
+  typeof failed,
+  typeof badly
+].join('|'));
+process.exit(0);
+"#;
+    let run = run_app_env(
+        "legacy-fetch-globals",
+        app,
+        LEGACY_ENV,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&run),
+        "RESULT|true|a, b|undefined|undefined|undefined",
+        "legacy Request/Header wrappers or ambient globals are wrong\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+
+    let compat_env = [
+        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
+        ("EXACT_COMPAT_TEST", "1"),
+    ];
+    let compat = r#"
+console.log('RESULT|' + [typeof ok, typeof failed, typeof badly].join('|'));
+process.exit(0);
+"#;
+    let compat_run = run_app_env(
+        "legacy-fixture-globals",
+        compat,
+        &compat_env,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&compat_run),
+        "RESULT|function|function|function",
+        "compat fixture globals were not installed under EXACT_COMPAT_TEST\nstdout:\n{}\nstderr:\n{}",
+        compat_run.stdout,
+        compat_run.stderr
+    );
+}
+
+#[test]
+fn bun_crypto_hasher_digest_without_encoding_returns_bytes() {
+    let app = r#"
+const bytes = new Bun.CryptoHasher('sha256').update('hello').digest();
+console.log('RESULT|' + [
+  bytes instanceof Uint8Array,
+  bytes.length,
+  Buffer.from(bytes).toString('hex')
+].join('|'));
+process.exit(0);
+"#;
+    let run = run_app_env("bun-hash-bytes", app, LEGACY_ENV, Duration::from_secs(30));
+    assert_eq!(
+        result_line(&run),
+        "RESULT|true|32|2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "Bun.CryptoHasher.digest() without encoding did not return raw bytes\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+#[test]
+fn legacy_stdin_data_chunks_are_buffers_with_raw_bytes() {
+    let app = r#"
+const chunks = [];
+process.stdin.on('data', (chunk) => {
+  chunks.push([
+    Buffer.isBuffer(chunk),
+    typeof chunk,
+    Buffer.from(chunk).toString('hex')
+  ].join(':'));
+});
+process.stdin.on('end', () => {
+  console.log('RESULT|' + chunks.join(','));
+  process.exit(0);
+});
+process.stdin.resume();
+"#;
+    let run = run_app_env_stdin(
+        "legacy-stdin-buffer",
+        app,
+        vec![0x80, 0xff, 0x61],
+        LEGACY_ENV,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&run),
+        "RESULT|true:object:80ff61",
+        "legacy stdin did not emit byte-exact Buffer chunks\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+#[test]
+fn legacy_stdin_set_encoding_stream_decodes_split_utf8() {
+    let app = r#"
+let text = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { text += chunk; });
+process.stdin.on('end', () => {
+  let replacements = 0;
+  for (const ch of text) if (ch === '�') replacements++;
+  console.log('RESULT|' + text.length + '|' + text.slice(-1) + '|repl=' + replacements);
+  process.exit(0);
+});
+process.stdin.resume();
+"#;
+    let mut input = vec![b'a'; 262143];
+    input.push(0xcf);
+    input.push(0x80);
+    let run = run_app_env_stdin(
+        "legacy-stdin-utf8-split",
+        app,
+        input,
+        LEGACY_ENV,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&run),
+        "RESULT|262144|π|repl=0",
+        "legacy stdin setEncoding('utf8') corrupted a split multibyte sequence\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+#[test]
+fn web_streams_polyfill_exports_install_when_enabled() {
+    let env = [
+        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
+        ("EX_WEB_STREAMS_POLYFILL", "1"),
+    ];
+    let app = r#"
+console.log('RESULT|' + [
+  typeof WebStreamsPolyfill,
+  typeof WebStreamsPolyfill.ReadableStream,
+  typeof ReadableStream,
+  typeof TransformStream,
+  typeof WritableStream
+].join('|'));
+process.exit(0);
+"#;
+    let run = run_app_env(
+        "legacy-web-streams-polyfill",
+        app,
+        &env,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&run),
+        "RESULT|object|function|function|function|function",
+        "web streams polyfill did not expose expected globals\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );

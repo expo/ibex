@@ -14,6 +14,36 @@
       : "undefined" != typeof global
         ? global
         : Function("return this")();
+  var polyfillExports = globalObject && globalObject.WebStreamsPolyfill;
+  if (polyfillExports) {
+    [
+      "ReadableStream",
+      "ReadableStreamDefaultReader",
+      "ReadableStreamBYOBReader",
+      "ReadableStreamBYOBRequest",
+      "ReadableStreamDefaultController",
+      "ReadableByteStreamController",
+      "WritableStream",
+      "WritableStreamDefaultWriter",
+      "WritableStreamDefaultController",
+      "TransformStream",
+      "TransformStreamDefaultController",
+      "ByteLengthQueuingStrategy",
+      "CountQueuingStrategy"
+    ].forEach(function (name) {
+      if (typeof globalObject[name] === "undefined" && typeof polyfillExports[name] !== "undefined") {
+        try {
+          Object.defineProperty(globalObject, name, {
+            value: polyfillExports[name],
+            writable: true,
+            configurable: true
+          });
+        } catch (_) {
+          globalObject[name] = polyfillExports[name];
+        }
+      }
+    });
+  }
   if (!globalObject || typeof globalObject.ReadableStream !== "function") {
     return;
   }

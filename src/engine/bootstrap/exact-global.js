@@ -2408,15 +2408,15 @@
       var joined = exactConcatHashChunks(this._chunks);
       if (typeof g.__exactHashSync === 'function') {
         var hex = g.__exactHashSync(this._algo, joined);
-        if (!encoding || encoding === 'hex') return hex;
-        if (encoding === 'base64') {
-          var bytes = []; for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
-          if (typeof btoa === 'function') { var s = ''; for (var j = 0; j < bytes.length; j++) s += String.fromCharCode(bytes[j]); return btoa(s); }
-        }
         if (!encoding) {
           var b = new Uint8Array(hex.length / 2);
           for (var k = 0; k < hex.length; k += 2) b[k / 2] = parseInt(hex.substr(k, 2), 16);
           return b;
+        }
+        if (encoding === 'hex') return hex;
+        if (encoding === 'base64') {
+          var bytes = []; for (var i = 0; i < hex.length; i += 2) bytes.push(parseInt(hex.substr(i, 2), 16));
+          if (typeof btoa === 'function') { var s = ''; for (var j = 0; j < bytes.length; j++) s += String.fromCharCode(bytes[j]); return btoa(s); }
         }
         return hex;
       }
