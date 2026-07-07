@@ -216,3 +216,39 @@ async fn native_response_destroy_before_headers_unblocks_the_client() {
          never a success: {parsed}"
     );
 }
+
+#[tokio::test]
+async fn native_request_destroy_aborts_the_paired_response() {
+    // Native-mode requests do not have a real net.Socket, so req.destroy() must
+    // still find the paired ServerResponse and drive its abort path. Before
+    // ENG-23294 the response pipe stayed parked until the host request timeout.
+    let script = scenario_script(
+        r#"  res.writeHead(200);
+  res.write('partial-before-req-destroy');
+  setTimeout(function() { req.destroy(); }, 30);"#,
+        "/req-destroy",
+    );
+
+    let parsed = run_script(&script, 40).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "client must not hang on a leaked native response pipe: {parsed}"
+    );
+    assert_eq!(
+        parsed["native"],
+        Value::Bool(true),
+        "server should be on the native __exactHttpServe transport: {parsed}"
+    );
+    let evs = events(&parsed);
+    assert!(
+        !evs.iter().any(|e| e == "res-end"),
+        "req.destroy() must not let the paired native response finish cleanly: {parsed}"
+    );
+    assert!(
+        evs.iter().any(|e| e == "res-aborted"
+            || e.starts_with("res-error:")
+            || e.starts_with("req-error:")),
+        "client should observe req.destroy() as a broken transfer: {parsed}"
+    );
+}

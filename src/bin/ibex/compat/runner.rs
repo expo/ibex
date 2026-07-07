@@ -1251,8 +1251,27 @@ fn start_wpt_server(compat_dir: &Path) -> Result<(std::process::Child, WptServer
         );
     };
 
-    let config = config.unwrap_or_else(|| WptServerConfig::fallback(port));
+    let config = config.unwrap_or_else(|| {
+        let tail = crate::compat::lock_or_recover(&stderr_tail)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        if tail.is_empty() {
+            eprintln!(
+                "[wpt-server] Warning: wpt-server.py reported port {port} but no WPT_SERVER_CONFIG; using fallback config"
+            );
+        } else {
+            eprintln!(
+                "[wpt-server] Warning: wpt-server.py reported port {port} but no WPT_SERVER_CONFIG; using fallback config. Recent stderr:\n{tail}"
+            );
+        }
+        WptServerConfig::fallback(port)
+    });
     if config.primary_url.is_empty() {
+        eprintln!(
+            "[wpt-server] Warning: wpt-server.py reported an empty primary_url; using fallback config for port {port}"
+        );
         return Ok((child, WptServerConfig::fallback(port)));
     }
 

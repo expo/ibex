@@ -72,12 +72,15 @@ pub fn discover_tests(
         }
     }
 
-    // If --test filters provided, keep only tests whose ID or name matches any filter
+    // If --test filters provided, keep tests whose ID, name, module, or path
+    // matches any filter. WPT file names and discovered IDs often differ only
+    // by case or directory spelling; matching case-insensitively keeps the
+    // targeted compat workflow from reporting zero tests for visible IDs.
     if !opts.test_filter.is_empty() {
         tests.retain(|t| {
             opts.test_filter
                 .iter()
-                .any(|f| t.id.contains(f.as_str()) || t.name.contains(f.as_str()))
+                .any(|f| test_matches_filter(t, f.as_str()))
         });
     }
 
@@ -91,6 +94,22 @@ pub fn discover_tests(
     apply_expectation_statuses(compat_dir, &mut tests, opts.timeout)?;
 
     Ok(TestPlan { tests })
+}
+
+fn test_matches_filter(test: &TestEntry, filter: &str) -> bool {
+    let filter = filter.to_lowercase();
+    if filter.is_empty() {
+        return true;
+    }
+    let path = test.file_path.to_string_lossy();
+    [
+        test.id.as_str(),
+        test.name.as_str(),
+        test.module.as_str(),
+        path.as_ref(),
+    ]
+    .iter()
+    .any(|candidate| candidate.to_lowercase().contains(&filter))
 }
 
 fn apply_expectation_statuses(
