@@ -2190,6 +2190,421 @@ describe('ENG-23134: failed upgrades do not leak SQLite handles', () => {
     await txDone(wtx);
     expect(await reqDone(db.transaction('s', 'readonly').objectStore('s').get('k'))).toBe('v');
     db.close();
+    // The read transaction commits when control returns to the event loop
+    // (spec lifecycle, ENG-23446); the handle refcount-closes after that.
+    await flush();
     expect(counts.closes).toBe(4);
+  });
+});
+
+// ===========================================================================
+// ENG-23446 — transaction/connection lifecycle & API-contract fixes.
+// ===========================================================================
+
+describe('ENG-23446: await-chained transactions (idb/Dexie pattern)', () => {
+  test('a transaction stays active across awaited request continuations', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'aw1', 1, (d) => d.createObjectStore('s'));
+
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    // Pre-fix the transaction auto-committed at the microtask boundary of the
+    // first request's dispatch, so the second put threw
+    // TransactionInactiveError. This is the exact idb/Dexie usage shape.
+    expect(await reqDone(store.put('a', 'k1'))).toBe('k1');
+    expect(await reqDone(store.put('b', 'k2'))).toBe('k2');
+    // Read-your-writes inside the same transaction, after awaits.
+    expect(await reqDone(store.get('k1'))).toBe('a');
+    expect(await reqDone(store.put('c', 'k3'))).toBe('k3');
+    expect(await txSettled(tx)).toBe('complete');
+
+    const out = await reqDone(db.transaction('s', 'readonly').objectStore('s').getAll());
+    expect(out).toEqual(['a', 'b', 'c']);
+    db.close();
+  });
+
+  test('plain microtask gaps (await Promise.resolve()) do not deactivate the transaction', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'aw2', 1, (d) => d.createObjectStore('s'));
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').put('a', 'k1');
+    await Promise.resolve();
+    await Promise.resolve();
+    tx.objectStore('s').put('b', 'k2');
+    expect(await txSettled(tx)).toBe('complete');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(2);
+    db.close();
+  });
+
+  test('awaited cursor iteration works across continuations', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'aw3', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    for (let i = 0; i < 5; i++) wtx.objectStore('s').put(`v${i}`, `k${i}`);
+    await txDone(wtx);
+
+    // The common promisified-cursor loop: each iteration awaits the request,
+    // then calls continue() from the continuation.
+    const tx = db.transaction('s', 'readonly');
+    const req = tx.objectStore('s').openCursor();
+    const seen: string[] = [];
+    let cursor: any = await reqDone(req);
+    while (cursor) {
+      seen.push(cursor.value);
+      cursor.continue();
+      cursor = await reqDone(req);
+    }
+    expect(seen).toEqual(['v0', 'v1', 'v2', 'v3', 'v4']);
+    db.close();
+  });
+
+  test('a real task boundary still deactivates and auto-commits the transaction', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'aw4', 1, (d) => d.createObjectStore('s'));
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    store.put('a', 'k1');
+    await flush(); // setTimeout(0): control returned to the event loop
+    let err: any;
+    try {
+      store.put('b', 'k2');
+    } catch (e) { err = e; }
+    expect(err?.name).toBe('TransactionInactiveError');
+    // And objectStore() on the finished transaction is an InvalidStateError.
+    let err2: any;
+    try { tx.objectStore('s'); } catch (e) { err2 = e; }
+    expect(err2?.name).toBe('InvalidStateError');
+    // The first write committed.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+
+  test('commit() refuses subsequent requests and commits the accepted ones', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'aw5', 1, (d) => d.createObjectStore('s'));
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').put('a', 'k1');
+    tx.commit();
+    let err: any;
+    try { tx.objectStore('s').put('b', 'k2'); } catch (e) { err = e; }
+    expect(err?.name).toBe('TransactionInactiveError');
+    expect(await txSettled(tx)).toBe('complete');
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(1);
+    db.close();
+  });
+
+  test('await-chained requests during upgradeneeded stay in the versionchange transaction', async () => {
+    const factory = makeFactory();
+    const db = await new Promise<any>((resolve, reject) => {
+      const req = factory.open('aw6', 1);
+      req.onupgradeneeded = async (e: any) => {
+        const store = e.target.result.createObjectStore('s');
+        await reqDone(store.put('seed1', 'a'));
+        await reqDone(store.put('seed2', 'b')); // pre-fix: upgrade had already committed
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    expect(db.version).toBe(1);
+    const out = await reqDone(db.transaction('s', 'readonly').objectStore('s').getAll());
+    expect(out).toEqual(['seed1', 'seed2']);
+    db.close();
+  });
+});
+
+describe('ENG-23446: close() with an in-flight transaction (finding 2 regression)', () => {
+  test('writes issued before close() commit, fire complete, and persist', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'cl1', 1, (d) => d.createObjectStore('s'));
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').put('v', 'k');
+    db.close(); // must not yank the SQLite handle from under the transaction
+    expect(await txSettled(tx)).toBe('complete');
+
+    const db2 = await openDb(factory, 'cl1', undefined);
+    expect(await reqDone(db2.transaction('s', 'readonly').objectStore('s').get('k'))).toBe('v');
+    db2.close();
+  });
+});
+
+describe('ENG-23446: upgradeneeded via addEventListener (finding 3)', () => {
+  test('listeners registered with addEventListener fire and can create the schema', async () => {
+    const factory = makeFactory();
+    const db = await new Promise<any>((resolve, reject) => {
+      const req = factory.open('ael1', 1);
+      req.addEventListener('upgradeneeded', (e: any) => {
+        e.target.result.createObjectStore('s');
+      });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    expect(db.objectStoreNames.contains('s')).toBe(true);
+    // The store is really there.
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').put('v', 'k');
+    expect(await txSettled(tx)).toBe('complete');
+    db.close();
+  });
+
+  test('a throwing upgradeneeded listener aborts the upgrade like a throwing handler', async () => {
+    const factory = makeFactory();
+    let err: any;
+    try {
+      await new Promise<any>((resolve, reject) => {
+        const req = factory.open('ael2', 1);
+        req.addEventListener('upgradeneeded', () => { throw new Error('listener boom'); });
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error ?? new Error('open failed'));
+      });
+    } catch (e) { err = e; }
+    expect(err).toBeDefined();
+    // Retry works (nothing half-committed).
+    const db = await openDb(factory, 'ael2', 1, (d) => d.createObjectStore('s'));
+    expect(db.objectStoreNames.contains('s')).toBe(true);
+    db.close();
+  });
+});
+
+describe('ENG-23446: error/abort events bubble to the connection (finding 4)', () => {
+  test('a failed request fires db.onerror and an un-prevented error aborts (db.onabort fires)', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'bub1', 1, (d) => d.createObjectStore('s'));
+
+    const dbErrors: string[] = [];
+    const dbAborts: string[] = [];
+    db.onerror = (e: any) => { dbErrors.push(e.target.error?.name); };
+    db.onabort = (e: any) => { dbAborts.push(e.type); };
+
+    const tx = db.transaction('s', 'readwrite');
+    tx.objectStore('s').add('first', 'k');
+    tx.objectStore('s').add('dup', 'k'); // ConstraintError, unhandled
+    expect(await txSettled(tx)).toBe('abort');
+    expect(dbErrors).toEqual(['ConstraintError']);
+    expect(dbAborts).toEqual(['abort']);
+    // The whole transaction rolled back.
+    expect(await reqDone<number>(db.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db.close();
+  });
+});
+
+describe('ENG-23446: key generator bounds (finding 6)', () => {
+  test('the generator refuses to run past 2^53 with ConstraintError instead of silently overwriting', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'gen1', 1, (d) => d.createObjectStore('s', { autoIncrement: true }));
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    // Push the generator to its ceiling via an explicit key.
+    await reqDone(store.put('near-max', 2 ** 53 - 1));
+    expect(await reqDone(store.add('max'))).toBe(2 ** 53); // last valid generated key
+    // Pre-fix: += 1 was a float no-op at 2^53 and this silently overwrote key
+    // 2^53 forever. Now the generation step fails with ConstraintError.
+    const failing = store.add('beyond');
+    let err: any;
+    failing.onerror = (e: any) => { err = failing.error; e.preventDefault(); };
+    await new Promise<void>((r) => { failing.onsuccess = () => r(); failing.onerror = (e: any) => { err = failing.error; e.preventDefault(); r(); }; });
+    expect(err?.name).toBe('ConstraintError');
+    db.close();
+  });
+});
+
+describe('ENG-23446: transaction() argument validation (finding 7)', () => {
+  test('an empty scope throws InvalidAccessError; objectStoreNames is a DOMStringList', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'val1', 1, (d) => {
+      d.createObjectStore('a');
+      d.createObjectStore('b');
+    });
+    let err: any;
+    try { db.transaction([]); } catch (e) { err = e; }
+    expect(err?.name).toBe('InvalidAccessError');
+
+    const tx = db.transaction(['b', 'a', 'a']); // duplicates dedupe
+    expect(Array.from(tx.objectStoreNames)).toEqual(['a', 'b']);
+    expect(tx.objectStoreNames.contains('a')).toBe(true);
+    expect(tx.objectStoreNames.contains('zzz')).toBe(false);
+    expect(tx.objectStoreNames.item(0)).toBe('a');
+    db.close();
+  });
+});
+
+describe('ENG-23446: versionchange/blocked lifecycle (finding 9)', () => {
+  test('deleteDatabase fires versionchange + blocked and waits for connections to close', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'del1', 1, (d) => d.createObjectStore('s'));
+    const seed = db.transaction('s', 'readwrite');
+    seed.objectStore('s').put('v', 'k');
+    await txDone(seed);
+
+    const events: string[] = [];
+    db.onversionchange = (e: any) => {
+      events.push(`versionchange:${e.oldVersion}->${String(e.newVersion)}`);
+      // Deliberately do NOT close here, so the request must go through blocked.
+    };
+
+    const delReq = factory.deleteDatabase('del1');
+    let deleted = false;
+    const deletedPromise = new Promise<void>((resolve, reject) => {
+      delReq.onsuccess = () => { deleted = true; resolve(); };
+      delReq.onerror = () => reject(delReq.error);
+    });
+    delReq.onblocked = () => events.push('blocked');
+
+    await flush();
+    expect(events).toEqual(['versionchange:1->null', 'blocked']);
+    expect(deleted).toBe(false); // still waiting on the open connection
+
+    db.close();
+    await deletedPromise;
+    expect(deleted).toBe(true);
+
+    // The database is really gone: reopening upgrades from version 0.
+    let sawUpgrade: any = null;
+    const db2 = await new Promise<any>((resolve, reject) => {
+      const req = factory.open('del1', 1);
+      req.onupgradeneeded = (e: any) => { sawUpgrade = e.oldVersion; e.target.result.createObjectStore('s'); };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    expect(sawUpgrade).toBe(0);
+    expect(await reqDone<number>(db2.transaction('s', 'readonly').objectStore('s').count())).toBe(0);
+    db2.close();
+  });
+
+  test('a version upgrade over a live connection fires versionchange and proceeds once it closes', async () => {
+    const factory = makeFactory();
+    const db1 = await openDb(factory, 'upgblock', 1, (d) => d.createObjectStore('s'));
+
+    // The standard pattern: the old connection closes itself on versionchange.
+    const events: string[] = [];
+    db1.onversionchange = (e: any) => {
+      events.push(`versionchange:${e.oldVersion}->${e.newVersion}`);
+      db1.close();
+    };
+
+    const db2 = await new Promise<any>((resolve, reject) => {
+      const req = factory.open('upgblock', 2);
+      req.onupgradeneeded = (e: any) => e.target.result.createObjectStore('extra');
+      req.onblocked = () => events.push('blocked');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    expect(db2.version).toBe(2);
+    expect(db2.objectStoreNames.contains('extra')).toBe(true);
+    expect(events).toEqual(['versionchange:1->2']); // closed promptly: never blocked
+    db2.close();
+  });
+
+  test('a version upgrade blocked by a lingering connection completes after it finally closes', async () => {
+    const factory = makeFactory();
+    const db1 = await openDb(factory, 'upgblock2', 1, (d) => d.createObjectStore('s'));
+    const events: string[] = [];
+    db1.onversionchange = () => events.push('versionchange'); // does not close
+
+    let db2: any = null;
+    const opened = new Promise<void>((resolve, reject) => {
+      const req = factory.open('upgblock2', 2);
+      req.onupgradeneeded = (e: any) => e.target.result.createObjectStore('extra');
+      req.onblocked = () => events.push('blocked');
+      req.onsuccess = () => { db2 = req.result; resolve(); };
+      req.onerror = () => reject(req.error);
+    });
+
+    await flush();
+    expect(events).toEqual(['versionchange', 'blocked']);
+    expect(db2).toBeNull(); // upgrade waiting
+
+    db1.close();
+    await opened;
+    expect(db2.version).toBe(2);
+    db2.close();
+  });
+});
+
+describe('ENG-23446: cursor & key-range validation (finding 11)', () => {
+  test('continue()/advance() on an exhausted cursor throw InvalidStateError', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'cur1', 1, (d) => d.createObjectStore('s'));
+    const wtx = db.transaction('s', 'readwrite');
+    wtx.objectStore('s').put('v', 'k');
+    await txDone(wtx);
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('s', 'readonly');
+      const req = tx.objectStore('s').openCursor();
+      let cursor: any = null;
+      let steps = 0;
+      req.onsuccess = () => {
+        steps++;
+        if (req.result) {
+          cursor = req.result;
+          cursor.continue();
+        } else {
+          // Exhausted: further movement must throw, not resurrect the cursor.
+          try {
+            expect(() => cursor.continue()).toThrow();
+            try { cursor.continue(); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+            try { cursor.advance(1); } catch (e: any) { expect(e.name).toBe('InvalidStateError'); }
+            expect(steps).toBe(2);
+            resolve();
+          } catch (e) { reject(e); }
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+  });
+
+  test('IDBKeyRange validates its keys and rejects empty open intervals', () => {
+    expect(() => IDBKeyRange.only({} as any)).toThrow();
+    try { IDBKeyRange.only(null as any); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    try { IDBKeyRange.lowerBound(true as any); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    try { IDBKeyRange.bound(1, 1, true, false); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    try { IDBKeyRange.bound(1, 1, false, true); } catch (e: any) { expect(e.name).toBe('DataError'); }
+    // Closed equal bounds are fine (only()-shaped).
+    expect(IDBKeyRange.bound(1, 1).includes(1)).toBe(true);
+  });
+
+  test('getAll/count/openCursor with an invalid (non-null) query throw DataError synchronously', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'cur2', 1, (d) => {
+      const s = d.createObjectStore('s');
+      s.createIndex('byV', 'v');
+    });
+    const tx = db.transaction('s', 'readonly');
+    const store = tx.objectStore('s');
+    for (const call of [
+      () => store.getAll(true),
+      () => store.getAllKeys({}),
+      () => store.count(true),
+      () => store.openCursor(false),
+      () => store.openKeyCursor({}),
+      () => store.index('byV').getAll(true),
+      () => store.index('byV').count(true),
+      () => store.index('byV').openCursor(false),
+    ]) {
+      let err: any;
+      try { call(); } catch (e) { err = e; }
+      expect(err?.name).toBe('DataError');
+    }
+    db.close();
+  });
+});
+
+describe('ENG-23446: generated keys are injected into the clone (finding 12)', () => {
+  test("add() does not mutate the caller's object; the stored record has the key", async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'clone1', 1, (d) =>
+      d.createObjectStore('s', { keyPath: 'id', autoIncrement: true }));
+    const tx = db.transaction('s', 'readwrite');
+    const original: any = { v: 1, nested: { deep: true } };
+    const key = await reqDone(tx.objectStore('s').add(original));
+    expect(key).toBe(1);
+    expect('id' in original).toBe(false); // caller's object untouched
+    expect(await txSettled(tx)).toBe('complete');
+
+    const stored: any = await reqDone(db.transaction('s', 'readonly').objectStore('s').get(1));
+    expect(stored.id).toBe(1); // clone got the generated key
+    expect(stored.v).toBe(1);
+    db.close();
   });
 });

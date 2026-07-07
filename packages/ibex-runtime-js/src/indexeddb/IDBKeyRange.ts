@@ -41,6 +41,7 @@ export class IDBKeyRange {
    * Creates a key range with only a lower bound.
    */
   static lowerBound(lower: any, open = false): IDBKeyRange {
+    assertValidRangeKey(lower);
     return new IDBKeyRange(lower, undefined, open, true);
   }
 
@@ -48,6 +49,7 @@ export class IDBKeyRange {
    * Creates a key range with only an upper bound.
    */
   static upperBound(upper: any, open = false): IDBKeyRange {
+    assertValidRangeKey(upper);
     return new IDBKeyRange(undefined, upper, true, open);
   }
 
@@ -55,8 +57,20 @@ export class IDBKeyRange {
    * Creates a key range with both lower and upper bounds.
    */
   static bound(lower: any, upper: any, lowerOpen = false, upperOpen = false): IDBKeyRange {
-    if (compareKeys(lower, upper) > 0) {
+    assertValidRangeKey(lower);
+    assertValidRangeKey(upper);
+    const cmp = compareKeys(lower, upper);
+    if (cmp > 0) {
       throw new DOMException('lower is greater than upper', 'DataError');
+    }
+    // Spec: equal bounds with either end open describe an empty (invalid)
+    // interval — DataError. Previously bound(x, x, true, false) was accepted
+    // and silently matched nothing. (ENG-23446)
+    if (cmp === 0 && (lowerOpen || upperOpen)) {
+      throw new DOMException(
+        'The lower and upper bounds are equal and one of them is open.',
+        'DataError',
+      );
     }
     return new IDBKeyRange(lower, upper, lowerOpen, upperOpen);
   }
@@ -65,7 +79,17 @@ export class IDBKeyRange {
    * Creates a key range containing a single key value.
    */
   static only(value: any): IDBKeyRange {
+    // Spec: DataError for invalid keys — previously only({}) built a garbage
+    // range. (ENG-23446)
+    assertValidRangeKey(value);
     return new IDBKeyRange(value, value, false, false);
+  }
+}
+
+/** @internal - DataError unless `v` is a valid IndexedDB key. (ENG-23446) */
+function assertValidRangeKey(v: any): void {
+  if (!isValidKey(v)) {
+    throw new DOMException('The parameter is not a valid key.', 'DataError');
   }
 }
 

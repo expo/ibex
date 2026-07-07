@@ -45,6 +45,25 @@ export function makeDOMStringList(names: string[]): string[] & { contains(name: 
 }
 
 /**
+ * Schedule `fn` as a TASK (macrotask) — i.e. after the entire microtask queue
+ * has drained. Transaction deactivation must happen at task granularity, not
+ * microtask granularity: promise continuations (`await request`) queued while
+ * a request's success/error event dispatches run as microtasks, and per the
+ * IndexedDB + HTML specs they must still observe an ACTIVE transaction — the
+ * idb/Dexie `await tx.store.put(a); await tx.store.put(b)` pattern relies on
+ * it. Falls back to queueMicrotask when no timer API exists, which degrades to
+ * microtask-boundary deactivation rather than breaking outright. (ENG-23446)
+ */
+export function enqueueTask(fn: () => void): void {
+  const g = globalThis as any;
+  if (typeof g.setTimeout === 'function') {
+    g.setTimeout(fn, 0);
+    return;
+  }
+  queueMicrotask(fn);
+}
+
+/**
  * LEGACY name sanitizer. Folds every non-`[a-zA-Z0-9_]` character to `_`,
  * which is LOSSY: "user-data" and "user_data" (or, since SQLite identifiers
  * are ASCII case-insensitive, "Settings" and "settings") collapsed onto one

@@ -88,14 +88,14 @@ export class IDBObjectStore {
     request.transaction = this._transaction;
     this._transaction._enqueueOp(request, () => {
       try {
-        const resolvedKey = this._resolveKey(value, key);
+        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(value, key);
         if (this._hasRecord(resolvedKey)) {
           throw new DOMException(
             `A record with key ${JSON.stringify(resolvedKey)} already exists`,
             'ConstraintError',
           );
         }
-        this._putRecord(resolvedKey, value);
+        this._putRecord(resolvedKey, storedValue);
         request._resolve(resolvedKey);
       } catch (e: any) {
         request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
@@ -123,8 +123,8 @@ export class IDBObjectStore {
     request.transaction = this._transaction;
     this._transaction._enqueueOp(request, () => {
       try {
-        const resolvedKey = this._resolveKey(value, key);
-        this._putRecord(resolvedKey, value);
+        const { key: resolvedKey, value: storedValue } = this._resolveKeyAndValue(value, key);
+        this._putRecord(resolvedKey, storedValue);
         request._resolve(resolvedKey);
       } catch (e: any) {
         request._reject(e instanceof DOMException ? e : new DOMException(e.message, 'DataError'));
@@ -204,6 +204,7 @@ export class IDBObjectStore {
    */
   getAll(query?: any, count?: number): IDBRequest {
     this._transaction._assertActive();
+    this._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -231,6 +232,7 @@ export class IDBObjectStore {
    */
   getAllKeys(query?: any, count?: number): IDBRequest {
     this._transaction._assertActive();
+    this._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -319,6 +321,7 @@ export class IDBObjectStore {
    */
   count(query?: any): IDBRequest {
     this._transaction._assertActive();
+    this._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -426,6 +429,7 @@ export class IDBObjectStore {
    */
   openCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
     this._transaction._assertActive();
+    this._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -456,6 +460,7 @@ export class IDBObjectStore {
    */
   openKeyCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
     this._transaction._assertActive();
+    this._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._transaction;
@@ -587,6 +592,20 @@ export class IDBObjectStore {
   }
 
   /**
+   * @internal - Validate a getAll/getAllKeys/count/openCursor query argument:
+   * null/undefined selects the whole store, but anything else must be a key
+   * range or a valid key — spec throws DataError synchronously (previously
+   * e.g. openCursor(true) built a garbage range and silently matched
+   * nothing). (ENG-23446)
+   */
+  _validateQuery(query: any): void {
+    if (query === undefined || query === null) return;
+    if (!(query instanceof IDBKeyRange) && !isValidKey(query)) {
+      throw new DOMException('The parameter is not a valid key.', 'DataError');
+    }
+  }
+
+  /**
    * @internal - Normalize a get/getAll/openCursor query argument into an
    * IDBKeyRange, or null when the query selects the whole store.
    */
@@ -636,8 +655,14 @@ export class IDBObjectStore {
     return { sql, params };
   }
 
-  /** @internal */
-  _resolveKey(value: any, explicitKey?: any): any {
+  /**
+   * @internal - Resolve the record's key and the value to store. When the key
+   * generator supplies the key for an in-line-key store, the key is injected
+   * into a structured CLONE of the value — per spec the injection happens on
+   * the clone, so the caller's object is never mutated (previously
+   * `store.add(o)` left `o.id` set afterwards). (ENG-23446)
+   */
+  _resolveKeyAndValue(value: any, explicitKey?: any): { key: any; value: any } {
     if (explicitKey !== undefined) {
       if (!isValidKey(explicitKey)) {
         throw new DOMException('The parameter is not a valid key.', 'DataError');
@@ -646,7 +671,7 @@ export class IDBObjectStore {
         this._db._noteExplicitKey(this.name, explicitKey);
       }
       // Binary keys resolve to their canonical (ArrayBuffer) form. (ENG-23134)
-      return canonicalizeKey(explicitKey);
+      return { key: canonicalizeKey(explicitKey), value };
     }
     if (this.keyPath !== null) {
       const key = extractKeyPath(value, this.keyPath);
@@ -657,16 +682,19 @@ export class IDBObjectStore {
         if (this.autoIncrement) {
           this._db._noteExplicitKey(this.name, key);
         }
-        return canonicalizeKey(key);
+        return { key: canonicalizeKey(key), value };
       }
     }
     if (this.autoIncrement) {
       const newKey = this._db._nextAutoIncrement(this.name, this._tableName);
-      // If keyPath exists, set the generated key on the value
+      // If keyPath exists, set the generated key on a structured clone of the
+      // value (never on the caller's object).
       if (this.keyPath !== null && typeof this.keyPath === 'string' && typeof value === 'object' && value !== null) {
-        setKeyPath(value, this.keyPath, newKey);
+        const clone = deserializeValue(serializeValue(value));
+        setKeyPath(clone, this.keyPath, newKey);
+        return { key: newKey, value: clone };
       }
-      return newKey;
+      return { key: newKey, value };
     }
     throw new DOMException(
       'No key provided and no keyPath or autoIncrement configured',

@@ -96,6 +96,22 @@ export class IDBRequest<T = any> {
   }
 
   /**
+   * @internal - Invoke addEventListener listeners for `type`, letting
+   * exceptions PROPAGATE to the caller. Used by IDBFactory to dispatch
+   * upgradeneeded/blocked to listeners registered via addEventListener —
+   * previously only the `onupgradeneeded` property was ever invoked, so
+   * addEventListener('upgradeneeded', ...) schemas were silently never
+   * created. A throwing upgradeneeded listener aborts the upgrade exactly
+   * like a throwing onupgradeneeded property handler. (ENG-23446)
+   */
+  _invokeListeners(type: string, event: any): void {
+    const list = this._listeners[type];
+    if (list) {
+      for (const fn of [...list]) fn(event);
+    }
+  }
+
+  /**
    * @internal - Build a cancelable error event. preventDefault() is how a
    * handler opts OUT of the spec's default behavior of aborting the whole
    * transaction when a request fails. (ENG-23117)

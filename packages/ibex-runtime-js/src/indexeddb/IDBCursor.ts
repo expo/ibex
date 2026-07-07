@@ -97,6 +97,11 @@ export class IDBCursor {
   continue(key?: any): void {
     const tx = this._request.transaction;
     if (tx && tx._assertActive) tx._assertActive();
+    // Spec: InvalidStateError once the cursor has iterated past its end (got
+    // value flag unset) — previously continue() re-fetched from the last
+    // bookmark and could "resurrect" an exhausted cursor when rows were
+    // inserted behind it. (ENG-23446)
+    this._assertGotValue();
     if (key !== undefined) {
       // Spec: DataError for an invalid key, and for a key at or behind the
       // cursor's position (previously this silently acted like continue()).
@@ -133,6 +138,8 @@ export class IDBCursor {
     }
     const tx = this._request.transaction;
     if (tx && tx._assertActive) tx._assertActive();
+    // Spec: InvalidStateError once the cursor is past its end. (ENG-23446)
+    this._assertGotValue();
     this._position += count;
     // Page across batches until the target position lands inside a batch or
     // the stream is exhausted. (ENG-23016)
@@ -149,6 +156,16 @@ export class IDBCursor {
       this._position = overflow;
     }
     this._resolvePosition();
+  }
+
+  /** @internal - Throw InvalidStateError when the cursor is not on a record. */
+  private _assertGotValue(): void {
+    if (!this._gotValue) {
+      throw new DOMException(
+        'The cursor is being iterated or has iterated past its end.',
+        'InvalidStateError',
+      );
+    }
   }
 
   /**

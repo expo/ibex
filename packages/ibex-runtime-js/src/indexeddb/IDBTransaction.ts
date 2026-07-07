@@ -21,7 +21,7 @@
  */
 
 import { IDBObjectStore } from './IDBObjectStore';
-import { DOMException } from './utils';
+import { DOMException, enqueueTask, makeDOMStringList } from './utils';
 
 export type IDBTransactionMode = 'readonly' | 'readwrite' | 'versionchange';
 
@@ -35,13 +35,45 @@ export class IDBTransaction {
   private _error: DOMException | null = null;
   /**
    * @internal - Lifecycle state.
-   *  - `active`: operations may be issued (during the creating task and while a
-   *     bound request is dispatching its success/error event).
-   *  - `inactive`: control has returned to the event loop; issuing an operation
+   *  - `active`: operations may be issued (during the task that created the
+   *     transaction or dispatched one of its request events, AND during any
+   *     microtasks that task queued — awaited request continuations must still
+   *     see an active transaction, per the idb/Dexie pattern).
+   *  - `inactive`: control has returned to the event loop (a full TASK
+   *     boundary, after the microtask queue drained); issuing an operation
    *     throws TransactionInactiveError until a bound event reactivates it.
    *  - `finished`: committed or aborted; terminal.
+   * (ENG-23446)
    */
   _state: 'active' | 'inactive' | 'finished' = 'active';
+  /**
+   * @internal - Depth of request success/error event dispatches currently on
+   * the stack. Deactivation is suppressed while a dispatch is in progress.
+   */
+  private _dispatchDepth = 0;
+  /** @internal - A deactivation task is already queued. */
+  private _deactivatePending = false;
+  /**
+   * @internal - commit() was called: no further requests may be issued, and
+   * the transaction commits as soon as its in-flight requests drain (without
+   * waiting for the deactivation task).
+   */
+  private _commitRequested = false;
+  /**
+   * @internal - Runs inside the SQLite transaction immediately before COMMIT.
+   * Used by versionchange upgrades to persist the version bump atomically
+   * with the schema changes. (ENG-23446)
+   */
+  _beforeCommit: (() => void) | null = null;
+  /**
+   * @internal - Invoked exactly once when the transaction reaches a terminal
+   * state, after its complete/abort event handlers have run:
+   * `(committed, error)`. Used by IDBFactory.open to settle the open request
+   * once the versionchange transaction finishes. (ENG-23446)
+   */
+  _onFinished: ((committed: boolean, error: any) => void) | null = null;
+  /** @internal - _onFinished has already fired. */
+  private _finishedNotified = false;
   /**
    * @internal - Count of requests bound to this transaction whose success/error
    * event has been scheduled but not yet finished dispatching. The transaction
@@ -90,14 +122,13 @@ export class IDBTransaction {
     if (mode !== 'versionchange') {
       db._scheduleTransaction(this);
 
-      // A readonly/readwrite transaction is active for the duration of the task
-      // that created it, then goes inactive at the microtask checkpoint. Each
-      // bound request reactivates it while its event handler runs. Auto-commit
-      // fires once it is idle (no in-flight requests) and no longer active.
-      queueMicrotask(() => {
-        if (this._state === 'active') this._state = 'inactive';
-        this._maybeAutoCommit();
-      });
+      // A readonly/readwrite transaction is active for the duration of the
+      // TASK that created it — including every microtask that task queues
+      // (awaited request continuations) — then deactivates when control truly
+      // returns to the event loop. Each bound request reactivates it while its
+      // event dispatches. Auto-commit fires once it is idle (no in-flight
+      // requests) and deactivated. (ENG-23446)
+      this._scheduleDeactivation();
     }
   }
 
@@ -110,7 +141,9 @@ export class IDBTransaction {
   }
 
   get objectStoreNames(): string[] {
-    return [...this._storeNames].sort();
+    // DOMStringList shape (contains()/item()), matching db.objectStoreNames —
+    // consumers routinely call tx.objectStoreNames.contains(...). (ENG-23446)
+    return makeDOMStringList([...this._storeNames].sort());
   }
 
   get error(): DOMException | null {
@@ -176,7 +209,11 @@ export class IDBTransaction {
    */
   commit(): void {
     if (this._state === 'finished') return;
-    if (this._state === 'active') this._state = 'inactive';
+    // Per spec commit() puts the transaction in a "committing" state: no new
+    // requests are accepted (see _assertActive), and the COMMIT happens as
+    // soon as every in-flight (and still-queued) request has finished —
+    // without waiting for the deactivation task. (ENG-23446)
+    this._commitRequested = true;
     this._maybeAutoCommit();
   }
 
@@ -199,6 +236,10 @@ export class IDBTransaction {
     if (this._committed || this._aborted) return;
     this._aborted = true;
     this._state = 'finished';
+    // Keep the caller's original error object for _onFinished (IDBFactory
+    // rejects the open request with it verbatim), while transaction.error is
+    // always a DOMException.
+    const rawError = error;
     this._error = error instanceof DOMException
       ? error
       : new DOMException(error?.message ?? 'Transaction was aborted', 'AbortError');
@@ -223,6 +264,9 @@ export class IDBTransaction {
         this.onabort(event);
       }
       this._fireListeners('abort', event);
+      // Per spec the abort event bubbles to the connection. (ENG-23446)
+      this._bubbleToDb('abort', event);
+      this._notifyFinished(false, rawError ?? this._error);
     });
   }
 
@@ -248,9 +292,38 @@ export class IDBTransaction {
       }
     }
     this._fireListeners('error', event);
+    // Per spec the error event bubbles request -> transaction -> database.
+    // Previously it stopped at the transaction, so db.onerror (the standard
+    // catch-all logging hook) never fired. (ENG-23446)
+    this._bubbleToDb('error', event);
     if (!event.defaultPrevented) {
       this._abortWith(this._error);
     }
+  }
+
+  /**
+   * @internal - Bubble an event to the owning connection's `on<type>` handler
+   * and addEventListener listeners. Handler exceptions are swallowed — the
+   * transaction-level consequences (abort) were already decided at the
+   * transaction hop. (ENG-23446)
+   */
+  private _bubbleToDb(type: string, event: any): void {
+    const db = this._db;
+    if (!db) return;
+    const handler = db[`on${type}`];
+    if (typeof handler === 'function') {
+      try { handler.call(db, event); } catch (_) { /* swallow */ }
+    }
+    if (typeof db._fireListeners === 'function') {
+      db._fireListeners(type, event);
+    }
+  }
+
+  /** @internal - Fire _onFinished exactly once. */
+  private _notifyFinished(committed: boolean, error: any): void {
+    if (this._finishedNotified) return;
+    this._finishedNotified = true;
+    if (this._onFinished) this._onFinished(committed, error);
   }
 
   // ================================================================
@@ -264,11 +337,17 @@ export class IDBTransaction {
    * transaction has committed.
    */
   _assertActive(): void {
-    if (this._state !== 'active') {
+    if (this._state === 'finished') {
       throw new DOMException(
-        this._state === 'finished'
-          ? 'The transaction has finished.'
-          : 'The transaction is not active.',
+        'The transaction has finished.',
+        'TransactionInactiveError',
+      );
+    }
+    // After commit() the transaction refuses new requests even though its
+    // event dispatches may still reactivate it. (ENG-23446)
+    if (this._commitRequested || this._state !== 'active') {
+      throw new DOMException(
+        'The transaction is not active.',
         'TransactionInactiveError',
       );
     }
@@ -290,12 +369,20 @@ export class IDBTransaction {
 
   /** @internal - A bound request's event is about to be dispatched. */
   _beginEventDispatch(): void {
+    this._dispatchDepth++;
     if (this._state === 'inactive') this._state = 'active';
   }
 
-  /** @internal - A bound request's event finished dispatching. */
+  /**
+   * @internal - A bound request's event finished dispatching. The transaction
+   * stays ACTIVE: promise continuations queued during the dispatch (idb-style
+   * `await request`) run as microtasks and must still be able to issue
+   * requests. Deactivation happens in a separate TASK, after the microtask
+   * queue has drained. (ENG-23446)
+   */
   _endEventDispatch(): void {
-    if (this._state === 'active') this._state = 'inactive';
+    if (this._dispatchDepth > 0) this._dispatchDepth--;
+    this._scheduleDeactivation();
   }
 
   /** @internal - A bound request has scheduled a success/error event. */
@@ -309,15 +396,41 @@ export class IDBTransaction {
     this._maybeAutoCommit();
   }
 
+  /**
+   * @internal - Queue a task (macrotask) that deactivates the transaction and
+   * attempts the auto-commit. Because it is a TASK, every microtask queued by
+   * the creating task or an event dispatch — awaited request continuations
+   * included — runs first; a request issued from such a continuation keeps the
+   * transaction alive (its own dispatch re-schedules deactivation).
+   * (ENG-23446)
+   */
+  _scheduleDeactivation(): void {
+    if (this._deactivatePending || this._state === 'finished') return;
+    this._deactivatePending = true;
+    enqueueTask(() => {
+      this._deactivatePending = false;
+      if (this._state === 'active' && this._dispatchDepth === 0) {
+        this._state = 'inactive';
+      }
+      this._maybeAutoCommit();
+    });
+  }
+
   /** @internal - Commit once no requests are in flight and control has yielded. */
   private _maybeAutoCommit(): void {
-    if (this._state !== 'inactive') return;
-    if (this._mode === 'versionchange') return;
+    if (this._state === 'finished') return;
     // Not started yet: queued behind an earlier transaction. Its queued
     // operations must still run (and their events dispatch) before committing.
     if (!this._started) return;
     if (this._pending > 0) return;
     if (this._opQueue.length > 0) return;
+    if (this._commitRequested) {
+      // Explicit commit(): fire as soon as the current dispatch (if any)
+      // unwinds — do not wait for the deactivation task.
+      if (this._dispatchDepth > 0) return;
+    } else if (this._state !== 'inactive') {
+      return;
+    }
     this._finishCommit();
   }
 
@@ -391,13 +504,17 @@ export class IDBTransaction {
   // SQLite transaction wrapping
   // ================================================================
 
-  /** @internal - Finish a readonly/readwrite transaction by committing. */
+  /** @internal - Finish a transaction by committing. */
   private _finishCommit(): void {
     if (this._state === 'finished') return;
     this._state = 'finished';
 
     if (this._sqliteBegan) {
       try {
+        // Work that must be atomic with the transaction's writes (the
+        // versionchange version bump) runs inside the BEGIN, right before
+        // COMMIT. (ENG-23446)
+        if (this._beforeCommit) this._beforeCommit();
         this._db._exec('COMMIT');
         this._sqliteBegan = false;
         this._db._commitTxnSnapshot();
@@ -426,6 +543,8 @@ export class IDBTransaction {
             this.onabort(abortEvent);
           }
           this._fireListeners('abort', abortEvent);
+          this._bubbleToDb('abort', abortEvent);
+          this._notifyFinished(false, this._error);
         });
         return;
       }
@@ -439,53 +558,24 @@ export class IDBTransaction {
         this.oncomplete(event);
       }
       this._fireListeners('complete', event);
+      // 'complete' fires on the transaction BEFORE the open request's success
+      // (versionchange), matching the spec's event order. (ENG-23446)
+      this._notifyFinished(true, null);
     });
   }
 
-  /** @internal - Begin the SQLite transaction backing a versionchange upgrade. */
+  /**
+   * @internal - Begin the SQLite transaction backing a versionchange upgrade
+   * and (re)activate it for the upgradeneeded dispatch. From here the upgrade
+   * transaction lives the same lifecycle as any other transaction: it stays
+   * active through the dispatching task's microtasks (idb-style awaited
+   * upgrades work) and auto-commits once idle and deactivated; IDBFactory
+   * observes the outcome through _beforeCommit/_onFinished. (ENG-23446)
+   */
   _beginVersionChange(): void {
     this._started = true;
+    this._state = 'active';
     this._beginSqlite();
-  }
-
-  /**
-   * @internal - Commit a versionchange upgrade's schema/data changes. Throws
-   * (after rolling back) if the COMMIT itself fails, so IDBFactory.open rejects
-   * instead of reporting a successful upgrade that never persisted.
-   */
-  _commitVersionChange(): void {
-    if (this._committed || this._aborted) return;
-    this._state = 'finished';
-    if (this._sqliteBegan) {
-      try {
-        this._db._exec('COMMIT');
-        this._sqliteBegan = false;
-        this._db._commitTxnSnapshot();
-      } catch (e: any) {
-        this._aborted = true;
-        try {
-          this._db._exec('ROLLBACK');
-        } catch (_) { /* best-effort; see _finishCommit */ }
-        this._sqliteBegan = false;
-        this._db._rollbackTxnSnapshot();
-        this._db._transactionFinished(this);
-        throw new DOMException(
-          `Upgrade commit failed: ${e?.message ?? e}`,
-          'UnknownError',
-        );
-      }
-    }
-    this._committed = true;
-    this._db._transactionFinished(this);
-  }
-
-  /** @internal - Roll back a versionchange upgrade whose onupgradeneeded threw. */
-  _abortVersionChange(): void {
-    if (this._committed || this._aborted) return;
-    this._aborted = true;
-    this._state = 'finished';
-    this._rollbackSqlite();
-    this._db._transactionFinished(this);
   }
 
   /**

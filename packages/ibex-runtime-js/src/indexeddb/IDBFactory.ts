@@ -211,6 +211,35 @@ export class IDBFactory {
           db._upgradeTransaction = upgradeTxn;
           request.transaction = upgradeTxn;
 
+          // The version bump commits atomically with the upgrade's schema
+          // changes, inside the same SQLite transaction.
+          upgradeTxn._beforeCommit = () => {
+            writeStoredVersion(sqliteDb, resolvedVersion);
+          };
+          // The open request settles when the versionchange transaction
+          // finishes. The transaction now lives the normal lifecycle — it
+          // stays active through the upgradeneeded task's microtasks (awaited
+          // upgrade bodies work) and auto-commits once idle — instead of
+          // being force-committed the moment onupgradeneeded returned.
+          // (ENG-23446)
+          upgradeTxn._onFinished = (committed: boolean, error: any) => {
+            db._upgradeTransaction = null;
+            request.transaction = null;
+            if (committed) {
+              shared!.version = resolvedVersion;
+              request._resolveSync(db);
+            } else {
+              // The connection was never delivered; release it (closing the
+              // shared handle if this was the only reference — a retried
+              // open() then starts from a fresh handle instead of leaking one
+              // per attempt).
+              db.close();
+              request._reject(
+                error ?? new DOMException('The upgrade transaction was aborted.', 'AbortError'),
+              );
+            }
+          };
+
           // The upgrade body runs when the connection scheduler grants the
           // transaction (immediately when the connection is idle; after any
           // in-flight sibling-connection transactions otherwise). The whole
@@ -222,42 +251,65 @@ export class IDBFactory {
           upgradeTxn._onStart = () => {
             try {
               upgradeTxn._beginVersionChange();
-              // Fire onupgradeneeded synchronously
+              const event = {
+                type: 'upgradeneeded',
+                target: request,
+                transaction: upgradeTxn,
+                oldVersion,
+                newVersion: resolvedVersion,
+              };
+              // During upgradeneeded, the database is in a special state
+              // where createObjectStore/deleteObjectStore can be called.
               if (request.onupgradeneeded) {
-                const event = {
-                  type: 'upgradeneeded',
-                  target: request,
-                  transaction: upgradeTxn,
-                  oldVersion,
-                  newVersion: resolvedVersion,
-                };
-                // During upgradeneeded, the database is in a special state
-                // where createObjectStore/deleteObjectStore can be called
                 request.onupgradeneeded(event);
               }
-
-              // Clear the upgrade transaction after upgradeneeded completes
-              db._upgradeTransaction = null;
-              writeStoredVersion(sqliteDb, resolvedVersion);
-              upgradeTxn._commitVersionChange();
-              shared!.version = resolvedVersion;
-              request.transaction = null;
-
-              // Fire onsuccess
-              request._resolveSync(db);
+              // addEventListener('upgradeneeded', ...) listeners fire too —
+              // previously they were silently skipped, so schemas registered
+              // that way were never created. A throwing listener aborts the
+              // upgrade like a throwing property handler. (ENG-23446)
+              request._invokeListeners('upgradeneeded', event);
+              // Deactivation + auto-commit proceed like a normal transaction.
+              upgradeTxn._scheduleDeactivation();
             } catch (upgradeError: any) {
-              db._upgradeTransaction = null;
-              upgradeTxn._abortVersionChange();
-              request.transaction = null;
-              // The connection was never delivered; release it (closing the
-              // shared handle if this was the only reference — a retried
-              // open() then starts from a fresh handle instead of leaking one
-              // per attempt).
-              db.close();
-              request._reject(upgradeError);
+              // Roll back schema + version; _onFinished rejects the request.
+              upgradeTxn._abortWith(upgradeError);
             }
           };
-          db._scheduleTransaction(upgradeTxn);
+
+          // Per spec, other open connections to this database get a
+          // versionchange event first; if any remain open the request fires
+          // 'blocked' and the upgrade waits for them to close. Previously the
+          // upgrade barged ahead regardless. (ENG-23446)
+          const scheduleUpgrade = () => db._scheduleTransaction(upgradeTxn);
+          const blockers = () =>
+            Array.from(shared!.connections).filter((c: any) => c !== db);
+          const others = blockers();
+          if (others.length > 0) {
+            for (const conn of others) {
+              (conn as any)._fireVersionChange(oldVersion, resolvedVersion);
+            }
+            if (blockers().length > 0) {
+              const blockedEvent = {
+                type: 'blocked',
+                target: request,
+                oldVersion,
+                newVersion: resolvedVersion,
+              };
+              if (request.onblocked) {
+                try { request.onblocked(blockedEvent); } catch (_) { /* swallow */ }
+              }
+              try { request._invokeListeners('blocked', blockedEvent); } catch (_) { /* swallow */ }
+              shared!.addConnectionWaiter(() => {
+                if (blockers().length > 0) return false;
+                scheduleUpgrade();
+                return true;
+              });
+            } else {
+              scheduleUpgrade();
+            }
+          } else {
+            scheduleUpgrade();
+          }
         } else {
           writeStoredVersion(sqliteDb, resolvedVersion);
           // Fire onsuccess
@@ -281,19 +333,76 @@ export class IDBFactory {
     const request = new IDBOpenDBRequest<undefined>();
 
     queueMicrotask(() => {
-      try {
-        const existing = this._databases.get(name);
-        if (existing) {
-          // Force-close the shared handle (its onClosed callback evicts the
-          // cache entry).
-          existing.forceClose();
-          this._databases.delete(name);
+      const existing = this._databases.get(name);
+      const oldVersion = existing?.version ?? 0;
+      const finish = () => {
+        try {
+          this._sqliteProvider.delete?.(name);
+          request._resolveSync(undefined);
+        } catch (e: any) {
+          request._reject(e);
         }
-        this._sqliteProvider.delete?.(name);
-        request._resolveSync(undefined);
-      } catch (e: any) {
-        request._reject(e);
+      };
+
+      if (!existing || existing.closed || existing.connections.size === 0) {
+        // No live connections: close the cached handle (its onClosed callback
+        // evicts the cache entry) and delete immediately.
+        try {
+          if (existing) {
+            existing.forceClose();
+            this._databases.delete(name);
+          }
+        } catch (e: any) {
+          request._reject(e);
+          return;
+        }
+        finish();
+        return;
       }
+
+      // Live connections hold the database open. Per spec: fire versionchange
+      // (newVersion null) at each, and if any remain open fire 'blocked' on
+      // the request and wait — the delete proceeds only once the last
+      // connection closes. Previously the handle was force-closed out from
+      // under live connections, bricking their in-flight transactions.
+      // (ENG-23446)
+      for (const conn of Array.from(existing.connections)) {
+        (conn as any)._fireVersionChange(oldVersion, null);
+      }
+      if (existing.connections.size > 0) {
+        const blockedEvent = {
+          type: 'blocked',
+          target: request,
+          oldVersion,
+          newVersion: null,
+        };
+        if (request.onblocked) {
+          try { request.onblocked(blockedEvent); } catch (_) { /* swallow */ }
+        }
+        try { request._invokeListeners('blocked', blockedEvent); } catch (_) { /* swallow */ }
+      }
+      const runDelete = () => {
+        this._databases.delete(name);
+        finish();
+      };
+      if (existing.closed) {
+        // Every connection closed (and transactions drained) during the
+        // versionchange dispatch; the handle is already gone.
+        runDelete();
+        return;
+      }
+      // Wait for the handle to ACTUALLY close (last connection gone AND
+      // in-flight transactions drained) before unlinking the files — deleting
+      // a SQLite file under a live handle mid-transaction loses data
+      // silently. onClosed also evicts the factory cache (prevOnClosed).
+      const prevOnClosed = existing.onClosed;
+      existing.onClosed = () => {
+        if (prevOnClosed) prevOnClosed();
+        runDelete();
+      };
+      // Covers connections.size having reached zero with the handle still
+      // open (no further connectionClosed will fire).
+      existing.releaseIfUnused();
     });
 
     return request;

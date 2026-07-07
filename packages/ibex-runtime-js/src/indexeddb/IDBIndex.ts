@@ -110,6 +110,7 @@ export class IDBIndex {
    */
   getAll(query?: any, count?: number): IDBRequest {
     this._objectStore._transaction._assertActive();
+    this._objectStore._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -135,6 +136,7 @@ export class IDBIndex {
    */
   getAllKeys(query?: any, count?: number): IDBRequest {
     this._objectStore._transaction._assertActive();
+    this._objectStore._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -160,6 +162,7 @@ export class IDBIndex {
    */
   count(query?: any): IDBRequest {
     this._objectStore._transaction._assertActive();
+    this._objectStore._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -187,6 +190,7 @@ export class IDBIndex {
    */
   openCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
     this._objectStore._transaction._assertActive();
+    this._objectStore._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;
@@ -218,6 +222,7 @@ export class IDBIndex {
    */
   openKeyCursor(query?: any, direction?: IDBCursorDirection): IDBRequest {
     this._objectStore._transaction._assertActive();
+    this._objectStore._validateQuery(query);
     const request = new IDBRequest();
     request.source = this;
     request.transaction = this._objectStore._transaction;

@@ -20,6 +20,12 @@ import {
 } from './utils';
 
 /**
+ * @internal - The largest key the autoIncrement key generator may produce
+ * (2^53, per spec). (ENG-23446)
+ */
+const MAX_KEY_GENERATOR_VALUE = 9007199254740992;
+
+/**
  * @internal - State shared by every open connection (IDBDatabase) to one
  * database name. (ENG-23117)
  *
@@ -122,9 +128,24 @@ export class SharedConnectionState {
     this._snapshot = null;
   }
 
+  /**
+   * Callbacks run after a connection closes; a waiter returning true is done
+   * and deregisters. Used by IDBFactory to defer an upgrade or delete until
+   * the blocking connections are gone. (ENG-23446)
+   */
+  private _connectionWaiters: Array<() => boolean> = [];
+
+  /** Register a callback to run each time a connection closes. */
+  addConnectionWaiter(waiter: () => boolean): void {
+    this._connectionWaiters.push(waiter);
+  }
+
   /** A connection closed; close the handle once the last one is gone. */
   connectionClosed(db: IDBDatabase): void {
     this.connections.delete(db);
+    if (this._connectionWaiters.length > 0) {
+      this._connectionWaiters = this._connectionWaiters.filter((w) => !w());
+    }
     this._maybeCloseHandle();
   }
 
@@ -225,6 +246,31 @@ export class IDBDatabase {
   removeEventListener(type: string, fn: Function): void {
     const list = this._listeners[type];
     if (list) this._listeners[type] = list.filter(f => f !== fn);
+  }
+
+  /** @internal - Fire addEventListener listeners for a given event type. */
+  _fireListeners(type: string, event: any): void {
+    const list = this._listeners[type];
+    if (list) {
+      for (const fn of [...list]) {
+        try { fn(event); } catch (_) { /* swallow */ }
+      }
+    }
+  }
+
+  /**
+   * @internal - Dispatch a versionchange event at this connection: another
+   * open() wants to upgrade this database (newVersion set) or deleteDatabase
+   * was called (newVersion null). Connections typically respond by closing
+   * themselves; ones that don't leave the upgrade/delete blocked. (ENG-23446)
+   */
+  _fireVersionChange(oldVersion: number, newVersion: number | null): void {
+    if (this._closed) return;
+    const event = { type: 'versionchange', target: this, oldVersion, newVersion };
+    if (this.onversionchange) {
+      try { this.onversionchange(event); } catch (_) { /* swallow */ }
+    }
+    this._fireListeners('versionchange', event);
   }
 
   /**
@@ -340,7 +386,17 @@ export class IDBDatabase {
         `The mode provided ('${m}') is not one of 'readonly' or 'readwrite'.`,
       );
     }
-    const names = Array.isArray(storeNames) ? storeNames : [storeNames];
+    // Spec: an empty scope is an InvalidAccessError; duplicate names are
+    // deduplicated. (ENG-23446)
+    const names = Array.isArray(storeNames)
+      ? [...new Set(storeNames)]
+      : [storeNames];
+    if (names.length === 0) {
+      throw new DOMException(
+        'The storeNames parameter was empty.',
+        'InvalidAccessError',
+      );
+    }
 
     // Verify all stores exist
     for (const name of names) {
@@ -532,6 +588,16 @@ export class IDBDatabase {
     if (value === undefined) {
       value = this._computeAutoIncrementBase(tableName);
     }
+    // Spec: the key generator's greatest generated key is 2^53. Beyond that
+    // the generation step fails with ConstraintError — previously `+= 1` was
+    // a floating-point no-op at 2^53, so every subsequent put() silently
+    // overwrote the same record. (ENG-23446)
+    if (value >= MAX_KEY_GENERATOR_VALUE) {
+      throw new DOMException(
+        'The key generator has reached its maximum value (2^53).',
+        'ConstraintError',
+      );
+    }
     value += 1;
     this._shared.autoIncrementValues.set(name, value);
     return value;
@@ -539,7 +605,8 @@ export class IDBDatabase {
 
   /**
    * @internal - Keep the key generator at least as large as an explicit numeric
-   * key, so a later generated key cannot collide with it (per spec).
+   * key, so a later generated key cannot collide with it (per spec). Capped at
+   * 2^53, the generator's maximum (see _nextAutoIncrement). (ENG-23446)
    */
   _noteExplicitKey(name: string, key: any): void {
     if (typeof key !== 'number' || !Number.isFinite(key)) return;
@@ -547,7 +614,10 @@ export class IDBDatabase {
     if (value === undefined) {
       value = this._computeAutoIncrementBase(storeTableName(name));
     }
-    this._shared.autoIncrementValues.set(name, Math.max(value, Math.floor(key)));
+    this._shared.autoIncrementValues.set(
+      name,
+      Math.min(MAX_KEY_GENERATOR_VALUE, Math.max(value, Math.floor(key))),
+    );
   }
 
   /**
