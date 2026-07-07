@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (ENG-23448: documented the loopback-only tls emulation)
+**Revised:** 2026-07-07 (ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23448: documented the loopback-only tls emulation)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -114,9 +114,17 @@ The transformed builtin JS files are committed under
 `[observed]` (`vendored-generated/README.md:11-27`). Two specifiers (`sqlite`,
 `sea`) are reserved Node-only `[observed]` (`modules.ts:19-21`).
 
-### The tls builtin is a loopback-only emulation
+### The tls builtin
 
-The `tls` builtin (`src/builtins/tls.js`) performs **no wire cryptography**.
+The `tls` builtin (`src/builtins/tls.js`) has two client paths, chosen per
+connection when the TCP connect completes `[observed]` (`tls.js` `connect()`):
+an **in-process loopback emulation** (no wire cryptography) for peers that are
+`tls.Server`s in the same process, and a **native TLS bridge** (ENG-23492)
+performing real wire TLS for every other destination. Real TLS *serving*
+remains out of scope — `tls.createServer` is loopback-emulation only.
+
+#### The loopback emulation for in-process servers
+
 What it emulates (ENG-23448):
 
 - `tls.createServer` wraps a plain `net` server; listening servers register in
@@ -137,26 +145,96 @@ What it emulates (ENG-23448):
   including the TLSv1.3 failure mode) is pinned against real Node v25.9.0 in
   `tests/node_tls_builtins.rs`.
 
-**Fail-loud boundary:** when the peer is *not* an in-process `tls.Server`,
-`tls.connect` destroys the socket with `ERR_TLS_EMULATION_LOOPBACK_ONLY`
-instead of fabricating a handshake. Before ENG-23448 it emitted an immediate
-`secureConnect` with `authorized=true` and a synthetic peer certificate — i.e.
-it reported a secure, authorized connection over cleartext to real TLS
-endpoints (databases, SMTP, `https.js` client sockets on non-Windows
-platforms) while the remote server stalled waiting for a ClientHello. Refusing
-loudly is the LLP 0006 "honest reduced profile" behavior.
+Known limits of the detection, accepted deliberately: the registry is
+port-keyed, so an in-process server reached via a non-loopback address of
+this machine (e.g. its LAN IP) is treated as out-of-process and gets a real
+TLS handshake its emulated server cannot answer; TLS-over-IPC (`path:`
+options) never participated in the registry and likewise takes the
+bridge/fail-loud path.
 
-Known limits of the detection, accepted deliberately:
+#### The native TLS bridge for out-of-process endpoints (ENG-23492)
 
-- The registry is port-keyed, so an in-process server reached via a
-  non-loopback address of this machine (e.g. its LAN IP) fails loudly even
-  though the connection would land in-process; the supported contract is
-  loopback addresses only.
-- TLS-over-IPC (`path:` options) never participated in the registry and also
-  fails loudly.
-- A real TLS bridge for out-of-process endpoints (platform TLS surfaced
-  through host functions, feeding the existing JS-side validation) is tracked
-  in ENG-23492.
+Every `tls.connect` destination that is not an in-process loopback
+`tls.Server` — real HTTPS endpoints, databases, SMTP, and `https.js` client
+sockets (which route through `tls.connect` on non-Windows) — gets **real wire
+TLS** through a native engine:
+
+- **Sans-IO rustls engine, no threads.** One rustls `ClientConnection` per
+  socket lives in Rust (`src/engine/tls_bridge.rs`, `ibex_tls_*` extern "C"
+  surface), exposed to JS through thin JSI shims
+  (`src/engine/hermes_runtime_tls.cc`, `__exactTlsEngine*`) installed
+  together with the TCP host functions from `installNetHostFunctions`
+  `[observed]`. tls.js owns ALL I/O: it shovels ciphertext between the
+  existing `net.Socket` and the engine, and plaintext between the engine and
+  the `TLSSocket` wrapper — the existing async-connect/DNS/timeout machinery
+  is reused and the bridge spawns **zero threads**, so the by-value-static
+  pool exit() deadlock class (ENG-23471/ENG-23498) cannot occur here.
+- **Hermetic dependency profile.** rustls uses the `ring` provider
+  (cc-compiled; no cmake, no system OpenSSL) and `webpki-roots` bundles the
+  Mozilla CA store, mirroring Node's bundled-roots philosophy and LLP 0005's
+  hermetic-default pipeline. Node's `ca` option **replaces** the root store,
+  as in Node.
+- **Trust-evaluation split.** Chain trust (signatures, validity window,
+  issuer path) is evaluated **natively**: the JS `_validatePeerAuthorization`
+  is a fingerprint-list comparator and cannot verify signatures. A recording
+  verifier wraps rustls's WebPKI verifier, always completes the handshake,
+  and reports the verdict to JS — so `rejectUnauthorized:false` still gets
+  `secureConnect` with `authorized:false` plus the real error code, and the
+  strict default destroys the socket with that code. Hostname/identity
+  checking stays in JS (`checkServerIdentity`, user-overridable per Node),
+  fed the REAL peer DER chain parsed by the existing PEM/DER machinery,
+  producing Node's exact `ERR_TLS_CERT_ALTNAME_INVALID` shape.
+- **Oracle-pinned against Node v25.9.0** (measured, not remembered):
+  `CERT_HAS_EXPIRED`, `DEPTH_ZERO_SELF_SIGNED_CERT`,
+  `UNABLE_TO_VERIFY_LEAF_SIGNATURE`, `ERR_TLS_CERT_ALTNAME_INVALID` (with
+  `reason`/`host` properties and message shape),
+  `ERR_SSL_WRONG_VERSION_NUMBER` for plaintext-speaking peers, `ECONNRESET`
+  for mid-handshake hangups, `alpnProtocol === false` when nothing was
+  negotiated, OpenSSL-style `valid_from`/`valid_to` strings
+  ("Jul  2 07:13:53 2046 GMT"), and the measured SNI rule: **bare
+  `tls.connect({host})` sends no SNI** — SNI goes out only when `servername`
+  is explicit (ibex `https.js` always sets it). Pinned hermetically in
+  `tests/node_tls_builtins.rs` by handshaking the `ibex` binary against an
+  in-process rustls server over loopback.
+- **Write hold until the path is chosen.** Consumers (http.js) write the
+  request the moment `'connect'` fires — before any handshake. `connect()`
+  holds application writes until the loopback-vs-bridge decision, then
+  releases them into the raw socket (emulation) or the post-handshake
+  encrypted queue (bridge); without the hold the request would leak as
+  plaintext ahead of the ClientHello.
+
+Rejected alternatives `[inferred: judgment call recorded at decision time]`:
+platform TLS C APIs (Security.framework / system OpenSSL — non-hermetic on
+Linux, deprecated SecureTransport on macOS, per-platform trust-evaluation
+semantics, two implementations to keep Node-shaped); the optional vendored
+`openssl-crypto` feature (off by default, so tls would work in only some
+builds, violating the hermetic-default invariant); a native-owned TCP+TLS
+thread pool like native fetch (duplicates net.js's async-connect machinery
+and reintroduces the exit-deadlock class).
+
+Known divergences, accepted deliberately: `getPeerCertificate(true)`'s
+`issuerCertificate` chain reflects the chain **as presented on the wire**
+(rustls `peer_certificates()`), while Node/OpenSSL completes it from the
+local trust store; session resumption is not implemented
+(`isSessionReused()` always false); TLS < 1.2 is not supported (rustls), so
+requested minimums below 1.2 clamp to 1.2.
+
+**Windows:** the TCP host functions (`hermes_runtime_net.cc`) are not
+compiled on Windows, so there is no transport for the bridge to ride; the
+Rust engine module and its dependencies are cfg-gated off there and Windows
+keeps its previous behavior (https does not route through `tls.connect` on
+Windows). Follow-up tracked in ENG-23526.
+
+#### Fail-loud boundary without the bridge
+
+In builds/harnesses where the `__exactTlsEngine*` host functions are absent
+(the bun test harness, embedded hosts without net host functions),
+`tls.connect` to an out-of-process peer destroys the socket with
+`ERR_TLS_EMULATION_LOOPBACK_ONLY` instead of fabricating a handshake. Before
+ENG-23448 it emitted an immediate `secureConnect` with `authorized=true` and a
+synthetic peer certificate — i.e. it reported a secure, authorized connection
+over cleartext while the remote server stalled waiting for a ClientHello.
+Refusing loudly is the LLP 0006 "honest reduced profile" behavior.
 
 ## How the runtime consumes this
 

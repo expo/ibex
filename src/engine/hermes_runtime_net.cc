@@ -1223,4 +1223,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
 
   } // end TCP + Unix socket host functions
 
+  // Native TLS bridge (ENG-23492): the __exactTlsEngine* host functions ride
+  // the TCP sockets above, so they install (and lazy-load) together through
+  // __exactEnsureNet — tls.js can rely on their presence whenever TCP works.
+  installTlsHostFunctions(handle);
 }

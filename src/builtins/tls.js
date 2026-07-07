@@ -709,24 +709,34 @@ function _parseDerName(bytes, element) {
   return result;
 }
 
+var _certMonthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// OpenSSL/Node cert time formatting: "May 31 21:39:12 2026 GMT" with a
+// two-space day pad for single digits ("Aug  8 21:17:05 2016 GMT"). Node
+// v25.9.0 oracle format for getPeerCertificate().valid_from/valid_to.
+function _formatCertTime(year, month, day, hour, minute, second) {
+  var monthName = _certMonthNames[Number(month) - 1] || month;
+  var dayNum = Number(day);
+  var dayText = dayNum < 10 ? ' ' + dayNum : String(dayNum);
+  return monthName + ' ' + dayText + ' ' + hour + ':' + minute + ':' + second + ' ' + year + ' GMT';
+}
+
 function _formatDerTime(bytes, element) {
   if (!element) return '';
   var text = _bytesToAscii(bytes, element.valueStart, element.valueEnd);
   if (element.tag === 0x17 && text.length >= 12) {
     var year = Number(text.slice(0, 2));
     year += year >= 50 ? 1900 : 2000;
-    var month = text.slice(2, 4);
-    var day = text.slice(4, 6);
-    var hour = text.slice(6, 8);
-    var minute = text.slice(8, 10);
-    var second = text.slice(10, 12);
-    return new Date(year + '-' + month + '-' + day + 'T' + hour + ':' + minute + ':' + second + 'Z').toUTCString();
+    return _formatCertTime(
+      String(year), text.slice(2, 4), text.slice(4, 6),
+      text.slice(6, 8), text.slice(8, 10), text.slice(10, 12)
+    );
   }
   if (element.tag === 0x18 && text.length >= 14) {
-    return new Date(
-      text.slice(0, 4) + '-' + text.slice(4, 6) + '-' + text.slice(6, 8) + 'T' +
-      text.slice(8, 10) + ':' + text.slice(10, 12) + ':' + text.slice(12, 14) + 'Z'
-    ).toUTCString();
+    return _formatCertTime(
+      text.slice(0, 4), text.slice(4, 6), text.slice(6, 8),
+      text.slice(8, 10), text.slice(10, 12), text.slice(12, 14)
+    );
   }
   return text;
 }
@@ -1032,7 +1042,6 @@ function _parsePemCertificate(pem, host, port) {
     for (var key in keyInfo) {
       if (hasOwn.call(keyInfo, key) && keyInfo[key] !== undefined) parsed[key] = keyInfo[key];
     }
-    if (!parsed.subjectaltname) parsed.subjectaltname = 'DNS:' + (host || 'localhost');
     if (extensionInfo.infoAccess !== undefined) parsed.infoAccess = extensionInfo.infoAccess;
     if (extensionInfo.subjectaltname !== undefined) parsed.subjectaltname = extensionInfo.subjectaltname;
     if (_certificateParseCache) _certificateParseCache.set(pem, parsed);
@@ -1058,6 +1067,14 @@ function _buildCertificateChain(host, port, leafSource, chainSource, trustedSour
   for (var i = 0; i < blocks.length; i++) appendBlock(blocks[i]);
   if (!parsed.length) {
     return _buildSyntheticCertificate(host, port, leafSource || 'ExactTLS');
+  }
+
+  // Loopback-emulation nicety only: a configured PEM without a SAN still
+  // "matches" the destination hostname so emulated identity checks pass. The
+  // native bridge path (_buildBridgedPeerChain) never synthesizes altnames —
+  // real endpoints must fail hostname validation honestly.
+  if (!parsed[0].subjectaltname) {
+    parsed[0].subjectaltname = 'DNS:' + (host || 'localhost');
   }
 
   var lastIssuerKey = _nameKey(parsed[parsed.length - 1].issuer);
@@ -1296,8 +1313,22 @@ function _isSelfSignedCertificate(cert) {
 
 function _certificateTimeValue(value) {
   if (!value) return NaN;
-  var time = Date.parse(String(value));
-  return Number.isFinite(time) ? time : NaN;
+  var text = String(value);
+  var time = Date.parse(text);
+  if (Number.isFinite(time)) return time;
+  // OpenSSL/Node cert time format ("May 31 21:39:12 2026 GMT"); Hermes'
+  // Date.parse does not understand it, so parse it explicitly.
+  var match = /^([A-Za-z]{3}) +(\d{1,2}) (\d{2}):(\d{2}):(\d{2}) (\d{4}) GMT$/.exec(text);
+  if (match) {
+    var month = _certMonthNames.indexOf(match[1]);
+    if (month !== -1) {
+      return Date.UTC(
+        Number(match[6]), month, Number(match[2]),
+        Number(match[3]), Number(match[4]), Number(match[5])
+      );
+    }
+  }
+  return NaN;
 }
 
 function _normalizePemSignature(source) {
@@ -1501,6 +1532,22 @@ function _bindSocket(wrapper, rawSocket) {
   for (var i = 0; i < events.length; i++) {
     (function(eventName) {
       rawSocket.on(eventName, function() {
+        // Bridged (real TLS) sockets: raw-socket bytes are ciphertext for the
+        // native engine, never application data — route them (and transport
+        // EOF) through the bridge instead of re-emitting (ENG-23492).
+        if (wrapper._bridged) {
+          if (eventName === 'data') {
+            _tlsBridgeOnCiphertext(wrapper, arguments[0]);
+            return;
+          }
+          if (eventName === 'end') {
+            _tlsBridgeOnTransportEnd(wrapper);
+            return;
+          }
+          if (eventName === 'close') {
+            _tlsBridgeRelease(wrapper);
+          }
+        }
         if (eventName === 'connect') wrapper.connecting = false;
         if (eventName === 'end') wrapper.readable = false;
         if (eventName === 'close') wrapper.destroyed = true;
@@ -1808,6 +1855,12 @@ TLSSocket.prototype.setMaxSendFragment = function(size) {
 };
 
 TLSSocket.prototype.setEncoding = function(enc) {
+  if (this._bridged) {
+    // Bridged sockets must not decode the raw socket's bytes (ciphertext);
+    // the encoding applies to decrypted plaintext emitted by the bridge.
+    this._bridgeEncoding = enc || null;
+    return this;
+  }
   _callSocketMethod(this, 'setEncoding', [enc], this);
   return this;
 };
@@ -1818,6 +1871,9 @@ TLSSocket.prototype.setEncoding = function(enc) {
 // constructor state (_readBuffer, _handle, ...) that this wrapper never has;
 // data flows through the wrapped raw socket, so delegate there instead.
 TLSSocket.prototype.read = function(size) {
+  // Bridged sockets deliver decrypted plaintext through 'data' events; the
+  // raw socket's read() would expose ciphertext.
+  if (this._bridged) return null;
   return _callSocketMethod(this, 'read', [size], null);
 };
 
@@ -1845,6 +1901,18 @@ TLSSocket.prototype.write = function(data, encoding, callback) {
     callback = encoding;
     encoding = undefined;
   }
+  // connect() holds application writes until the loopback-vs-bridge decision
+  // is made on TCP connect: consumers (e.g. http.js) write the request the
+  // moment 'connect' fires, which is BEFORE the bridged handshake — letting
+  // those bytes through would send plaintext ahead of the ClientHello.
+  if (this._writeHeld) {
+    if (!this._heldWrites) this._heldWrites = [];
+    this._heldWrites.push({ data: data, encoding: encoding, callback: callback });
+    return true;
+  }
+  if (this._bridged) {
+    return _tlsBridgeWrite(this, data, encoding, callback);
+  }
   if (this._socket && typeof this._socket.write === 'function') {
     return this._socket.write(data, encoding, callback);
   }
@@ -1862,6 +1930,33 @@ TLSSocket.prototype.end = function(data, encoding, callback) {
     callback = encoding;
     encoding = undefined;
   }
+  if (this._writeHeld) {
+    if (data !== undefined && data !== null) {
+      this.write(data, encoding);
+    }
+    this.writable = false;
+    this._heldEnd = typeof callback === 'function' ? callback : true;
+    return this;
+  }
+  if (this._bridged) {
+    if (data !== undefined && data !== null) {
+      _tlsBridgeWrite(this, data, encoding, null);
+    }
+    this.writable = false;
+    // Real TLS shutdown: queue close_notify, flush it, then end the transport.
+    if (this._tlsEngineId != null && typeof __exactTlsEngineShutdown === 'function') {
+      try {
+        __exactTlsEngineShutdown(this._tlsEngineId);
+        _tlsBridgePumpOut(this);
+      } catch (e) { /* ignored: best-effort close_notify; transport end follows */ }
+    }
+    if (this._socket && typeof this._socket.end === 'function') {
+      this._socket.end(callback);
+    } else if (typeof callback === 'function') {
+      setTimeout(callback, 0);
+    }
+    return this;
+  }
   this.writable = false;
   if (this._socket && typeof this._socket.end === 'function') {
     this._socket.end(data, encoding, callback);
@@ -1875,6 +1970,12 @@ TLSSocket.prototype.destroy = function(err) {
   this.destroyed = true;
   this.readable = false;
   this.writable = false;
+  this._writeHeld = false;
+  this._heldWrites = null;
+  this._heldEnd = null;
+  this._bridgePendingWrites = null;
+  this._bridgeHeldEnd = null;
+  _tlsBridgeRelease(this);
   if (this._socket && typeof this._socket.destroy === 'function') {
     this._socket.destroy(err);
   }
@@ -2084,6 +2185,475 @@ function _normalizeTlsConnectArguments(args) {
   return { options: options, callback: callback };
 }
 
+// ============================================================
+// Native TLS bridge (ENG-23492)
+//
+// Real TLS for out-of-process endpoints. A sans-IO rustls client engine
+// (src/engine/tls_bridge.rs via src/engine/hermes_runtime_tls.cc) holds the
+// TLS state machine; this file owns ALL I/O, shoveling ciphertext between the
+// existing net.Socket and the engine and plaintext between the engine and the
+// TLSSocket wrapper. Chain trust is evaluated natively (the JS
+// _validatePeerAuthorization is a fingerprint comparator, not a signature
+// verifier) with the verdict recorded instead of aborting, so
+// rejectUnauthorized:false still completes the handshake and reports
+// authorized:false with the real code. Hostname/identity checking stays here
+// in JS (checkServerIdentity is user-overridable in Node).
+// @ref LLP 0004#the-tls-builtin — native bridge design + trust-evaluation split
+// ============================================================
+
+function _tlsBridgeAvailable() {
+  return typeof __exactTlsEngineNew === 'function' &&
+    typeof __exactTlsEngineWriteTls === 'function' &&
+    typeof __exactTlsEngineReadTls === 'function' &&
+    typeof __exactTlsEngineReadPlain === 'function' &&
+    typeof __exactTlsEngineWritePlain === 'function' &&
+    typeof __exactTlsEngineStatus === 'function';
+}
+
+// Decode an ALPNProtocols option (string array, or the length-prefixed wire
+// buffer produced by convertALPNProtocols) into a plain string list.
+function _alpnProtocolsToList(protocols) {
+  if (!protocols) return [];
+  if (Array.isArray(protocols)) {
+    var listed = [];
+    for (var i = 0; i < protocols.length; i++) listed.push(String(protocols[i]));
+    return listed;
+  }
+  var view = _cloneBufferLike(protocols);
+  var out = [];
+  var offset = 0;
+  var total = typeof view.length === 'number' ? view.length : 0;
+  while (offset < total) {
+    var size = view[offset++];
+    var end = Math.min(offset + size, total);
+    var proto = '';
+    for (; offset < end; offset++) proto += String.fromCharCode(view[offset]);
+    out.push(proto);
+  }
+  return out;
+}
+
+function _wrapBase64Lines(b64) {
+  var lines = [];
+  for (var i = 0; i < b64.length; i += 64) lines.push(b64.slice(i, i + 64));
+  return lines.join('\n');
+}
+
+// Build a Node-shaped peer certificate chain from the DER chain presented on
+// the wire (leaf first, base64 DER entries), reusing the emulation's DER/PEM
+// parser. issuerCertificate links follow the presented order; a self-signed
+// tail links to itself like Node's chain does.
+function _buildBridgedPeerChain(derChain) {
+  var parsed = [];
+  for (var i = 0; i < derChain.length; i++) {
+    var pem = '-----BEGIN CERTIFICATE-----\n' +
+      _wrapBase64Lines(derChain[i]) +
+      '\n-----END CERTIFICATE-----\n';
+    var cert = _parsePemCertificate(pem);
+    if (cert) parsed.push(cert);
+  }
+  if (!parsed.length) return null;
+  for (var k = 0; k < parsed.length; k++) {
+    parsed[k].ca = k > 0 || _nameKey(parsed[k].subject) === _nameKey(parsed[k].issuer);
+    if (k + 1 < parsed.length) parsed[k].issuerCertificate = parsed[k + 1];
+  }
+  var last = parsed[parsed.length - 1];
+  if (_nameKey(last.subject) === _nameKey(last.issuer)) {
+    last.issuerCertificate = last;
+  }
+  return parsed[0];
+}
+
+// Map the native verifier's coarse verdict onto Node's OpenSSL-style codes.
+// UNKNOWN_ISSUER is refined by presented-chain shape; every mapping below is
+// oracle-pinned against Node v25.9.0 (local openssl-generated CA fixtures).
+function _refineBridgeVerifyError(verify, peerCert) {
+  var code = verify && verify.code;
+  if (!code) {
+    return _createAuthorizationError('UNABLE_TO_VERIFY_CERT', 'certificate verification failed');
+  }
+  if (code === 'UNKNOWN_ISSUER') {
+    var chain = _collectCertificateChain(peerCert);
+    var tail = chain.length ? chain[chain.length - 1] : null;
+    if (chain.length === 1 && _isSelfSignedCertificate(chain[0])) {
+      return _createAuthorizationError('DEPTH_ZERO_SELF_SIGNED_CERT', 'self-signed certificate');
+    }
+    if (tail && _isSelfSignedCertificate(tail)) {
+      return _createAuthorizationError(
+        'SELF_SIGNED_CERT_IN_CHAIN',
+        'self-signed certificate in certificate chain'
+      );
+    }
+    if (chain.length > 1) {
+      return _createAuthorizationError(
+        'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+        'unable to get local issuer certificate'
+      );
+    }
+    return _createAuthorizationError(
+      'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      'unable to verify the first certificate'
+    );
+  }
+  if (code === 'CERT_HAS_EXPIRED') {
+    return _createAuthorizationError('CERT_HAS_EXPIRED', 'certificate has expired');
+  }
+  if (code === 'CERT_NOT_YET_VALID') {
+    return _createAuthorizationError('CERT_NOT_YET_VALID', 'certificate is not yet valid');
+  }
+  if (code === 'CERT_REVOKED') {
+    return _createAuthorizationError('CERT_REVOKED', 'certificate revoked');
+  }
+  if (code === 'CERT_SIGNATURE_FAILURE') {
+    return _createAuthorizationError('CERT_SIGNATURE_FAILURE', 'certificate signature failure');
+  }
+  if (code === 'INVALID_PURPOSE') {
+    return _createAuthorizationError('INVALID_PURPOSE', 'unsupported certificate purpose');
+  }
+  return _createAuthorizationError(code, verify.reason || 'certificate verification failed');
+}
+
+function _tlsBridgeStatus(socket) {
+  if (socket._tlsEngineId == null) return null;
+  try {
+    return JSON.parse(__exactTlsEngineStatus(socket._tlsEngineId));
+  } catch (e) {
+    return null;
+  }
+}
+
+function _tlsBridgeRelease(socket) {
+  if (socket._tlsEngineId == null) return;
+  var id = socket._tlsEngineId;
+  socket._tlsEngineId = null;
+  if (typeof __exactTlsEngineClose === 'function') {
+    try { __exactTlsEngineClose(id); } catch (e) { /* ignored: engine may already be gone */ }
+  }
+}
+
+function _tlsBridgeFail(socket, err) {
+  _tlsBridgeRelease(socket);
+  if (socket.destroyed) return;
+  // destroy(err) delivers exactly one 'error' event through the raw-socket
+  // binding, matching the fail-loud path's contract.
+  socket.destroy(err);
+}
+
+function _tlsBridgeErrorFromStatus(socket, fallbackMessage) {
+  var status = _tlsBridgeStatus(socket);
+  var message = (status && status.error) || fallbackMessage || 'TLS handshake failed';
+  var code = (status && status.errorCode) || 'ERR_TLS_HANDSHAKE_FAILURE';
+  return _createError(code, message);
+}
+
+// Drain ciphertext the engine wants to send into the raw socket.
+function _tlsBridgePumpOut(socket) {
+  if (socket._tlsEngineId == null) return;
+  var raw = socket._socket;
+  for (;;) {
+    var chunk;
+    try {
+      chunk = __exactTlsEngineReadTls(socket._tlsEngineId, 65536);
+    } catch (e) {
+      return;
+    }
+    if (!chunk || typeof chunk === 'string' || !chunk.byteLength) return;
+    if (raw && typeof raw.write === 'function' && !raw.destroyed) {
+      raw.write(_bufferFromBytes(chunk));
+    }
+  }
+}
+
+// Drain decrypted plaintext out of the engine into 'data' events (or 'end').
+function _tlsBridgeDrainPlain(socket) {
+  if (socket._tlsEngineId == null) return;
+  for (;;) {
+    var chunk;
+    try {
+      chunk = __exactTlsEngineReadPlain(socket._tlsEngineId, 65536);
+    } catch (e) {
+      _tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, 'TLS record processing failed'));
+      return;
+    }
+    if (chunk === null) {
+      // End-of-stream (close_notify or transport EOF after data).
+      if (!socket._bridgeEndEmitted) {
+        socket._bridgeEndEmitted = true;
+        socket.readable = false;
+        if (typeof socket.emit === 'function') socket.emit('end');
+      }
+      return;
+    }
+    if (!chunk || typeof chunk === 'string' || !chunk.byteLength) return;
+    if (socket._tlsEngineId == null || socket.destroyed) return;
+    var data = _bufferFromBytes(chunk);
+    if (socket._bridgeEncoding && data && typeof data.toString === 'function') {
+      data = data.toString(socket._bridgeEncoding);
+    }
+    if (typeof socket.emit === 'function') socket.emit('data', data);
+  }
+}
+
+function _tlsBridgeFlushPendingWrites(socket) {
+  var pending = socket._bridgePendingWrites;
+  socket._bridgePendingWrites = null;
+  if (pending) {
+    for (var i = 0; i < pending.length; i++) {
+      _tlsBridgeWrite(socket, pending[i].data, pending[i].encoding, pending[i].callback);
+    }
+  }
+  var heldEnd = socket._bridgeHeldEnd;
+  socket._bridgeHeldEnd = null;
+  if (heldEnd && !socket.destroyed) {
+    socket.end(typeof heldEnd === 'function' ? heldEnd : undefined);
+  }
+}
+
+// Release writes held since connect(): 'raw' flushes into the raw socket
+// (loopback emulation path), 'bridge' transfers them into the bridged
+// pre-secureConnect queue, 'drop' discards them (the connection failed).
+function _tlsReleaseHeldWrites(socket, mode) {
+  if (!socket._writeHeld) return;
+  socket._writeHeld = false;
+  var held = socket._heldWrites || [];
+  socket._heldWrites = null;
+  var heldEnd = socket._heldEnd;
+  socket._heldEnd = null;
+  if (mode === 'drop') return;
+  if (mode === 'bridge') {
+    if (!socket._bridgePendingWrites) socket._bridgePendingWrites = [];
+    for (var i = 0; i < held.length; i++) socket._bridgePendingWrites.push(held[i]);
+    if (heldEnd) socket._bridgeHeldEnd = heldEnd;
+    return;
+  }
+  var raw = socket._socket;
+  for (var j = 0; j < held.length; j++) {
+    if (raw && typeof raw.write === 'function') {
+      raw.write(held[j].data, held[j].encoding, held[j].callback);
+    } else if (typeof held[j].callback === 'function') {
+      setTimeout(held[j].callback, 0);
+    }
+  }
+  if (heldEnd && raw && typeof raw.end === 'function') {
+    raw.end(typeof heldEnd === 'function' ? heldEnd : undefined);
+  }
+}
+
+function _tlsBridgeWrite(socket, data, encoding, callback) {
+  if (socket.destroyed || socket._tlsEngineId == null) {
+    if (typeof callback === 'function') setTimeout(callback, 0);
+    return false;
+  }
+  // Application data written before the handshake finishes is queued in JS
+  // and flushed on completion (never leaks into the handshake transcript;
+  // ordering is preserved).
+  if (!socket._secureEstablished) {
+    if (!socket._bridgePendingWrites) socket._bridgePendingWrites = [];
+    socket._bridgePendingWrites.push({ data: data, encoding: encoding, callback: callback });
+    return true;
+  }
+  var buf = typeof data === 'string'
+    ? (typeof Buffer !== 'undefined' ? Buffer.from(data, encoding || 'utf8') : _stringToBytes(data))
+    : _cloneBufferLike(data);
+  var offset = 0;
+  var total = _byteLength(buf);
+  var guard = 0;
+  while (offset < total) {
+    var slice = offset === 0 ? buf : buf.slice(offset);
+    var accepted;
+    try {
+      accepted = __exactTlsEngineWritePlain(socket._tlsEngineId, slice);
+    } catch (e) {
+      accepted = -1;
+    }
+    if (accepted < 0) {
+      _tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, 'TLS write failed'));
+      return false;
+    }
+    offset += accepted;
+    _tlsBridgePumpOut(socket);
+    // Post-handshake rustls encrypts as fast as we drain, so zero-progress
+    // loops indicate a broken engine; bail out instead of spinning.
+    if (accepted === 0 && ++guard > 1000) {
+      _tlsBridgeFail(socket, _createError('ERR_TLS_HANDSHAKE_FAILURE', 'TLS write stalled'));
+      return false;
+    }
+  }
+  if (typeof callback === 'function') setTimeout(callback, 0);
+  return true;
+}
+
+function _finalizeBridgedHandshake(socket) {
+  if (socket._secureEstablished || socket.destroyed) return;
+  var opts = socket._tlsOptions || {};
+  var status = _tlsBridgeStatus(socket);
+  if (!status) return;
+  if (status.error) {
+    _tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket));
+    return;
+  }
+  if (status.handshaking) return;
+
+  socket._secureEstablished = true;
+  socket.pending = false;
+  socket.encrypted = true;
+  if (status.protocol) socket._protocol = status.protocol;
+  socket._cipher = {
+    name: status.cipher || null,
+    standardName: status.cipherStandard || status.cipher || null,
+    version: status.protocol || socket._protocol
+  };
+  // Node v25.9.0 oracle: alpnProtocol is false when no protocol was
+  // negotiated, and servername is false when no SNI was sent.
+  socket.alpnProtocol = status.alpn || false;
+  if (!(opts.servername || opts.sni)) socket.servername = false;
+  socket._session = null;
+  socket._sessionReused = false;
+
+  var derChain = [];
+  try {
+    derChain = JSON.parse(__exactTlsEnginePeerCerts(socket._tlsEngineId)) || [];
+  } catch (e) {
+    derChain = [];
+  }
+  socket._peerCertificate = _buildBridgedPeerChain(derChain);
+  socket._localCertificate = null;
+
+  // Node semantics: the (native) chain verification verdict comes first; only
+  // a trusted chain proceeds to the hostname/identity check, which runs here
+  // in JS so options.checkServerIdentity overrides behave exactly like Node.
+  var verifyError = null;
+  if (!status.verify || !status.verify.checked || !socket._peerCertificate) {
+    verifyError = _createAuthorizationError(
+      'UNABLE_TO_VERIFY_CERT',
+      'certificate verification failed'
+    );
+  } else if (!status.verify.chainOk) {
+    verifyError = _refineBridgeVerifyError(status.verify, socket._peerCertificate);
+  }
+  if (!verifyError) {
+    var check = opts.checkServerIdentity || checkServerIdentity;
+    var identityHost = socket._servername || socket.remoteAddress || 'localhost';
+    try {
+      verifyError = _normalizeCheckError(check(identityHost, socket._peerCertificate, opts));
+    } catch (checkErr) {
+      verifyError = _normalizeCheckError(checkErr);
+    }
+  }
+  if (verifyError) {
+    socket.authorized = false;
+    socket.authorizationError = verifyError.code || verifyError.message || String(verifyError);
+    socket._authorizationErrorObject = verifyError;
+  } else {
+    socket.authorized = true;
+    socket.authorizationError = null;
+    socket._authorizationErrorObject = null;
+  }
+
+  if (socket.authorized || opts.rejectUnauthorized === false) {
+    if (typeof socket.emit === 'function') {
+      socket.emit('secure', true);
+      socket.emit('secureConnect');
+    }
+    _tlsBridgeFlushPendingWrites(socket);
+    return;
+  }
+  socket._bridgePendingWrites = null;
+  _tlsBridgeFail(socket, socket._authorizationErrorObject || _createError(
+    'UNABLE_TO_VERIFY_CERT',
+    'certificate verification failed'
+  ));
+}
+
+function _tlsBridgeOnCiphertext(socket, chunk) {
+  if (socket._tlsEngineId == null) return;
+  var consumed;
+  try {
+    consumed = __exactTlsEngineWriteTls(socket._tlsEngineId, chunk);
+  } catch (e) {
+    consumed = -1;
+  }
+  _tlsBridgePumpOut(socket);
+  if (consumed < 0) {
+    var err = _tlsBridgeErrorFromStatus(socket);
+    // If native verification already recorded a verdict but the engine then
+    // failed, surface the TLS error (cert verdicts are reported through the
+    // normal finalize path because the handshake completes).
+    _tlsBridgeFail(socket, err);
+    return;
+  }
+  if (!socket._secureEstablished) {
+    _finalizeBridgedHandshake(socket);
+    if (socket._tlsEngineId == null || socket.destroyed) return;
+    _tlsBridgePumpOut(socket);
+  }
+  if (socket._secureEstablished) {
+    _tlsBridgeDrainPlain(socket);
+  }
+}
+
+function _tlsBridgeOnTransportEnd(socket) {
+  if (socket._tlsEngineId == null) {
+    socket.readable = false;
+    if (!socket._bridgeEndEmitted && typeof socket.emit === 'function') {
+      socket._bridgeEndEmitted = true;
+      socket.emit('end');
+    }
+    return;
+  }
+  try {
+    __exactTlsEngineTransportEof(socket._tlsEngineId);
+  } catch (e) { /* ignored: engine may have failed already; drain decides */ }
+  if (!socket._secureEstablished) {
+    // Peer closed mid-handshake. Node v25.9.0 oracle: ECONNRESET.
+    var status = _tlsBridgeStatus(socket);
+    var err = (status && status.error)
+      ? _tlsBridgeErrorFromStatus(socket)
+      : _createError('ECONNRESET', 'read ECONNRESET');
+    _tlsBridgeFail(socket, err);
+    return;
+  }
+  _tlsBridgeDrainPlain(socket);
+}
+
+// Start real TLS over the already-connected raw socket. Runs in place of the
+// old ERR_TLS_EMULATION_LOOPBACK_ONLY failure for every out-of-process peer.
+function _startTlsBridge(socket, netSocket, options, host, port) {
+  socket._bridged = true;
+  socket._bridgeEndEmitted = false;
+  socket._bridgeEncoding = null;
+  socket._bridgePendingWrites = [];
+  socket.pending = true;
+  socket._secureEstablished = false;
+  // Writes held since connect() move into the bridged pre-secure queue so
+  // they are encrypted after the handshake, in order.
+  _tlsReleaseHeldWrites(socket, 'bridge');
+
+  var servername = options.servername || options.sni || null;
+  var config = {
+    // Measured Node v25.9.0: SNI is only sent when servername was explicitly
+    // provided (bare tls.connect({host}) sends none). ibex https.js always
+    // sets servername, so https clients get SNI.
+    servername: servername ? String(servername) : null,
+    host: host ? String(host) : null,
+    alpn: _alpnProtocolsToList(options.ALPNProtocols),
+    ca: options.ca !== undefined && options.ca !== null ? _pemSourceToString(options.ca) : null,
+    minVersion: options.minVersion || null,
+    maxVersion: options.maxVersion || null
+  };
+
+  var engineId;
+  try {
+    engineId = __exactTlsEngineNew(JSON.stringify(config));
+  } catch (engineErr) {
+    socket.destroy(engineErr);
+    return;
+  }
+  socket._tlsEngineId = engineId;
+  // Send the ClientHello.
+  _tlsBridgePumpOut(socket);
+}
+
 function connect() {
   var parsed = _normalizeTlsConnectArguments(arguments);
   var options = parsed.options || {};
@@ -2095,6 +2665,12 @@ function connect() {
   if (typeof cb === 'function' && typeof socket.once === 'function') {
     socket.once('secureConnect', cb);
   }
+  // Hold application writes until the loopback-vs-bridge decision on TCP
+  // connect. Consumers write the moment 'connect' fires; on the bridged path
+  // those bytes must wait for the real handshake or they would go out as
+  // plaintext ahead of the ClientHello (ENG-23492).
+  socket._writeHeld = true;
+  socket._heldWrites = [];
 
   var host = options.host || options.hostname || 'localhost';
   var port = typeof options.port === 'undefined' ? 443 : options.port;
@@ -2218,6 +2794,7 @@ function connect() {
         if (handshakeOkLocal || options.rejectUnauthorized === false) {
           socket.emit('secure', true);
           socket.emit('secureConnect');
+          _tlsReleaseHeldWrites(socket, 'raw');
         } else if (socket.authorizationError) {
           var localErr = socket._authorizationErrorObject || new Error(socket.authorizationError);
           socket.emit('error', localErr);
@@ -2226,19 +2803,29 @@ function connect() {
         return;
       }
 
-      // The peer is NOT an in-process tls.Server: fail loudly instead of
-      // fabricating a handshake. This emulation performs no wire cryptography;
-      // completing "secureConnect" here against a real TLS endpoint would
-      // report a secure, authorized connection over cleartext while the remote
-      // server stalls waiting for a ClientHello. destroy(err) delivers exactly
-      // one 'error' event through the raw-socket binding. A native TLS bridge
-      // for real endpoints is tracked in ENG-23492.
-      // @ref LLP 0004#the-tls-builtin-is-a-loopback-only-emulation — refuse to fabricate TLS to out-of-process peers
+      // The peer is NOT an in-process tls.Server: perform REAL TLS through
+      // the native bridge (ENG-23492). The sans-IO engine handshakes over
+      // this already-connected raw socket; secureConnect only fires once the
+      // real handshake completes and the real peer chain has been validated.
+      // @ref LLP 0004#the-tls-builtin — out-of-process peers use the native bridge
+      if (_tlsBridgeAvailable()) {
+        _startTlsBridge(socket, netSocket, options, host, port);
+        return;
+      }
+
+      // No native bridge in this build (e.g. the bun test harness or an
+      // embedded host without net host functions): fail loudly instead of
+      // fabricating a handshake. This emulation performs no wire
+      // cryptography; completing "secureConnect" here against a real TLS
+      // endpoint would report a secure, authorized connection over cleartext
+      // while the remote server stalls waiting for a ClientHello. destroy(err)
+      // delivers exactly one 'error' event through the raw-socket binding.
+      // @ref LLP 0004#fail-loud-boundary-without-the-bridge — refuse to fabricate TLS without the bridge
       var emulationErr = _createError(
         'ERR_TLS_EMULATION_LOOPBACK_ONLY',
-        'tls.connect: the Ibex runtime does not implement real TLS; refusing to fabricate a secure connection to ' +
+        'tls.connect: this Ibex build lacks the native TLS bridge; refusing to fabricate a secure connection to ' +
           peerHost + ':' + peerPort + ', which is not a tls.Server running in this process. ' +
-          'Only loopback connections to an in-process tls.Server are supported ' +
+          'Only loopback connections to an in-process tls.Server are supported here ' +
           '(LLP 0004; native TLS bridge: ENG-23492).'
       );
       socket.destroy(emulationErr);

@@ -352,6 +352,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_fs_windows.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_process.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_net.cc");
+    println!("cargo:rerun-if-changed=src/engine/hermes_runtime_tls.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_http.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_sqlite.cc");
     println!("cargo:rerun-if-changed=src/engine/hermes_runtime_debugger.cc");
@@ -988,6 +989,9 @@ fn main() {
             .file("src/engine/hermes_runtime_fs.cc")
             .file("src/engine/hermes_runtime_process.cc")
             .file("src/engine/hermes_runtime_net.cc")
+            // Native TLS bridge JSI shims (ENG-23492); non-Windows only, like
+            // the TCP host functions the bridge rides.
+            .file("src/engine/hermes_runtime_tls.cc")
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")
             .file("src/engine/hermes_runtime_ios.cc")

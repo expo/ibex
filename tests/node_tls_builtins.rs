@@ -1,9 +1,10 @@
 //! End-to-end regression tests for the Node-compat `tls` builtin, driving the
-//! real `ibex` binary over loopback TCP (ENG-23448).
+//! real `ibex` binary over loopback TCP (ENG-23448, ENG-23492).
 //!
-//! The tls builtin is a loopback-only emulation — it performs no wire
-//! cryptography. See LLP 0004 ("The tls builtin is a loopback-only emulation")
-//! for the design; these tests pin the Node-facing contract, which was
+//! Two client paths are covered (see LLP 0004, "The tls builtin"): the
+//! in-process loopback emulation (no wire cryptography) and the native TLS
+//! bridge, which performs REAL wire TLS — pinned here hermetically against an
+//! in-process rustls server. The Node-facing contract in both cases was
 //! verified against real Node v25.9.0 as the oracle.
 //!
 //! Run with: `scripts/run-tests.sh --scope test node_tls`
@@ -276,16 +277,15 @@ server.listen(0, '127.0.0.1', function () {
 }
 
 #[tokio::test]
-async fn node_tls_connect_fails_loudly_when_peer_is_not_an_in_process_tls_server() {
-    // ENG-23448 finding 1 (the headline): tls.connect used to fabricate an
-    // immediate 'secureConnect' with authorized=true and a synthetic peer
-    // certificate against ANY peer that was not an in-process tls.Server —
-    // e.g. a real TLS endpoint receiving cleartext. It must now destroy the
-    // socket with ERR_TLS_EMULATION_LOOPBACK_ONLY and never report secure.
-    // A local plain-TCP listener stands in for the real TLS server (no
-    // external hosts). 'localhost' is the variant that used to fabricate full
-    // success (the synthetic cert's DNS altname matched the hostname).
-    // @ref LLP 0004#the-tls-builtin-is-a-loopback-only-emulation — pins the fail-loud boundary
+async fn node_tls_connect_to_non_tls_peer_errors_and_never_reports_secure() {
+    // ENG-23448 pinned "never fabricate secureConnect against a peer that is
+    // not an in-process tls.Server". Since ENG-23492 the out-of-process path
+    // performs REAL TLS through the native bridge, so the honest failure for
+    // a plaintext-speaking peer is a wire-level TLS error. Node v25.9.0
+    // oracle for a peer that answers the ClientHello with plaintext:
+    // ERR_SSL_WRONG_VERSION_NUMBER, no secureConnect, exactly one error.
+    // 'localhost' is the variant that pre-ENG-23448 fabricated full success.
+    // @ref LLP 0004#the-tls-builtin — out-of-process peers use the native bridge
     let script = r#"
 var tls = require('tls');
 var net = require('net');
@@ -296,7 +296,10 @@ var watchdog = setTimeout(function () {
   process.exit(1);
 }, 10000);
 
-var plain = net.createServer(function () { /* silent plaintext peer */ });
+var plain = net.createServer(function (sock) {
+  // Answer the ClientHello with plaintext HTTP, like a misconfigured server.
+  sock.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nnot tls');
+});
 plain.listen(0, '127.0.0.1', function () {
   var port = plain.address().port;
 
@@ -328,14 +331,323 @@ plain.listen(0, '127.0.0.1', function () {
             .unwrap_or_else(|| panic!("{v}"));
         assert_eq!(
             events,
-            &vec![Value::String(
-                "error:ERR_TLS_EMULATION_LOOPBACK_ONLY".into()
-            )],
-            "{label}: exactly one loud error, never secureConnect: {v}"
+            &vec![Value::String("error:ERR_SSL_WRONG_VERSION_NUMBER".into())],
+            "{label}: exactly one wire-level TLS error, never secureConnect: {v}"
         );
         assert_eq!(v[label]["destroyed"], true, "{label}: {v}");
         assert_eq!(v[label]["authorized"], false, "{label}: {v}");
     }
+}
+
+// ============================================================
+// Native TLS bridge (ENG-23492): real wire TLS against an in-process rustls
+// server over loopback — hermetic (no network), same crypto stack the bridge
+// itself uses. The fixture cert is self-signed for localhost/127.0.0.1, so
+// `ca: [CERT]` exercises the trusted path and omitting it exercises the
+// DEPTH_ZERO_SELF_SIGNED_CERT verdicts (all oracle-pinned on Node v25.9.0).
+// ============================================================
+
+#[cfg(not(target_os = "windows"))]
+mod tls_bridge_support {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    fn server_config() -> Arc<rustls::ServerConfig> {
+        let certs: Vec<_> = rustls_pemfile::certs(&mut super::TEST_CERT.as_bytes())
+            .collect::<Result<_, _>>()
+            .expect("fixture cert parses");
+        let key = rustls_pemfile::private_key(&mut super::TEST_KEY.as_bytes())
+            .expect("fixture key parses")
+            .expect("fixture key present");
+        let mut config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .expect("server config builds");
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(config)
+    }
+
+    /// Spawn a real TLS server on 127.0.0.1: reads until a blank line (or
+    /// LF for raw-socket clients), responds with a fixed HTTP/1.1 200, sends
+    /// close_notify. Serves connections until the process exits (test
+    /// scoped). Returns the bound port.
+    pub fn spawn_tls_http_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let config = config.clone();
+                std::thread::spawn(move || {
+                    let mut conn = match rustls::ServerConnection::new(config) {
+                        Ok(conn) => conn,
+                        Err(_) => return,
+                    };
+                    let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+                    let mut received = Vec::new();
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        match tls.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                received.extend_from_slice(&buf[..n]);
+                                if received.windows(4).any(|w| w == b"\r\n\r\n")
+                                    || received.contains(&b'\n')
+                                {
+                                    break;
+                                }
+                            }
+                            Err(_) => return,
+                        }
+                    }
+                    let body = b"ok-over-real-tls";
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = tls.write_all(head.as_bytes());
+                    let _ = tls.write_all(body);
+                    tls.conn.send_close_notify();
+                    let _ = tls.flush();
+                });
+            }
+        });
+        port
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn node_tls_bridge_real_handshake_with_ca_authorizes_and_moves_data() {
+    // Trusted path: the self-signed fixture passed as `ca` must authorize
+    // (Node v25.9.0 oracle: authorized=true), negotiate ALPN, expose the REAL
+    // peer certificate fields parsed from the wire DER, and round-trip
+    // application data over the encrypted socket.
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 10000);
+var sock = tls.connect({{
+  port: {port},
+  host: '127.0.0.1',
+  servername: 'localhost',
+  ca: [CERT],
+  ALPNProtocols: ['http/1.1']
+}}, function () {{
+  out.secureConnect = true;
+  out.authorized = sock.authorized;
+  out.authorizationError = sock.authorizationError;
+  out.alpn = sock.alpnProtocol;
+  out.protocol = sock.getProtocol();
+  out.cipherName = sock.getCipher().name;
+  var cert = sock.getPeerCertificate();
+  out.subjectCN = cert.subject && cert.subject.CN;
+  out.issuerCN = cert.issuer && cert.issuer.CN;
+  out.altnames = cert.subjectaltname;
+  out.validTo = cert.valid_to;
+  out.fingerprint256Shape = /^([0-9A-F]{{2}}:){{31}}[0-9A-F]{{2}}$/.test(cert.fingerprint256 || '');
+  out.hasRawDer = !!(cert.raw && cert.raw.length > 0);
+  var body = '';
+  sock.on('data', function (chunk) {{ body += chunk.toString(); }});
+  sock.on('end', function () {{
+    out.status = body.split('\r\n')[0];
+    out.gotBody = body.indexOf('ok-over-real-tls') !== -1;
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }});
+  sock.write('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["secureConnect"], true, "{v}");
+    assert_eq!(v["authorized"], true, "real chain + ca must authorize: {v}");
+    assert_eq!(v["authorizationError"], Value::Null, "{v}");
+    assert_eq!(v["alpn"], "http/1.1", "{v}");
+    assert_eq!(v["protocol"], "TLSv1.3", "{v}");
+    assert_eq!(v["subjectCN"], "localhost", "{v}");
+    assert_eq!(v["issuerCN"], "localhost", "{v}");
+    assert_eq!(v["altnames"], "DNS:localhost, IP Address:127.0.0.1", "{v}");
+    assert_eq!(
+        v["validTo"], "Jul  2 07:13:53 2046 GMT",
+        "OpenSSL/Node cert time format from the real DER: {v}"
+    );
+    assert_eq!(v["fingerprint256Shape"], true, "{v}");
+    assert_eq!(v["hasRawDer"], true, "{v}");
+    assert_eq!(v["status"], "HTTP/1.1 200 OK", "{v}");
+    assert_eq!(v["gotBody"], true, "application data over real TLS: {v}");
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn node_tls_bridge_selfsigned_verdicts_match_node() {
+    // Untrusted (default roots) against the self-signed fixture. Node
+    // v25.9.0 oracle: rejectUnauthorized:false -> secureConnect with
+    // authorized=false / authorizationError='DEPTH_ZERO_SELF_SIGNED_CERT';
+    // default -> abort with the same code and never secureConnect.
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 10000);
+var lax = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', rejectUnauthorized: false }}, function () {{
+  out.lax = {{
+    secureConnect: true,
+    authorized: lax.authorized,
+    authorizationError: lax.authorizationError,
+    peerCN: (lax.getPeerCertificate().subject || {{}}).CN
+  }};
+  lax.destroy();
+  var strictEvents = [];
+  var strict = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost' }}, function () {{
+    strictEvents.push('secureConnect');
+  }});
+  strict.on('error', function (e) {{ strictEvents.push('error:' + (e.code || e.message)); }});
+  strict.on('close', function () {{
+    out.strict = {{ events: strictEvents, authorized: strict.authorized }};
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }});
+}});
+lax.on('error', function (e) {{
+  out.laxError = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["lax"]["secureConnect"], true, "{v}");
+    assert_eq!(v["lax"]["authorized"], false, "{v}");
+    assert_eq!(
+        v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT",
+        "{v}"
+    );
+    assert_eq!(v["lax"]["peerCN"], "localhost", "{v}");
+    let strict_events = v["strict"]["events"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{v}"));
+    assert_eq!(
+        strict_events,
+        &vec![Value::String("error:DEPTH_ZERO_SELF_SIGNED_CERT".into())],
+        "strict default must abort with the oracle code and never secureConnect: {v}"
+    );
+    assert_eq!(v["strict"]["authorized"], false, "{v}");
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn node_tls_bridge_hostname_mismatch_matches_node_shape() {
+    // Chain trusted via ca but servername does not match the cert SANs.
+    // Node v25.9.0 oracle: ERR_TLS_CERT_ALTNAME_INVALID with reason/host
+    // properties and the exact message shape (the JS checkServerIdentity
+    // path, fed by the REAL wire chain).
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 10000);
+var events = [];
+var sock = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'wrong.example.test', ca: [CERT] }}, function () {{
+  events.push('secureConnect');
+}});
+sock.on('error', function (e) {{
+  events.push('error');
+  out.code = e.code;
+  out.reason = e.reason;
+  out.host = e.host;
+  out.message = String(e.message).slice(0, 140);
+}});
+sock.on('close', function () {{
+  out.events = events;
+  out.authorized = sock.authorized;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(
+        v["events"],
+        serde_json::json!(["error"]),
+        "hostname mismatch aborts before secureConnect: {v}"
+    );
+    assert_eq!(v["code"], "ERR_TLS_CERT_ALTNAME_INVALID", "{v}");
+    assert_eq!(v["host"], "wrong.example.test", "{v}");
+    assert_eq!(
+        v["reason"],
+        "Host: wrong.example.test. is not in the cert's altnames: DNS:localhost, IP Address:127.0.0.1",
+        "{v}"
+    );
+    assert_eq!(v["authorized"], false, "{v}");
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tokio::test]
+async fn node_tls_bridge_https_get_roundtrip() {
+    // https client over the bridged socket: URL + ca option, status and body
+    // must come back through the real TLS connection. Also covers the
+    // write-hold path (http.js writes the request on 'connect', before the
+    // handshake finishes).
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var https = require('https');
+var out = {{}};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 10000);
+https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
+  out.status = res.statusCode;
+  var body = '';
+  res.on('data', function (chunk) {{ body += chunk; }});
+  res.on('end', function () {{
+    out.body = body;
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }});
+}}).on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["status"], 200, "{v}");
+    assert_eq!(v["body"], "ok-over-real-tls", "{v}");
 }
 
 #[tokio::test]
