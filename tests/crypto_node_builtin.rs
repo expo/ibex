@@ -373,6 +373,149 @@ async fn dh_compute_secret_rejects_out_of_range_public_keys() {
     assert_eq!(parsed["valid"], true, "in-range peer keys must keep working: {result}");
 }
 
+/// ENG-23465 finding 1: bare string inputs to pbkdf2/scrypt/hkdf/
+/// createSecretKey/cipher.update default to utf8 like Node — not one byte per
+/// UTF-16 code unit. Goldens produced by Node v25 (external oracle).
+#[tokio::test]
+async fn kdf_and_cipher_string_inputs_default_to_utf8() {
+    let js = "(function(){ var c = require('crypto'); \
+        var out = {}; \
+        out.pbkdf2 = c.pbkdf2Sync('p\\u00e4ssword','salt',1,16,'sha256').toString('hex'); \
+        out.scrypt = c.scryptSync('p\\u00e4ss','salt',16).toString('hex'); \
+        out.hkdf = Buffer.from(c.hkdfSync('sha256','p\\u00e4ss','salt','inf\\u00f6',16)).toString('hex'); \
+        out.secretKeyHmac = c.createHmac('sha256', c.createSecretKey('k\\u00e9y','utf8')).update('x').digest('hex'); \
+        var ci = c.createCipheriv('aes-128-cbc', Buffer.alloc(16,1), Buffer.alloc(16,2)); \
+        out.cipher = ci.update('caf\\u00e9','utf8','hex') + ci.final('hex'); \
+        return JSON.stringify(out); })()";
+    let result = eval(js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
+    assert_eq!(parsed["pbkdf2"], "f6305ae2b0e9cd43a1c04f7af100cbed", "pbkdf2 utf8 golden: {result}");
+    assert_eq!(parsed["scrypt"], "afa3397a7eda04ece515b3c965505918", "scrypt utf8 golden: {result}");
+    assert_eq!(parsed["hkdf"], "1df47305515732fb2567394402e29dbb", "hkdf utf8 golden: {result}");
+    assert_eq!(
+        parsed["secretKeyHmac"],
+        "fc397a5e543c0c71e75934f428fc7478ae5fe0495bb2a53313b88f3410cdfa09",
+        "createSecretKey utf8 golden: {result}"
+    );
+    assert_eq!(parsed["cipher"], "fc8f3a5026024f880c5713abebd34526", "cipher.update utf8 golden: {result}");
+}
+
+/// ENG-23465 findings 7+8: second digest() throws ERR_CRYPTO_HASH_FINALIZED
+/// (never a cached value), update(number) throws ERR_INVALID_ARG_TYPE, and
+/// the Transform lifecycle completes — 'finish' fires so stream.pipeline on a
+/// hash resolves instead of wedging.
+#[tokio::test]
+async fn hash_finalization_and_stream_lifecycle() {
+    let js = "(function(){ var c = require('crypto'); \
+        var out = {}; \
+        var h = c.createHash('sha256'); h.digest(); \
+        try { h.digest(); out.twice = 'no-throw'; } catch (e) { out.twice = e.code; } \
+        try { c.createHash('sha256').update(123); out.num = 'no-throw'; } catch (e) { out.num = e.code; } \
+        try { c.createHmac('sha256','k').update(null); out.hmacNull = 'no-throw'; } catch (e) { out.hmacNull = e.code; } \
+        return JSON.stringify(out); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        r#"{"twice":"ERR_CRYPTO_HASH_FINALIZED","num":"ERR_INVALID_ARG_TYPE","hmacNull":"ERR_INVALID_ARG_TYPE"}"#,
+        "hash finalization contract: {result}"
+    );
+
+    // pipeline must complete (it hung before the Transform.end delegation).
+    let script = "var c = require('crypto'); var stream = require('stream'); \
+        var h = c.createHash('sha256'); \
+        var timer = setTimeout(function(){ console.log('HUNG'); process.exit(1); }, 5000); \
+        stream.pipeline(stream.Readable.from(['x']), h, function(err) { \
+          clearTimeout(timer); \
+          console.log(err ? 'ERR' : 'pipeline:' + h.read().toString('hex').slice(0, 12)); \
+        });";
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("-e").arg(script);
+    let output = timeout(Duration::from_secs(60), cmd.output())
+        .await
+        .expect("ibex -e timed out")
+        .expect("failed to run ibex");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("pipeline:2d711642b726"),
+        "pipeline over createHash must resolve with the digest (Node oracle 2d711642b726...): status={:?} stdout={stdout}",
+        output.status.code()
+    );
+}
+
+/// ENG-23465 findings 2, 4, 5, 9, 10: ECDH honors the requested curve (P-384
+/// public key is 97 bytes, not P-256's 65), generatePrimeSync returns real
+/// probable primes (bigint and exact bit length), createDiffieHellman decodes
+/// a hex prime, generateKeyPairSync 'der' returns a Buffer, and cipher
+/// construction validates key/IV lengths with Node's error codes.
+#[tokio::test]
+async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
+    let js = "(function(){ var c = require('crypto'); \
+        var out = {}; \
+        try { out.ecdh384 = c.createECDH('secp384r1').generateKeys().length; } \
+        catch (e) { out.ecdh384 = 'ERR:' + e.code; } \
+        var p = c.generatePrimeSync(64, { bigint: true }); \
+        out.primeIsPrime = c.checkPrimeSync(p); \
+        out.primeBits = p.toString(2).length; \
+        var ab = c.generatePrimeSync(12); \
+        out.primeAb = (ab instanceof ArrayBuffer) && ab.byteLength === 2; \
+        out.dhHexPrime = c.createDiffieHellman('bb', 'hex').getPrime().toString('hex'); \
+        try { \
+          var kp = c.generateKeyPairSync('ec', { namedCurve: 'P-256', publicKeyEncoding: { type: 'spki', format: 'der' } }); \
+          out.der = Buffer.isBuffer(kp.publicKey) ? 'buffer' : typeof kp.publicKey; \
+        } catch (e) { out.der = 'ERR:' + (e.code || e.message); } \
+        try { c.createDecipheriv('aes-128-cbc', Buffer.alloc(24), Buffer.alloc(16)); out.badKey = 'no-throw'; } \
+        catch (e) { out.badKey = e.code; } \
+        try { c.createCipheriv('aes-128-ctr', Buffer.alloc(16), Buffer.alloc(3)); out.badIv = 'no-throw'; } \
+        catch (e) { out.badIv = e.code; } \
+        return JSON.stringify(out); })()";
+    let result = eval(&js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
+    // On reduced profiles EC keygen may throw honestly; both are acceptable,
+    // silently generating a P-256 key (length 65) is not.
+    let ecdh = &parsed["ecdh384"];
+    assert!(
+        ecdh == 97 || ecdh.as_str().map(|s| s.starts_with("ERR:")).unwrap_or(false),
+        "secp384r1 keys must be P-384-sized or throw honestly, never P-256: {result}"
+    );
+    assert_eq!(parsed["primeIsPrime"], true, "generatePrimeSync must return a real prime: {result}");
+    assert_eq!(parsed["primeBits"], 64, "generatePrimeSync must honor the exact bit length: {result}");
+    assert_eq!(parsed["primeAb"], true, "non-bigint generatePrimeSync returns an ArrayBuffer: {result}");
+    assert_eq!(parsed["dhHexPrime"], "bb", "createDiffieHellman must decode the prime encoding: {result}");
+    assert_eq!(parsed["der"], "buffer", "der-format key encoding must return a Buffer: {result}");
+    assert_eq!(parsed["badKey"], "ERR_CRYPTO_INVALID_KEYLEN", "Decipher must validate key length: {result}");
+    assert_eq!(parsed["badIv"], "ERR_CRYPTO_INVALID_IV", "CTR must validate IV length: {result}");
+}
+
+/// ENG-23465 finding 3: verify.verify(key, signature, signatureEncoding)
+/// decodes hex/base64 signature strings (they always verified false before).
+#[tokio::test]
+async fn verify_honors_signature_encoding() {
+    let js = format!(
+        "(function(){{ {prologue} \
+           try {{ \
+             var s = c.createSign('sha256'); s.update(msg); \
+             var sig = s.sign(priv); \
+             var mk = function() {{ var v = c.createVerify('sha256'); v.update(msg); return v; }}; \
+             return JSON.stringify({{ \
+               buf: mk().verify(pub, sig), \
+               hex: mk().verify(pub, sig.toString('hex'), 'hex'), \
+               b64: mk().verify(pub, sig.toString('base64'), 'base64') \
+             }}); \
+           }} catch (e) {{ return 'ERR:' + e.message; }} \
+         }})()",
+        prologue = key_prologue()
+    );
+    let result = eval(&js).await;
+    if result.starts_with("ERR:") && is_unavailable(&result) {
+        eprintln!("skipping: asymmetric crypto bridge unavailable ({result})");
+        return;
+    }
+    assert_eq!(
+        result, r#"{"buf":true,"hex":true,"b64":true}"#,
+        "string signatures with signatureEncoding must verify: {result}"
+    );
+}
+
 /// ENG-23129 finding 7 (bounds only — the bias fix is rejection sampling,
 /// reviewed at the source): every draw stays in [min, max) and small ranges
 /// are fully covered.

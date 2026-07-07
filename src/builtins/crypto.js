@@ -216,6 +216,19 @@ function _toBytes(value) {
   return new Uint8Array(0);
 }
 
+// Node's default encoding for bare string inputs to KDFs, ciphers, and secret
+// keys is utf8; _toBytes truncates each UTF-16 code unit to one byte (latin1),
+// so 'é' became 0xE9 instead of 0xC3 0xA9 and every derived key/ciphertext
+// differed from Node for non-ASCII input (ENG-23465; Hash/Hmac were fixed
+// under ENG-22966, Sign/Verify under ENG-23129).
+function _toBytesUtf8(value) {
+  if (typeof value === 'string') {
+    if (typeof Buffer !== 'undefined' && Buffer.from) return _toBytes(Buffer.from(value, 'utf8'));
+    if (typeof TextEncoder === 'function') return new TextEncoder().encode(value);
+  }
+  return _toBytes(value);
+}
+
 function _toUint8Array(data) {
   if (data instanceof Uint8Array) return data;
   if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
@@ -456,14 +469,10 @@ if (_CipherStreamTransform) {
     if (chunk !== undefined && chunk !== null) {
       this.update(chunk, encoding);
     }
-    if (!this._finalized) {
-      this._streamMode = true;
-      var result = this.digest();
-      this.push(result);
-      this.push(null);
-    }
-    if (typeof callback === 'function') callback();
-    return this;
+    // Delegate to Transform.prototype.end so _flush pushes the digest and the
+    // writable side emits 'finish' — the manual push()-only path left
+    // stream.pipeline/finished(hash) hanging forever (ENG-23465 finding 8).
+    return _CipherStreamTransform.prototype.end.call(this, callback);
   };
 }
 
@@ -487,6 +496,10 @@ Hash.prototype.update = function(data, encoding) {
     // silently dropped (no .length) and multi-byte TypedArrays hashing element
     // values via fromCharCode instead of their raw bytes.
     this._chunks.push(_toByteString(data));
+  } else {
+    // Node rejects numbers/null/objects; silently ignoring them made
+    // h.update(123) produce the empty-input digest (ENG-23465 finding 7).
+    throw _errInvalidArgType('data', 'of type string or an instance of Buffer, TypedArray, or DataView', data);
   }
   return this;
 };
@@ -497,15 +510,8 @@ Hash.prototype.digest = function(encoding) {
     encoding = '' + encoding;
   }
   if (this._finalized) {
-    if (this._digestResult !== null) {
-      // Return the cached result when digest is called again
-      if (encoding === 'hex' && typeof this._digestResult !== 'string') return this._digestResult.toString('hex');
-      if (encoding && encoding !== 'buffer' && typeof this._digestResult !== 'string' && this._digestResult && typeof this._digestResult.toString === 'function') {
-        return this._digestResult.toString(encoding);
-      }
-      return this._digestResult;
-    }
-    // No cached result available - throw finalized error
+    // Node throws on every digest() after the first — it never returns a
+    // cached result (ENG-23465 finding 7).
     var err = new Error('[ERR_CRYPTO_HASH_FINALIZED]: Digest already called');
     err.code = 'ERR_CRYPTO_HASH_FINALIZED';
     throw err;
@@ -731,13 +737,9 @@ if (_CipherStreamTransform) {
     if (chunk !== undefined && chunk !== null) {
       this.update(chunk, encoding);
     }
-    if (!this._finalized) {
-      var result = this.digest();
-      this.push(result);
-      this.push(null);
-    }
-    if (typeof callback === 'function') callback();
-    return this;
+    // Delegate to Transform.prototype.end (see Hash.prototype.end above;
+    // ENG-23465 finding 8).
+    return _CipherStreamTransform.prototype.end.call(this, callback);
   };
 }
 
@@ -758,6 +760,9 @@ Hmac.prototype.update = function(data, encoding) {
     // read the raw bytes. Fixes DataViews being dropped (no .length) and
     // multi-byte TypedArrays being read as element values instead of bytes.
     this._chunks.push(_toByteString(data));
+  } else {
+    // Node rejects numbers/null/objects (ENG-23465 finding 7).
+    throw _errInvalidArgType('data', 'of type string or an instance of Buffer, TypedArray, or DataView', data);
   }
   return this;
 };
@@ -1175,8 +1180,8 @@ function pbkdf2Sync(password, salt, iterations, keylen, digest) {
   if (keylen < 0) throw _errOutOfRange('keylen', '>= 0', keylen);
   if (keylen === 0) return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
   _validateString(digest, 'digest');
-  var passBytes = _toBytes(password);
-  var saltBytes = _toBytes(salt);
+  var passBytes = _toBytesUtf8(password);
+  var saltBytes = _toBytesUtf8(salt);
   var hashName = _normalizeKdfDigest(digest);
   var result = __exactPbkdf2(passBytes, saltBytes, iterations, keylen, hashName);
   if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(result);
@@ -1250,9 +1255,9 @@ var _nativeHkdfDigests = { sha1: 1, sha256: 1, sha384: 1, sha512: 1 };
 function hkdfSync(digest, ikm, salt, info, keylen) {
   if (typeof __exactHkdf !== 'function') throw new Error('hkdf not available in this runtime');
   var hashName = _validateHkdfArgs(digest, ikm, salt, info, keylen);
-  var ikmBytes = ikm instanceof KeyObject ? ikm._data : _toBytes(ikm);
-  var saltBytes = _toBytes(salt);
-  var infoBytes = _toBytes(info);
+  var ikmBytes = ikm instanceof KeyObject ? ikm._data : _toBytesUtf8(ikm);
+  var saltBytes = _toBytesUtf8(salt);
+  var infoBytes = _toBytesUtf8(info);
   if (keylen === 0) {
     return new ArrayBuffer(0);
   }
@@ -1384,7 +1389,11 @@ function createSecretKey(material, encoding) {
   }
   var bytes;
   if (typeof material === 'string') {
-    if (encoding === 'hex') {
+    // Node decodes string key material with the given encoding, default utf8
+    // (ENG-23465 finding 1).
+    if (typeof Buffer !== 'undefined' && Buffer.from) {
+      bytes = _toBytes(Buffer.from(material, encoding || 'utf8'));
+    } else if (encoding === 'hex') {
       bytes = new Uint8Array(material.length / 2);
       for (var i = 0; i < material.length; i += 2) bytes[i/2] = parseInt(material.substr(i, 2), 16);
     } else if (encoding === 'base64') {
@@ -1396,7 +1405,7 @@ function createSecretKey(material, encoding) {
         bytes = _toBytes(material);
       }
     } else {
-      bytes = _toBytes(material);
+      bytes = _toBytesUtf8(material);
     }
   } else {
     bytes = _toBytes(material);
@@ -1707,13 +1716,65 @@ function _parseInputData(data, inputEncoding) {
       for (var j = 0; j < raw.length; j++) bytes2[j] = raw.charCodeAt(j);
       return bytes2;
     } else {
-      return _toUint8Array(data);
+      // Node defaults string cipher input to utf8 (and honors latin1/ascii/
+      // utf16le/...); charCodeAt truncation produced wrong ciphertext for
+      // non-ASCII input (ENG-23465 finding 1).
+      var byteStr = _toByteStringWithEncoding(data, inputEncoding || 'utf8');
+      var bytes3 = new Uint8Array(byteStr.length);
+      for (var k = 0; k < byteStr.length; k++) bytes3[k] = byteStr.charCodeAt(k) & 0xff;
+      return bytes3;
     }
   }
   return _toUint8Array(data);
 }
 
 var _validEncodings = { utf8: 1, utf16le: 1, ucs2: 1, latin1: 1, binary: 1, ascii: 1, hex: 1, base64: 1, base64url: 1, 'utf-8': 1 };
+
+// Key/IV validation shared by Cipher and Decipher. Node validates BOTH at
+// construction with ERR_CRYPTO_INVALID_KEYLEN / ERR_CRYPTO_INVALID_IV;
+// Decipher previously validated nothing and Cipher missed ctr/chacha/ocb/ccm
+// IVs entirely (ENG-23465 finding 10). IV rules oracle-checked against Node
+// v25/OpenSSL 3: ctr/chacha20=16-byte... see per-mode comments.
+function _validateCipherKeyIv(normalized, key, iv) {
+  var algo = normalized.algorithm;
+  if (key instanceof KeyObject && key._type === 'secret') key = key._data;
+  var keyBytes = _toUint8Array(_toBytesUtf8(key));
+  var info = _cipherInfo[algo];
+  if (info && info.keyBytes && keyBytes.length !== info.keyBytes) {
+    throw _createCryptoError(RangeError, 'ERR_CRYPTO_INVALID_KEYLEN', 'Invalid key length');
+  }
+  function _badIv() {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_INVALID_IV', 'Invalid initialization vector');
+  }
+  var effIv = normalized.ivOverride !== undefined ? normalized.ivOverride : iv;
+  var ivLen = -1; // -1 = null/absent
+  if (effIv !== null && effIv !== undefined) ivLen = _toUint8Array(_toBytesUtf8(effIv)).length;
+  var isEcb = algo.indexOf('ecb') !== -1;
+  if (isEcb) {
+    if (ivLen > 0) _badIv(); // ECB takes no IV (null or empty only)
+  } else if (_isWrapAlgorithm(algo)) {
+    // aes-*-wrap: OpenSSL default IV when none given; leave unvalidated
+  } else if (algo.indexOf('gcm') !== -1) {
+    if (ivLen < 1) _badIv(); // GCM: any non-empty IV
+  } else if (algo.indexOf('ccm') !== -1) {
+    if (ivLen < 7 || ivLen > 13) _badIv(); // CCM nonce: 7..13 bytes
+  } else if (algo.indexOf('ocb') !== -1) {
+    if (ivLen < 1 || ivLen > 15) _badIv(); // OCB nonce: 1..15 bytes
+  } else if (algo === 'chacha20-poly1305') {
+    if (ivLen !== 12) _badIv(); // IETF chacha20-poly1305 nonce: exactly 12
+  } else if (algo === 'chacha20') {
+    if (ivLen !== 16) _badIv(); // OpenSSL raw chacha20 counter||nonce: 16
+  } else if (algo.indexOf('ctr') !== -1) {
+    if (ivLen !== 16) _badIv(); // AES-CTR: exactly one block
+  } else if (algo.indexOf('cbc') !== -1 || algo.indexOf('cfb') !== -1 || algo.indexOf('ofb') !== -1 ||
+             algo === 'des' || algo === 'des3' || algo === 'des-ede3' || algo === 'bf' || algo === 'blowfish') {
+    // Block-sized IV: 8 for the 64-bit-block ciphers (DES/3DES/Blowfish, so
+    // bf-cbc's correct 8-byte IV is no longer rejected), 16 for AES.
+    var block = (algo.indexOf('des') !== -1 || algo.indexOf('bf') === 0 || algo === 'blowfish') ? 8 : 16;
+    if (ivLen !== block) _badIv();
+  }
+  return keyBytes;
+}
 
 function Cipher(algorithm, key, iv, options) {
   if (!(this instanceof Cipher)) return new Cipher(algorithm, key, iv, options);
@@ -1728,33 +1789,10 @@ function Cipher(algorithm, key, iv, options) {
   if (iv === undefined) {
     throw _errInvalidArgType('iv', 'of type string or an instance of Buffer, TypedArray, DataView, or null', iv);
   }
-  // Validate key length for known ciphers
-  var keyBytes = _toUint8Array(key);
-  var info = _cipherInfo[normalized.algorithm];
-  if (info && info.keyBytes && keyBytes.length !== info.keyBytes) {
-    throw new RangeError('Invalid key length');
-  }
-  // Validate IV for ECB mode (null or empty OK, non-empty rejected)
-  var isEcb = normalized.algorithm.indexOf('ecb') !== -1;
-  if (isEcb && iv !== null) {
-    var ivb = _toUint8Array(iv);
-    if (ivb.length > 0) throw new Error('Invalid initialization vector');
-  }
-  // GCM requires non-empty IV
-  if (normalized.algorithm.indexOf('gcm') !== -1) {
-    var gcmIv = iv === null ? new Uint8Array(0) : _toUint8Array(iv);
-    if (gcmIv.length === 0) throw new Error('Invalid initialization vector');
-  }
-  // CBC requires specific IV length (null not OK)
-  if (normalized.algorithm.indexOf('cbc') !== -1 && !isEcb) {
-    if (iv === null) throw new Error('Invalid initialization vector');
-    var cbcIv = _toUint8Array(iv);
-    var expectedIvLen = normalized.algorithm.indexOf('des') !== -1 ? 8 : 16;
-    if (cbcIv.length !== expectedIvLen) throw new Error('Invalid initialization vector');
-  }
+  var keyBytes = _validateCipherKeyIv(normalized, key, iv);
   this._algo = normalized.algorithm;
   this._key = keyBytes;
-  this._iv = (iv === null || iv === undefined) ? new Uint8Array(0) : _toUint8Array(normalized.ivOverride !== undefined ? normalized.ivOverride : iv);
+  this._iv = (iv === null || iv === undefined) ? new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== undefined ? normalized.ivOverride : iv));
   this._chunks = [];
   this._finalized = false;
   this._streamEnded = false;
@@ -1946,9 +1984,10 @@ function Decipher(algorithm, key, iv, options) {
   if (iv === undefined) {
     throw _errInvalidArgType('iv', 'of type string or an instance of Buffer, TypedArray, DataView, or null', iv);
   }
+  var keyBytes = _validateCipherKeyIv(normalized, key, iv);
   this._algo = normalized.algorithm;
-  this._key = _toUint8Array(key);
-  this._iv = (iv === null || iv === undefined) ? new Uint8Array(0) : _toUint8Array(normalized.ivOverride !== undefined ? normalized.ivOverride : iv);
+  this._key = keyBytes;
+  this._iv = (iv === null || iv === undefined) ? new Uint8Array(0) : _toUint8Array(_toBytesUtf8(normalized.ivOverride !== undefined ? normalized.ivOverride : iv));
   this._chunks = [];
   this._finalized = false;
   this._streamEnded = false;
@@ -2195,8 +2234,8 @@ function scryptSync(password, salt, keylen, options) {
   if (keylen === 0) {
     return typeof Buffer !== 'undefined' ? Buffer.alloc(0) : new Uint8Array(0);
   }
-  var passBytes = _toBytes(password);
-  var saltBytes = _toBytes(salt);
+  var passBytes = _toBytesUtf8(password);
+  var saltBytes = _toBytesUtf8(salt);
   var result = __exactScryptSync(passBytes, saltBytes, normalized.N, normalized.r, normalized.p, keylen);
   if (typeof Buffer !== 'undefined' && Buffer.from) return Buffer.from(result);
   return result;
@@ -2468,7 +2507,15 @@ if (_CipherStreamTransform) {
 
 // utf8 default for the same reason as Sign.prototype.update (ENG-23129).
 Verify.prototype.update = function(data, inputEncoding) { this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8')); return this; };
-Verify.prototype.verify = function(key, signature) { return verify(this._algorithm, this._chunks.join(''), key, signature); };
+Verify.prototype.verify = function(key, signature, signatureEncoding) {
+  // Node decodes string signatures with signatureEncoding (hex/base64/...);
+  // dropping it sent the text itself to the bridge, so every string-encoded
+  // signature verified false (ENG-23465 finding 3).
+  if (typeof signature === 'string' && signatureEncoding && typeof Buffer !== 'undefined' && Buffer.from) {
+    signature = Buffer.from(signature, signatureEncoding);
+  }
+  return verify(this._algorithm, this._chunks.join(''), key, signature);
+};
 Verify.prototype.end = function(data, inputEncoding) {
   if (typeof data !== 'undefined' && data !== null) this._chunks.push(_toByteStringWithEncoding(data, inputEncoding || 'utf8'));
   return this;
@@ -2523,6 +2570,16 @@ function privateEncrypt(key, buffer) {
 function _applyKeyEncoding(value, encoding) {
   if (!encoding || !encoding.format || encoding.format === 'pem') return value;
   if (encoding.format === 'buffer') return _bytesToBufferLike(_toByteArray(value));
+  // The native keygen always serializes PEM. Node returns a DER Buffer /
+  // JWK object for those formats; silently handing back PEM text made
+  // consumers persist the wrong bytes (ENG-23465 finding 9).
+  if (encoding.format === 'der') {
+    return _bytesToBufferLike(_decodePemKeyBytes(value));
+  }
+  if (encoding.format === 'jwk') {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+      "JWK key pair encoding is not supported in this build; use 'pem' or 'der'");
+  }
   return value;
 }
 
@@ -2801,12 +2858,13 @@ function _readInt(value) {
   return typeof value === 'number' && isFinite(value) && value === (value | 0);
 }
 
-function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
-  if (!(this instanceof DiffieHellman)) return new DiffieHellman(sizeOrKey, generatorEncoding, generator);
+function DiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding) {
+  if (!(this instanceof DiffieHellman)) return new DiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding);
 
   var prime = sizeOrKey;
   var encoding = undefined;
   var gen = undefined;
+  var genEnc = undefined;
 
   if (typeof prime === 'number') {
     if (!_readInt(prime)) {
@@ -2833,8 +2891,10 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
     if (typeof generatorEncoding === 'string') {
       encoding = generatorEncoding;
       gen = generator;
+      genEnc = genEncoding;
     } else {
       gen = generatorEncoding;
+      genEnc = generator;
     }
   } else if (
     (prime instanceof ArrayBuffer) ||
@@ -2844,6 +2904,7 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
     // prime is a Buffer/ArrayBuffer/TypedArray
     // generatorEncoding is actually the generator (or its encoding)
     gen = generatorEncoding;
+    genEnc = generator;
     encoding = undefined;
   } else {
     if (prime === undefined || prime === null) {
@@ -2885,10 +2946,29 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator) {
     gen = 2;
   }
 
-  this._prime = prime;
-  this._primeBigInt = _bytesToBigInt(_toBytes(prime));
+  // Decode a string prime with its encoding (Node primeEncoding); using the
+  // hex TEXT as latin1 bytes changed the modulus so the DH object never
+  // agreed with a compliant peer (ENG-23465 finding 5).
+  var primeBytes;
+  if (typeof prime === 'string' && encoding && typeof Buffer !== 'undefined' && Buffer.from) {
+    primeBytes = _toBytes(Buffer.from(prime, encoding === 'binary' ? 'latin1' : encoding));
+  } else {
+    primeBytes = _toBytes(prime);
+  }
+  this._prime = _bytesToBufferLike(primeBytes);
+  this._primeBigInt = _bytesToBigInt(primeBytes);
   this._primeLength = 0;
-  this._generator = gen !== undefined ? _toBytes(typeof gen === 'number' ? new Uint8Array([gen]) : gen) : new Uint8Array([2]);
+  var genBytes;
+  if (gen === undefined) {
+    genBytes = new Uint8Array([2]);
+  } else if (typeof gen === 'number') {
+    genBytes = new Uint8Array([gen]);
+  } else if (typeof gen === 'string' && typeof genEnc === 'string' && typeof Buffer !== 'undefined' && Buffer.from) {
+    genBytes = _toBytes(Buffer.from(gen, genEnc === 'binary' ? 'latin1' : genEnc));
+  } else {
+    genBytes = _toBytes(gen);
+  }
+  this._generator = genBytes;
   this._publicKey = null;
   this._privateKey = null;
   this._privateKeyBigInt = null;
@@ -2946,25 +3026,55 @@ function _checkDhPublicKeyRange(y, p) {
   }
 }
 
-function _generateProbablePrime(bits) {
-  // Generate a random odd number of the specified bit length and test for primality
+// Small primes for trial division before the (expensive) Miller-Rabin rounds.
+var _sievePrimes = null;
+function _getSievePrimes() {
+  if (_sievePrimes) return _sievePrimes;
+  var limit = 2048;
+  var composite = new Uint8Array(limit + 1);
+  _sievePrimes = [];
+  for (var i = 2; i <= limit; i++) {
+    if (composite[i]) continue;
+    _sievePrimes.push(BigInt(i));
+    for (var j = i * i; j <= limit; j += i) composite[j] = 1;
+  }
+  return _sievePrimes;
+}
+
+function _isProbablePrime(n) {
+  if (n < 2n) return false;
+  var small = _getSievePrimes();
+  for (var i = 0; i < small.length; i++) {
+    if (n === small[i]) return true;
+    if (n % small[i] === 0n) return false;
+  }
+  return _millerRabinTest(n, 20);
+}
+
+// Random probable prime of EXACTLY `bits` bits (top and low bit set, excess
+// high bits masked off). Never returns an untested candidate: the old
+// fallback handed back a random odd composite when the attempt budget ran
+// out (ENG-23465 finding 4).
+function _randomProbablePrime(bits) {
   var byteLen = Math.ceil(bits / 8);
-  for (var attempt = 0; attempt < 1000; attempt++) {
+  var excess = byteLen * 8 - bits;
+  // Expected gap between primes near 2^bits is ~bits*ln(2)/2 odd candidates;
+  // give ourselves a generous multiple before declaring failure.
+  var maxAttempts = Math.max(1000, bits * 64);
+  for (var attempt = 0; attempt < maxAttempts; attempt++) {
     var bytes = randomBytes(byteLen);
-    // Set high bit to ensure correct bit length
-    bytes[0] |= 0x80;
-    // Set low bit to ensure odd
+    bytes[0] &= (0xff >> excess);
+    bytes[0] |= (0x80 >> excess);
     bytes[byteLen - 1] |= 0x01;
     var candidate = _bytesToBigInt(bytes);
-    if (_millerRabinTest(candidate, 20)) {
-      return candidate;
-    }
+    if (_isProbablePrime(candidate)) return candidate;
   }
-  // Fallback: return a known prime-like value (shouldn't reach here for small primes)
-  var fallbackBytes = randomBytes(byteLen);
-  fallbackBytes[0] |= 0x80;
-  fallbackBytes[byteLen - 1] |= 0x01;
-  return _bytesToBigInt(fallbackBytes);
+  throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+    'Failed to generate a ' + bits + '-bit prime within the attempt budget');
+}
+
+function _generateProbablePrime(bits) {
+  return _randomProbablePrime(bits);
 }
 
 function _millerRabinTest(n, k) {
@@ -3101,8 +3211,8 @@ DiffieHellman.prototype.getPublicKey = function(encoding) {
   return _bytesToBufferLike(_toByteArray(k));
 };
 
-function createDiffieHellman(sizeOrKey, generatorEncoding, generator) {
-  return new DiffieHellman(sizeOrKey, generatorEncoding, generator);
+function createDiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding) {
+  return new DiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding);
 }
 
 // --- DiffieHellmanGroup ---
@@ -3328,7 +3438,10 @@ ECDH.prototype.generateKeys = function(encoding, format) {
     throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
       'ECDH key generation is not available in this build (no native EC keygen bridge)');
   }
-  var kp = __exactGenerateKeyPairSync('ec', JSON.stringify({namedCurve: this._webCurve}));
+  // Pass a real object: the native bridge only reads options from a JSI
+  // Object, so a JSON string silently fell back to P-256 for every curve
+  // (ENG-23465 finding 2).
+  var kp = __exactGenerateKeyPairSync('ec', {namedCurve: this._webCurve});
   var parsed = typeof kp === 'string' ? JSON.parse(kp) : kp;
   this._pemPrivateKey = parsed.privateKey;
   this._pemPublicKey = parsed.publicKey;
@@ -3576,20 +3689,59 @@ function generatePrimeSync(size, options) {
       }
     }
   }
-  var byteLen = Math.ceil(size / 8);
-  var bytes = randomBytes(byteLen);
-  bytes[0] |= 0x80;
-  bytes[bytes.length - 1] |= 0x01;
-  if (options && options.bigint) {
-    var hex = '';
-    for (var i = 0; i < bytes.length; i++) {
-      var h = bytes[i].toString(16);
-      if (h.length === 1) h = '0' + h;
-      hex += h;
-    }
-    return BigInt('0x' + hex);
+  // Generate a real probable prime (Miller-Rabin, exact bit length), honoring
+  // safe/add/rem — the old code returned a random odd number without any
+  // primality test (ENG-23465 finding 4).
+  if (size < 2) {
+    throw _createCryptoError(Error, 'ERR_OSSL_BN_BITS_TOO_SMALL',
+      'error:01800076:bignum routines::bits too small');
   }
-  return bytes;
+  var addB = options && options.add !== undefined
+    ? (typeof options.add === 'bigint' ? options.add : _bytesToBigInt(_toBytes(options.add)))
+    : null;
+  var remB = options && options.rem !== undefined
+    ? (typeof options.rem === 'bigint' ? options.rem : _bytesToBigInt(_toBytes(options.rem)))
+    : null;
+  var safe = !!(options && options.safe);
+  var prime = null;
+  if (!addB && !safe) {
+    prime = _randomProbablePrime(size);
+  } else {
+    var byteLen = Math.ceil(size / 8);
+    var excess = byteLen * 8 - size;
+    var sizeMax = (1n << BigInt(size)) - 1n;
+    var sizeMin = 1n << BigInt(size - 1);
+    var maxAttempts = Math.max(10000, size * 256);
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      var candBytes = randomBytes(byteLen);
+      candBytes[0] &= (0xff >> excess);
+      candBytes[0] |= (0x80 >> excess);
+      candBytes[byteLen - 1] |= 0x01;
+      var candidate = _bytesToBigInt(candBytes);
+      if (addB) {
+        // OpenSSL: candidate ≡ rem (mod add), rem defaulting to 1.
+        var wantRem = remB !== null ? remB : 1n;
+        candidate = candidate - (candidate % addB) + wantRem;
+        if (candidate < sizeMin || candidate > sizeMax || candidate % 2n === 0n) continue;
+      }
+      if (!_isProbablePrime(candidate)) continue;
+      if (safe && !_isProbablePrime((candidate - 1n) / 2n)) continue;
+      prime = candidate;
+      break;
+    }
+    if (prime === null) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Failed to generate a ' + size + '-bit prime satisfying the requested constraints');
+    }
+  }
+  if (options && options.bigint) return prime;
+  // Node returns an ArrayBuffer when bigint is not requested.
+  var outLen = Math.ceil(size / 8);
+  var outBytes = _bigIntToBytes(prime, outLen);
+  var ab = new ArrayBuffer(outLen);
+  var view = new Uint8Array(ab);
+  for (var oi = 0; oi < outLen; oi++) view[oi] = outBytes[oi];
+  return ab;
 }
 
 function generatePrime(size, options, callback) {
