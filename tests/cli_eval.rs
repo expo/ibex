@@ -649,6 +649,54 @@ async fn cli_async_failures_consumed_by_handlers_exit_zero() {
 }
 
 #[tokio::test]
+async fn cli_stream_internal_writer_promises_do_not_trip_unhandled_rejection() {
+    // ENG-23501: WritableStream internally marks writer.ready/closed promises
+    // handled. The public write/abort promises are handled by user code, so
+    // the runtime must stay silent and exit 0.
+    let output = run_script(
+        "handled_writer_abort.js",
+        r#"
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+let resolveWrite;
+const ws = new WritableStream({
+  write() {
+    return new Promise((resolve) => {
+      resolveWrite = resolve;
+    });
+  },
+});
+const writer = ws.getWriter();
+const writePromise = writer.write("a");
+await tick();
+const abortPromise = writer.abort(new Error("abort-err"));
+await tick();
+resolveWrite();
+const writeState = await writePromise.then(() => "resolved", () => "rejected");
+const abortState = await abortPromise.then(() => "resolved", () => "rejected");
+console.log(writeState, abortState);
+"#,
+    )
+    .await;
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "handled stream internals must not fail the process: stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "resolved resolved"
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("Unhandled promise rejection"),
+        "stderr must not report an unhandled rejection: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
 async fn cli_unhandled_rejection_preserves_user_exit_code() {
     // ENG-23130: the unhandledrejection default action only forces the exit
     // code when it is unset or 0 — a deliberate nonzero code wins.

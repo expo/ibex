@@ -108,7 +108,9 @@ test("a mid-stream body error aborts the host stream instead of ending it cleanl
             controller.enqueue(new Uint8Array([1, 2, 3]));
           },
           pull() {
-            return Promise.reject(new Error("boom mid-stream"));
+            const failure = Promise.reject(new Error("boom mid-stream"));
+            failure.catch(() => {});
+            return failure;
           },
         }),
         { status: 200 },

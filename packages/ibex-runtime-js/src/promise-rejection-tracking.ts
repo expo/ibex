@@ -247,6 +247,8 @@ function installNativeHandledPromiseTracking(OriginalPromise: PromiseConstructor
  * Dispatches `rejectionhandled` on globalThis.
  */
 export function trackPromiseRejectionHandled(promise: Promise<any>): void {
+  _synchronouslyHandledPromises.add(promise);
+
   // Case 1: handled before 'unhandledrejection' was ever dispatched -- just drop
   // the pending entry; per spec no 'rejectionhandled' fires without a preceding
   // 'unhandledrejection'.

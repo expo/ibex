@@ -13,6 +13,8 @@
  * - Symbol.toStringTag
  */
 
+import { trackPromiseRejectionHandled } from '../promise-rejection-tracking';
+
 // Capture Promise methods at module load time to be immune to monkey-patching
 const originalPromiseThen = Promise.prototype.then;
 const originalPromiseResolve = Promise.resolve.bind(Promise);
@@ -23,11 +25,29 @@ function promiseThen<T, TResult1 = T, TResult2 = never>(
   onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
   onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
 ): Promise<TResult1 | TResult2> {
+  if (
+    typeof onRejected === "function" &&
+    ((typeof promise === "object" && promise !== null) || typeof promise === "function")
+  ) {
+    trackPromiseRejectionHandled(promise as Promise<any>);
+  }
   return originalPromiseThen.call(promise, onFulfilled, onRejected);
 }
 
 function markPromiseHandled(promise: PromiseLike<any>): void {
   originalPromiseThen.call(promise, undefined, () => {});
+  if ((typeof promise === "object" && promise !== null) || typeof promise === "function") {
+    trackPromiseRejectionHandled(promise as Promise<any>);
+  }
+}
+
+function resolveHandledPromise<T>(value: T | PromiseLike<T>): Promise<T> {
+  if ((typeof value === "object" && value !== null) || typeof value === "function") {
+    try {
+      markPromiseHandled(value as PromiseLike<any>);
+    } catch (_) {}
+  }
+  return originalPromiseResolve(value);
 }
 
 // ============================================================================
@@ -502,7 +522,7 @@ export class WritableStream<W = any> {
     this._writeAlgorithm = sink.write
       ? function (chunk: W, controller: WritableStreamDefaultController) {
           try {
-            return originalPromiseResolve(sinkAsAny.write(chunk, controller));
+            return resolveHandledPromise(sinkAsAny.write(chunk, controller));
           } catch (e) {
             return createHandledRejectedPromise(e);
           }
@@ -511,7 +531,7 @@ export class WritableStream<W = any> {
     this._closeAlgorithm = sink.close
       ? function () {
           try {
-            return originalPromiseResolve(sinkAsAny.close());
+            return resolveHandledPromise(sinkAsAny.close());
           } catch (e) {
             return createHandledRejectedPromise(e);
           }
@@ -520,7 +540,7 @@ export class WritableStream<W = any> {
     this._abortAlgorithm = sink.abort
       ? function (reason?: any) {
           try {
-            return originalPromiseResolve(sinkAsAny.abort(reason));
+            return resolveHandledPromise(sinkAsAny.abort(reason));
           } catch (e) {
             return createHandledRejectedPromise(e);
           }
@@ -547,7 +567,7 @@ export class WritableStream<W = any> {
         });
         return;
       }
-      promiseThen(originalPromiseResolve(startResult),
+      promiseThen(resolveHandledPromise(startResult),
         function () {
           self._started = true;
           self._advanceQueueIfNeeded();

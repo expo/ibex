@@ -66,13 +66,14 @@ function headerPresent(headers: [string, string][], name: string): boolean {
 }
 
 async function expectRejectsWithName(promise: Promise<unknown>, name: string) {
-  try {
-    await promise;
-  } catch (error) {
-    expect(error).toMatchObject({ name });
-    return;
+  const result = await promise.then(
+    () => ({ rejected: false as const }),
+    (error) => ({ rejected: true as const, error }),
+  );
+  if (!result.rejected) {
+    throw new Error(`expected promise to reject with ${name}`);
   }
-  throw new Error(`expected promise to reject with ${name}`);
+  expect(result.error).toMatchObject({ name });
 }
 
 describe('#1 streaming request body cannot be replayed across a redirect', () => {

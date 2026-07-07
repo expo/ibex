@@ -205,7 +205,9 @@ export class EventSource extends EventTarget {
     try {
       while (true) {
         if (this.#readyState === CLOSED) {
-          reader.cancel();
+          try {
+            reader.cancel().catch(() => {});
+          } catch (_) {}
           return;
         }
 

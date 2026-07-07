@@ -18,12 +18,13 @@ import { Response } from './Response.ts';
 import { Request } from './Request.ts';
 
 async function expectRejects(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch {
-    return;
+  const rejected = await promise.then(
+    () => false,
+    () => true,
+  );
+  if (!rejected) {
+    throw new Error('expected promise to reject');
   }
-  throw new Error('expected promise to reject');
 }
 
 describe('#1 clone() gates on bodyUsed (disturbed), not just the raw _bodyUsed flag', () => {

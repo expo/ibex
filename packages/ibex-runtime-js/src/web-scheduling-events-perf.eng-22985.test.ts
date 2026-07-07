@@ -140,6 +140,8 @@ test('a once listener firing unregisters its abort listener on the signal', () =
 test('a reported unhandled rejection is evicted from the strong map', async () => {
   resetPromiseRejectionTracking();
   const origError = console.error;
+  const g = globalThis as any;
+  const originalExitCode = g.process?.exitCode;
   console.error = () => {};
   try {
     const key = Promise.resolve(); // harmless object used only as a Map key
@@ -159,6 +161,36 @@ test('a reported unhandled rejection is evicted from the strong map', async () =
     trackPromiseRejectionHandled(key as unknown as Promise<unknown>);
     await Promise.resolve();
     expect(getUnhandledRejections().size).toBe(0);
+  } finally {
+    console.error = origError;
+    if (g.process && typeof g.process === 'object') {
+      if (originalExitCode === undefined) {
+        g.process.exitCode = 0;
+      } else {
+        g.process.exitCode = originalExitCode;
+      }
+    }
+    resetPromiseRejectionTracking();
+  }
+});
+
+test('a promise marked handled before rejection is not later reported unhandled', async () => {
+  resetPromiseRejectionTracking();
+  const origError = console.error;
+  const errors: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  try {
+    const key = Promise.resolve();
+    trackPromiseRejectionHandled(key as unknown as Promise<unknown>);
+    trackPromiseRejection(key as unknown as Promise<unknown>, new Error('internally-handled'));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errors).toEqual([]);
+    expect(getUnhandledRejections().has(key as unknown as Promise<unknown>)).toBe(false);
   } finally {
     console.error = origError;
     resetPromiseRejectionTracking();

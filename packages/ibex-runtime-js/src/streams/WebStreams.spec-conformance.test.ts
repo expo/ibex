@@ -11,8 +11,79 @@ import { expect, test } from 'bun:test';
 import { ReadableStream, CountQueuingStrategy } from './ReadableStream.ts';
 import { WritableStream } from './WritableStream.ts';
 import { TransformStream } from './TransformStream.ts';
+import {
+  getUnhandledRejections,
+  installPromiseRejectionTracking,
+  resetPromiseRejectionTracking,
+} from '../promise-rejection-tracking.ts';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
+
+test('underlying stream algorithms may return plain objects', async () => {
+  const token = {};
+
+  const readable = new ReadableStream({
+    start(controller) {
+      controller.enqueue('r');
+      return token;
+    },
+    cancel() {
+      return token;
+    },
+  });
+  const reader = readable.getReader();
+  expect(await reader.read()).toEqual({ value: 'r', done: false });
+  await reader.cancel('done');
+
+  const writable = new WritableStream({
+    start() {
+      return token;
+    },
+    write() {
+      return token;
+    },
+    close() {
+      return token;
+    },
+  });
+  const writer = writable.getWriter();
+  await writer.write('w');
+  await writer.close();
+
+  const abortWriter = new WritableStream({
+    abort() {
+      return token;
+    },
+  }).getWriter();
+  await abortWriter.abort('stop');
+
+  const transform = new TransformStream({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+      return token;
+    },
+    flush() {
+      return token;
+    },
+  });
+  const transformWriter = transform.writable.getWriter();
+  const transformReader = transform.readable.getReader();
+  const write = transformWriter.write('t');
+  expect(await transformReader.read()).toEqual({ value: 't', done: false });
+  await write;
+  await transformWriter.close();
+  expect(await transformReader.read()).toEqual({ value: undefined, done: true });
+
+  let canceled = false;
+  const canceling = new TransformStream({
+    cancel() {
+      canceled = true;
+      return token;
+    },
+  } as any);
+  await canceling.readable.cancel('stop');
+  expect(canceled).toBe(true);
+});
 
 // ---------------------------------------------------------------------------
 // 1. ReadableStream.cancel() on errored / locked streams
@@ -187,6 +258,54 @@ test('controller.error() mid-write: a fulfilling sink.write still resolves write
   resolveWrite();
   expect(await writePromise.then(() => 'resolved', (e: any) => e)).toBe('resolved');
   expect(await writer.closed.then(() => 'resolved', (e: any) => e)).toBe(ctlError);
+});
+
+test('internally handled writer promises are not reported as unhandled rejections', async () => {
+  const g = globalThis as any;
+  const OriginalPromise = g.Promise;
+  const originalExitCode = g.process?.exitCode;
+  const origError = console.error;
+  const errors: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+  resetPromiseRejectionTracking();
+  installPromiseRejectionTracking();
+  try {
+    let resolveWrite!: () => void;
+    const ws = new WritableStream({
+      write() {
+        return new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        });
+      },
+    });
+    const writer = ws.getWriter();
+    const writePromise = writer.write('a');
+    await tick();
+    const abortPromise = writer.abort(new Error('abort-err'));
+    await tick();
+    resolveWrite();
+
+    expect(await writePromise.then(() => 'resolved', (e: any) => e)).toBe('resolved');
+    expect(await abortPromise.then(() => 'resolved', (e: any) => e)).toBe('resolved');
+    await tick();
+    await tick();
+
+    expect(errors).toEqual([]);
+    expect(getUnhandledRejections().size).toBe(0);
+  } finally {
+    console.error = origError;
+    if (g.process && typeof g.process === 'object') {
+      if (originalExitCode === undefined) {
+        g.process.exitCode = 0;
+      } else {
+        g.process.exitCode = originalExitCode;
+      }
+    }
+    g.Promise = OriginalPromise;
+    resetPromiseRejectionTracking();
+  }
 });
 
 test('controller.error() mid-write: a rejecting sink.write rejects write() with its own error', async () => {

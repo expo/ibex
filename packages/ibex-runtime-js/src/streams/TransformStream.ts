@@ -21,6 +21,7 @@ import {
   WritableStreamDefaultController,
 } from './WritableStream';
 import type { QueuingStrategy } from './WritableStream';
+import { trackPromiseRejectionHandled } from '../promise-rejection-tracking';
 
 // Capture Promise methods at module load time to be immune to monkey-patching
 const originalPromiseThen = Promise.prototype.then;
@@ -32,7 +33,29 @@ function promiseThen<T, TResult1 = T, TResult2 = never>(
   onFulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | null,
   onRejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
 ): Promise<TResult1 | TResult2> {
+  if (
+    typeof onRejected === "function" &&
+    ((typeof promise === "object" && promise !== null) || typeof promise === "function")
+  ) {
+    trackPromiseRejectionHandled(promise as Promise<any>);
+  }
   return originalPromiseThen.call(promise, onFulfilled, onRejected);
+}
+
+function markPromiseHandled(promise: PromiseLike<any>): void {
+  originalPromiseThen.call(promise, undefined, () => {});
+  if ((typeof promise === "object" && promise !== null) || typeof promise === "function") {
+    trackPromiseRejectionHandled(promise as Promise<any>);
+  }
+}
+
+function resolveHandledPromise<T>(value: T | PromiseLike<T>): Promise<T> {
+  if ((typeof value === "object" && value !== null) || typeof value === "function") {
+    try {
+      markPromiseHandled(value as PromiseLike<any>);
+    } catch (_) {}
+  }
+  return originalPromiseResolve(value);
 }
 
 // ============================================================================
@@ -208,7 +231,7 @@ export class TransformStream<I = any, O = any> {
       }
 
       try {
-        pendingCancel = originalPromiseResolve(transformAsAny.cancel(reason));
+        pendingCancel = resolveHandledPromise(transformAsAny.cancel(reason));
       } catch (e) {
         pendingCancel = originalPromiseReject(e);
       }
@@ -230,7 +253,7 @@ export class TransformStream<I = any, O = any> {
     const transformAlgorithm = trans.transform
       ? function (chunk: I): Promise<void> {
           try {
-            return originalPromiseResolve(transformAsAny.transform(chunk, controller));
+            return resolveHandledPromise(transformAsAny.transform(chunk, controller));
           } catch (e) {
             return originalPromiseReject(e);
           }
@@ -249,7 +272,7 @@ export class TransformStream<I = any, O = any> {
     const flushAlgorithm = trans.flush
       ? function (): Promise<void> {
           try {
-            return originalPromiseResolve(transformAsAny.flush(controller));
+            return resolveHandledPromise(transformAsAny.flush(controller));
           } catch (e) {
             return originalPromiseReject(e);
           }

@@ -171,7 +171,14 @@ describe('fs-promises writeFile options (ENG-22963 #8)', () => {
   test("{flag:'wx'} raises EEXIST for an existing file", async () => {
     const p = nodePath.join(dir, 'w8b.txt');
     await fsp.writeFile(p, 'x');
-    await expect(fsp.writeFile(p, 'y', { flag: 'wx' })).rejects.toThrow(/EEXIST/);
+    const result = await fsp.writeFile(p, 'y', { flag: 'wx' }).then(
+      () => ({ rejected: false as const }),
+      (error) => ({ rejected: true as const, error }),
+    );
+    expect(result.rejected).toBe(true);
+    if (result.rejected) {
+      expect(result.error).toMatchObject({ code: 'EEXIST' });
+    }
   });
 
   test('mode is honored when creating a new file (not 000)', async () => {

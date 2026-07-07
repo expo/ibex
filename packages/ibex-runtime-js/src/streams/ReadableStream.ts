@@ -184,6 +184,15 @@ function markPromiseHandled(promise: PromiseLike<any>): void {
   }
 }
 
+function resolveHandledPromise<T>(value: T | PromiseLike<T>): Promise<T> {
+  if ((typeof value === "object" && value !== null) || typeof value === "function") {
+    try {
+      markPromiseHandled(value as PromiseLike<any>);
+    } catch (_) {}
+  }
+  return originalPromiseResolve(value);
+}
+
 function scheduleMicrotask(callback: () => void): void {
   if (typeof queueMicrotask === "function") {
     queueMicrotask(callback);
@@ -1822,7 +1831,7 @@ export class ReadableStreamDefaultController<R = any> {
       this._error(error);
       return;
     }
-    promiseThen(originalPromiseResolve(startResult),
+    promiseThen(resolveHandledPromise(startResult),
       () => {
         this._started = true;
         this._pullIfNeeded();
@@ -2108,7 +2117,7 @@ export class ReadableByteStreamController {
       this._error(error);
       return;
     }
-    promiseThen(originalPromiseResolve(startResult),
+    promiseThen(resolveHandledPromise(startResult),
       () => {
         this._started = true;
         this._pullIfNeeded();
@@ -3164,12 +3173,12 @@ export class ReadableStream<R = any> {
       };
       const pullAlgorithm = () => {
         try {
-          return originalPromiseResolve(sourcePull ? sourcePull.call(source, byteController) : undefined);
+          return resolveHandledPromise(sourcePull ? sourcePull.call(source, byteController) : undefined);
         } catch (e) { return originalPromiseReject(e); }
       };
       const cancelAlgorithm = (reason?: any) => {
         try {
-          return originalPromiseResolve(sourceCancel ? sourceCancel.call(source, reason) : undefined);
+          return resolveHandledPromise(sourceCancel ? sourceCancel.call(source, reason) : undefined);
         } catch (e) { return originalPromiseReject(e); }
       };
 
@@ -3199,7 +3208,7 @@ export class ReadableStream<R = any> {
       };
       const pullAlgorithm = () => {
         try {
-          return originalPromiseResolve(
+          return resolveHandledPromise(
             sourcePull
               ? sourcePull.call(
                   source,
@@ -3213,7 +3222,7 @@ export class ReadableStream<R = any> {
       };
       const cancelAlgorithm = (reason?: any) => {
         try {
-          return originalPromiseResolve(sourceCancel ? sourceCancel.call(source, reason) : undefined);
+          return resolveHandledPromise(sourceCancel ? sourceCancel.call(source, reason) : undefined);
         } catch (e) { return originalPromiseReject(e); }
       };
 
