@@ -3859,10 +3859,10 @@ function _xdhBridgeMaterial(data, keyType, jwkField) {
   return data;
 }
 
-// ibex's native EC keygen labels SPKI public PEMs "BEGIN ECDSA PUBLIC KEY";
+// Older ibex EC keygen builds labeled SPKI public PEMs "BEGIN ECDSA PUBLIC KEY";
 // OpenSSL's PEM reader only accepts the standard "BEGIN PUBLIC KEY" label, so
-// lower any nonstandard-label public PEM to its DER bytes — the bridges'
-// d2i_PUBKEY import path is label-blind.
+// still lower any foreign/legacy nonstandard-label public PEM to DER bytes —
+// the bridges' d2i_PUBKEY import path is label-blind.
 function _publicKeyMaterialForBridge(data) {
   if (typeof data === 'string' && data.indexOf('PUBLIC KEY-----') !== -1 &&
       data.indexOf('-----BEGIN PUBLIC KEY-----') === -1) {

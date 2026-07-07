@@ -407,13 +407,6 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root
-            .join("js")
-            .join("vite.config.runtime.ts")
-            .display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
         ibex_runtime_js_dir(repo_root)
             .join("package.json")
             .display()
