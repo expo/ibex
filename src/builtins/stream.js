@@ -58,6 +58,16 @@ function _attachAwaitDrainSizeAccessor(value, state) {
   if (typeof Object.defineProperty !== 'function') return;
   value[awaitDrainWriterStateSymbol] = state;
   if (_hasOwnAwaitDrainSizeDescriptor(value)) return;
+  // (ENG-23482) Never clobber a 'size' the destination already has — an own
+  // data property would be silently replaced while backpressured and then
+  // delete'd on drain, destroying user state, and an inherited accessor would
+  // be shadowed. Node never mutates the destination object at all; the shim
+  // is only installed on plain stream objects with no 'size' of their own.
+  try {
+    if (Object.getOwnPropertyDescriptor(value, 'size') || ('size' in value)) return;
+  } catch (_err) {
+    return;
+  }
   try {
     Object.defineProperty(value, 'size', {
       configurable: true,
@@ -568,15 +578,20 @@ Stream.prototype._close = function(force) {
     this._needsClose = true;
     return;
   }
-  // Respect emitClose: false on writable or readable streams
+  // Respect emitClose: false on writable or readable streams.
+  // (ENG-23482) emitClose: false suppresses only the 'close' EVENT; the
+  // closed state must still flip (Node's emitCloseNT sets state.closed = true
+  // unconditionally and only gates the emit). Returning before setting
+  // _closed left stream.closed false forever after destroy, confusing
+  // anything that gates on it (including this file's finished()/pipeline()).
+  this._needsClose = false;
+  this._closed = true;
   if (this._writableState && this._writableState.emitClose === false) {
     return;
   }
   if (this._readableState && this._readableState.emitClose === false) {
     return;
   }
-  this._needsClose = false;
-  this._closed = true;
   this.emit('close');
 };
 
@@ -706,13 +721,13 @@ Stream.prototype.destroy = function(error, callback) {
       );
       if (self._readableState) self._readableState.errorEmitted = true;
       if (self._writableState) self._writableState.errorEmitted = true;
-      var hasErrorListener = false;
-      if (typeof self.listenerCount === 'function') {
-        hasErrorListener = self.listenerCount('error') > 0;
-      } else if (self._events && self._events.error) {
-        hasErrorListener = true;
-      }
-      if (hasErrorListener && !errorAlreadyEmitted) {
+      // (ENG-23482) Emit 'error' unconditionally, exactly as Node's
+      // emitErrorNT does. Gating on an attached listener silently swallowed
+      // destroy(err) on listenerless streams; with no listener the
+      // EventEmitter unhandled-'error' path routes the error through
+      // process 'uncaughtException' / __exactUncaughtExceptionHandler (or
+      // throws), matching Node's process-crashing behaviour.
+      if (!errorAlreadyEmitted) {
         try {
           self.emit('error', err);
         } catch (emitErr) {
@@ -1591,6 +1606,37 @@ Readable.prototype.push = function(chunk, encoding) {
   if (state.encoding && state.decoder && _isBinaryReadableChunk(chunk)) {
     chunk = _decodeChunk(state, chunk);
   }
+  // (ENG-23482) Node's readableAddChunk raises ERR_INVALID_ARG_TYPE (via
+  // errorOrDestroy) for non-string/Buffer/Uint8Array chunks in non-objectMode
+  // instead of buffering the raw value. Checked after the normalization above
+  // so binary-ish chunks (ArrayBuffer/TypedArray views) that Ibex converts to
+  // Buffer stay accepted; numbers, booleans, plain objects error the stream.
+  if (!state.objectMode &&
+      chunk !== undefined &&
+      typeof chunk !== 'string' &&
+      !(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(chunk)) &&
+      !(typeof Uint8Array !== 'undefined' && chunk instanceof Uint8Array)) {
+    var chunkTypeErr = makeError(
+      TypeError,
+      'ERR_INVALID_ARG_TYPE',
+      'The "chunk" argument must be of type string or an instance of Buffer or Uint8Array. Received ' +
+        (chunk === null ? 'null'
+          : typeof chunk === 'object'
+            ? 'an instance of ' + ((chunk.constructor && chunk.constructor.name) || 'Object')
+            : 'type ' + typeof chunk)
+    );
+    state.errored = chunkTypeErr;
+    this.errored = chunkTypeErr;
+    if (state.autoDestroy !== false) {
+      _destroyStreamWithError(this, chunkTypeErr);
+    } else if (typeof this.listenerCount === 'function' ? this.listenerCount('error') > 0 : this._events && this._events.error) {
+      state.errorEmitted = true;
+      this.emit('error', chunkTypeErr);
+    } else {
+      throw chunkTypeErr;
+    }
+    return false;
+  }
   var chunkLength = readableStateChunkLength(chunk, state.objectMode);
   if (_isZeroLengthChunk(chunk, this._readableState.objectMode)) {
     state.reading = false;
@@ -1864,6 +1910,25 @@ Readable.prototype.unshift = function(chunk, encoding) {
   if (_isZeroLengthChunk(chunk, state.objectMode)) {
     return state.length < state.highWaterMark || state.length === 0;
   }
+  // (ENG-23482) Node's readableAddChunk(addToFront) errors the stream with
+  // ERR_STREAM_UNSHIFT_AFTER_END_EVENT once 'end' has been emitted; silently
+  // buffering here left an undeliverable chunk corrupting length accounting.
+  // Only endEmitted matters — unshift between push(null) and the 'end' event
+  // is legal (readers putting back unconsumed data).
+  if (state.endEmitted) {
+    var unshiftErr = makeError(Error, 'ERR_STREAM_UNSHIFT_AFTER_END_EVENT', 'stream.unshift() after end event');
+    state.errored = unshiftErr;
+    this.errored = unshiftErr;
+    if (state.autoDestroy !== false) {
+      _destroyStreamWithError(this, unshiftErr);
+    } else if (typeof this.listenerCount === 'function' ? this.listenerCount('error') > 0 : this._events && this._events.error) {
+      state.errorEmitted = true;
+      this.emit('error', unshiftErr);
+    } else {
+      throw unshiftErr;
+    }
+    return false;
+  }
   this._data.unshift(chunk);
   this._updateReadableLength(readableStateChunkLength(chunk, state.objectMode));
   var shouldEmitReadable = !!state.needReadable && !state.emittedReadable;
@@ -1884,7 +1949,11 @@ Readable.prototype.setEncoding = function(enc) {
 
 Readable.prototype.resume = function() {
   if (this.readableFlowing !== true) {
-    var shouldEmitResume = this.readableFlowing === false;
+    // (ENG-23482) Node emits 'resume' on every resume_() run, including the
+    // first transition from the initial flowing === null state (e.g. via
+    // resume() or attaching a 'data' listener) — not just when resuming from
+    // an explicit pause().
+    var shouldEmitResume = true;
     this.readableFlowing = true;
     this._readableState.reading = false;
     this._readableState.resumeScheduled = true;
@@ -4038,7 +4107,27 @@ Readable.from = function(iterable, options) {
       resumePump();
     }
 
+    // (ENG-23482) Start the pump lazily from the first _read(), mirroring the
+    // sync-iterable branch below (ENG-22959): Node's Readable.from is fully
+    // lazy — an async generator's body must not run (no side effects, no
+    // buffering up to the highWaterMark) until a consumer actually reads.
+    var asyncPumpStarted = false;
+
+    function ensureAsyncPumpStarted() {
+      if (asyncPumpStarted) return;
+      asyncPumpStarted = true;
+      _suppressHermesAsyncIteratorUnhandledRejections();
+      var asyncPumpTask = pumpAsyncIterable();
+      if (asyncPumpTask && typeof asyncPumpTask.catch === 'function') {
+        asyncPumpTask.catch(function() {});
+      }
+    }
+
     readable._read = function() {
+      if (!asyncPumpStarted) {
+        ensureAsyncPumpStarted();
+        return;
+      }
       wakeAsyncPump();
     };
 
@@ -4144,11 +4233,6 @@ Readable.from = function(iterable, options) {
       }
     }
 
-    _suppressHermesAsyncIteratorUnhandledRejections();
-    var asyncPumpTask = pumpAsyncIterable();
-    if (asyncPumpTask && typeof asyncPumpTask.catch === 'function') {
-      asyncPumpTask.catch(function() {});
-    }
     return readable;
   }
   // Sync iterable - read lazily via _read() rather than draining the whole
@@ -4343,10 +4427,17 @@ Readable.from = function(iterable, options) {
 };
 
 // Readable.toWeb() - convert Node Readable to WHATWG ReadableStream
+// (ENG-23482) Pull-driven like Node's adapter (internal/webstreams/adapters):
+// the Node readable starts paused, pull() resumes it, and each enqueue that
+// exhausts controller.desiredSize pauses it again — so an unconsumed web
+// stream buffers a bounded amount instead of draining the source unboundedly.
 Readable.toWeb = function(nodeReadable) {
+  var closedOrErrored = false;
   return new ReadableStream({
     start: function(controller) {
+      nodeReadable.pause();
       nodeReadable.on('data', function(chunk) {
+        if (closedOrErrored) return;
         if (typeof chunk === 'string') {
           if (typeof TextEncoder !== 'undefined') {
             chunk = new TextEncoder().encode(chunk);
@@ -4354,38 +4445,84 @@ Readable.toWeb = function(nodeReadable) {
             chunk = Buffer.from(chunk);
           }
         }
-        controller.enqueue(chunk);
+        try {
+          controller.enqueue(chunk);
+        } catch (_enqueueErr) {
+          closedOrErrored = true;
+          return;
+        }
+        if (typeof controller.desiredSize === 'number' && controller.desiredSize <= 0) {
+          nodeReadable.pause();
+        }
       });
       nodeReadable.on('end', function() {
-        controller.close();
+        if (closedOrErrored) return;
+        closedOrErrored = true;
+        try { controller.close(); } catch (_closeErr) {}
       });
       nodeReadable.on('error', function(err) {
-        controller.error(err);
+        if (closedOrErrored) return;
+        closedOrErrored = true;
+        try { controller.error(err); } catch (_errorErr) {}
       });
     },
-    cancel: function() {
-      if (typeof nodeReadable.destroy === 'function') nodeReadable.destroy();
+    pull: function() {
+      nodeReadable.resume();
+    },
+    cancel: function(reason) {
+      closedOrErrored = true;
+      if (typeof nodeReadable.destroy === 'function') nodeReadable.destroy(reason);
     }
   });
 };
 
 // Readable.fromWeb() - convert WHATWG ReadableStream to Node Readable
+// (ENG-23482) Pull-based like Node's adapter: one reader.read() per _read()
+// demand instead of an eager unconditional pump (which buffered the whole web
+// stream regardless of consumption), and destroy() cancels the web reader so
+// the source stops producing (previously it leaked, pumping forever).
 Readable.fromWeb = function(webStream, options) {
   var readable = new Readable(options);
   var reader = webStream.getReader();
-  function pump() {
+  var readPending = false;
+  var sourceDone = false;
+  readable._read = function() {
+    if (readPending || sourceDone) return;
+    readPending = true;
     reader.read().then(function(result) {
+      readPending = false;
       if (result.done) {
+        sourceDone = true;
         readable.push(null);
-      } else {
-        readable.push(result.value);
-        pump();
+        return;
       }
+      if (readable._destroyed) return;
+      readable.push(result.value);
     }).catch(function(err) {
-      readable.destroy(err);
+      readPending = false;
+      if (!readable._destroyed) readable.destroy(err);
     });
-  }
-  pump();
+  };
+  readable._destroy = function(err, cb) {
+    function finalize() {
+      _nextTick(function() { cb(err); });
+    }
+    if (!sourceDone) {
+      sourceDone = true;
+      var cancelResult;
+      try {
+        cancelResult = reader.cancel(err);
+      } catch (_cancelErr) {
+        finalize();
+        return;
+      }
+      if (cancelResult && typeof cancelResult.then === 'function') {
+        cancelResult.then(finalize, finalize);
+        return;
+      }
+    }
+    finalize();
+  };
   return readable;
 };
 
@@ -4865,7 +5002,21 @@ Writable.prototype.write = function(chunk, encoding, callback) {
   // the caller has a chance to attach the 'drain' listener.
   var writeSync = true;
   var onWriteComplete = function(err) {
-    if (callbackCalled) return;
+    if (callbackCalled) {
+      // (ENG-23482) A _write implementation invoking its callback twice is a
+      // user bug Node surfaces loudly (onwrite's ERR_MULTIPLE_CALLBACK via
+      // errorOrDestroy) rather than swallowing.
+      var multipleCbErr = makeError(Error, 'ERR_MULTIPLE_CALLBACK', 'Callback called multiple times');
+      if (state && !state.errored) state.errored = multipleCbErr;
+      if (!self.errored) self.errored = multipleCbErr;
+      if (state && state.autoDestroy !== false) {
+        _finishIfError(self, multipleCbErr);
+      } else if (state && !state.errorEmitted) {
+        state.errorEmitted = true;
+        self.emit('error', multipleCbErr);
+      }
+      return;
+    }
     callbackCalled = true;
     state.writing = false;
     if (typeof state.pendingcb === 'number' && state.pendingcb > 0) {
@@ -5002,8 +5153,14 @@ Writable.prototype._flushWriteQueue = function() {
     return;
   }
   if (this._destroyed || this.destroyed || this._writableState.destroyed) {
+    // (ENG-23482) Node's errorBuffer delivers state.errored ?? a synthetic
+    // ERR_STREAM_DESTROYED — an explicit destroy(err) error always wins over
+    // the generic one (matching onWriteComplete's end-write path and the
+    // destroy() nextTick drain above). The previous condition was inverted,
+    // discarding the real destroy error unless it already was
+    // ERR_STREAM_DESTROYED.
     var destroyedErr = this._writableState.errored || this.errored;
-    if (!destroyedErr || destroyedErr.code !== 'ERR_STREAM_DESTROYED') {
+    if (!destroyedErr) {
       destroyedErr = new Error('Cannot call write after a stream was destroyed');
       destroyedErr.code = 'ERR_STREAM_DESTROYED';
     }
@@ -5619,7 +5776,19 @@ Transform.prototype._write = function(chunk, encoding, callback) {
   }
 
   function done(err, transformedChunk) {
-    if (callbackCalled) return;
+    if (callbackCalled) {
+      // (ENG-23482) Match Node: a _transform implementation calling its
+      // callback twice raises ERR_MULTIPLE_CALLBACK instead of being
+      // silently swallowed.
+      var multipleCbErr = makeError(Error, 'ERR_MULTIPLE_CALLBACK', 'Callback called multiple times');
+      if (self._writableState && self._writableState.autoDestroy !== false) {
+        _finishIfError(self, multipleCbErr);
+      } else if (self._writableState && !self._writableState.errorEmitted) {
+        self._writableState.errorEmitted = true;
+        self.emit('error', multipleCbErr);
+      }
+      return;
+    }
     callbackCalled = true;
     state.transforming = false;
     state.pendingWrites = Math.max(0, state.pendingWrites - 1);
@@ -5628,7 +5797,10 @@ Transform.prototype._write = function(chunk, encoding, callback) {
       return;
     }
     var shouldWaitForDrain = !!state.backpressured;
-    if (transformedChunk !== undefined) {
+    // (ENG-23482) Node forwards the transform callback's second arg to push
+    // only when it is != null. cb(null, null) must be a no-op skip — pushing
+    // the null would signal EOF and prematurely end the readable side.
+    if (transformedChunk !== undefined && transformedChunk !== null) {
       shouldWaitForDrain = self.push(transformedChunk) === false || shouldWaitForDrain;
     }
     if (shouldWaitForDrain) {
@@ -5648,6 +5820,12 @@ Transform.prototype._write = function(chunk, encoding, callback) {
   try {
     this._transform(chunk, encoding || 'utf8', done);
   } catch (err) {
+    // (ENG-23482) If _transform already settled via its callback and then
+    // threw, done() has run (and decremented pendingWrites); rethrow rather
+    // than misreporting the throw as ERR_MULTIPLE_CALLBACK via done(err).
+    if (callbackCalled) {
+      throw err;
+    }
     state.transforming = false;
     state.pendingWrites = Math.max(0, state.pendingWrites - 1);
     if (err && err.code === 'ERR_METHOD_NOT_IMPLEMENTED') {
@@ -7347,9 +7525,16 @@ function finished(stream, options, callback) {
     (stream._writableState && stream._writableState.emitClose === false)
   );
   var alreadyClosed = !!(stream._closed || stream.closed || (stream._destroyed && suppressClose));
+  // (ENG-23482) Node's eos always defers the callback via process.nextTick,
+  // even when the stream is already errored/closed/finished at finished()
+  // call time — invoking it synchronously here released zalgo. The verdict is
+  // computed synchronously (matching the state finished() observed); only the
+  // invocation is deferred, like the isReadable branch below already did.
   if (immediateError) {
     if (alreadyClosed || suppressClose) {
-      done(immediateError);
+      _nextTick(function() {
+        if (!called) done(immediateError);
+      });
     }
   } else if (
     !isLegacyStream &&
@@ -7364,14 +7549,19 @@ function finished(stream, options, callback) {
       if (!called) done(null);
     });
   } else if (!isLegacyStream && alreadyClosed && !stream._composePending) {
-    done(isReadableClosedCleanly() && isWritableClosedCleanly() ? null : makePrematureCloseError());
+    var alreadyClosedVerdict = isReadableClosedCleanly() && isWritableClosedCleanly() ? null : makePrematureCloseError();
+    _nextTick(function() {
+      if (!called) done(alreadyClosedVerdict);
+    });
   } else if (
     !isLegacyStream &&
     (isReadableDone() && isWritableDone()) &&
     !stream._composePending &&
     (!shouldWaitOutgoingClose || alreadyClosed)
   ) {
-    done(null);
+    _nextTick(function() {
+      if (!called) done(null);
+    });
   }
 
   // If no callback, return a promise
