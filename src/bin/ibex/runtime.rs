@@ -2398,6 +2398,29 @@ fn wrap_entry_source_for_eval(
 /// Shared with the REPL so `.time`/prompt input use the same detection instead
 /// of a raw `contains("await")`. (ENG-22957)
 pub(crate) fn contains_await_keyword(source: &str) -> bool {
+    scan_for_await_keyword(source, false)
+}
+
+/// Like `contains_await_keyword`, but only reports `await` at brace depth 0
+/// (true top-level): `await` inside functions, methods, or class bodies is not
+/// top-level await. Used to pick the bundle format and to route untranspiled
+/// entries / `-e` code through the TLA shim.
+///
+/// Built on the same string-, comment-, and regex-aware scanner as
+/// `contains_await_keyword`: the previous standalone implementation was not
+/// regex-aware, so a depth-0 regex literal containing `await` (e.g.
+/// `const RE = /(await)/;`) flipped the bundle format CJS→ESM and re-routed
+/// execution of a perfectly valid app (ENG-23484; scanner-level fix mirrors
+/// ENG-23031's for `contains_await_keyword`).
+pub(crate) fn contains_top_level_await(source: &str) -> bool {
+    scan_for_await_keyword(source, true)
+}
+
+/// The shared scanner behind `contains_await_keyword` (any depth) and
+/// `contains_top_level_await` (`top_level_only`, brace depth 0 with an
+/// `await:` label exclusion). See `contains_await_keyword` for the tokenizer
+/// rationale.
+fn scan_for_await_keyword(source: &str, top_level_only: bool) -> bool {
     let bytes = source.as_bytes();
     let mut i = 0usize;
     // Whether a `/` here begins a regex literal (value position) rather than a
@@ -2405,6 +2428,9 @@ pub(crate) fn contains_await_keyword(source: &str) -> bool {
     // that expect an expression; false after a value token (identifier, `)`,
     // `]`, number, string, regex).
     let mut regex_allowed = true;
+    // Brace depth for `top_level_only`: braces inside strings, comments, and
+    // regex literals are consumed by their opaque spans and never counted.
+    let mut brace_depth: i32 = 0;
 
     while i < bytes.len() {
         let b = bytes[i];
@@ -2489,12 +2515,32 @@ pub(crate) fn contains_await_keyword(source: &str) -> bool {
             while i < bytes.len() && is_ident_byte(bytes[i]) {
                 i += 1;
             }
-            if &source[start..i] == "await" {
+            if &source[start..i] == "await"
+                // Top-level mode: only depth 0 counts, and `await:` is a
+                // label (in sloppy scripts `await` is not reserved), not TLA.
+                && (!top_level_only || (brace_depth == 0 && bytes.get(i) != Some(&b':')))
+            {
                 return true;
             }
             // After a value identifier `/` is division; after a keyword that
             // expects an expression it starts a regex.
             regex_allowed = keyword_precedes_expression(&source[start..i]);
+            continue;
+        }
+
+        // Braces: track depth for `top_level_only`. Both act like the generic
+        // punctuation below for regex disambiguation (a `/` after `{` or `}`
+        // starts a regex, matching the prior scanner behavior).
+        if b == b'{' {
+            brace_depth += 1;
+            regex_allowed = true;
+            i += 1;
+            continue;
+        }
+        if b == b'}' {
+            brace_depth -= 1;
+            regex_allowed = true;
+            i += 1;
             continue;
         }
 
@@ -2704,144 +2750,6 @@ pub(crate) fn ship_chunk_siblings(bundle_entry: &Path, dest_dir: &Path) -> Resul
         copied += 1;
     }
     Ok(copied)
-}
-
-pub(crate) fn contains_top_level_await(source: &str) -> bool {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut in_template = false;
-    let mut in_line_comment = false;
-    let mut in_block_comment = false;
-    let mut brace_depth: i32 = 0;
-
-    let bytes = source.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        let b = bytes[i];
-
-        if in_line_comment {
-            if b == b'\n' {
-                in_line_comment = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if in_block_comment {
-            if b == b'*' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-                in_block_comment = false;
-                i += 2;
-            } else {
-                i += 1;
-            }
-            continue;
-        }
-
-        if in_single {
-            if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
-                continue;
-            }
-            if b == b'\'' {
-                in_single = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if in_double {
-            if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
-                continue;
-            }
-            if b == b'"' {
-                in_double = false;
-            }
-            i += 1;
-            continue;
-        }
-
-        if in_template {
-            if b == b'`' {
-                in_template = false;
-            } else if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
-                continue;
-            }
-            i += 1;
-            continue;
-        }
-
-        if b == b'\'' {
-            in_single = true;
-            i += 1;
-            continue;
-        }
-        if b == b'"' {
-            in_double = true;
-            i += 1;
-            continue;
-        }
-        if b == b'`' {
-            in_template = true;
-            i += 1;
-            continue;
-        }
-        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-            in_line_comment = true;
-            i += 2;
-            continue;
-        }
-        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            in_block_comment = true;
-            i += 2;
-            continue;
-        }
-
-        if b == b'{' {
-            brace_depth += 1;
-            i += 1;
-            continue;
-        }
-        if b == b'}' {
-            brace_depth -= 1;
-            i += 1;
-            continue;
-        }
-
-        // Only detect `await` at brace depth 0 (true top-level).
-        // await inside functions, methods, or class bodies (depth >= 1)
-        // is not top-level await.
-        if brace_depth != 0 || b != b'a' || i + 5 > bytes.len() {
-            i += 1;
-            continue;
-        }
-
-        if &bytes[i..i + 5] != b"await" {
-            i += 1;
-            continue;
-        }
-
-        let prev = if i == 0 { None } else { Some(bytes[i - 1]) };
-        let next = if i + 5 < bytes.len() {
-            Some(bytes[i + 5])
-        } else {
-            None
-        };
-        let prev_ok = prev
-            .map(|p| !(p.is_ascii_alphanumeric() || p == b'_' || p == b'$'))
-            .unwrap_or(true);
-        let next_ok = next
-            .map(|n| !(n.is_ascii_alphanumeric() || n == b'_' || n == b'$' || n == b':'))
-            .unwrap_or(true);
-        if prev_ok && next_ok {
-            return true;
-        }
-
-        i += 1;
-    }
-
-    false
 }
 
 fn transpile_esm_to_script(source: &str) -> String {
@@ -3669,6 +3577,42 @@ mod tests {
         assert!(!contains_top_level_await(
             "async function run() { await(fetchStuff()); }\n"
         ));
+    }
+
+    #[test]
+    fn top_level_await_detection_skips_regex_literals() {
+        // `await` inside a depth-0 regex literal is not TLA — the false
+        // positive flipped the bundle format CJS→ESM and hard-failed valid
+        // apps that merely declared a regex mentioning `await`. (ENG-23484;
+        // mirrors the ENG-23031 fix for contains_await_keyword.)
+        assert!(!contains_top_level_await("const RE = /(await)/;"));
+        assert!(!contains_top_level_await("var re = /await/g"));
+        assert!(!contains_top_level_await("const re = /a\\/await/;"));
+        assert!(!contains_top_level_await("x.replace(/await/g, '')"));
+
+        // A `/` after a value is division; a real `await` after it is still
+        // detected, and a regex must not swallow the rest of the line.
+        assert!(contains_top_level_await("var q = a / b; await c"));
+        assert!(contains_top_level_await("const re = /await/; await go()"));
+    }
+
+    #[test]
+    fn top_level_await_detection_keeps_depth_and_context_rules() {
+        // Depth: only brace depth 0 is top-level.
+        assert!(contains_top_level_await("await x;"));
+        assert!(contains_top_level_await("const v = await f();"));
+        assert!(!contains_top_level_await("if (x) { await y; }"));
+        assert!(!contains_top_level_await(
+            "class C { async m() { await x; } }"
+        ));
+        // Strings, comments, identifiers, labels.
+        assert!(!contains_top_level_await("console.log(\"await\")"));
+        assert!(!contains_top_level_await("// await\nlet a = 1;"));
+        assert!(!contains_top_level_await("/* await */ let a = 1;"));
+        assert!(!contains_top_level_await("let awaited = `await`;"));
+        assert!(!contains_top_level_await("await: {}"));
+        // Braces inside a regex literal must not corrupt the depth count.
+        assert!(contains_top_level_await("const re = /a{2}[{]/; await x"));
     }
 
     #[test]

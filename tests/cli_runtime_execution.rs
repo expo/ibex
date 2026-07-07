@@ -118,6 +118,34 @@ async fn cli_runtime_standalone_mjs_entry_without_tla_runs_lowered_source() {
     );
 }
 
+/// ENG-23484 finding 3 (P2): a depth-0 regex literal containing `await`
+/// (`const RE = /(await)/;`) must not be detected as top-level await — the
+/// false positive re-routed a valid CJS app through the ESM/TLA pipeline and
+/// hard-failed it. The scanner itself is unit-tested in runtime.rs; this
+/// drives the whole standalone pipeline.
+#[tokio::test]
+async fn cli_runtime_regex_literal_containing_await_does_not_reroute_entry() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(
+        &entry,
+        "import fs from \"node:fs\";\nconst RE = /(await)/;\nconsole.log(\"tla-regex=\" + RE.test(\"x\"));\n",
+    )
+    .expect("write entry");
+
+    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "an app declaring a regex containing 'await' must run\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("tla-regex=false"),
+        "the program must produce its real output\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 /// ENG-23484 finding 1 (P1): a runtime error thrown by a bytecode entry is an
 /// EVAL failure, not a bytecode-load failure. It must propagate as-is — the
 /// program's side effects must not run a second time via the JS-source
