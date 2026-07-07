@@ -605,14 +605,19 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         });
     rt.global().setProperty(rt, "__exactTcpSetNoDelay", std::move(tcpSetNoDelayFn));
 
-    // __exactTcpSetKeepAlive(handle, enable) -> 0
+    // __exactTcpSetKeepAlive(handle, enable, idleSeconds) -> 0
+    // idleSeconds > 0 additionally sets the probe idle interval
+    // (TCP_KEEPIDLE on Linux, TCP_KEEPALIVE on Darwin) so Node's
+    // setKeepAlive(enable, initialDelay) is honored instead of silently
+    // using the OS default (~2h) (ENG-23456).
     auto tcpSetKeepAliveFn = facebook::jsi::Function::createFromHostFunction(
-        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetKeepAlive"), 2,
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactTcpSetKeepAlive"), 3,
         [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
            const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
           if (count < 1 || !args[0].isNumber()) throw facebook::jsi::JSError(runtime, "__exactTcpSetKeepAlive: handle required");
           int handle = static_cast<int>(args[0].asNumber());
           int enable = (count > 1 && args[1].isNumber()) ? static_cast<int>(args[1].asNumber()) : 1;
+          int idleSeconds = (count > 2 && args[2].isNumber()) ? static_cast<int>(args[2].asNumber()) : 0;
           SocketEntry entry;
           if (!trySocketHandle(runtime, handle, "__exactTcpSetKeepAlive", entry)) {
             return facebook::jsi::Value(-1);
@@ -620,6 +625,13 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int fd = entry.fd;
           int flag = enable ? 1 : 0;
           setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &flag, sizeof(flag));
+          if (flag && idleSeconds > 0) {
+#if defined(TCP_KEEPIDLE)
+            setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idleSeconds, sizeof(idleSeconds));
+#elif defined(TCP_KEEPALIVE)
+            setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idleSeconds, sizeof(idleSeconds));
+#endif
+          }
           return facebook::jsi::Value(0);
         });
     rt.global().setProperty(rt, "__exactTcpSetKeepAlive", std::move(tcpSetKeepAliveFn));

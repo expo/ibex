@@ -313,15 +313,17 @@ function _makeSocketHandle(handle, kind, fd, path) {
     setKeepAlive: function(enable, delay) {
       if (!_hasTcp) return;
       if (socketHandle._exactHandle == null) return;
-      if (typeof delay !== 'number' || !isFinite(delay)) {
-        delay = 0;
+      // Node's initialDelay is milliseconds; the native side takes whole
+      // seconds (TCP_KEEPIDLE/TCP_KEEPALIVE granularity, like libuv). A
+      // positive sub-second delay rounds up to 1s rather than down to the
+      // OS default. The old `.length >= 3` branch was dead (the host
+      // function had arity 2) so the delay was silently dropped (ENG-23456).
+      var idleSeconds = 0;
+      if (typeof delay === 'number' && isFinite(delay) && delay > 0) {
+        idleSeconds = Math.max(1, Math.floor(delay / 1000));
       }
       try {
-        if (__exactTcpSetKeepAlive.length >= 3) {
-          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, delay);
-        } else {
-          __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0);
-        }
+        __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, idleSeconds);
       } catch (e) { /* ignored: best-effort SO_KEEPALIVE on a possibly-closed native handle */ }
     },
     close: function() {

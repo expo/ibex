@@ -271,10 +271,10 @@ function _makeSocketHandle(handle, kind, fd, path) {
 		setKeepAlive: function(enable, delay) {
 			if (!_hasTcp) return;
 			if (socketHandle._exactHandle == null) return;
-			if (typeof delay !== "number" || !isFinite(delay)) delay = 0;
+			var idleSeconds = 0;
+			if (typeof delay === "number" && isFinite(delay) && delay > 0) idleSeconds = Math.max(1, Math.floor(delay / 1e3));
 			try {
-				if (__exactTcpSetKeepAlive.length >= 3) __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, delay);
-				else __exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0);
+				__exactTcpSetKeepAlive(socketHandle._exactHandle, enable !== false ? 1 : 0, idleSeconds);
 			} catch (e) {}
 		},
 		close: function() {

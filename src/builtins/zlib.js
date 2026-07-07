@@ -142,10 +142,29 @@ function wrapInflateError(e) {
   return err;
 }
 
+// Guarded access to the native deflate/inflate bridge. On builds where the
+// host functions are not registered (the bridge registration is
+// platform-gated; Windows lacks it today) a bare call raised a bewildering
+// ReferenceError from inside gzipSync — fail with a clear "not available"
+// error instead, matching the existing brotli/zstd guards (ENG-23456).
+function _nativeDeflateSync(bytes, level, mode, dict) {
+  if (typeof __exactDeflateSync !== 'function') {
+    throw new Error('zlib deflate is not available in this build (native zlib bridge not registered on this platform)');
+  }
+  return __exactDeflateSync(bytes, level, mode, dict);
+}
+
+function _nativeInflateSync(bytes, mode, gzipMulti, flags, dict) {
+  if (typeof __exactInflateSync !== 'function') {
+    throw new Error('zlib inflate is not available in this build (native zlib bridge not registered on this platform)');
+  }
+  return __exactInflateSync(bytes, mode, gzipMulti, flags, dict);
+}
+
 // Internal: inflate and return [buffer, bytesConsumed]
 // flags=2 means returnConsumed=true (bit1), non-lenient
 function inflateSyncConsumed(bytes, mode, flags) {
-  var raw = __exactInflateSync(bytes, mode, false, flags === undefined ? 2 : flags);
+  var raw = _nativeInflateSync(bytes, mode, false, flags === undefined ? 2 : flags);
   if (Array.isArray(raw)) {
     return [toBuffer(raw[0]), raw[1]];
   }
@@ -176,7 +195,7 @@ function deflateSync(data, options) {
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
-  var buf = toBuffer(__exactDeflateSync(bytes, level, 0, dict));
+  var buf = toBuffer(_nativeDeflateSync(bytes, level, 0, dict));
   if (options && options.info) return { engine: new Deflate(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -190,7 +209,7 @@ function inflateSync(data, options) {
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
   var result;
   try {
-    result = toBuffer(__exactInflateSync(bytes, 0, false, lenient ? 1 : 0, dict));
+    result = toBuffer(_nativeInflateSync(bytes, 0, false, lenient ? 1 : 0, dict));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
@@ -206,7 +225,7 @@ function gzipSync(data, options) {
   validateZlibOptions(options, true, true);
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
-  var buf = toBuffer(__exactDeflateSync(bytes, level, 1));
+  var buf = toBuffer(_nativeDeflateSync(bytes, level, 1));
   if (options && options.info) return { engine: new Gzip(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -225,7 +244,7 @@ function gunzipSync(data, options) {
     var memberResult;
     var consumed;
     try {
-      var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : (2 /* returnConsumed */));
+      var raw = _nativeInflateSync(remaining, 1, false, lenient ? 3 : (2 /* returnConsumed */));
       if (Array.isArray(raw)) {
         memberResult = toBuffer(raw[0]);
         consumed = raw[1];
@@ -255,7 +274,7 @@ function deflateRawSync(data, options) {
   var bytes = toBytes(data);
   var level = (options && options.level !== undefined) ? options.level : -1;
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
-  var buf = toBuffer(__exactDeflateSync(bytes, level, 2, dict));
+  var buf = toBuffer(_nativeDeflateSync(bytes, level, 2, dict));
   if (options && options.info) return { engine: new DeflateRaw(options), buffer: buf }; // eslint-disable-line no-use-before-define
   return buf;
 }
@@ -269,7 +288,7 @@ function inflateRawSync(data, options) {
   var dict = (options && options.dictionary) ? toBytes(options.dictionary) : undefined;
   var result;
   try {
-    result = toBuffer(__exactInflateSync(bytes, 2, false, lenient ? 1 : 0, dict));
+    result = toBuffer(_nativeInflateSync(bytes, 2, false, lenient ? 1 : 0, dict));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
@@ -298,7 +317,7 @@ function unzipSync(data, options) {
       var memberResult;
       var consumed;
       try {
-        var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : 2);
+        var raw = _nativeInflateSync(remaining, 1, false, lenient ? 3 : 2);
         if (Array.isArray(raw)) {
           memberResult = toBuffer(raw[0]);
           consumed = raw[1];
@@ -324,7 +343,7 @@ function unzipSync(data, options) {
   // Non-gzip: single member only
   var singleResult;
   try {
-    singleResult = toBuffer(__exactInflateSync(bytes, 1, false, lenient ? 1 : 0));
+    singleResult = toBuffer(_nativeInflateSync(bytes, 1, false, lenient ? 1 : 0));
   } catch (e) {
     if (lenient) return toBuffer(new Uint8Array(0));
     throw wrapInflateError(e);
@@ -1110,7 +1129,7 @@ function Deflate(opts) {
   var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
-    return toBuffer(__exactDeflateSync(toBytes(buf), level, 0, _dict));
+    return toBuffer(_nativeDeflateSync(toBytes(buf), level, 0, _dict));
   }, opts, false);
 }
 Deflate.prototype = Object.create(ZlibTransform.prototype);
@@ -1121,7 +1140,7 @@ function Inflate(opts) {
   validateZlibOptions(opts, false, false);
   var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var r = __exactInflateSync(toBytes(buf), 0, false, this._finishFlush === 2 ? 3 : 2, _dict);
+    var r = _nativeInflateSync(toBytes(buf), 0, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
   }, opts, true);
@@ -1134,7 +1153,7 @@ function Gzip(opts) {
   validateZlibOptions(opts, true, true);
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
-    return toBuffer(__exactDeflateSync(toBytes(buf), level, 1));
+    return toBuffer(_nativeDeflateSync(toBytes(buf), level, 1));
   }, opts, false);
 }
 Gzip.prototype = Object.create(ZlibTransform.prototype);
@@ -1156,7 +1175,7 @@ function DeflateRaw(opts) {
   var _dict = (_opts && _opts.dictionary) ? toBytes(_opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
-    return toBuffer(__exactDeflateSync(toBytes(buf), level, 2, _dict));
+    return toBuffer(_nativeDeflateSync(toBytes(buf), level, 2, _dict));
   }, opts, false);
 }
 DeflateRaw.prototype = Object.create(ZlibTransform.prototype);
@@ -1167,7 +1186,7 @@ function InflateRaw(opts) {
   validateZlibOptions(opts, false, false);
   var _dict = (opts && opts.dictionary) ? toBytes(opts.dictionary) : undefined;
   ZlibTransform.call(this, function(buf) {
-    var r = __exactInflateSync(toBytes(buf), 2, false, this._finishFlush === 2 ? 3 : 2, _dict);
+    var r = _nativeInflateSync(toBytes(buf), 2, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
   }, opts, true);

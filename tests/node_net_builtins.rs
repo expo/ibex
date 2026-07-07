@@ -742,3 +742,53 @@ setTimeout(function() {
         "HTTP over listen({{path}}) should work: {parsed}"
     );
 }
+
+#[tokio::test]
+async fn node_net_set_keep_alive_accepts_initial_delay() {
+    // ENG-23456 finding 3: setKeepAlive(enable, initialDelay) used to drop
+    // initialDelay because the host function was arity-2 (the `.length >= 3`
+    // branch was dead). The native side is now arity-3 and applies
+    // TCP_KEEPIDLE/TCP_KEEPALIVE; end-to-end this asserts the full call path
+    // (ms -> seconds -> native) works on a live socket and data still flows.
+    // The actual setsockopt effect is not observable from JS, so the idle
+    // value itself is verified by code review, not here.
+    let script = r#"
+var net = require('net');
+var watchdog = setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog' }));
+  process.exit(1);
+}, 20000);
+var server = net.createServer(function(sock) {
+  sock.end('pong');
+});
+server.listen(0, '127.0.0.1', function() {
+  var port = server.address().port;
+  var client = net.connect(port, '127.0.0.1', function() {
+    var r1 = client.setKeepAlive(true, 1200);   // 1.2s -> 1s idle
+    var r2 = client.setKeepAlive(true, 250);    // sub-second rounds up, not to 0
+    var r3 = client.setKeepAlive(false);
+    var chunks = [];
+    client.on('data', function(c) { chunks.push(c); });
+    client.on('end', function() {
+      clearTimeout(watchdog);
+      server.close();
+      console.log(JSON.stringify({
+        error: null,
+        chained: r1 === client && r2 === client && r3 === client,
+        data: Buffer.concat(chunks).toString()
+      }));
+    });
+  });
+});
+"#;
+    let parsed = run_script(script, 60).await;
+    assert_eq!(parsed["error"], Value::Null, "no watchdog/error: {parsed}");
+    assert_eq!(
+        parsed["chained"], Value::Bool(true),
+        "setKeepAlive returns the socket: {parsed}"
+    );
+    assert_eq!(
+        parsed["data"], "pong",
+        "socket still exchanges data after keepalive calls: {parsed}"
+    );
+}

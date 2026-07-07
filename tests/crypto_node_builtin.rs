@@ -516,6 +516,31 @@ async fn verify_honors_signature_encoding() {
     );
 }
 
+/// ENG-23456 finding 1: require('crypto') must not rewrite process.versions.
+/// The LLP 0012 identity authority ships only truthful ambient keys
+/// (ibex/node/hermes); the old crypto.js load-time block re-installed the
+/// v8/uv/openssl/modules masquerade and clobbered versions.ibex.
+#[tokio::test]
+async fn requiring_crypto_does_not_masquerade_process_versions() {
+    let js = "(function(){ var before = JSON.stringify(process.versions); \
+        require('crypto'); \
+        return JSON.stringify({ \
+          same: before === JSON.stringify(process.versions), \
+          ibex: typeof process.versions.ibex, \
+          v8: typeof process.versions.v8, \
+          uv: typeof process.versions.uv, \
+          openssl: typeof process.versions.openssl, \
+          modules: typeof process.versions.modules, \
+          exact: typeof process.versions.exact \
+        }); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        r#"{"same":true,"ibex":"string","v8":"undefined","uv":"undefined","openssl":"undefined","modules":"undefined","exact":"undefined"}"#,
+        "require('crypto') must leave the truthful identity untouched: {result}"
+    );
+}
+
 /// ENG-23129 finding 7 (bounds only — the bias fix is rejection sampling,
 /// reviewed at the source): every draw stays in [min, max) and small ranges
 /// are fully covered.
