@@ -805,18 +805,78 @@ pub extern "C" fn ex_host_free_buffer(buf: *mut u8, len: u64) {
     }
 }
 
+/// A u64 principal id rendered to its decimal-string form in a fixed inline
+/// buffer. The capability manager keys principals by decimal string; the check
+/// FFI entry points run on the enforce/audit hot path (every gated syscall), so
+/// they must not heap-allocate a `String` per call just to perform a lookup —
+/// the string form is only materialized on the heap where audit rendering
+/// actually records it (a would-deny). (ENG-22644)
+#[derive(Clone, Copy)]
+struct PrincipalIdBuf {
+    buf: [u8; 20],
+    start: usize,
+}
+
+impl PrincipalIdBuf {
+    const EMPTY: PrincipalIdBuf = PrincipalIdBuf {
+        buf: [b'0'; 20],
+        start: 20,
+    };
+
+    fn new(mut value: u64) -> Self {
+        let mut buf = [b'0'; 20];
+        let mut start = 20;
+        loop {
+            start -= 1;
+            buf[start] = b'0' + (value % 10) as u8;
+            value /= 10;
+            if value == 0 {
+                break;
+            }
+        }
+        PrincipalIdBuf { buf, start }
+    }
+
+    fn as_str(&self) -> &str {
+        // The buffer holds only ASCII digits.
+        std::str::from_utf8(&self.buf[self.start..]).unwrap_or("0")
+    }
+}
+
+/// Render a principal-id stack to the decimal-string forms the capability
+/// manager keys on, without per-call heap allocation for the common case.
+/// Stacks carry DISTINCT principals (one per package on the call chain), so
+/// almost every real stack fits the inline capacity; deeper stacks fall back
+/// to a heap rendering. (ENG-22644)
+fn with_rendered_principal_stack<R>(ids: &[u64], f: impl FnOnce(&[&str]) -> R) -> R {
+    const INLINE_STACK_PRINCIPALS: usize = 16;
+    if ids.len() <= INLINE_STACK_PRINCIPALS {
+        let mut bufs = [PrincipalIdBuf::EMPTY; INLINE_STACK_PRINCIPALS];
+        for (slot, id) in bufs.iter_mut().zip(ids.iter()) {
+            *slot = PrincipalIdBuf::new(*id);
+        }
+        let mut refs: [&str; INLINE_STACK_PRINCIPALS] = [""; INLINE_STACK_PRINCIPALS];
+        for (slot, buf) in refs.iter_mut().zip(bufs.iter()).take(ids.len()) {
+            *slot = buf.as_str();
+        }
+        f(&refs[..ids.len()])
+    } else {
+        let strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+        let refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
+        f(&refs)
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ex_host_check_capability(module_id: u64, capability: *const c_char) -> i32 {
     if capability.is_null() {
         return 0;
     }
 
-    let cap = unsafe { CStr::from_ptr(capability) }
-        .to_string_lossy()
-        .to_string();
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
 
-    let module = module_id.to_string();
-    let allowed = with_host(|host| host.check_capability(&module, &cap), false);
+    let module = PrincipalIdBuf::new(module_id);
+    let allowed = with_host(|host| host.check_capability(module.as_str(), &cap), false);
     if allowed {
         1
     } else {
@@ -833,13 +893,11 @@ pub extern "C" fn ex_host_check_capability_no_follow_final(
         return 0;
     }
 
-    let cap = unsafe { CStr::from_ptr(capability) }
-        .to_string_lossy()
-        .to_string();
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
 
-    let module = module_id.to_string();
+    let module = PrincipalIdBuf::new(module_id);
     let allowed = with_host(
-        |host| host.check_capability_no_follow_final(&module, &cap),
+        |host| host.check_capability_no_follow_final(module.as_str(), &cap),
         false,
     );
     if allowed {
@@ -858,12 +916,10 @@ pub extern "C" fn ex_host_check_handle_mint(module_id: u64, capability: *const c
         return 0;
     }
 
-    let cap = unsafe { CStr::from_ptr(capability) }
-        .to_string_lossy()
-        .to_string();
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
 
-    let module = module_id.to_string();
-    let allowed = with_host(|host| host.check_handle_mint(&module, &cap), false);
+    let module = PrincipalIdBuf::new(module_id);
+    let allowed = with_host(|host| host.check_handle_mint(module.as_str(), &cap), false);
     if allowed {
         1
     } else {
@@ -885,15 +941,14 @@ pub extern "C" fn ex_host_check_capability_stack(
     if capability.is_null() || module_ids.is_null() || len == 0 {
         return 0;
     }
-    let cap = unsafe { CStr::from_ptr(capability) }
-        .to_string_lossy()
-        .to_string();
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
     let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
     // Render each numeric principal to the decimal-string form the manager keys
-    // on (matching ex_host_check_capability's single-principal conversion).
-    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
-    let allowed = with_host(|host| host.check_capability_stack(&stack_refs, &cap), false);
+    // on (matching ex_host_check_capability's single-principal conversion),
+    // using inline stack buffers instead of a per-call Vec<String>. (ENG-22644)
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(|host| host.check_capability_stack(stack_refs, &cap), false)
+    });
     if allowed {
         1
     } else {
@@ -910,16 +965,14 @@ pub extern "C" fn ex_host_check_capability_stack_no_follow_final(
     if capability.is_null() || module_ids.is_null() || len == 0 {
         return 0;
     }
-    let cap = unsafe { CStr::from_ptr(capability) }
-        .to_string_lossy()
-        .to_string();
+    let cap = unsafe { CStr::from_ptr(capability) }.to_string_lossy();
     let ids = unsafe { std::slice::from_raw_parts(module_ids, len) };
-    let stack_strings: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
-    let stack_refs: Vec<&str> = stack_strings.iter().map(|s| s.as_str()).collect();
-    let allowed = with_host(
-        |host| host.check_capability_stack_no_follow_final(&stack_refs, &cap),
-        false,
-    );
+    let allowed = with_rendered_principal_stack(ids, |stack_refs| {
+        with_host(
+            |host| host.check_capability_stack_no_follow_final(stack_refs, &cap),
+            false,
+        )
+    });
     if allowed {
         1
     } else {
@@ -1100,11 +1153,9 @@ pub extern "C" fn ex_host_check_import(module_id: u64, specifier: *const c_char)
     if specifier.is_null() {
         return 1;
     }
-    let specifier = unsafe { CStr::from_ptr(specifier) }
-        .to_string_lossy()
-        .to_string();
-    let module = module_id.to_string();
-    let allowed = with_host(|host| host.check_import(&module, &specifier), true);
+    let specifier = unsafe { CStr::from_ptr(specifier) }.to_string_lossy();
+    let module = PrincipalIdBuf::new(module_id);
+    let allowed = with_host(|host| host.check_import(module.as_str(), &specifier), true);
     if allowed {
         1
     } else {
@@ -2378,6 +2429,43 @@ mod tests {
     use super::*;
     use crate::host::{Host, HostConfig, SecurityMode};
     use std::io::{self, Write};
+
+    // The inline decimal rendering must agree byte-for-byte with the
+    // `u64::to_string` keying the capability manager has always used, across
+    // the special principals (root 0, kNoUserPrincipal, kRuntimePackageId) and
+    // the extremes. (ENG-22644)
+    #[test]
+    fn principal_id_buf_matches_to_string() {
+        for id in [
+            0u64,
+            1,
+            9,
+            10,
+            42,
+            0xFFFF_FFFE, // kNoUserPrincipal (4294967294)
+            0xFFFF_FFFF, // runtime principal
+            u64::MAX,
+        ] {
+            assert_eq!(PrincipalIdBuf::new(id).as_str(), id.to_string());
+        }
+    }
+
+    #[test]
+    fn rendered_principal_stack_matches_to_string_inline_and_heap() {
+        // Inline path (<= 16 principals) and the heap fallback (> 16) must
+        // produce identical renderings.
+        let short: Vec<u64> = vec![0, 7, 4294967294, u64::MAX];
+        let long: Vec<u64> = (0..40).map(|i| i * 1_000_003 + 7).collect();
+        for ids in [&short, &long] {
+            let expected: Vec<String> = ids.iter().map(|id| id.to_string()).collect();
+            with_rendered_principal_stack(ids, |refs| {
+                assert_eq!(refs.len(), expected.len());
+                for (r, e) in refs.iter().zip(expected.iter()) {
+                    assert_eq!(*r, e.as_str());
+                }
+            });
+        }
+    }
 
     struct FailingWriter;
 
