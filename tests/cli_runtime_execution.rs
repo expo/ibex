@@ -90,6 +90,34 @@ async fn engine_runs_planted_hbc(hermesc: &Path, base: &Path) -> bool {
     String::from_utf8_lossy(&output.stdout).contains("from-hbc")
 }
 
+/// ENG-23484 finding 2 (P2): a static-import `.mjs` entry with no top-level
+/// await, reaching the standalone TLA-shim path (no bun/node on PATH), lowers
+/// cleanly to CJS — the "no shim needed" fast path must then evaluate the
+/// LOWERED source, not re-run the raw on-disk file, which Hermes cannot parse
+/// in script mode.
+#[tokio::test]
+async fn cli_runtime_standalone_mjs_entry_without_tla_runs_lowered_source() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let entry = dir.path().join("app.mjs");
+    std::fs::write(
+        &entry,
+        "import fs from \"node:fs\";\nconsole.log(\"exists=\" + fs.existsSync(\".\"));\n",
+    )
+    .expect("write entry");
+
+    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        ".mjs entry with static imports and no TLA must run\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.contains("exists=true"),
+        "the lowered import must resolve\nstdout: {stdout}\nstderr: {stderr}"
+    );
+}
+
 /// ENG-23484 finding 1 (P1): a runtime error thrown by a bytecode entry is an
 /// EVAL failure, not a bytecode-load failure. It must propagate as-is — the
 /// program's side effects must not run a second time via the JS-source

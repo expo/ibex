@@ -1482,12 +1482,21 @@ impl Runtime {
         // brace depth 0) because `await` inside top-level for/if/while blocks is
         // still TLA even though it's at brace depth > 0. The async IIFE wrapper
         // is harmless for code that doesn't use TLA, so false positives are fine.
-        if !source_needs_tla_shim(source.as_ref()) {
+        //
+        // The run-the-file-raw fast path is only sound when NO lowering
+        // happened: the shim check ran on the LOWERED source, and a lowered
+        // entry's on-disk file may be raw ESM/TS that Hermes cannot parse in
+        // script mode (a static-import .mjs with no TLA hit exactly this —
+        // clean lowering, "no shim needed", then SyntaxError on the raw
+        // imports). Once lowering happened, evaluate the lowered source; the
+        // wrapper also supplies the module/exports/__filename/__dirname
+        // bindings the swc CJS output references. (ENG-23484)
+        if !needs_lowering && !source_needs_tla_shim(source.as_ref()) {
             let entry_str = entry_path.to_string_lossy().to_string();
             return self.engine.run_file(&entry_str).await;
         }
 
-        let wrapped = wrap_source_for_tla_eval_with(source, is_main_file, needs_lowering);
+        let wrapped = wrap_entry_source_for_eval(source, is_main_file, needs_lowering);
         self.engine.eval(&wrapped).await
     }
 
@@ -2321,7 +2330,22 @@ fn wrap_source_for_tla_eval_with(
     if !source_needs_tla_shim(source.as_ref()) {
         return source.into_owned();
     }
+    wrap_entry_source_for_eval(source, is_main_file, already_lowered)
+}
 
+/// Unconditionally wrap an entry source in the async-IIFE eval shim. Callers
+/// that may pass source needing no shim at all should go through
+/// `wrap_source_for_tla_eval_with`, which passes such source through
+/// untouched. `run_entry_with_tla_shim` calls this directly for every lowered
+/// entry — even one with no TLA — because bare eval of swc's CJS output lacks
+/// the `module`/`exports`/`__filename`/`__dirname` bindings the wrapper's IIFE
+/// parameters supply, and the async wrap is harmless for non-TLA code.
+/// (ENG-23484)
+fn wrap_entry_source_for_eval(
+    source: Cow<'_, str>,
+    is_main_file: bool,
+    already_lowered: bool,
+) -> String {
     let transformed = if already_lowered {
         source.into_owned()
     } else {
