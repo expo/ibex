@@ -658,15 +658,23 @@ extern "C" void native_ws_send(
     size_t length,
     int is_text
 ) {
+    // Zero-length payloads are valid WebSocket frames (WHATWG: send('') and
+    // send(new Uint8Array(0)) transmit empty frames the peer observes);
+    // tolerate the null pointer an empty JS view may hand us (ENG-23469).
+    if (!data && length > 0) {
+        return;
+    }
+    const void* payload = data ? (const void*)data : (const void*)"";
+
     // Build the NSString/NSData payload before taking the global lock so
     // large payload conversion doesn't serialize every socket.
     // @ref LLP 0003#the-platform-shims-map
     NSURLSessionWebSocketMessage* message;
     if (is_text) {
-        NSString* str = [[NSString alloc] initWithBytes:data length:length encoding:NSUTF8StringEncoding];
+        NSString* str = [[NSString alloc] initWithBytes:payload length:length encoding:NSUTF8StringEncoding];
         message = [[NSURLSessionWebSocketMessage alloc] initWithString:str ?: @""];
     } else {
-        NSData* nsData = [NSData dataWithBytes:data length:length];
+        NSData* nsData = [NSData dataWithBytes:payload length:length];
         message = [[NSURLSessionWebSocketMessage alloc] initWithData:nsData];
     }
 

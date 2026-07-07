@@ -550,7 +550,9 @@ extern "C" uint32_t native_ws_connect(
 
 extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text) {
 #ifdef EXACT_HAS_CURL
-    if (!data || length == 0) {
+    // Zero-length payloads are valid WebSocket frames (WHATWG: send('') and
+    // send(new Uint8Array(0)) transmit empty frames the peer observes).
+    if (!data && length > 0) {
         return;
     }
     std::shared_ptr<WebSocketEntry> entry;

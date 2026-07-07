@@ -293,9 +293,14 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             auto ab = obj.getArrayBuffer(runtime);
             native_ws_send(ws_id, ab.data(runtime), ab.size(runtime), 0);
           } else {
-            auto val = facebook::jsi::Value(runtime, std::move(obj));
-            auto bytes = extractBytes(runtime, val);
-            if (!bytes.empty()) native_ws_send(ws_id, bytes.data(), bytes.size(), 0);
+            const uint8_t* viewData = nullptr;
+            size_t viewLength = 0;
+            // WHATWG: send(new Uint8Array(0)) transmits a valid empty binary
+            // frame the peer observes as an empty message event, so a
+            // zero-length view must reach the native layer (ENG-23469).
+            if (extractArrayBufferView(runtime, obj, viewData, viewLength)) {
+              native_ws_send(ws_id, viewData, viewLength, 0);
+            }
           }
         }
         return facebook::jsi::Value::undefined();

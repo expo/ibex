@@ -287,7 +287,11 @@ void receive_loop(const std::shared_ptr<WebSocketEntry>& entry) {
     if (entry->flow_controlled_receive.load(std::memory_order_relaxed)) {
       entry->receive_paused.store(true, std::memory_order_relaxed);
     }
-    call_message(entry, message.data(), message.size(), message_is_text);
+    call_message(
+        entry,
+        message.empty() ? reinterpret_cast<const uint8_t*>("") : message.data(),
+        message.size(),
+        message_is_text);
     message.clear();
   }
 
@@ -517,7 +521,10 @@ extern "C" uint32_t native_ws_connect(
 }
 
 extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t length, int is_text) {
-  if (!data || length == 0) return;
+  // Zero-length payloads are valid WebSocket frames (WHATWG: send('') and
+  // send(new Uint8Array(0)) transmit empty frames the peer observes).
+  // WinHttpWebSocketSend accepts a null buffer only when the length is 0.
+  if (!data && length > 0) return;
   std::shared_ptr<WebSocketEntry> entry;
   {
     std::lock_guard<std::mutex> lock(g_ws_mutex);
