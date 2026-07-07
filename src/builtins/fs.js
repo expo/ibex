@@ -5348,26 +5348,51 @@ constants.F_OK = 0;
 constants.R_OK = 4;
 constants.W_OK = 2;
 constants.X_OK = 1;
-// File open constants
+// File open constants.
+// (ENG-23319) These numbers are host ABI, not portable: _flagsToNumber builds
+// numeric open flags from this table and __exactFsOpen's numeric branch passes
+// them straight to open(2), so a fixed Darwin table corrupts Linux opens —
+// Darwin O_CREAT (512) is Linux O_TRUNC so 'w' cannot create; Darwin O_APPEND
+// (8) is Linux O_NONBLOCK and Darwin O_TRUNC (1024) is Linux O_APPEND so 'a'
+// truncates; Darwin O_EXCL (2048) is Linux O_NONBLOCK so 'wx' loses
+// exclusivity. Same load-time platform split as the signal map in
+// child-process.js (ENG-23032); Linux is a target platform (LLP 0001) and
+// Android runs the Linux ABI. Exposure shape follows Node: O_SYMLINK exists
+// only on Darwin, O_DIRECT/O_NOATIME only on Linux, and O_DIRECT/O_DIRECTORY/
+// O_NOFOLLOW swap values between Linux x86_64 and arm64. win32 keeps the
+// previous (Darwin-shaped) values until Windows fs parity work needs its own.
+var _fsPlatform = (typeof process !== 'undefined' && process.platform) || 'darwin';
 constants.O_RDONLY = 0;
 constants.O_WRONLY = 1;
 constants.O_RDWR = 2;
-constants.O_CREAT = 512;
-constants.O_EXCL = 2048;
-constants.O_NOCTTY = 131072;
-constants.O_TRUNC = 1024;
-constants.O_APPEND = 8;
-constants.O_DIRECTORY = 1048576;
-// O_NOATIME is Linux-only; do not expose on other platforms
-if (typeof process !== 'undefined' && process.platform === 'linux') {
+if (_fsPlatform === 'linux' || _fsPlatform === 'android') {
+  var _fsArch = (typeof process !== 'undefined' && process.arch) || 'arm64';
+  var _fsLinuxX86 = _fsArch === 'x64' || _fsArch === 'ia32';
+  constants.O_CREAT = 64;
+  constants.O_EXCL = 128;
+  constants.O_NOCTTY = 256;
+  constants.O_TRUNC = 512;
+  constants.O_APPEND = 1024;
+  constants.O_NONBLOCK = 2048;
+  constants.O_DSYNC = 4096;
+  constants.O_DIRECT = _fsLinuxX86 ? 16384 : 65536;
+  constants.O_DIRECTORY = _fsLinuxX86 ? 65536 : 16384;
+  constants.O_NOFOLLOW = _fsLinuxX86 ? 131072 : 32768;
   constants.O_NOATIME = 262144;
+  constants.O_SYNC = 1052672;
+} else {
+  constants.O_CREAT = 512;
+  constants.O_EXCL = 2048;
+  constants.O_NOCTTY = 131072;
+  constants.O_TRUNC = 1024;
+  constants.O_APPEND = 8;
+  constants.O_NONBLOCK = 4;
+  constants.O_DSYNC = 4194304;
+  constants.O_DIRECTORY = 1048576;
+  constants.O_NOFOLLOW = 256;
+  constants.O_SYNC = 128;
+  constants.O_SYMLINK = 2097152;
 }
-constants.O_NOFOLLOW = 256;
-constants.O_DIRECT = 65536;
-constants.O_SYNC = 128;
-constants.O_DSYNC = 4194304;
-constants.O_SYMLINK = 2097152;
-constants.O_NONBLOCK = 4;
 // File type constants
 constants.S_IFMT = 61440;
 constants.S_IFREG = 32768;

@@ -54,10 +54,17 @@ describe('child-process kill() signal mapping (ENG-22965 #1)', () => {
     }
   });
 
-  test('the previously-mismapped signals now use Darwin numbers (were Linux 10/12/7)', () => {
-    expect(captureKill('SIGUSR1')).toBe(30); // was 10 (== Darwin SIGBUS)
-    expect(captureKill('SIGUSR2')).toBe(31); // was 12
-    expect(captureKill('SIGBUS')).toBe(10);  // was 7
+  test('the previously-mismapped signals now use platform numbers (one Linux table was applied everywhere)', () => {
+    // child-process.js selects its signal table by process.platform at load
+    // time (ENG-23032), and this suite runs on both darwin and linux hosts
+    // (CI Preflight is ubuntu — ENG-23319). The original ENG-22965 defect was
+    // the Linux-numbered table applied on Darwin, so the regression bites in
+    // the darwin branch (30/31/10, not 10/12/7); on linux the platform-correct
+    // numbers coincide with the old table for USR1/USR2 and BUS is 7.
+    const linux = process.platform === 'linux';
+    expect(captureKill('SIGUSR1')).toBe(linux ? 10 : 30); // darwin 30; Linux-on-Darwin bug sent 10 (== Darwin SIGBUS)
+    expect(captureKill('SIGUSR2')).toBe(linux ? 12 : 31);
+    expect(captureKill('SIGBUS')).toBe(linux ? 7 : 10);
   });
 
   test('signals beyond the old 15-entry map are accepted, not ERR_UNKNOWN_SIGNAL', () => {
