@@ -11,6 +11,8 @@
 
 import { expect, test } from 'bun:test';
 import { structuredClone } from './structuredClone';
+import { Blob } from '../blob/Blob';
+import { File } from '../blob/File';
 
 test('sibling views over one buffer clone into a single shared buffer with offsets preserved', () => {
   const buf = new ArrayBuffer(16);
@@ -87,4 +89,26 @@ test('transferring an ArrayBuffer moves the data and detaches the source', () =>
     expect(() => new Uint8Array(buf)).toThrow();
     expect(() => buf.slice(0)).toThrow();
   }
+});
+
+test('Blob and File clones preserve Ibex constructors and data', async () => {
+  const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+  const file = new File([new Uint8Array([4, 5])], 'clone.bin', {
+    type: 'application/octet-stream',
+    lastModified: 321,
+  });
+
+  const blobClone = structuredClone(blob);
+  const fileClone = structuredClone(file);
+
+  expect(blobClone).toBeInstanceOf(Blob);
+  expect(blobClone.type).toBe('image/png');
+  expect(Array.from(await blobClone.bytes())).toEqual([1, 2, 3]);
+
+  expect(fileClone).toBeInstanceOf(File);
+  expect(fileClone).toBeInstanceOf(Blob);
+  expect(fileClone.name).toBe('clone.bin');
+  expect(fileClone.type).toBe('application/octet-stream');
+  expect(fileClone.lastModified).toBe(321);
+  expect(Array.from(await fileClone.bytes())).toEqual([4, 5]);
 });

@@ -9,6 +9,7 @@
 
 import { expect, test } from 'bun:test';
 import { Blob } from './Blob';
+import { File } from './File';
 
 test('mutating a source Uint8Array after construction does not change the Blob', async () => {
   const u = new Uint8Array([1, 2, 3]);
@@ -67,4 +68,16 @@ test('arrayBuffer() is independent of the source and of the Blob', async () => {
   expect(Array.from(new Uint8Array(ab))).toEqual([1, 2, 3]);
   new Uint8Array(ab)[0] = 0;
   expect(Array.from(await b.bytes())).toEqual([1, 2, 3]);
+});
+
+test('Blob-first import order leaves File constructible', async () => {
+  const f = new File([new Uint8Array([4, 5])], 'blob-first.bin', {
+    type: 'application/octet-stream',
+    lastModified: 123,
+  });
+
+  expect(f).toBeInstanceOf(Blob);
+  expect(f.name).toBe('blob-first.bin');
+  expect(f.lastModified).toBe(123);
+  expect(Array.from(await f.bytes())).toEqual([4, 5]);
 });

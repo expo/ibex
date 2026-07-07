@@ -9,21 +9,46 @@
 import { DOMException, createDataCloneError } from '../events/DOMException';
 import { isDetachedArrayBuffer, markDetachedArrayBuffer } from '../arraybuffer-detach';
 import { Blob as ExactBlob } from '../blob/Blob';
-import { File as ExactFile } from '../blob/File';
 
 // Lazy imports to break circular dependency:
 // Blob → streams/ReadableStream → clone/structuredClone → Blob
 let _Blob: typeof import('../blob/Blob').Blob | undefined;
-let _File: typeof import('../blob/File').File | undefined;
-function getBlobClasses() {
+type ExactFileConstructor = typeof import('../blob/File').File;
+function getBlobClass() {
   if (!_Blob) {
-    // Keep constructor lookup lazy so the module does not touch Blob/File until
+    // Keep constructor lookup lazy so the module does not touch Blob until
     // structuredClone actually needs them, while still relying on normal ESM
     // resolution instead of CommonJS `require()` path heuristics.
     _Blob = ExactBlob;
-    _File = ExactFile;
   }
-  return { Blob: _Blob!, File: _File! };
+  return _Blob!;
+}
+
+function getFileConstructor(
+  obj: object,
+  BlobClass: typeof ExactBlob
+): ExactFileConstructor | undefined {
+  if (
+    Object.prototype.toString.call(obj) !== '[object File]' ||
+    typeof (obj as any).name !== 'string' ||
+    typeof (obj as any).lastModified !== 'number'
+  ) {
+    return undefined;
+  }
+
+  let proto = Object.getPrototypeOf(obj);
+  while (proto && proto !== BlobClass.prototype) {
+    const parent = Object.getPrototypeOf(proto);
+    if (parent === BlobClass.prototype) {
+      const constructor = proto.constructor;
+      return typeof constructor === 'function' && constructor !== BlobClass
+        ? constructor as ExactFileConstructor
+        : undefined;
+    }
+    proto = parent;
+  }
+
+  return undefined;
 }
 import {
   structuredCloneCloneSymbol,
@@ -381,18 +406,19 @@ function cloneInternal<T>(
   }
 
   // Blob and File
-  const { Blob: BlobClass, File: FileClass } = getBlobClasses();
-  if (obj instanceof FileClass) {
-    const bytes = (obj as any)._getBytes();
-    const clone = new FileClass([bytes], (obj as any).name, {
-      type: (obj as any).type,
-      lastModified: (obj as any).lastModified,
-    });
-    cloneMap.set(obj, clone);
-    return clone as T;
-  }
-
+  const BlobClass = getBlobClass();
   if (obj instanceof BlobClass) {
+    const FileClass = getFileConstructor(obj, BlobClass);
+    if (FileClass) {
+      const bytes = (obj as any)._getBytes();
+      const clone = new FileClass([bytes], (obj as any).name, {
+        type: (obj as any).type,
+        lastModified: (obj as any).lastModified,
+      });
+      cloneMap.set(obj, clone);
+      return clone as T;
+    }
+
     const bytes = (obj as any)._getBytes();
     const clone = new BlobClass([bytes], { type: (obj as any).type });
     cloneMap.set(obj, clone);

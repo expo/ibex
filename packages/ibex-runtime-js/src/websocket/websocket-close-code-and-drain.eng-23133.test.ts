@@ -14,11 +14,6 @@
 // Run with: bun test packages/ibex-runtime-js/src/websocket
 
 import { expect, test } from 'bun:test';
-// Entering the module graph through blob/Blob (as WebSocket.ts does) trips a
-// pre-existing Blob -> streams -> clone -> File -> Blob circular-import TDZ
-// error under bun's ESM evaluation (Blob.snapshot.test.ts fails the same way
-// at HEAD). Loading clone first evaluates File/Blob in a safe order.
-import '../clone';
 import {
   getNativeWebSocketModule,
   setNativeWebSocketModule,

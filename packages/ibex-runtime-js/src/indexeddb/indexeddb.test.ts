@@ -13,12 +13,8 @@ import { IDBFactory } from './IDBFactory';
 import { IDBKeyRange, compareKeys } from './IDBKeyRange';
 import { IDBCursorWithValue } from './IDBCursor';
 import { encodeOrderedKey, serializeKey, serializeValue } from './serialization';
-// File before Blob: evaluating blob/Blob first trips the
-// blob -> streams -> structuredClone -> blob/File import cycle at the
-// `class File extends Blob` TDZ; entering through File evaluates Blob fully
-// before File's class definition runs.
-import { File as IbexFile } from '../blob/File';
 import { Blob as IbexBlob } from '../blob/Blob';
+import { File as IbexFile } from '../blob/File';
 
 // ---------------------------------------------------------------------------
 // Test harness: a file-backed SQLite provider (real persistence across opens).
@@ -2197,4 +2193,3 @@ describe('ENG-23134: failed upgrades do not leak SQLite handles', () => {
     expect(counts.closes).toBe(4);
   });
 });
-
