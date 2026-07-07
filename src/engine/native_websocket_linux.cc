@@ -140,6 +140,23 @@ static bool should_disable_tls_verification_for_url(const char* url) {
     return is_loopback_host(extract_url_host(url));
 }
 
+static int connect_progress_callback(
+    void* clientp,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t,
+    curl_off_t
+) {
+    auto* entry = static_cast<WebSocketEntry*>(clientp);
+    if (!entry) {
+        return 0;
+    }
+    return entry->closed.load(std::memory_order_relaxed) ||
+            entry->close_requested.load(std::memory_order_relaxed)
+        ? 1
+        : 0;
+}
+
 static void call_error(const std::shared_ptr<WebSocketEntry>& entry, const char* message) {
     if (!entry || !entry->error_cb || !entry->context) {
         return;
@@ -241,6 +258,15 @@ static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
     curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    // close()/destroy during CONNECTING must not keep the runtime alive until
+    // libcurl's 30s timeout. The progress callback is the documented,
+    // same-thread way to abort curl_easy_perform without touching the easy
+    // handle from the JS thread.
+    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — native
+    // close during CONNECTING must fail the connection promptly
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, connect_progress_callback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, entry.get());
     if (should_disable_tls_verification_for_url(entry->url.c_str())) {
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -256,10 +282,22 @@ static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
 
     const CURLcode rc = curl_easy_perform(curl);
     if (rc != CURLE_OK) {
+        const bool aborted_for_close =
+            rc == CURLE_ABORTED_BY_CALLBACK &&
+            (entry->closed.load(std::memory_order_relaxed) ||
+             entry->close_requested.load(std::memory_order_relaxed));
         if (headers) {
             curl_slist_free_all(headers);
         }
         curl_easy_cleanup(curl);
+        if (aborted_for_close) {
+            if (entry->close_requested.load(std::memory_order_relaxed) &&
+                !entry->closed.exchange(true, std::memory_order_relaxed)) {
+                call_error(entry, "WebSocket was closed before the connection was established");
+                call_close(entry, 1006, "", 0);
+            }
+            return false;
+        }
         const char* msg = curl_easy_strerror(rc);
         if (!msg) {
             msg = "WebSocket connect failed";
@@ -269,12 +307,34 @@ static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
         return false;
     }
 
+    if (entry->close_requested.load(std::memory_order_relaxed) ||
+        entry->closed.load(std::memory_order_relaxed)) {
+        if (headers) {
+            curl_slist_free_all(headers);
+        }
+        curl_easy_cleanup(curl);
+        if (entry->close_requested.load(std::memory_order_relaxed) &&
+            !entry->closed.exchange(true, std::memory_order_relaxed)) {
+            call_error(entry, "WebSocket was closed before the connection was established");
+            call_close(entry, 1006, "", 0);
+        }
+        return false;
+    }
+
     entry->curl = curl;
     entry->headers = headers;
     return true;
 }
 
 static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (entry->close_requested.load(std::memory_order_relaxed)) {
+        if (!entry->closed.exchange(true, std::memory_order_relaxed)) {
+            call_error(entry, "WebSocket was closed before the connection was established");
+            call_close(entry, 1006, "", 0);
+        }
+        remove_connection(entry->ws_id);
+        return;
+    }
     call_open(entry);
 
     // Message reassembly state. curl_ws_recv returns at most one buffer's

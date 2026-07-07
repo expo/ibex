@@ -32,6 +32,7 @@ struct WebSocketEntry {
     NativeWsErrorCallback error_cb;
     NativeWsBytesSentCallback bytes_sent_cb;
     void* context;
+    std::mutex context_mutex;
     bool closed;
     bool close_requested_by_client;
     bool has_observed_close;
@@ -99,6 +100,36 @@ static uint32_t wsIdForTask(NSURLSessionTask* task) {
 
 static double monotonicSeconds() {
     return [[NSProcessInfo processInfo] systemUptime];
+}
+
+// Snapshot and retain the callback context atomically against destroy_entry's
+// teardown release. Callers must balance a non-null return with
+// native_ws_release_context.
+static void* acquireContext(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (!entry) {
+        return nullptr;
+    }
+    std::lock_guard<std::mutex> lock(entry->context_mutex);
+    if (!entry->context) {
+        return nullptr;
+    }
+    native_ws_retain_context(entry->context);
+    return entry->context;
+}
+
+static void releaseContext(const std::shared_ptr<WebSocketEntry>& entry) {
+    if (!entry) {
+        return;
+    }
+    void* context = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(entry->context_mutex);
+        context = entry->context;
+        entry->context = nullptr;
+    }
+    if (context) {
+        native_ws_release_context(context);
+    }
 }
 
 static int64_t clientCloseHandshakeGracePeriodNanos() {
@@ -185,9 +216,7 @@ static void destroy_entry(uint32_t ws_id) {
         [entry->task cancel];
     }
 
-    if (entry->context) {
-        native_ws_release_context(entry->context);
-    }
+    releaseContext(entry);
 }
 
 // Forward declaration
@@ -221,11 +250,13 @@ static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos);
     // We pass empty string and let the server-negotiated protocol through.
     const char* extensions = "";
 
-    auto context = entry ? entry->context : nullptr;
-    if (entry && entry->open_cb && context) {
-        native_ws_retain_context(context);
-        auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
+    if (entry && entry->open_cb) {
+        void* context = acquireContext(entry);
+        if (!context) {
+            return;
+        }
         entry->open_cb(entry->ws_id, proto, extensions, context);
+        native_ws_release_context(context);
     }
 
     // Start receive loop
@@ -259,27 +290,25 @@ didCompleteWithError:(NSError *)error {
     uint32_t wsId = wsIdForTask(task);
     if (!wsId) return;
     std::shared_ptr<WebSocketEntry> entry;
+    void* context = nullptr;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
         auto it = wsConnections.find(wsId);
         if (it == wsConnections.end() || it->second->closed) return;
         entry = it->second;
+        context = acquireContext(entry);
         entry->closed = true;
     }
 
-    auto context = entry ? entry->context : nullptr;
     if (entry && context) {
         NSString* errMsg = [error localizedDescription] ?: @"WebSocket connection failed";
         if (entry->error_cb) {
-            native_ws_retain_context(context);
-            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
             entry->error_cb(entry->ws_id, [errMsg UTF8String], context);
         }
         if (entry->close_cb) {
-            native_ws_retain_context(context);
-            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
             entry->close_cb(entry->ws_id, 1006, [errMsg UTF8String], 0, context);
         }
+        native_ws_release_context(context);
     }
 
     destroy_entry(wsId);
@@ -324,11 +353,11 @@ static void receiveLoop(std::shared_ptr<WebSocketEntry> entry) {
     auto close_cb = entry->close_cb;
     auto error_cb = entry->error_cb;
     auto ws_id = entry->ws_id;
-    auto context = entry->context;
+    auto context = acquireContext(entry);
+    std::shared_ptr<void> context_guard;
     if (context) {
-        native_ws_retain_context(context);
+        context_guard = std::shared_ptr<void>(context, native_ws_release_context);
     }
-    auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
 
     [entry->task receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage* message, NSError* error) {
         (void)context_guard;
@@ -522,6 +551,8 @@ static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos) {
             uint16_t reportedCloseCode = 1005;
             std::string reportedCloseReason;
             bool reportedWasClean = true;
+            NativeWsCloseCallback close_cb = nullptr;
+            void* context = nullptr;
 
             {
                 std::lock_guard<std::mutex> lock(wsMutex);
@@ -546,16 +577,21 @@ static void scheduleClientCloseCompletion(uint32_t ws_id, int64_t delay_nanos) {
                     reportedWasClean = false;
                 }
                 entry->closed = true;
+                close_cb = entry->close_cb;
+                context = acquireContext(entry);
             }
 
-            if (entry && entry->close_cb && entry->context) {
-                entry->close_cb(
+            if (close_cb && context) {
+                close_cb(
                     ws_id,
                     reportedCloseCode,
                     reportedCloseReason.c_str(),
                     reportedWasClean ? 1 : 0,
-                    entry->context
+                    context
                 );
+            }
+            if (context) {
+                native_ws_release_context(context);
             }
             destroy_entry(ws_id);
         }
@@ -579,14 +615,10 @@ extern "C" uint32_t native_ws_connect(
         NSURL* nsUrl = [NSURL URLWithString:urlString];
         if (!nsUrl) {
             if (context) {
-                auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
                 native_ws_retain_context(context);
                 error_cb(0, "Invalid WebSocket URL", context);
-                return 0;
+                native_ws_release_context(context);
             }
-            auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
-            native_ws_retain_context(context);
-            error_cb(0, "Invalid WebSocket URL", context);
             return 0;
         }
 
@@ -690,13 +722,15 @@ extern "C" void native_ws_send(
     }
     size_t bytesSent = length;
 
-    // Capture bytes_sent_cb and ws_id for completion handler
+    // Capture callbacks and a retained context snapshot for the completion
+    // handler; destroy_entry can run before NSURLSession invokes the block.
     auto bytes_sent_cb = entry->bytes_sent_cb;
-    auto ctx = entry->context;
+    auto error_cb = entry->error_cb;
+    auto ctx = acquireContext(entry);
+    std::shared_ptr<void> context_guard;
     if (ctx) {
-        native_ws_retain_context(ctx);
+        context_guard = std::shared_ptr<void>(ctx, native_ws_release_context);
     }
-    auto context_guard = std::shared_ptr<void>(ctx, native_ws_release_context);
 
     [entry->task sendMessage:message completionHandler:^(NSError* error) {
         (void)context_guard;
@@ -708,17 +742,15 @@ extern "C" void native_ws_send(
                 if (it == wsConnections.end() || it->second->closed) return;
                 activeEntry = it->second;
             }
-            if (activeEntry->context && activeEntry->error_cb) {
-                activeEntry->error_cb(ws_id,
-                                      [[error localizedDescription] UTF8String],
-                                      activeEntry->context);
+            if (ctx && error_cb) {
+                error_cb(ws_id,
+                         [[error localizedDescription] UTF8String],
+                         ctx);
             }
         } else {
             // Notify JS that data was successfully sent so bufferedAmount can decrement
-            if (bytes_sent_cb) {
-                if (ctx) {
-                    bytes_sent_cb(ws_id, bytesSent, ctx);
-                }
+            if (bytes_sent_cb && ctx) {
+                bytes_sent_cb(ws_id, bytesSent, ctx);
             }
         }
     }];
@@ -765,6 +797,8 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
     uint16_t deferredCloseCode = 1005;
     std::string deferredCloseReason;
     bool deferredCloseWasClean = false;
+    NativeWsCloseCallback deferredCloseCb = nullptr;
+    void* deferredCloseContext = nullptr;
     {
         std::lock_guard<std::mutex> lock(wsMutex);
         auto it = wsConnections.find(ws_id);
@@ -790,17 +824,22 @@ extern "C" void native_ws_resume(uint32_t ws_id) {
             deferredCloseCode = entry->observed_close_code;
             deferredCloseReason = entry->observed_close_reason;
             deferredCloseWasClean = entry->observed_close_was_clean;
+            deferredCloseCb = entry->close_cb;
+            deferredCloseContext = acquireContext(entry);
         }
     }
 
     if (deliverDeferredClose) {
-        if (entry->close_cb && entry->context) {
-            entry->close_cb(
+        if (deferredCloseCb && deferredCloseContext) {
+            deferredCloseCb(
                 ws_id,
                 deferredCloseCode,
                 deferredCloseReason.c_str(),
                 deferredCloseWasClean ? 1 : 0,
-                entry->context);
+                deferredCloseContext);
+        }
+        if (deferredCloseContext) {
+            native_ws_release_context(deferredCloseContext);
         }
         destroy_entry(ws_id);
         return;

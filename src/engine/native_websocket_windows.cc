@@ -52,6 +52,7 @@ struct WebSocketEntry {
   // callback can retain a context whose final release (and scheduled
   // delete) already happened on the closing thread.
   std::mutex context_mutex;
+  std::atomic<bool> close_requested{false};
   std::atomic<bool> closed{false};
   std::atomic<bool> receive_paused{false};
   std::atomic<bool> flow_controlled_receive{false};
@@ -287,7 +288,8 @@ void receive_loop(const std::shared_ptr<WebSocketEntry>& entry) {
         &buffer_type);
 
     if (rc != NO_ERROR) {
-      if (!entry->closed.load(std::memory_order_relaxed)) {
+      if (!entry->closed.load(std::memory_order_relaxed) &&
+          !entry->close_requested.load(std::memory_order_relaxed)) {
         auto message_text = lastErrorString("WinHttpWebSocketReceive", rc);
         call_error(entry, message_text.c_str());
         call_close(entry, 1006, "Connection error", 0);
@@ -593,7 +595,10 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
     if (it == g_ws_connections.end()) return;
     entry = it->second;
   }
-  if (!entry || entry->closed.load(std::memory_order_relaxed)) return;
+  if (!entry || entry->closed.load(std::memory_order_relaxed) ||
+      entry->close_requested.load(std::memory_order_relaxed)) {
+    return;
+  }
 
   // Hold send_mutex across the handle read AND the send: closeHandles
   // acquires send_mutex before closing, so the handle cannot be closed (and
@@ -630,24 +635,55 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
     if (it == g_ws_connections.end()) return;
     entry = it->second;
   }
-  if (!entry || entry->closed.exchange(true, std::memory_order_relaxed)) return;
+  if (!entry || entry->closed.load(std::memory_order_relaxed) ||
+      entry->close_requested.exchange(true, std::memory_order_relaxed)) {
+    return;
+  }
 
   HINTERNET websocket = entryWebSocket(entry);
   if (websocket) {
-    {
-      std::lock_guard<std::mutex> lock(entry->send_mutex);
-      WinHttpWebSocketClose(
-          websocket,
-          code == 1005 ? WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS : code,
-          const_cast<char*>(reason ? reason : ""),
-          reason ? static_cast<DWORD>(std::strlen(reason)) : 0);
-    }
-    call_close(entry, code == 1005 ? 1000 : code, reason ? reason : "", 1);
+    const uint16_t close_code = code;
+    const std::string reason_copy = reason ? reason : "";
+    NativeWsCloseCallback close_cb = entry->close_cb;
+    void* close_context = acquireContext(entry);
+    std::thread([entry, close_code, reason_copy, close_cb, close_context]() {
+      // WinHttpWebSocketClose is synchronous for this session and can wait
+      // for the peer close frame. Run it off the JS thread while preserving
+      // send/close serialization against handle teardown.
+      // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — native
+      // close handshakes must not block the runtime thread
+      const bool already_closed = entry->closed.exchange(true, std::memory_order_relaxed);
+      if (!already_closed) {
+        HINTERNET active_websocket = entryWebSocket(entry);
+        if (active_websocket) {
+          std::lock_guard<std::mutex> lock(entry->send_mutex);
+          WinHttpWebSocketClose(
+              active_websocket,
+              close_code == 1005 ? WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS : close_code,
+              const_cast<char*>(reason_copy.c_str()),
+              static_cast<DWORD>(reason_copy.size()));
+        }
+      }
+      if (close_cb && close_context) {
+        close_cb(
+            entry->ws_id,
+            close_code == 1005 ? 1000 : close_code,
+            reason_copy.c_str(),
+            1,
+            close_context);
+      }
+      if (close_context) {
+        native_ws_release_context(close_context);
+      }
+      remove_connection(entry->ws_id);
+    }).detach();
+    return;
   } else {
     // close() while still CONNECTING: fail the connection per WHATWG --
     // error event, then an unclean 1006 close. The handshake thread
     // observes `closed`, abandons the upgrade, and disposes of its own
     // handles.
+    entry->closed.store(true, std::memory_order_relaxed);
     call_error(entry, "WebSocket was closed before the connection was established");
     call_close(entry, 1006, "", 0);
   }
