@@ -1345,6 +1345,9 @@ impl Runtime {
                     // already performed (stdout, writes, network) runs a
                     // second time and the still-valid cache is discarded on
                     // every future run. (ENG-23484)
+                    // @ref LLP 0005#bytecode-precompilation-hermesc — entry
+                    // bytecode falls back to source on LOAD failure only,
+                    // unlike the always-fall-back startup bootstrap.
                     if !engine::hermes::is_bytecode_load_error(&format!("{e:#}")) {
                         return Err(e);
                     }

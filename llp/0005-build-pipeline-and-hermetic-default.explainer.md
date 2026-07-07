@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-06 (download-first Hermes bootstrap via published artifact bundles — ENG-23147)
+**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -103,6 +103,19 @@ instead of using the bootstrap panic path `[observed]` (`build.rs:1676-1735`).
 The engine prefers bytecode and falls back to source at startup
 ([LLP 0003](./0003-hermes-engine-bridge.explainer.md),
 `src/engine/hermes_bootstrap.cc:44-69`).
+
+At run time the CLI keeps a parallel cache for **entry** bytecode: a bundled
+(or standalone) entry is compiled to a sibling `.hbc` when `hermesc` is
+available and reused while fresh (`src/bin/ibex/runtime.rs`,
+`prepare_bytecode_entry`). The fall-back-to-source rule is deliberately
+narrower here than at startup: only a genuine **load** failure — the buffer
+rejected before any of the program ran (`is_bytecode_load_error`: version
+mismatch, sanity-check rejection, prepare-time rejection) — may delete the
+cached `.hbc`, set the process-wide bytecode-incompatible flag, and re-run the
+JS source. An error thrown by the *program* must propagate as-is: unlike the
+side-effect-free bootstrap, the entry's side effects (stdout, writes, network)
+have already happened by the time the error surfaces, so a fallback re-run
+would perform them all twice (ENG-23484).
 
 The per-file exception is `web-streams-polyfill.js`: it is optional startup
 code, installed only when `EX_WEB_STREAMS_POLYFILL=1`, and Hermes 0.11-era
