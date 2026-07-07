@@ -30,9 +30,16 @@ namespace {
 
 struct RequestState {
   uint32_t request_id = 0;
-  HINTERNET session = nullptr;
-  HINTERNET connect = nullptr;
-  HINTERNET request = nullptr;
+  // Written by the detached performFetch worker; exchanged to null (and then
+  // closed) by closeHandles(), which native_fetch_cancel runs on the caller's
+  // thread while the worker may be inside a WinHTTP call on these handles.
+  // Atomics make that concurrent access well-defined; exchange() in
+  // closeHandles() guarantees a single closer. Cancellation itself still works
+  // by closing a handle the worker is blocked on — WinHTTP's documented
+  // synchronous cancellation mechanism.
+  std::atomic<HINTERNET> session{nullptr};
+  std::atomic<HINTERNET> connect{nullptr};
+  std::atomic<HINTERNET> request{nullptr};
   std::atomic<bool> cancelled{false};
 };
 
@@ -65,12 +72,13 @@ std::string lastErrorString(const char* operation) {
 
 void closeHandles(const std::shared_ptr<RequestState>& state) {
   if (!state) return;
-  HINTERNET request = state->request;
-  HINTERNET connect = state->connect;
-  HINTERNET session = state->session;
-  state->request = nullptr;
-  state->connect = nullptr;
-  state->session = nullptr;
+  // exchange() so that exactly one caller — the worker's finish() or
+  // native_fetch_cancel (or the first of two racing cancels) — closes each
+  // handle. The loser sees null and closes nothing, so a handle can never be
+  // double-closed through these fields.
+  HINTERNET request = state->request.exchange(nullptr);
+  HINTERNET connect = state->connect.exchange(nullptr);
+  HINTERNET session = state->session.exchange(nullptr);
   if (request) WinHttpCloseHandle(request);
   if (connect) WinHttpCloseHandle(connect);
   if (session) WinHttpCloseHandle(session);
@@ -174,6 +182,14 @@ void performFetch(
     removeRequest(state->request_id);
   };
 
+  // Handle discipline (see RequestState): each WinHTTP call loads the handle
+  // field once, immediately before the call. If native_fetch_cancel already
+  // exchanged the field to null, the call fails and we take the error path —
+  // sendError is a no-op once `cancelled` is set (the cancel path sets it
+  // before exchanging the handles), so that is a silent abort. If cancel
+  // closes a handle while a call is blocked on it, the call fails the same
+  // way; that is WinHTTP's documented synchronous cancellation.
+
   std::wstring host;
   INTERNET_PORT port = 0;
   std::wstring path;
@@ -186,25 +202,27 @@ void performFetch(
 
   DWORD access_type =
       isLoopbackHost(host) ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY;
-  state->session = WinHttpOpen(
+  HINTERNET session = WinHttpOpen(
       L"Exact/0.1",
       access_type,
       WINHTTP_NO_PROXY_NAME,
       WINHTTP_NO_PROXY_BYPASS,
       0);
-  if (!state->session) {
+  state->session.store(session);
+  if (!session) {
     sendError(state, lastErrorString("WinHttpOpen"), callback, context);
     finish();
     return;
   }
-  WinHttpSetTimeouts(state->session, 30000, 30000, 30000, 300000);
+  WinHttpSetTimeouts(state->session.load(), 30000, 30000, 30000, 300000);
 
   // WinHTTP is unstable in this embedding when connecting directly to the
   // numeric IPv4 loopback host. `localhost` exercises the same local path and
   // avoids a process crash observed with 127.0.0.1 on Windows 11.
   std::wstring connect_host = host == L"127.0.0.1" ? L"localhost" : host;
-  state->connect = WinHttpConnect(state->session, connect_host.c_str(), port, 0);
-  if (!state->connect) {
+  HINTERNET connect = WinHttpConnect(state->session.load(), connect_host.c_str(), port, 0);
+  state->connect.store(connect);
+  if (!connect) {
     sendError(state, lastErrorString("WinHttpConnect"), callback, context);
     finish();
     return;
@@ -212,23 +230,29 @@ void performFetch(
 
   std::wstring wide_method = utf8ToWide(method.empty() ? "GET" : method);
   DWORD request_flags = secure ? WINHTTP_FLAG_SECURE : 0;
-  state->request = WinHttpOpenRequest(
-      state->connect,
+  HINTERNET request = WinHttpOpenRequest(
+      state->connect.load(),
       wide_method.c_str(),
       path.c_str(),
       nullptr,
       WINHTTP_NO_REFERER,
       WINHTTP_DEFAULT_ACCEPT_TYPES,
       request_flags);
-  if (!state->request) {
+  state->request.store(request);
+  if (!request) {
     sendError(state, lastErrorString("WinHttpOpenRequest"), callback, context);
     finish();
     return;
   }
 
+  // The two WinHttpSetOption calls use the just-created local instead of
+  // reloading the field: WinHttpSetOption(NULL, ...) is not a safe no-op (a
+  // NULL handle selects process-wide options for some settings). If cancel
+  // closed the handle in the meantime the calls fail, which is fine — both
+  // options are advisory and their return values were already ignored.
   DWORD disabled_features = WINHTTP_DISABLE_COOKIES | WINHTTP_DISABLE_REDIRECTS;
   WinHttpSetOption(
-      state->request,
+      request,
       WINHTTP_OPTION_DISABLE_FEATURE,
       &disabled_features,
       sizeof(disabled_features));
@@ -237,7 +261,7 @@ void performFetch(
   if (GetEnvironmentVariableW(L"EXACT_WINHTTP_ENABLE_HTTP2", nullptr, 0) > 0) {
     DWORD protocols = WINHTTP_PROTOCOL_FLAG_HTTP2;
     WinHttpSetOption(
-        state->request,
+        request,
         WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL,
         &protocols,
         sizeof(protocols));
@@ -249,13 +273,14 @@ void performFetch(
   DWORD header_len = wide_headers.empty() ? 0 : static_cast<DWORD>(wide_headers.size());
   LPVOID body_ptr = body.empty() ? WINHTTP_NO_REQUEST_DATA : body.data();
   DWORD body_len = static_cast<DWORD>(body.size());
-  if (!WinHttpSendRequest(state->request, header_ptr, header_len, body_ptr, body_len, body_len, 0)) {
+  if (!WinHttpSendRequest(
+          state->request.load(), header_ptr, header_len, body_ptr, body_len, body_len, 0)) {
     sendError(state, lastErrorString("WinHttpSendRequest"), callback, context);
     finish();
     return;
   }
 
-  if (!WinHttpReceiveResponse(state->request, nullptr)) {
+  if (!WinHttpReceiveResponse(state->request.load(), nullptr)) {
     sendError(state, lastErrorString("WinHttpReceiveResponse"), callback, context);
     finish();
     return;
@@ -264,7 +289,7 @@ void performFetch(
   DWORD status_code = 0;
   DWORD status_code_size = sizeof(status_code);
   if (!WinHttpQueryHeaders(
-          state->request,
+          state->request.load(),
           WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
           WINHTTP_HEADER_NAME_BY_INDEX,
           &status_code,
@@ -275,8 +300,9 @@ void performFetch(
     return;
   }
 
-  std::string status_text = queryHeaders(state->request, WINHTTP_QUERY_STATUS_TEXT);
-  std::string response_headers = queryHeaders(state->request, WINHTTP_QUERY_RAW_HEADERS_CRLF);
+  std::string status_text = queryHeaders(state->request.load(), WINHTTP_QUERY_STATUS_TEXT);
+  std::string response_headers =
+      queryHeaders(state->request.load(), WINHTTP_QUERY_RAW_HEADERS_CRLF);
 
   std::vector<uint8_t> response_body;
   for (;;) {
@@ -285,7 +311,7 @@ void performFetch(
       return;
     }
     DWORD available = 0;
-    if (!WinHttpQueryDataAvailable(state->request, &available)) {
+    if (!WinHttpQueryDataAvailable(state->request.load(), &available)) {
       sendError(state, lastErrorString("WinHttpQueryDataAvailable"), callback, context);
       finish();
       return;
@@ -295,7 +321,7 @@ void performFetch(
     }
     std::vector<uint8_t> chunk(available);
     DWORD read = 0;
-    if (!WinHttpReadData(state->request, chunk.data(), available, &read)) {
+    if (!WinHttpReadData(state->request.load(), chunk.data(), available, &read)) {
       sendError(state, lastErrorString("WinHttpReadData"), callback, context);
       finish();
       return;
