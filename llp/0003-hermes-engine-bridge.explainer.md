@@ -187,10 +187,30 @@ handle.** libcurl forbids using one handle from two threads, and the io
 thread frees the handle on exit, so the JS thread never touches it — sends
 and client closes are enqueued (`outbound`, `close_requested` +
 `close_code`/`close_reason` under `io_mutex`) and performed by the io
-thread. A client close sends the CLOSE frame from the io loop, then keeps
-reading until the peer's CLOSE arrives (reporting the peer's code/reason)
-or a 5s handshake timeout / connection teardown elapses (reporting the
-requested code with `was_clean = 1`, the same shape Windows uses).
+thread. A client close arms a 5s give-up deadline the moment the request is
+observed (so a CLOSE frame that can never be written still cannot park
+`readyState` at CLOSING forever), sends the CLOSE frame from the io loop,
+then keeps reading — through a flow-control pause, discarding incoming data
+frames, since WHATWG only fires message events while OPEN — until the
+peer's CLOSE arrives (reporting the peer's code/reason) or the deadline /
+connection teardown ends the wait (reporting the requested code with
+`was_clean = 1`, the same shape Windows uses). The close-ack wait bounds
+intentionally differ per backend: Windows completes the close handshake
+synchronously inside `WinHttpWebSocketClose`, macOS delegates to
+NSURLSession with a 1s grace period for the peer's frame, and Linux polls a
+non-blocking socket so it uses a looser 5s upper bound.
+
+Windows handle lifetime follows the same single-owner idea: pre-upgrade
+handles (session/connect/request) belong to the handshake thread — a
+concurrent close()/destroy only marks the entry closed (reporting an
+unclean 1006, per WHATWG "fail the connection" for close-while-CONNECTING)
+and the handshake thread disposes of its own handles when it notices,
+because closing a handle out from under a blocking synchronous WinHTTP call
+is documented-unpredictable. Post-upgrade, `WinHttpWebSocketSend` and
+handle teardown serialize on `send_mutex` so a send can never run on a
+freed (and possibly recycled) handle, and the per-entry `context_mutex`
+makes a callback's context snapshot+retain atomic against the final
+teardown release.
 
 ### Crypto is platform-dependent (the fragile axis)
 

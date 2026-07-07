@@ -563,7 +563,8 @@ extern "C" uint32_t native_ws_connect(
     // returned (remove_connection performs the balancing release). An extra
     // retain here leaked the context -- and the JS WebSocket instance it
     // pins -- on every successful connection.
-    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership
+    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — ownership
+    // transfers on nonzero ws_id; never retain at connect
     entry->context = context;
 
     {
@@ -656,7 +657,8 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
     // libcurl handle must not be used from two threads) and frees it on
     // exit. Record the requested code/reason and let the io thread send the
     // CLOSE frame and complete the closing handshake.
-    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership
+    // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — the io
+    // thread exclusively owns the CURL handle
     {
         std::lock_guard<std::mutex> lock(entry->io_mutex);
         entry->close_code = code;
