@@ -362,3 +362,383 @@ setTimeout(function() {
         "no message should be delivered: {parsed}"
     );
 }
+
+#[tokio::test]
+async fn node_net_blocklist_uses_numeric_range_and_subnet_matching() {
+    let script = r#"
+var net = require('net');
+var bl = new net.BlockList();
+bl.addRange('1.0.0.0', '10.0.0.0');
+bl.addSubnet('192.168.0.0', 16);
+bl.addSubnet('2001:db8::', 32, 'ipv6');
+console.log(JSON.stringify({
+  range: bl.check('9.0.0.0'),
+  rangeFalse: bl.check('100.0.0.0'),
+  subnet: bl.check('192.168.9.1'),
+  subnetFalse: bl.check('192.169.0.1'),
+  ipv6Subnet: bl.check('2001:db8::1', 'ipv6')
+}));
+"#;
+
+    let parsed = run_script(script, 10).await;
+    assert_eq!(parsed["range"], Value::Bool(true), "IPv4 range: {parsed}");
+    assert_eq!(
+        parsed["rangeFalse"],
+        Value::Bool(false),
+        "IPv4 range false positive: {parsed}"
+    );
+    assert_eq!(parsed["subnet"], Value::Bool(true), "IPv4 subnet: {parsed}");
+    assert_eq!(
+        parsed["subnetFalse"],
+        Value::Bool(false),
+        "IPv4 subnet false positive: {parsed}"
+    );
+    assert_eq!(
+        parsed["ipv6Subnet"],
+        Value::Bool(true),
+        "IPv6 subnet: {parsed}"
+    );
+}
+
+#[tokio::test]
+async fn node_net_read_size_returns_null_until_enough_data_or_eof() {
+    let script = r#"
+var net = require('net');
+var server = net.createServer(function(sock) {
+  sock.write('hello');
+  setTimeout(function() { sock.end(); }, 200);
+});
+server.listen(0, '127.0.0.1', function() {
+  var client = net.connect(server.address().port, '127.0.0.1');
+  var firstWasNull = false;
+  var exact = '';
+  client.on('readable', function() {
+    if (!firstWasNull) {
+      firstWasNull = client.read(100) === null;
+      var chunk = client.read(5);
+      if (chunk) exact += chunk.toString();
+      return;
+    }
+    var rest = client.read(100);
+    if (rest) exact += rest.toString();
+  });
+  client.on('end', function() {
+    console.log(JSON.stringify({ firstWasNull: firstWasNull, exact: exact }));
+    server.close();
+    process.exit(0);
+  });
+});
+setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog: read test hung' }));
+  process.exit(0);
+}, 10000);
+"#;
+
+    let parsed = run_script(script, 20).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "script should not hang: {parsed}"
+    );
+    assert_eq!(
+        parsed["firstWasNull"],
+        Value::Bool(true),
+        "read(100) should return null on short buffered data before EOF: {parsed}"
+    );
+    assert_eq!(
+        parsed["exact"],
+        Value::String("hello".to_string()),
+        "short read must not consume data: {parsed}"
+    );
+}
+
+#[tokio::test]
+async fn node_net_destroy_error_is_deferred_until_next_tick() {
+    let script = r#"
+var net = require('net');
+var s = new net.Socket();
+var events = [];
+var watchdog = setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog: close did not fire', events: events }));
+  process.exit(0);
+}, 10000);
+s.destroy(new Error('boom'));
+s.on('error', function(err) { events.push('error:' + err.message); });
+s.on('close', function(hadErr) {
+  events.push('close:' + hadErr);
+  clearTimeout(watchdog);
+  console.log(JSON.stringify({ events: events }));
+  process.exit(0);
+});
+"#;
+
+    let parsed = run_script(script, 20).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "script should not hang: {parsed}"
+    );
+    let events = parsed["events"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        events.get(0),
+        Some(&Value::String("error:boom".to_string())),
+        "error should be observable by a listener attached after destroy(): {parsed}"
+    );
+    assert_eq!(
+        events.get(1),
+        Some(&Value::String("close:true".to_string())),
+        "close should follow the deferred error: {parsed}"
+    );
+}
+
+#[tokio::test]
+async fn node_net_second_end_callback_after_finish_reports_already_finished() {
+    let script = r#"
+var net = require('net');
+var server = net.createServer(function(sock) { sock.resume(); });
+server.listen(0, '127.0.0.1', function() {
+  var client = net.connect(server.address().port, '127.0.0.1', function() {
+    client.end();
+  });
+  client.on('finish', function() {
+    client.end(function(err) {
+      console.log(JSON.stringify({ code: err && err.code }));
+      client.destroy();
+      server.close();
+      process.exit(0);
+    });
+  });
+});
+setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog: second end callback did not fire' }));
+  process.exit(0);
+}, 10000);
+"#;
+
+    let parsed = run_script(script, 20).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "script should not hang: {parsed}"
+    );
+    assert_eq!(
+        parsed["code"],
+        Value::String("ERR_STREAM_ALREADY_FINISHED".to_string()),
+        "second end(cb) after finish should report ERR_STREAM_ALREADY_FINISHED: {parsed}"
+    );
+}
+
+#[tokio::test]
+async fn node_http_socket_mode_write_after_end_and_invalid_content_length_are_observable() {
+    let script = r#"
+var http = require('http');
+var net = require('net');
+var phase = 'write-after-end';
+var results = {};
+
+function runWriteAfterEnd(next) {
+  var server = http.createServer(function(req, res) {
+    var events = [];
+    res.on('error', function(err) { events.push('error:' + err.code); });
+    res.end('ok');
+    var sync = true;
+    var ret = res.write('late', function(err) {
+      events.push('callback:' + (err && err.code) + ':sync=' + sync);
+    });
+    sync = false;
+    setTimeout(function() {
+      results.writeAfterEnd = { ret: ret, events: events };
+      server.close(next);
+    }, 50);
+  });
+  server.listen(0, '127.0.0.1', function() {
+    http.get({ host: '127.0.0.1', port: server.address().port }, function(res) {
+      res.resume();
+    }).on('error', function() {});
+  });
+}
+
+function runInvalidContentLength(next) {
+  var server = http.createServer(function(req, res) {
+    results.invalidContentLengthRequest = true;
+    res.end('bad');
+  });
+  server.on('clientError', function(err, socket) {
+    results.invalidContentLength = err.code;
+    socket.destroy();
+  });
+  server.listen(0, '127.0.0.1', function() {
+    var sock = net.connect(server.address().port, '127.0.0.1', function() {
+      sock.write('POST / HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\nbody');
+    });
+    sock.on('data', function() {});
+    sock.on('close', function() {
+      setTimeout(function() { server.close(next); }, 20);
+    });
+  });
+}
+
+runWriteAfterEnd(function() {
+  runInvalidContentLength(function() {
+    console.log(JSON.stringify(results));
+    process.exit(0);
+  });
+});
+setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog: http socket-mode test hung', phase: phase, results: results }));
+  process.exit(0);
+}, 15000);
+"#;
+
+    let parsed = run_script(script, 30).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "script should not hang: {parsed}"
+    );
+    assert_eq!(
+        parsed["writeAfterEnd"]["ret"],
+        Value::Bool(false),
+        "write after end should return false: {parsed}"
+    );
+    let events = parsed["writeAfterEnd"]["events"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        events
+            .iter()
+            .any(|e| e == "callback:ERR_STREAM_WRITE_AFTER_END:sync=false"),
+        "write-after-end callback should be async with ERR_STREAM_WRITE_AFTER_END: {parsed}"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| e == "error:ERR_STREAM_WRITE_AFTER_END"),
+        "write-after-end should emit an error event: {parsed}"
+    );
+    assert_eq!(
+        parsed["invalidContentLength"],
+        Value::String("HPE_INVALID_CONTENT_LENGTH".to_string()),
+        "invalid request Content-Length should emit clientError: {parsed}"
+    );
+    assert_eq!(
+        parsed["invalidContentLengthRequest"],
+        Value::Null,
+        "invalid Content-Length must not emit a request: {parsed}"
+    );
+}
+
+#[tokio::test]
+async fn node_http_upgrade_preserves_connection_accounting_and_listen_path() {
+    let script = r#"
+var fs = require('fs');
+var http = require('http');
+var net = require('net');
+var os = require('os');
+var path = require('path');
+var results = {};
+
+function runUpgrade(next) {
+  var server = http.createServer();
+  server.on('upgrade', function(req, socket, head) {
+    socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n');
+  });
+  server.listen(0, '127.0.0.1', function() {
+    var sock = net.connect(server.address().port, '127.0.0.1', function() {
+      sock.write('GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n');
+    });
+    sock.on('data', function() { sock.end(); });
+    sock.on('close', function() {
+      server.getConnections(function(err, countBeforeClose) {
+        results.upgradeConnections = countBeforeClose;
+        var done = false;
+        server.close(function() {
+          if (done) return;
+          done = true;
+          results.upgradeClose = true;
+          next();
+        });
+        setTimeout(function() {
+          if (!done) {
+            done = true;
+            results.upgradeClose = false;
+            next();
+          }
+        }, 500);
+      });
+    });
+  });
+}
+
+function runListenPath(next) {
+  var sockPath = path.join(os.tmpdir(), 'ibex-http-listen-' + process.pid + '-' + Date.now() + '.sock');
+  try { fs.unlinkSync(sockPath); } catch (e) {}
+  var server = http.createServer(function(req, res) { res.end('ok'); });
+  server.maxConnections = 3;
+  server.listen({ path: sockPath }, function() {
+    results.listenPathAddress = server.address();
+    results.maxConnections = server.maxConnections;
+    http.get({ socketPath: sockPath, path: '/' }, function(res) {
+      var body = '';
+      res.on('data', function(d) { body += d; });
+      res.on('end', function() {
+        results.listenPathBody = body;
+        server.close(function() {
+          try { fs.unlinkSync(sockPath); } catch (e) {}
+          next();
+        });
+      });
+    }).on('error', function(err) {
+      results.listenPathError = err.code || err.message;
+      server.close(next);
+    });
+  });
+}
+
+runUpgrade(function() {
+  runListenPath(function() {
+    console.log(JSON.stringify(results));
+    process.exit(0);
+  });
+});
+setTimeout(function() {
+  console.log(JSON.stringify({ error: 'watchdog: upgrade/listen path test hung', results: results }));
+  process.exit(0);
+}, 15000);
+"#;
+
+    let parsed = run_script(script, 30).await;
+    assert_eq!(
+        parsed["error"],
+        Value::Null,
+        "script should not hang: {parsed}"
+    );
+    assert_eq!(
+        parsed["upgradeConnections"].as_i64(),
+        Some(0),
+        "upgraded socket should decrement net.Server connection accounting after close: {parsed}"
+    );
+    assert_eq!(
+        parsed["upgradeClose"],
+        Value::Bool(true),
+        "server.close callback should fire after upgraded socket closes: {parsed}"
+    );
+    assert!(
+        parsed["listenPathAddress"]
+            .as_str()
+            .map(|s| s.ends_with(".sock"))
+            .unwrap_or(false),
+        "listen({{path}}) should bind a Unix socket and address() should return the path: {parsed}"
+    );
+    assert_eq!(
+        parsed["maxConnections"].as_i64(),
+        Some(3),
+        "http maxConnections should proxy to net server: {parsed}"
+    );
+    assert_eq!(
+        parsed["listenPathBody"],
+        Value::String("ok".to_string()),
+        "HTTP over listen({{path}}) should work: {parsed}"
+    );
+}
