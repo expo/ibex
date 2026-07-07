@@ -3187,7 +3187,11 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
 
 fn bundler_working_dir() -> Result<PathBuf> {
     let root = repo_root()?;
-    Ok(root.join("js"))
+    let legacy_js_dir = root.join("js");
+    if legacy_js_dir.is_dir() {
+        return Ok(legacy_js_dir);
+    }
+    Ok(root)
 }
 
 fn find_js_runner() -> Result<(PathBuf, &'static str)> {
