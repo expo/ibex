@@ -1,6 +1,7 @@
 #include "hermes_runtime_internal.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 extern "C" void ex_host_free_string(char* value);
 extern "C" uint64_t ex_host_sqlite_open(const char* path, const char* options_json);
@@ -57,18 +58,19 @@ static facebook::jsi::Value convertSqliteBlobValue(
 static void convertSqliteBlobColumnsInRowObject(
     facebook::jsi::Runtime& runtime,
     facebook::jsi::Object& row,
-    const facebook::jsi::Array& columnTypes) {
+    const std::unordered_map<std::string, std::string>& columnTypesByName) {
   auto keys = row.getPropertyNames(runtime);
-  auto limit = std::min(keys.size(runtime), columnTypes.size(runtime));
-  for (size_t i = 0; i < limit; ++i) {
-    if (!sqliteColumnTypeIsBlob(runtime, columnTypes, i)) {
-      continue;
-    }
+  auto count = keys.size(runtime);
+  for (size_t i = 0; i < count; ++i) {
     auto key = keys.getValueAtIndex(runtime, i);
     if (!key.isString()) {
       continue;
     }
     auto property = key.asString(runtime).utf8(runtime);
+    auto type = columnTypesByName.find(property);
+    if (type == columnTypesByName.end() || type->second != "BLOB") {
+      continue;
+    }
     row.setProperty(
         runtime,
         property.c_str(),
@@ -106,6 +108,23 @@ static void convertSqliteBlobColumns(
   }
 
   auto columnTypes = columnTypesObject.asArray(runtime);
+  std::unordered_map<std::string, std::string> columnTypesByName;
+  auto columnNamesValue = result.getProperty(runtime, "columnNames");
+  if (columnNamesValue.isObject()) {
+    auto columnNamesObject = columnNamesValue.asObject(runtime);
+    if (columnNamesObject.isArray(runtime)) {
+      auto columnNames = columnNamesObject.asArray(runtime);
+      auto limit = std::min(columnNames.size(runtime), columnTypes.size(runtime));
+      for (size_t i = 0; i < limit; ++i) {
+        auto nameValue = columnNames.getValueAtIndex(runtime, i);
+        auto typeValue = columnTypes.getValueAtIndex(runtime, i);
+        if (nameValue.isString() && typeValue.isString()) {
+          columnTypesByName[nameValue.asString(runtime).utf8(runtime)] =
+              typeValue.asString(runtime).utf8(runtime);
+        }
+      }
+    }
+  }
 
   auto rowValue = result.getProperty(runtime, "row");
   if (rowValue.isObject()) {
@@ -115,7 +134,7 @@ static void convertSqliteBlobColumns(
       convertSqliteBlobColumnsInRowArray(runtime, rowArray, columnTypes);
       result.setProperty(runtime, "row", rowArray);
     } else {
-      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypes);
+      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypesByName);
       result.setProperty(runtime, "row", rowObject);
     }
   }
@@ -144,7 +163,7 @@ static void convertSqliteBlobColumns(
       convertSqliteBlobColumnsInRowArray(runtime, rowArray, columnTypes);
       rows.setValueAtIndex(runtime, i, rowArray);
     } else {
-      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypes);
+      convertSqliteBlobColumnsInRowObject(runtime, rowObject, columnTypesByName);
       rows.setValueAtIndex(runtime, i, rowObject);
     }
   }

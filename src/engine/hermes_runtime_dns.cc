@@ -103,6 +103,25 @@ int dnsRrtypeToQtype(const std::string& rrtype) {
   return -1;
 }
 
+bool readDnsTextField(
+    const unsigned char* rdata,
+    int rdlen,
+    int& offset,
+    std::string& out) {
+  if (offset >= rdlen) {
+    return false;
+  }
+  uint8_t length = static_cast<uint8_t>(rdata[offset++]);
+  if (offset + static_cast<int>(length) > rdlen) {
+    return false;
+  }
+  if (!appendEscapedJsonText(out, rdata + offset, static_cast<size_t>(length))) {
+    return false;
+  }
+  offset += length;
+  return true;
+}
+
 // res_query + record parsing. No JSI: safe to run on a worker thread. `qtype`
 // is already mapped (see dnsRrtypeToQtype); `rrtype` is carried for error
 // text. Mirrors the historical synchronous __exactDnsResolve body. (ENG-22995)
@@ -379,6 +398,45 @@ DnsResult doDnsResolve(const std::string& hostname, int qtype, const std::string
       appendRecord(
           "{\"critical\":" + std::to_string(static_cast<uint32_t>(flags)) + "," + tag +
           ":" + value + "}");
+    } else if (qtype == ns_t_naptr) {
+      if (rdlen < 5) {
+        continue;
+      }
+      uint32_t order = (static_cast<uint32_t>(rdata[0]) << 8) |
+                       static_cast<uint32_t>(rdata[1]);
+      uint32_t preference = (static_cast<uint32_t>(rdata[2]) << 8) |
+                            static_cast<uint32_t>(rdata[3]);
+      int offset = 4;
+      std::string flagsJson;
+      std::string serviceJson;
+      std::string regexpJson;
+      if (!readDnsTextField(rdata, rdlen, offset, flagsJson) ||
+          !readDnsTextField(rdata, rdlen, offset, serviceJson) ||
+          !readDnsTextField(rdata, rdlen, offset, regexpJson)) {
+        continue;
+      }
+      char replacement[NS_MAXDNAME];
+      int consumed = ns_name_uncompress(
+          ns_msg_base(msg), ns_msg_end(msg), rdata + offset, replacement, sizeof(replacement));
+      if (consumed < 0 || offset + consumed != rdlen) {
+        continue;
+      }
+      std::string replacementName(replacement);
+      if (!replacementName.empty() && replacementName.back() == '.') {
+        replacementName.pop_back();
+      }
+      std::string replacementJson;
+      if (!appendEscapedJsonText(
+              replacementJson,
+              reinterpret_cast<const uint8_t*>(replacementName.c_str()),
+              replacementName.size())) {
+        continue;
+      }
+      appendRecord(
+          "{\"flags\":" + flagsJson + ",\"service\":" + serviceJson +
+          ",\"regexp\":" + regexpJson + ",\"replacement\":" + replacementJson +
+          ",\"order\":" + std::to_string(order) + ",\"preference\":" +
+          std::to_string(preference) + "}");
     }
   }
   json << ']';
@@ -533,11 +591,14 @@ facebook::jsi::Value startDnsAsync(
 
         std::string enqueueError;
         bool queued = DnsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve, reject]() {
+            [handle, principal, workPtr, resolve = std::move(resolve), reject = std::move(reject)]() mutable {
               DnsResult result = (*workPtr)();
+              auto runtimeResolve = std::move(resolve);
+              auto runtimeReject = std::move(reject);
               pushRuntimeCallback(
                   handle,
-                  [handle, principal, resolve, reject, result](
+                  [handle, principal, resolve = std::move(runtimeResolve),
+                   reject = std::move(runtimeReject), result = std::move(result)](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
                     handle->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);

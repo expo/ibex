@@ -73,7 +73,7 @@ extern "C" void ex_hermes_set_dispatch_callback(
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
                 size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !runtime->ios_dispatch_callback) {
+        if (count == 0 || !args[0].isObject() || !runtime->ios_dispatch_callback) {
           return facebook::jsi::Value::undefined();
         }
 
@@ -190,7 +190,7 @@ extern "C" void ex_hermes_set_module_dispatch_callback(
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
                 size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !runtime->ios_module_dispatch_callback) {
+        if (count == 0 || !args[0].isObject() || !runtime->ios_module_dispatch_callback) {
           return facebook::jsi::Value::undefined();
         }
 
@@ -248,7 +248,7 @@ extern "C" void ex_hermes_set_module_sync_callback(
                 const facebook::jsi::Value&,
                 const facebook::jsi::Value* args,
                 size_t count) -> facebook::jsi::Value {
-        if (count == 0 || !runtime->ios_module_sync_callback) {
+        if (count == 0 || !args[0].isObject() || !runtime->ios_module_sync_callback) {
           return facebook::jsi::Value::undefined();
         }
 

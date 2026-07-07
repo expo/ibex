@@ -1039,8 +1039,12 @@ async fn run_debug_loop(runtime: &runtime::Runtime) {
 
     let tx = shutdown_tx.clone();
     let ctrl_handle = tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        let _ = tx.send(());
+        loop {
+            if tokio::signal::ctrl_c().await.is_err() {
+                break;
+            }
+            let _ = tx.send(());
+        }
     });
 
     #[cfg(unix)]

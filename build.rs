@@ -1537,6 +1537,7 @@ fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) 
             .join("packages")
             .join("ibex-runtime-js")
             .join("src"),
+        manifest_dir.join("modules.ts"),
     ];
     // Committed outputs those sources are embedded into (mirrors the
     // input/output pairs scripts/check-generated-drift.sh tracks).
@@ -2026,7 +2027,7 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
         });
         for destination in &destinations {
             let staged_path = destination.join(file_name);
-            if same_file_len(&path, &staged_path) {
+            if staged_file_is_fresh(&path, &staged_path) {
                 continue;
             }
             match std::fs::copy(&path, &staged_path) {
@@ -2065,9 +2066,17 @@ fn is_existing_permission_denied(error: &std::io::Error, path: &Path) -> bool {
     error.kind() == ErrorKind::PermissionDenied && path.exists()
 }
 
-fn same_file_len(source: &Path, destination: &Path) -> bool {
+fn staged_file_is_fresh(source: &Path, destination: &Path) -> bool {
     match (std::fs::metadata(source), std::fs::metadata(destination)) {
-        (Ok(source_meta), Ok(destination_meta)) => source_meta.len() == destination_meta.len(),
+        (Ok(source_meta), Ok(destination_meta)) => {
+            if source_meta.len() != destination_meta.len() {
+                return false;
+            }
+            match (source_meta.modified(), destination_meta.modified()) {
+                (Ok(source_mtime), Ok(destination_mtime)) => destination_mtime >= source_mtime,
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -2437,7 +2446,14 @@ fn bytecode_file_version(hermesc: &Path, hbc_path: &Path) -> Option<u32> {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .ok()?;
-    let stdout = child.stdout.take()?;
+    let stdout = match child.stdout.take() {
+        Some(stdout) => stdout,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+    };
     let mut reader = BufReader::new(stdout);
 
     for _ in 0..128 {
@@ -2457,6 +2473,8 @@ fn bytecode_file_version(hermesc: &Path, hbc_path: &Path) -> Option<u32> {
         }
     }
 
+    drop(reader);
+    let _ = child.kill();
     let _ = child.wait();
     None
 }

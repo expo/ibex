@@ -2860,6 +2860,19 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
 
           std::string privatePem = dataToString(ecPrivateData.get());
           std::string publicPem = dataToString(ecPublicData.get());
+          auto replacePublicPemLabel = [](std::string& pem, const char* from, const char* to) {
+            size_t pos = 0;
+            const size_t fromLen = std::strlen(from);
+            const size_t toLen = std::strlen(to);
+            while ((pos = pem.find(from, pos)) != std::string::npos) {
+              pem.replace(pos, fromLen, to);
+              pos += toLen;
+            }
+          };
+          replacePublicPemLabel(
+              publicPem, "-----BEGIN ECDSA PUBLIC KEY-----", "-----BEGIN PUBLIC KEY-----");
+          replacePublicPemLabel(
+              publicPem, "-----END ECDSA PUBLIC KEY-----", "-----END PUBLIC KEY-----");
 
           facebook::jsi::Object result(runtime);
           result.setProperty(runtime, "privateKey", facebook::jsi::String::createFromUtf8(runtime, privatePem));
