@@ -5165,6 +5165,10 @@ ServerResponse.prototype.destroy = function(err) {
 	this.writableEnded = true;
 	this.writableFinished = true;
 	_resetOutgoingBufferState(this);
+	if (this._nativeMode) {
+		if (typeof __exactHttpRespondAbort === "function") __exactHttpRespondAbort(this._serverId, this._requestId);
+		else if (this._streaming && typeof __exactHttpRespondEnd === "function") __exactHttpRespondEnd(this._serverId, this._requestId);
+	}
 	if (this.socket && !this.socket.destroyed) try {
 		this.socket.destroy(err);
 	} catch (e) {}

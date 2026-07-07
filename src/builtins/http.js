@@ -7150,6 +7150,24 @@ ServerResponse.prototype.destroy = function(err) {
   this.writableEnded = true;
   this.writableFinished = true;
   _resetOutgoingBufferState(this);
+  if (this._nativeMode) {
+    // Destroyed before end() completed: abort the host response, never end it
+    // cleanly. A clean RespondEnd here makes hyper write a valid chunked
+    // terminator over a TRUNCATED body that validates as complete on the
+    // client; RespondAbort errors the pipe (mid-stream destroy -> broken
+    // transfer, matching Node's ECONNRESET) and drops a still-pending
+    // responder (pre-header destroy -> the hyper handler unblocks instead of
+    // parking until the request timeout). Mirrors abortStream() in
+    // packages/ibex-runtime-js/src/http-server/index.js.
+    // @ref https://linear.app/expo/issue/ENG-23114
+    if (typeof __exactHttpRespondAbort === 'function') {
+      __exactHttpRespondAbort(this._serverId, this._requestId);
+    } else if (this._streaming && typeof __exactHttpRespondEnd === 'function') {
+      // Legacy host without the abort primitive: a clean end is the only way
+      // to release the response pipe (the truncation hazard is unavoidable).
+      __exactHttpRespondEnd(this._serverId, this._requestId);
+    }
+  }
   if (this.socket && !this.socket.destroyed) {
     try { this.socket.destroy(err); } catch (e) { /* ignored: best-effort destroy during client error handling */ }
   }
