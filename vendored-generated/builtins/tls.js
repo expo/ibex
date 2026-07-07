@@ -109,6 +109,18 @@ function _cloneOwnProperties(source) {
 	for (var key in source) if (hasOwn.call(source, key)) target[key] = source[key];
 	return target;
 }
+function _defineOwnDataProperty(target, name, value) {
+	if (typeof Object.defineProperty === "function") try {
+		Object.defineProperty(target, name, {
+			value,
+			writable: true,
+			enumerable: true,
+			configurable: true
+		});
+		return;
+	} catch (_definePropErr) {}
+	target[name] = value;
+}
 function _validateProtocolVersion(kind, value) {
 	if (value === null || typeof value === "undefined") return;
 	if (typeof value !== "string" || !_tlsVersions[value]) throw _createError("ERR_TLS_INVALID_PROTOCOL_VERSION", "\"" + value + "\" is not a valid " + kind + " TLS protocol version");
@@ -1226,16 +1238,16 @@ function TLSSocket(socket, options) {
 	this._servername = options.servername || options.host || options.hostname || null;
 	this.servername = this._servername;
 	this.alpnProtocol = null;
-	this.connecting = true;
-	this.readable = true;
-	this.writable = true;
-	this.destroyed = false;
-	this.remoteAddress = null;
-	this.remotePort = null;
-	this.remoteFamily = "IPv4";
-	this.localAddress = null;
-	this.localPort = null;
-	this.localFamily = "IPv4";
+	_defineOwnDataProperty(this, "connecting", true);
+	_defineOwnDataProperty(this, "readable", true);
+	_defineOwnDataProperty(this, "writable", true);
+	_defineOwnDataProperty(this, "destroyed", false);
+	_defineOwnDataProperty(this, "remoteAddress", null);
+	_defineOwnDataProperty(this, "remotePort", null);
+	_defineOwnDataProperty(this, "remoteFamily", "IPv4");
+	_defineOwnDataProperty(this, "localAddress", null);
+	_defineOwnDataProperty(this, "localPort", null);
+	_defineOwnDataProperty(this, "localFamily", "IPv4");
 	this._cipher = {
 		name: _normalizeCipherName(options.ciphers),
 		version: this._protocol
@@ -1247,7 +1259,6 @@ function TLSSocket(socket, options) {
 	}
 }
 if (net && net.Socket && typeof Object.setPrototypeOf === "function") Object.setPrototypeOf(TLSSocket, net.Socket);
-else if (!TLSSocket.prototype) TLSSocket.prototype = {};
 TLSSocket.prototype.constructor = TLSSocket;
 TLSSocket.prototype._setSocket = function(socket) {
 	_bindSocket(this, socket);
@@ -1316,6 +1327,22 @@ TLSSocket.prototype.setMaxSendFragment = function(size) {
 };
 TLSSocket.prototype.setEncoding = function(enc) {
 	_callSocketMethod(this, "setEncoding", [enc], this);
+	return this;
+};
+TLSSocket.prototype.read = function(size) {
+	return _callSocketMethod(this, "read", [size], null);
+};
+TLSSocket.prototype.push = function(chunk, encoding) {
+	return _callSocketMethod(this, "push", [chunk, encoding], false);
+};
+TLSSocket.prototype.unshift = function(chunk) {
+	return _callSocketMethod(this, "unshift", [chunk], void 0);
+};
+TLSSocket.prototype.close = function(err) {
+	return this.destroy(err);
+};
+TLSSocket.prototype.connect = function() {
+	_callSocketMethod(this, "connect", Array.prototype.slice.call(arguments), this);
 	return this;
 };
 TLSSocket.prototype.write = function(data, encoding, callback) {
@@ -1440,6 +1467,8 @@ if (typeof Object.defineProperty === "function") {
 		}
 	});
 }
+_mixinEventEmitter(TLSSocket.prototype);
+if (net && net.Socket && net.Socket.prototype && typeof Object.setPrototypeOf === "function") Object.setPrototypeOf(TLSSocket.prototype, net.Socket.prototype);
 function _normalizeTlsConnectArguments(args) {
 	var options = {};
 	var callback = null;

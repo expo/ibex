@@ -138,6 +138,28 @@ function _cloneOwnProperties(source) {
   return target;
 }
 
+// Define an own, writable data property. With TLSSocket.prototype chained to
+// net.Socket.prototype (see the wiring below the TLSSocket methods), a plain
+// `this.x = v` in the constructor can hit an inherited accessor instead of
+// creating an own property — e.g. Node/bun's net.Socket exposes remoteAddress
+// and stream state (readable/writable/destroyed) as prototype accessors whose
+// setters silently drop the value when the internal state is missing. TLSSocket
+// carries its own flat state, so force own data properties for those names.
+function _defineOwnDataProperty(target, name, value) {
+  if (typeof Object.defineProperty === 'function') {
+    try {
+      Object.defineProperty(target, name, {
+        value: value,
+        writable: true,
+        enumerable: true,
+        configurable: true
+      });
+      return;
+    } catch (_definePropErr) {}
+  }
+  target[name] = value;
+}
+
 function _validateProtocolVersion(kind, value) {
   if (value === null || typeof value === 'undefined') return;
   if (typeof value !== 'string' || !_tlsVersions[value]) {
@@ -1617,16 +1639,16 @@ function TLSSocket(socket, options) {
   this._servername = options.servername || options.host || options.hostname || null;
   this.servername = this._servername;
   this.alpnProtocol = null;
-  this.connecting = true;
-  this.readable = true;
-  this.writable = true;
-  this.destroyed = false;
-  this.remoteAddress = null;
-  this.remotePort = null;
-  this.remoteFamily = 'IPv4';
-  this.localAddress = null;
-  this.localPort = null;
-  this.localFamily = 'IPv4';
+  _defineOwnDataProperty(this, 'connecting', true);
+  _defineOwnDataProperty(this, 'readable', true);
+  _defineOwnDataProperty(this, 'writable', true);
+  _defineOwnDataProperty(this, 'destroyed', false);
+  _defineOwnDataProperty(this, 'remoteAddress', null);
+  _defineOwnDataProperty(this, 'remotePort', null);
+  _defineOwnDataProperty(this, 'remoteFamily', 'IPv4');
+  _defineOwnDataProperty(this, 'localAddress', null);
+  _defineOwnDataProperty(this, 'localPort', null);
+  _defineOwnDataProperty(this, 'localFamily', 'IPv4');
   this._cipher = { name: _normalizeCipherName(options.ciphers), version: this._protocol };
 
   if (socket) {
@@ -1636,10 +1658,11 @@ function TLSSocket(socket, options) {
   }
 }
 
+// Static-side inheritance (net.Socket's static members). The instance-side
+// prototype chain is wired after all TLSSocket.prototype members are defined —
+// see the block following the property accessors below (ENG-23448).
 if (net && net.Socket && typeof Object.setPrototypeOf === 'function') {
   Object.setPrototypeOf(TLSSocket, net.Socket);
-} else if (!TLSSocket.prototype) {
-  TLSSocket.prototype = {};
 }
 TLSSocket.prototype.constructor = TLSSocket;
 
@@ -1730,6 +1753,34 @@ TLSSocket.prototype.setMaxSendFragment = function(size) {
 
 TLSSocket.prototype.setEncoding = function(enc) {
   _callSocketMethod(this, 'setEncoding', [enc], this);
+  return this;
+};
+
+// Explicit delegation shadows for the state-dependent net.Socket methods that
+// became reachable once TLSSocket.prototype was chained to net.Socket.prototype
+// (see the wiring below). The inherited implementations dereference net.Socket
+// constructor state (_readBuffer, _handle, ...) that this wrapper never has;
+// data flows through the wrapped raw socket, so delegate there instead.
+TLSSocket.prototype.read = function(size) {
+  return _callSocketMethod(this, 'read', [size], null);
+};
+
+TLSSocket.prototype.push = function(chunk, encoding) {
+  return _callSocketMethod(this, 'push', [chunk, encoding], false);
+};
+
+TLSSocket.prototype.unshift = function(chunk) {
+  return _callSocketMethod(this, 'unshift', [chunk], undefined);
+};
+
+// ibex's net.Socket exposes close() as a destroy alias; mirror that against the
+// wrapper's own destroy (which tears down the raw socket too).
+TLSSocket.prototype.close = function(err) {
+  return this.destroy(err);
+};
+
+TLSSocket.prototype.connect = function() {
+  _callSocketMethod(this, 'connect', Array.prototype.slice.call(arguments), this);
   return this;
 };
 
@@ -1883,6 +1934,24 @@ if (typeof Object.defineProperty === 'function') {
       return this.connecting ? 'opening' : 'open';
     }
   });
+}
+
+// Node's TLSSocket extends net.Socket (a stream.Duplex), so
+// `new tls.TLSSocket(sock) instanceof net.Socket` must hold and the Socket API
+// surface must resolve through the chain (ENG-23448). Two guards keep the
+// inherited surface honest about state this wrapper does not have:
+//   * The plain EventEmitter methods are copied onto TLSSocket.prototype as own
+//     properties BEFORE the chain is wired, so they shadow net.Socket.prototype's
+//     on/addListener/prependListener hooks (and, when this file runs under bun
+//     for unit tests, stream.Readable.prototype.on) — those implementations
+//     dereference net.Socket internals (_readBuffer / _readableState) that a
+//     TLSSocket wrapper never initializes and would throw on first use.
+//   * State-dependent Socket methods outside the delegation surface
+//     (read/push/unshift/close/connect above) are shadowed explicitly to
+//     delegate to the wrapped raw socket.
+_mixinEventEmitter(TLSSocket.prototype);
+if (net && net.Socket && net.Socket.prototype && typeof Object.setPrototypeOf === 'function') {
+  Object.setPrototypeOf(TLSSocket.prototype, net.Socket.prototype);
 }
 
 function _normalizeTlsConnectArguments(args) {
