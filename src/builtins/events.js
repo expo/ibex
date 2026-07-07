@@ -241,7 +241,12 @@ function _emitUnhandledPromiseRejection(err, promise) {
       var proc = g && g.process;
       if (proc && typeof proc === 'object' &&
           (typeof proc.exitCode !== 'number' || proc.exitCode === 0)) {
-        try { proc.exitCode = 1; } catch (_exitCodeErr) {}
+        try {
+          proc.exitCode = 1;
+        } catch (_exitCodeErr) {
+          // A frozen/getter-only process.exitCode cannot be set; the loud
+          // console.error above already surfaced the rejection.
+        }
       }
     }
   });
