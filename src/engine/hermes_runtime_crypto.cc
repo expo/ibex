@@ -1615,6 +1615,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         auto keyBytes = extractBytes(runtime, args[0]);
         auto ivBytes = extractBytes(runtime, args[1]);
         auto data = extractBytes(runtime, args[2]);
+        // Validate the IV length in common code, matching the encrypt path.
+        // CCCrypt reads a full 16-byte AES block from the IV pointer, so a
+        // short IV forwarded from subtle.decrypt({name:'AES-CBC', iv}) was an
+        // out-of-bounds read on Apple while OpenSSL threw cleanly. (ENG-23467)
+        if (ivBytes.size() != 16) {
+          throw facebook::jsi::JSError(runtime, "AES-CBC IV must be 16 bytes");
+        }
 #if defined(__APPLE__)
         size_t outLen = 0;
         std::vector<uint8_t> out(data.size() + kCCBlockSizeAES128);
@@ -1633,9 +1640,6 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         const EVP_CIPHER* cipher = openSslAesCbcCipher(keyBytes.size());
         if (!cipher) {
           throw facebook::jsi::JSError(runtime, "AES-CBC unsupported key length");
-        }
-        if (ivBytes.size() != 16) {
-          throw facebook::jsi::JSError(runtime, "AES-CBC IV must be 16 bytes");
         }
         EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
         if (!ctx) {

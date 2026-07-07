@@ -1018,9 +1018,16 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // offset followed by streaming). position < 0 / null / undefined means
         // "read at the current position" and keeps the plain read path.
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
-        ssize_t bytesRead = positioned
-            ? ::pread(fd, data.data(), length, static_cast<off_t>(args[2].asNumber()))
-            : ::read(fd, data.data(), length);
+        // Retry EINTR like the write side (ENG-23136): a signal delivered
+        // mid-read (e.g. SIGCHLD while the fd is a FIFO or char device) makes
+        // read/pread fail with EINTR having read nothing. Node (libuv) retries
+        // the syscall instead of surfacing it. (ENG-23467)
+        ssize_t bytesRead;
+        do {
+          bytesRead = positioned
+              ? ::pread(fd, data.data(), length, static_cast<off_t>(args[2].asNumber()))
+              : ::read(fd, data.data(), length);
+        } while (bytesRead < 0 && errno == EINTR);
         if (bytesRead < 0) {
           if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // Non-blocking fd with no data available — return empty array
@@ -1274,14 +1281,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadv: buffers must be Uint8Array-like objects");
         }
         auto listObj = args[1].asObject(runtime);
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
-              throwFsError(runtime, "readv");
-            }
-          }
-        }
+        // A numeric position is a *positional* read: Node's readv/readvSync
+        // leave the fd's current offset unchanged when `position` is a number
+        // (libuv uses preadv), so use preadv rather than lseek+readv — the
+        // same contract already applied to the scalar __exactFsRead via
+        // pread. position < 0 means "read at the current offset". (ENG-23467)
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         bool hasCallback = false;
         std::optional<facebook::jsi::Function> callback;
         if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
@@ -1291,7 +1296,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsReadv: callback must be a function");
         }
 
-        ssize_t bytesRead = ::readv(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        // Retry EINTR like the scalar read/write paths (ENG-23136).
+        ssize_t bytesRead;
+        do {
+          bytesRead = positioned
+              ? ::preadv(fd, iovecs.data(), static_cast<int>(iovecs.size()),
+                         static_cast<off_t>(args[2].asNumber()))
+              : ::readv(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        } while (bytesRead < 0 && errno == EINTR);
         if (bytesRead < 0) {
           auto errorMessage = fsErrorMessage(errno, "readv", "", "");
           if (hasCallback) {
@@ -1367,14 +1379,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
           throw facebook::jsi::JSError(runtime, "__exactFsWritev: buffers must be Uint8Array-like objects");
         }
-        if (count > 2 && args[2].isNumber()) {
-          double pos = args[2].asNumber();
-          if (pos >= 0) {
-            if (::lseek(fd, static_cast<off_t>(pos), SEEK_SET) < 0) {
-              throwFsError(runtime, "writev");
-            }
-          }
-        }
+        // A numeric position is a *positional* write: Node's writev/writevSync
+        // leave the fd's current offset unchanged when `position` is a number
+        // (libuv uses pwritev), so use pwritev rather than lseek+writev — the
+        // same contract already applied to the scalar __exactFsWrite via
+        // pwrite. position < 0 means "write at the current offset". (ENG-23467)
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         bool hasCallback = false;
         std::optional<facebook::jsi::Function> callback;
         if (count > 3 && args[3].isObject() && args[3].asObject(runtime).isFunction(runtime)) {
@@ -1383,7 +1393,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         } else if (count > 3) {
           throw facebook::jsi::JSError(runtime, "__exactFsWritev: callback must be a function");
         }
-        ssize_t bytesWritten = ::writev(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        // Retry EINTR like the scalar read/write paths (ENG-23136).
+        ssize_t bytesWritten;
+        do {
+          bytesWritten = positioned
+              ? ::pwritev(fd, iovecs.data(), static_cast<int>(iovecs.size()),
+                          static_cast<off_t>(args[2].asNumber()))
+              : ::writev(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+        } while (bytesWritten < 0 && errno == EINTR);
         if (bytesWritten < 0) {
           normalizeWriteErrno(fd);
           auto errorMessage = fsErrorMessage(errno, "writev", "", "");

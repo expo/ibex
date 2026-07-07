@@ -336,3 +336,42 @@ async fn random_int_stays_in_bounds_and_covers_small_range() {
         "randomInt must stay in [min, max) and cover the range"
     );
 }
+
+/// ENG-23467 finding 1: `subtle.decrypt({name:'AES-CBC', iv})` with a short
+/// IV must reject with the IV-length error instead of forwarding the buffer
+/// to the platform cipher. On macOS the Apple CommonCrypto decrypt branch
+/// read a full 16-byte AES block from the IV pointer (out-of-bounds read for
+/// an 8-byte IV) while Linux/OpenSSL threw cleanly; the check now lives in
+/// common native code, matching the encrypt path. A correct-IV round-trip
+/// guards against over-rejection.
+#[tokio::test]
+async fn subtle_aes_cbc_decrypt_rejects_short_iv() {
+    let js = "(async function(){ \
+        if (!globalThis.crypto || !crypto.subtle || !crypto.subtle.importKey) return 'unavailable'; \
+        var key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'AES-CBC' }, false, ['encrypt', 'decrypt']); \
+        var plain = new Uint8Array([1,2,3,4,5]); \
+        var ct = await crypto.subtle.encrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, plain); \
+        var shortIv; \
+        try { \
+          await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(8) }, key, ct); \
+          shortIv = 'no-throw'; \
+        } catch (e) { shortIv = String(e.message || e); } \
+        var roundtrip = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: new Uint8Array(16) }, key, ct)); \
+        return JSON.stringify({ shortIv: shortIv, roundtrip: Array.from(roundtrip) }); })()";
+    let result = eval(js).await;
+    if result == "unavailable" {
+        eprintln!("skipping: WebCrypto subtle not available on this profile");
+        return;
+    }
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("valid JSON result");
+    let short_iv = parsed["shortIv"].as_str().unwrap_or("");
+    assert!(
+        short_iv.contains("16 bytes"),
+        "short IV must be rejected with the IV-length error, got: {result}"
+    );
+    assert_eq!(
+        parsed["roundtrip"],
+        serde_json::json!([1, 2, 3, 4, 5]),
+        "correct 16-byte IV must still round-trip: {result}"
+    );
+}
