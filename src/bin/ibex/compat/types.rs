@@ -35,10 +35,10 @@ impl CompatOptions {
 
     /// Maximum tier to include based on flags.
     pub fn max_tier(&self) -> u8 {
-        if self.all {
-            2
-        } else if self.quick {
+        if self.quick {
             0
+        } else if self.all || self.module.is_some() || !self.test_filter.is_empty() || self.failed {
+            2
         } else {
             1
         }
@@ -408,7 +408,56 @@ fn chrono_now() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{chrono_now, civil_from_unix_days, format_iso8601_utc};
+    use super::{chrono_now, civil_from_unix_days, format_iso8601_utc, CompatOptions};
+
+    fn base_compat_options() -> CompatOptions {
+        CompatOptions {
+            section: None,
+            module: None,
+            test_filter: Vec::new(),
+            quick: false,
+            failed: false,
+            update_expectations: false,
+            report: false,
+            json: false,
+            log: false,
+            log_color: false,
+            log_no_skip: false,
+            jobs: None,
+            strict: false,
+            all: false,
+            no_retry: false,
+            timeout: None,
+        }
+    }
+
+    #[test]
+    fn targeted_compat_runs_include_tier_two_modules() {
+        let mut opts = base_compat_options();
+        assert_eq!(opts.max_tier(), 1);
+
+        opts.module = Some("websockets".to_string());
+        assert_eq!(opts.max_tier(), 2);
+
+        opts.module = None;
+        opts.test_filter = vec!["Close-1000".to_string()];
+        assert_eq!(opts.max_tier(), 2);
+
+        opts.test_filter.clear();
+        opts.failed = true;
+        assert_eq!(opts.max_tier(), 2);
+    }
+
+    #[test]
+    fn quick_compat_runs_stay_tier_zero_even_when_targeted() {
+        let mut opts = base_compat_options();
+        opts.quick = true;
+        opts.all = true;
+        opts.module = Some("websockets".to_string());
+        opts.test_filter = vec!["Close-1000".to_string()];
+
+        assert_eq!(opts.max_tier(), 0);
+    }
 
     #[test]
     fn civil_from_unix_days_matches_known_dates() {

@@ -70,7 +70,15 @@
   // --- SubtleCrypto ---
   function normalizeAlgo(algo) {
     if (typeof algo === 'string') return { name: algo.toUpperCase() };
-    if (algo && algo.name) return { name: algo.name.toUpperCase(), length: algo.length, hash: algo.hash, iv: algo.iv, counter: algo.counter, additionalData: algo.additionalData, tagLength: algo.tagLength, salt: algo.salt, iterations: algo.iterations, info: algo.info };
+    if (algo && algo.name) {
+      var normalized = {};
+      var keys = Object.keys(algo);
+      for (var i = 0; i < keys.length; i++) {
+        normalized[keys[i]] = algo[keys[i]];
+      }
+      normalized.name = String(algo.name).toUpperCase();
+      return normalized;
+    }
     throw new TypeError('Invalid algorithm');
   }
 
@@ -79,6 +87,82 @@
     if (data instanceof Uint8Array) return data;
     if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     throw new TypeError('Expected BufferSource');
+  }
+
+  function toArrayBuffer(bytes) {
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+
+  function normalizeHashName(hash) {
+    var raw = typeof hash === 'string' ? hash : (hash && hash.name ? hash.name : '');
+    var compact = String(raw).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (compact === 'SHA1') return 'SHA-1';
+    if (compact === 'SHA256') return 'SHA-256';
+    if (compact === 'SHA384') return 'SHA-384';
+    if (compact === 'SHA512') return 'SHA-512';
+    throw new DOMException('Unrecognized hash algorithm: ' + raw, 'NotSupportedError');
+  }
+
+  function nativeHashName(hash) {
+    return normalizeHashName(hash).toLowerCase().replace(/-/g, '');
+  }
+
+  function hmacBlockBytes(hash) {
+    var normalized = normalizeHashName(hash);
+    return normalized === 'SHA-384' || normalized === 'SHA-512' ? 128 : 64;
+  }
+
+  function hashBytes(hash, data) {
+    if (typeof __exactHashRaw !== 'function') {
+      throw new DOMException('Native hash not available', 'NotSupportedError');
+    }
+    return __exactHashRaw(nativeHashName(hash), toBytes(data));
+  }
+
+  function hmacBytes(hash, keyBytes, dataBytes) {
+    var blockSize = hmacBlockBytes(hash);
+    var key = keyBytes;
+    if (key.length > blockSize) key = hashBytes(hash, key);
+    var padded = new Uint8Array(blockSize);
+    padded.set(key);
+
+    var inner = new Uint8Array(blockSize + dataBytes.length);
+    var outerPrefix = new Uint8Array(blockSize);
+    for (var i = 0; i < blockSize; i++) {
+      inner[i] = padded[i] ^ 0x36;
+      outerPrefix[i] = padded[i] ^ 0x5c;
+    }
+    inner.set(dataBytes, blockSize);
+    var innerHash = hashBytes(hash, inner);
+    var outer = new Uint8Array(blockSize + innerHash.length);
+    outer.set(outerPrefix);
+    outer.set(innerHash, blockSize);
+    return hashBytes(hash, outer);
+  }
+
+  function hexToBytes(hex) {
+    var result = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < hex.length; i += 2) {
+      result[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return result;
+  }
+
+  function bytesToBinaryString(bytes) {
+    var str = '';
+    for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+    return str;
+  }
+
+  function bigEndianBytesToNumber(bytes) {
+    var value = 0;
+    for (var i = 0; i < bytes.length; i++) {
+      value = value * 256 + bytes[i];
+      if (!Number.isSafeInteger(value)) {
+        throw new DOMException('publicExponent is too large', 'OperationError');
+      }
+    }
+    return value;
   }
 
   function CryptoKey(type, extractable, algorithm, usages, keyData) {
@@ -94,20 +178,10 @@
   // subtle.digest(algorithm, data) -> ArrayBuffer
   subtle.digest = function(algorithm, data) {
     var algo = normalizeAlgo(algorithm);
-    var nameMap = { 'SHA-1': 'sha1', 'SHA-256': 'sha256', 'SHA-384': 'sha384', 'SHA-512': 'sha512' };
-    var hashName = nameMap[algo.name];
-    if (!hashName) return Promise.reject(new DOMException('Unsupported digest algorithm: ' + algo.name, 'NotSupportedError'));
-    var bytes = toBytes(data);
-    // Convert to string for native bridge
-    var str = '';
-    for (var i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
-    if (typeof __exactHashRaw === 'function') {
-      try {
-        var result = __exactHashRaw(hashName, str);
-        return Promise.resolve(result.buffer.slice(result.byteOffset, result.byteOffset + result.byteLength));
-      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
-    }
-    return Promise.reject(new DOMException('Native hash not available', 'NotSupportedError'));
+    try {
+      var result = hashBytes(algo.name, data);
+      return Promise.resolve(toArrayBuffer(result));
+    } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
   };
 
   // subtle.generateKey(algorithm, extractable, keyUsages) -> CryptoKey or CryptoKeyPair
@@ -124,12 +198,11 @@
       return Promise.resolve(key);
     }
     if (algo.name === 'HMAC') {
-      var hashAlgo = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
-      var hlen = { 'SHA-1': 20, 'SHA-256': 32, 'SHA-384': 48, 'SHA-512': 64 };
-      var klen = algo.length ? (algo.length / 8) : (hlen[hashAlgo.toUpperCase()] || 32);
+      var hashAlgo = normalizeHashName(algo.hash || 'SHA-256');
+      var klen = algo.length ? (algo.length / 8) : hmacBlockBytes(hashAlgo);
       var hmacKey = new Uint8Array(klen);
       getRandomValues(hmacKey);
-      var key = new CryptoKey('secret', extractable, { name: 'HMAC', hash: { name: hashAlgo.toUpperCase() }, length: klen * 8 }, keyUsages, hmacKey);
+      var key = new CryptoKey('secret', extractable, { name: 'HMAC', hash: { name: hashAlgo }, length: klen * 8 }, keyUsages, hmacKey);
       return Promise.resolve(key);
     }
     // Ed25519 / X25519 key pair generation via native bridge
@@ -174,11 +247,10 @@
           var modulusLength = algo.modulusLength || 2048;
           var publicExponent = 65537;
           if (algo.publicExponent instanceof Uint8Array) {
-            var dv = new DataView(algo.publicExponent.buffer, algo.publicExponent.byteOffset, algo.publicExponent.byteLength);
-            publicExponent = dv.getUint32(algo.publicExponent.byteLength - 4, false);
+            publicExponent = bigEndianBytesToNumber(algo.publicExponent);
           }
           var result = __exactGenerateKeyPairSync('rsa', { modulusLength: modulusLength, publicExponent: publicExponent });
-          var hashName = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
+          var hashName = normalizeHashName(algo.hash || 'SHA-256');
           var algorithmInfo = { name: algo.name, modulusLength: modulusLength, publicExponent: algo.publicExponent, hash: { name: hashName } };
           var pubKeyData = new TextEncoder().encode(result.publicKey);
           var privKeyData = new TextEncoder().encode(result.privateKey);
@@ -226,8 +298,8 @@
       var raw = toBytes(keyData);
       var keyAlgo = algo;
       if (algo.name === 'HMAC') {
-        var hashAlgo = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
-        keyAlgo = { name: 'HMAC', hash: { name: hashAlgo.toUpperCase() }, length: raw.length * 8 };
+        var hashAlgo = normalizeHashName(algo.hash || 'SHA-256');
+        keyAlgo = { name: 'HMAC', hash: { name: hashAlgo }, length: algo.length || raw.length * 8 };
       } else if (algo.name === 'PBKDF2' || algo.name === 'HKDF') {
         keyAlgo = { name: algo.name };
       }
@@ -240,8 +312,8 @@
         var raw = base64urlDecode(jwk.k);
         var keyAlgo = algo;
         if (algo.name === 'HMAC') {
-          var hashAlgo = typeof algo.hash === 'string' ? algo.hash : (algo.hash && algo.hash.name ? algo.hash.name : 'SHA-256');
-          keyAlgo = { name: 'HMAC', hash: { name: hashAlgo.toUpperCase() }, length: raw.length * 8 };
+          var hashAlgo = normalizeHashName(algo.hash || 'SHA-256');
+          keyAlgo = { name: 'HMAC', hash: { name: hashAlgo }, length: algo.length || raw.length * 8 };
         }
         var key = new CryptoKey('secret', extractable, keyAlgo, keyUsages, raw);
         return Promise.resolve(key);
@@ -367,23 +439,17 @@
     var algo = normalizeAlgo(algorithm);
     if (algo.name === 'HMAC') {
       var rawHash = key.algorithm && key.algorithm.hash ? key.algorithm.hash : null;
-      var hashAlgo = typeof rawHash === 'string' ? rawHash : (rawHash && rawHash.name ? rawHash.name : 'SHA-256');
-      var nameMap = { 'SHA-1': 'sha1', 'SHA-256': 'sha256', 'SHA-384': 'sha384', 'SHA-512': 'sha512' };
-      var hashName = nameMap[hashAlgo.toUpperCase()];
-      if (!hashName) return Promise.reject(new DOMException('Unsupported hash: ' + hashAlgo, 'NotSupportedError'));
-      var bytes = toBytes(data);
-      // Convert to strings for native bridge
-      var dataStr = '';
-      for (var i = 0; i < bytes.length; i++) dataStr += String.fromCharCode(bytes[i]);
-      var keyStr = '';
-      for (var j = 0; j < key._keyData.length; j++) keyStr += String.fromCharCode(key._keyData[j]);
-      if (typeof __exactHmacSync !== 'function') return Promise.reject(new DOMException('HMAC not available', 'NotSupportedError'));
-      try { var hex = __exactHmacSync(hashName, keyStr, dataStr); } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
-      var result = new Uint8Array(hex.length / 2);
-      for (var k = 0; k < hex.length; k += 2) {
-        result[k / 2] = parseInt(hex.substr(k, 2), 16);
-      }
-      return Promise.resolve(result.buffer);
+      var hashAlgo = normalizeHashName(rawHash || 'SHA-256');
+      try {
+        if (typeof __exactHashRaw === 'function') {
+          return Promise.resolve(toArrayBuffer(hmacBytes(hashAlgo, key._keyData, toBytes(data))));
+        }
+        if (typeof __exactHmacSync === 'function') {
+          var hex = __exactHmacSync(nativeHashName(hashAlgo), bytesToBinaryString(key._keyData), bytesToBinaryString(toBytes(data)));
+          return Promise.resolve(toArrayBuffer(hexToBytes(hex)));
+        }
+      } catch(e) { return Promise.reject(wrapNativeError(e, 'OperationError')); }
+      return Promise.reject(new DOMException('HMAC not available', 'NotSupportedError'));
     }
     if (algo.name === 'ECDSA') {
       if (typeof __exactEcdsaSign !== 'function') return Promise.reject(new DOMException('ECDSA not available', 'NotSupportedError'));

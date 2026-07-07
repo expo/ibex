@@ -16,7 +16,8 @@
 //!   * Legacy (EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE=1) bootstrap fixes:
 //!     global `setTimeout().refresh()` re-arms fired timers (ENG-22970
 //!     parity), `Bun.serve({unix})` returns a disposable server instead of
-//!     throwing ReferenceError, and Bun's binary hash helpers hash raw bytes.
+//!     throwing ReferenceError, Bun's binary hash helpers hash raw bytes, and
+//!     legacy WebCrypto preserves binary hash/HMAC input.
 //!
 //! Run with: `scripts/run-tests.sh --scope test bootstrap_ipc`.
 
@@ -846,6 +847,57 @@ process.exit(0);
         result_line(&run),
         "RESULT|true|true|true|true",
         "Bun binary hash/peek helpers wrong\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+/// Legacy web-crypto.js must keep algorithm metadata and hash raw bytes, not a
+/// UTF-8-reencoded binary string.
+#[test]
+fn legacy_web_crypto_preserves_hmac_params_and_binary_hashes() {
+    let app = r#"
+(async function() {
+  const data = new Uint8Array([0xff, 0x80, 0x01]);
+  const keyBytes = new Uint8Array([0xff, 0x80, 0x01, 0x02]);
+  const digestHex = Buffer.from(await crypto.subtle.digest('SHA-256', data)).toString('hex');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: { name: 'SHA-256' } },
+    true,
+    ['sign', 'verify']
+  );
+  const sigHex = Buffer.from(await crypto.subtle.sign({ name: 'HMAC' }, key, data)).toString('hex');
+  const generated = await crypto.subtle.generateKey(
+    { name: 'HMAC', hash: 'SHA-512' },
+    true,
+    ['sign', 'verify']
+  );
+  console.log('RESULT|' + [
+    digestHex,
+    sigHex,
+    key.algorithm.hash.name,
+    key.algorithm.length,
+    generated.algorithm.hash.name,
+    generated.algorithm.length
+  ].join('|'));
+  process.exit(0);
+})().catch((err) => {
+  console.log('RESULT|error|' + (err && (err.name + ':' + err.message)));
+  process.exit(1);
+});
+"#;
+    let run = run_app_env(
+        "legacy-web-crypto",
+        app,
+        LEGACY_ENV,
+        Duration::from_secs(30),
+    );
+    assert_eq!(
+        result_line(&run),
+        "RESULT|1b28450642394cac2cd61bbfb2b88c6325ac0c94944091bfd1ffdd8fad6571f9|32a877ecf1da16c451665baf2bae55e3792573b48f3c9d6d4df704c53dcc5f85|SHA-256|32|SHA-512|1024",
+        "legacy web crypto did not preserve HMAC metadata/raw bytes\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );
