@@ -5,6 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-05
+**Revised:** 2026-07-07 (marked W4(b)/R3 advisory-enforce startup behavior as implemented in code and CI)
 **Related:** LLP 0013 (the compartments RFC this reviews); LLP 0014 (grant
 authoring); LLP 0006 (design principles); LLP 0002 (host ABI); LLP 0004
 (module loading); LLP 0012 (runtime identity)
@@ -447,6 +448,12 @@ Frame accuracy is demonstrated on macOS; the other platforms inherit
 whatever their framework build contains. A mode named "enforce" should
 either mean one thing or say loudly which thing it currently means (R3).
 
+**Implementation note (2026-07-07):** W4(b)'s startup behavior has landed:
+Enforce now fails closed when hard attribution prerequisites are missing unless
+the operator passes `--capsec-allow-advisory`; Audit emits the same readiness
+report without blocking. The remaining W4(a) lockdown convergence question is
+separate.
+
 **W5 — Fork sustainability under upstream drift.** Static Hermes is the
 named unknown; the re-derivation posture is the right hedge but has never
 been exercised, and the pin-bump runbook has not yet run against two real
@@ -591,7 +598,10 @@ mechanism `[assessment]`.
   to start absent an explicit `--capsec-allow-advisory`. Publish a
   per-platform claim-ceiling table (macOS: Phase 2+; others: as built)
   and keep it current. This is the cheapest insurance against the
-  overclaiming risk the RFC ranks third.
+  overclaiming risk the RFC ranks third. **Status (2026-07-07): implemented
+  for readiness fail-closed/advisory reporting and enforced in the
+  compartment-conformance CI job with `IBEX_REQUIRE_FRAME_ATTRIBUTION=1`; a
+  published per-platform claim-ceiling table remains open.**
 - **R4 — Plan the enforce ⇒ lockdown convergence.** If R1's numbers allow,
   enforce should eventually imply lockdown (with per-package repairs); in
   the interim, an enforce-without-lockdown run should say what it does not

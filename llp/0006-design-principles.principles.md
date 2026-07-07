@@ -5,6 +5,7 @@
 **Systems:** Runtime, Engine, Host ABI, Build, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-07 (SecurityMode vocabulary updated to `Permissive | Audit | Enforce`)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0003 (engine bridge); LLP 0005 (build pipeline)
 
 ## Summary
@@ -117,11 +118,12 @@ default, specialize under load."]`
 
 ## Capability-gated host, explicit host mode
 
-**Observed:** `Host` carries a `SecurityMode` (`Permissive | Capability |
-Strict`) and a `CapabilityManager`; module/file access is checked against
-capabilities, and the C++ bridge fast-paths allow-all mode via
+**Observed:** `Host` carries a `SecurityMode` (`Permissive | Audit | Enforce`)
+and a `CapabilityManager`; module/file access is checked against
+capabilities. `Audit` records would-deny decisions while allowing the operation;
+`Enforce` blocks on a miss. The C++ bridge fast-paths allow-all mode via
 `ex_host_is_allow_all()` `[observed]` (`src/host/mod.rs:29-38, 156-174`;
-`src/host/abi.rs:664-666`). `HostConfig::default()` is strict, while
+`src/host/abi.rs:664-666`). `HostConfig::default()` is enforce, while
 `Host::default_legacy()` and `ex_host_install()` install a permissive legacy
 host `[observed]` (`src/host/mod.rs:57-68, 129-143`;
 `src/host/abi.rs:657-659`).

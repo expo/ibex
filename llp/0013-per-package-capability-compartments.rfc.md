@@ -11,6 +11,7 @@
 **Revised:** 2026-07-04 (capability-security deep review ENG-22761..ENG-22774: fail-closed endowment resolution, two-sided import reachability, safer generated/runtime builtin classification, path and selector hardening, audit-mode non-interference, and native-callback principal stamps for no-user async host re-entry)
 **Revised:** 2026-07-04 (ENG-22759: close the async deputy-class laundering hole through the HOST callback queues — `setTimeout`/`setInterval`/`setImmediate`/`process.nextTick`/the non-JSI `queueMicrotask` fallback. ENG-22761 already captures the scheduling principal for these queues but only consults it on a no-user-frame re-entry; a detached deputy *method* runs with its own frame live, so `checkCapabilityWithFsMode` now also appends that captured scheduler to the deputy-class stack, matching patch 0008's Promise-queue append. Also repairs corrupt `@@` hunk headers in patch 0008 that blocked `apply-hermes-patches.sh`.)
 **Revised:** 2026-07-05 (ENG-22903..ENG-22909 native hardening: DNS resolution is a `network:resolve` capability, raw WebSocket ids and async callbacks carry owner/principal metadata, host allow-all is queried live after host replacement, child-process `fd:N` stdio redirects validate fd ownership before fork, native ArrayBuffer-view consumers share bounds checks, HTTP waits are worker-bounded, and fetch raw headers are validated at the C++ boundary.)
+**Revised:** 2026-07-07 (document drift cleanup: canonical SecurityMode is `Permissive | Audit | Enforce`; historical `Capability`/`Strict` aliases collapse to Enforce)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -123,11 +124,12 @@ version unusually tractable — see [Design](#design-overview).
 Observed mechanism, recorded here because no dedicated capability-model LLP
 exists yet (this section serves as the interim record):
 
-- **Rust host**: `SecurityMode` is `Permissive | Capability | Strict`
-  `[observed]` (`src/host/mod.rs:29-37`); `CapabilityManager` normalizes
+- **Rust host**: `SecurityMode` is `Permissive | Audit | Enforce`
+  `[observed]` (`src/host/mod.rs:37-45`); `CapabilityManager` normalizes
   (`net:`→`network:`, lowercasing, fs path canonicalization), matches base
   grants against parameterized values plus `*` wildcards, applies
-  module-then-global deny-before-allow, defaults deny outside Permissive, and
+  module-then-global deny-before-allow, defaults deny outside Permissive, logs
+  would-deny decisions while proceeding in Audit, blocks them in Enforce, and
   keeps a bounded 1024-entry audit log `[observed]`
   (`src/host/capability.rs:46-129, 296-346`). `crypto:random` and `time:now`
   are always allowed `[observed]` (`src/host/capability.rs:46`).
@@ -152,10 +154,10 @@ exists yet (this section serves as the interim record):
   installs a permissive legacy host `[observed]` (`src/host/abi.rs:657-659`;
   LLP 0006 §"Capability-gated host").
 - **Known defects** (tracked here; some are fixed by this RFC's phases,
-  none require it): `SecurityMode::Capability` and `Strict` behave
-  identically `[observed]` (`src/host/capability.rs:100-129` branches only on
-  `Permissive`); `HostConfig.root_dir`/`allowed_hosts` are declared but never
-  enforced `[observed]` (`src/host/mod.rs:51-53`).
+  none require it): the historical `SecurityMode::Capability`/`Strict` split
+  has been collapsed into canonical `Enforce` (the old strings remain aliases);
+  `HostConfig.root_dir`/`allowed_hosts` are declared but never enforced
+  `[observed]` (`src/host/mod.rs:51-53`).
 
 ## Threat model
 
@@ -564,7 +566,7 @@ each point; anything stronger is overclaiming (Risk 3):
 - Standalone defect fixes that land regardless of this RFC's fate:
   hide/remove the `__exact*` escape hatches at end-of-bootstrap; unify
   `child_process` → `process:spawn` against the canonical manifest; collapse
-  the do-nothing `Capability`≡`Strict` split into one enforced mode. (The
+  the historical `Capability`/`Strict` split into one enforced mode. (The
   naming and mode defects would otherwise pollute Phase 1 audit data.)
 - Begin the **real-global inventory**: enumerate every property bootstrap
   installs on the true global, including the lazy `__exactEnsure*`
@@ -659,7 +661,7 @@ each point; anything stronger is overclaiming (Risk 3):
   requests down dependency edges; the build emits the resolved
   effective-policy artifact as the reviewable record; request inference
   tooling (Open question 11).
-- (The `child_process`→`process:spawn` and `Capability`≡`Strict` defect
+- (The `child_process`→`process:spawn` and `Capability`/`Strict` mode defect
   fixes moved to Phase 0 so audit data starts clean.)
 
 ### Phase 5 — Optional: stack-intersection enforcement
@@ -1388,9 +1390,10 @@ import_from_no_user_principal_fails_closed, runtime_self_grant_is_refused_under_
 
 #### Phase 0
 
-`SecurityMode::Capability`≡`Strict` collapsed into one `Enforce` mode (`strict`
-and `capability` kept as hidden CLI aliases); the process spawn check unified to
-the canonical `process:spawn`; the escape-hatch globals sealed.
+The historical `capability`/`strict` mode spellings collapsed into canonical
+`Enforce` (`strict` and `capability` kept as hidden CLI aliases); the process
+spawn check unified to the canonical `process:spawn`; the escape-hatch globals
+sealed.
 
 #### Phase 1
 

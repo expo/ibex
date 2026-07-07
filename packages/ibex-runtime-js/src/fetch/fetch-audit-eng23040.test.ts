@@ -17,6 +17,15 @@ import { describe, expect, test } from 'bun:test';
 import { Response } from './Response.ts';
 import { Request } from './Request.ts';
 
+async function expectRejects(promise: Promise<unknown>) {
+  try {
+    await promise;
+  } catch {
+    return;
+  }
+  throw new Error('expected promise to reject');
+}
+
 describe('#1 clone() gates on bodyUsed (disturbed), not just the raw _bodyUsed flag', () => {
   test('Response.clone() throws once the body has been disturbed via a released reader', async () => {
     const res = new Response(
@@ -110,7 +119,7 @@ describe('#2 Response.body is a lazy getter over _bodyBuffer', () => {
 
     // Per spec, a second consumption attempt must reject/throw regardless of
     // whether `.body` was ever touched.
-    await expect(res.text()).rejects.toThrow();
+    await expectRejects(res.text());
 
     // The lazily-materialized stream must reflect the already-used state —
     // not hand back a fresh, freely-readable stream for a used body.

@@ -51,3 +51,6 @@ jobs:
       # while the local gate did not). @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
       - name: Check generated artifacts (drift gate)
         run: bun run check:drift
+
+      - name: Check generated example policy
+        run: bun run check:example-policy

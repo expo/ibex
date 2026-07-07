@@ -12,9 +12,18 @@
       ],
       "endow": [
         "process"
-      ]
+      ],
+      "builtins": []
     },
-    "evil-pkg": {}
+    "env-reader@1.0.0": {
+      "builtins": []
+    },
+    "evil-pkg": {
+      "builtins": []
+    },
+    "evil-pkg@1.0.0": {
+      "builtins": []
+    }
   },
   "provenance": {
     "env-reader": [

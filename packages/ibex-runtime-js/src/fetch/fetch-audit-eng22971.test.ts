@@ -65,6 +65,16 @@ function headerPresent(headers: [string, string][], name: string): boolean {
   return headers.some(([n]) => n === name.toLowerCase());
 }
 
+async function expectRejectsWithName(promise: Promise<unknown>, name: string) {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toMatchObject({ name });
+    return;
+  }
+  throw new Error(`expected promise to reject with ${name}`);
+}
+
 describe('#1 streaming request body cannot be replayed across a redirect', () => {
   test('307 preserving a ReadableStream body rejects with TypeError and does not re-send', async () => {
     const calls = installMockNative([
@@ -121,7 +131,7 @@ describe('#3 abort cancels body reads', () => {
     res._signal = controller.signal;
     controller.abort();
 
-    await expect(res.text()).rejects.toMatchObject({ name: 'AbortError' });
+    await expectRejectsWithName(res.text(), 'AbortError');
   });
 
   test('aborting mid-read rejects a streaming body instead of hanging/resolving', async () => {
@@ -136,7 +146,7 @@ describe('#3 abort cancels body reads', () => {
     await new Promise((r) => setTimeout(r, 10));
     controller.abort();
 
-    await expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+    await expectRejectsWithName(reading, 'AbortError');
   });
 });
 

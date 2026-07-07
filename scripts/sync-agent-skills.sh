@@ -215,6 +215,7 @@ ensure_repo "skills" "https://github.com/ccheever/skills.git" "main"
 mkdir -p "$skills_root"
 
 managed_names=()
+managed_count=0
 
 link_skill_dir() {
   local source_dir="$1"
@@ -242,6 +243,7 @@ link_skill_dir() {
   # broken links is the silent no-op this script must never report.
   [ -e "$skills_root/$name" ] || die "skill link $skills_root/$name is broken (target $target)"
   managed_names+=("$name")
+  managed_count=$((managed_count + 1))
 }
 
 for source_dir in "$sources_root/llp/skills"/*; do
@@ -260,7 +262,7 @@ done
 # agent skills:" success line (scripts/README.md fail-loud rule, ENG-23131).
 # Checked before the stale-link cleanup so a broken sync also cannot delete
 # every previously linked skill.
-if [ "${#managed_names[@]}" -eq 0 ]; then
+if [ "$managed_count" -eq 0 ]; then
   die "no agent skills were linked from $sources_root (sources missing or no SKILL.md found); \
 run without IBEX_AGENT_SKILLS_NO_NETWORK=1 to clone the upstream skill repos"
 fi

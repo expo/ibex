@@ -59,6 +59,7 @@ jobs:
             git init -q /tmp/hermes-src
             git -C /tmp/hermes-src remote add origin https://github.com/facebook/hermes.git
             git -C /tmp/hermes-src fetch --depth 1 origin "$ref"
+            git -C /tmp/hermes-src cat-file -e "$ref^{commit}"
             git -C /tmp/hermes-src checkout -q --detach FETCH_HEAD
             checked_out="$(git -C /tmp/hermes-src rev-parse HEAD)"
           else

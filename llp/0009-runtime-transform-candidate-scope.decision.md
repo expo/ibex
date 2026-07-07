@@ -5,6 +5,7 @@
 **Systems:** Module Loader, Runtime
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-06-14
+**Revised:** 2026-07-07 (ENG-22991: first-class TypeScript runtime direction clarified without reopening the transform-engine choice)
 **Related:** LLP 0007
 
 ## Decision
@@ -20,6 +21,20 @@ TypeScript stripping, JSX, diagnostics, and target behavior in the embedded
 runtime, but it must fail clearly when general ESM import/export lowering or
 top-level await handling is required. SWC remains the compatibility path for
 the current synchronous CommonJS loader contract.
+
+## TypeScript runtime direction
+
+Runtime-loaded TypeScript remains a first-class Ibex capability. The direction
+is not "TypeScript only at build time" and not "require a Node/Bun/Vite
+subprocess at runtime"; the loader must continue to support `.ts`, `.tsx`,
+`.mts`, `.cts`, and `.jsx` files from the hermetic embedded runtime path.
+
+That commitment is independent of the implementation choice above. SWC is the
+current compatibility engine because it satisfies the synchronous CommonJS
+loader contract today. Future Oxc/Rolldown work may replace or reshape that
+engine only after the LLP 0007 fixture gates prove the same runtime contract
+or a later Decision explicitly changes the loader architecture. Dropping
+runtime TypeScript support would likewise require a new Decision.
 
 ## Context
 
