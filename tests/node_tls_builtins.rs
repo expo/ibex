@@ -97,7 +97,7 @@ async fn run_script(script: &str, secs: u64) -> Value {
 }
 
 #[tokio::test]
-async fn tls_socket_prototype_chain_extends_net_socket() {
+async fn node_tls_socket_prototype_chain_extends_net_socket() {
     // ENG-23448 finding 3: setPrototypeOf was applied to the constructor only,
     // so `new tls.TLSSocket(sock) instanceof net.Socket` was false and none of
     // the Socket API resolved. Node: instanceof is true and read()/on() exist.
@@ -130,16 +130,22 @@ setTimeout(function () {
 }, 50);
 "#;
     let v = run_script(script, 20).await;
-    assert_eq!(v["instanceofSocket"], true, "TLSSocket must extend net.Socket: {v}");
+    assert_eq!(
+        v["instanceofSocket"], true,
+        "TLSSocket must extend net.Socket: {v}"
+    );
     assert_eq!(v["hasRead"], "function", "{v}");
     assert_eq!(v["hasClose"], "function", "{v}");
     assert_eq!(v["hasOn"], "function", "{v}");
     assert_eq!(v["emitWorks"], true, "{v}");
-    assert_eq!(v["readReturns"], "null", "read() on an idle wrapper returns null: {v}");
+    assert_eq!(
+        v["readReturns"], "null",
+        "read() on an idle wrapper returns null: {v}"
+    );
 }
 
 #[tokio::test]
-async fn tls_renegotiate_matches_node_contract() {
+async fn node_tls_renegotiate_matches_node_contract() {
     // ENG-23448 finding 4: the stub claimed success unconditionally. Node
     // v25.9.0 oracle: TLSv1.3 -> false + cb(ERR_SSL_WRONG_SSL_VERSION);
     // TLSv1.2 self-initiated renegotiate succeeds even after
@@ -186,7 +192,10 @@ function finish(s12) {
 "#;
     let v = run_script(script, 20).await;
     assert_eq!(v["protocol13"], "TLSv1.3", "{v}");
-    assert_eq!(v["tls13"]["ret"], false, "TLSv1.3 renegotiate returns false: {v}");
+    assert_eq!(
+        v["tls13"]["ret"], false,
+        "TLSv1.3 renegotiate returns false: {v}"
+    );
     assert_eq!(v["tls13"]["cbErr"], "ERR_SSL_WRONG_SSL_VERSION", "{v}");
     assert_eq!(v["tls13"]["reason"], "wrong ssl version", "{v}");
     assert_eq!(v["protocol12"], "TLSv1.2", "{v}");
@@ -196,13 +205,16 @@ function finish(s12) {
     );
     assert_eq!(v["tls12_disabled_self"]["cbErr"], Value::Null, "{v}");
     assert_eq!(v["destroyed"]["ret"], "undefined", "{v}");
-    assert!(v.get("destroyedCbFired").is_none(), "destroyed socket must not invoke callback: {v}");
+    assert!(
+        v.get("destroyedCbFired").is_none(),
+        "destroyed socket must not invoke callback: {v}"
+    );
     assert_eq!(v["fnAsOptions"], "ERR_INVALID_ARG_TYPE", "{v}");
     assert_eq!(v["badCallback"], "ERR_INVALID_ARG_TYPE", "{v}");
 }
 
 #[tokio::test]
-async fn tls_reject_unauthorized_false_still_reports_verification_result() {
+async fn node_tls_reject_unauthorized_false_still_reports_verification_result() {
     // ENG-23448 finding 2: rejectUnauthorized:false used to force
     // authorized=true and clear authorizationError. Node v25.9.0 oracle for a
     // self-signed in-process server: secureConnect fires, but
@@ -256,6 +268,121 @@ server.listen(0, '127.0.0.1', function () {
         v["lax"]["authorized"], false,
         "rejectUnauthorized:false must not fabricate authorized=true: {v}"
     );
-    assert_eq!(v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
+    assert_eq!(
+        v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT",
+        "{v}"
+    );
     assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_connect_fails_loudly_when_peer_is_not_an_in_process_tls_server() {
+    // ENG-23448 finding 1 (the headline): tls.connect used to fabricate an
+    // immediate 'secureConnect' with authorized=true and a synthetic peer
+    // certificate against ANY peer that was not an in-process tls.Server —
+    // e.g. a real TLS endpoint receiving cleartext. It must now destroy the
+    // socket with ERR_TLS_EMULATION_LOOPBACK_ONLY and never report secure.
+    // A local plain-TCP listener stands in for the real TLS server (no
+    // external hosts). 'localhost' is the variant that used to fabricate full
+    // success (the synthetic cert's DNS altname matched the hostname).
+    // @ref LLP 0004#the-tls-builtin-is-a-loopback-only-emulation — pins the fail-loud boundary
+    let script = r#"
+var tls = require('tls');
+var net = require('net');
+var out = {};
+var watchdog = setTimeout(function () {
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}, 10000);
+
+var plain = net.createServer(function () { /* silent plaintext peer */ });
+plain.listen(0, '127.0.0.1', function () {
+  var port = plain.address().port;
+
+  function attempt(host, label, next) {
+    var events = [];
+    var sock = tls.connect(port, host, function () { events.push('secureConnect'); });
+    sock.on('error', function (e) { events.push('error:' + (e.code || e.message)); });
+    sock.on('close', function () {
+      out[label] = { events: events, destroyed: sock.destroyed, authorized: sock.authorized };
+      next();
+    });
+  }
+
+  attempt('localhost', 'byHostname', function () {
+    attempt('127.0.0.1', 'byIp', function () {
+      clearTimeout(watchdog);
+      plain.close(function () {
+        console.log(JSON.stringify(out));
+        process.exit(0);
+      });
+    });
+  });
+});
+"#;
+    let v = run_script(script, 30).await;
+    for label in ["byHostname", "byIp"] {
+        let events = v[label]["events"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{v}"));
+        assert_eq!(
+            events,
+            &vec![Value::String(
+                "error:ERR_TLS_EMULATION_LOOPBACK_ONLY".into()
+            )],
+            "{label}: exactly one loud error, never secureConnect: {v}"
+        );
+        assert_eq!(v[label]["destroyed"], true, "{label}: {v}");
+        assert_eq!(v[label]["authorized"], false, "{label}: {v}");
+    }
+}
+
+#[tokio::test]
+async fn node_tls_in_process_server_emulation_still_works_end_to_end() {
+    // ENG-23448 finding 1 control: the supported loopback path — an
+    // in-process tls.Server — must keep working after the fail-loud change:
+    // server 'secureConnection', client 'secureConnect', negotiated cipher,
+    // and application data round-tripping over the emulated socket pair.
+    let script = r#"
+var tls = require('tls');
+var out = {};
+var watchdog = setTimeout(function () {
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}, 10000);
+
+var server = tls.createServer({ key: KEY, cert: CERT }, function (ssock) {
+  ssock.on('data', function (d) { ssock.write('pong:' + d); });
+});
+server.on('secureConnection', function () { out.secureConnection = true; });
+server.listen(0, '127.0.0.1', function () {
+  var port = server.address().port;
+  var sock = tls.connect({ port: port, host: '127.0.0.1', rejectUnauthorized: false }, function () {
+    out.secureConnect = true;
+    out.cipher = (sock.getCipher() || {}).name;
+    sock.on('data', function (d) {
+      out.echo = String(d);
+      clearTimeout(watchdog);
+      sock.destroy();
+      server.close(function () {
+        console.log(JSON.stringify(out));
+        process.exit(0);
+      });
+    });
+    sock.write('ping');
+  });
+  sock.on('error', function (e) {
+    out.clientError = e.code || e.message;
+    console.log(JSON.stringify(out));
+    process.exit(1);
+  });
+});
+"#;
+    let v = run_script(&with_fixture_pems(script), 30).await;
+    assert_eq!(v["secureConnection"], true, "{v}");
+    assert_eq!(v["secureConnect"], true, "{v}");
+    assert_eq!(v["cipher"], "TLS_AES_256_GCM_SHA384", "{v}");
+    assert_eq!(v["echo"], "pong:ping", "{v}");
 }

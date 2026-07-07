@@ -852,6 +852,16 @@ function _isIpAddress(host) {
 	if (host.indexOf(":") !== -1) return /^([0-9a-f:.]+)$/i.test(host);
 	return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
 }
+function _isLoopbackHost(host) {
+	if (!host || typeof host !== "string") return false;
+	var normalized = _unfqdn(host).toLowerCase();
+	if (normalized === "localhost" || normalized === "ip6-localhost") return true;
+	if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") return true;
+	if (normalized === "::" || normalized === "0.0.0.0") return true;
+	if (/^127(\.\d{1,3}){3}$/.test(normalized)) return true;
+	if (normalized.indexOf("::ffff:127.") === 0) return true;
+	return false;
+}
 function _unfqdn(host) {
 	return String(host || "").replace(/[.]$/, "");
 }
@@ -1598,7 +1608,13 @@ function connect() {
 			socket.servername = options.servername || options.host || options.hostname || socket.servername;
 			socket._session = null;
 			socket._sessionReused = false;
-			var tlsServer = _lookupTlsServer(port);
+			var peerHost = host;
+			var peerPort = port;
+			if (options.socket && netSocket) {
+				if (netSocket.remoteAddress) peerHost = netSocket.remoteAddress;
+				if (netSocket.remotePort !== void 0 && netSocket.remotePort !== null) peerPort = netSocket.remotePort;
+			}
+			var tlsServer = _isLoopbackHost(peerHost) ? _lookupTlsServer(peerPort) : null;
 			var serverHandshake = null;
 			if (tlsServer) {
 				var negotiatedCipher = _selectNegotiatedCipher(options, tlsServer._tlsOptions || {});
@@ -1636,14 +1652,8 @@ function connect() {
 				}
 				return;
 			}
-			if (_finalizeHandshake(socket) || options.rejectUnauthorized === false) {
-				socket.emit("secure", true);
-				socket.emit("secureConnect");
-			} else if (socket.authorizationError) {
-				var err = socket._authorizationErrorObject || new Error(socket.authorizationError);
-				socket.emit("error", err);
-				socket.destroy(err);
-			}
+			var emulationErr = _createError("ERR_TLS_EMULATION_LOOPBACK_ONLY", "tls.connect: the Ibex runtime does not implement real TLS; refusing to fabricate a secure connection to " + peerHost + ":" + peerPort + ", which is not a tls.Server running in this process. Only loopback connections to an in-process tls.Server are supported (LLP 0004; native TLS bridge: ENG-23492).");
+			socket.destroy(emulationErr);
 		}
 		if (typeof netSocket.on === "function") netSocket.on("connect", onConnect);
 		if (netSocket.connecting === false) setTimeout(onConnect, 0);

@@ -5,6 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
+**Revised:** 2026-07-07 (ENG-23448: documented the loopback-only tls emulation)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -112,6 +113,50 @@ The transformed builtin JS files are committed under
 `vendored-generated/builtins/*.js` and authored under `src/builtins/*.js`
 `[observed]` (`vendored-generated/README.md:11-27`). Two specifiers (`sqlite`,
 `sea`) are reserved Node-only `[observed]` (`modules.ts:19-21`).
+
+### The tls builtin is a loopback-only emulation
+
+The `tls` builtin (`src/builtins/tls.js`) performs **no wire cryptography**.
+What it emulates (ENG-23448):
+
+- `tls.createServer` wraps a plain `net` server; listening servers register in
+  an in-process registry keyed by their listening **port**
+  (`_tlsServersByPort`).
+- `tls.connect` opens a plain TCP connection. On connect it decides whether the
+  peer is an **in-process** `tls.Server`: the destination host must be a
+  loopback address (`localhost`, `127.0.0.0/8`, `::1`, the unspecified
+  address; `_isLoopbackHost`) *and* a registered server must be listening on
+  the destination port. Only then does it run the emulated handshake: cipher
+  suites are negotiated from both sides' options, certificate material is
+  parsed from the configured PEMs (or synthesized), and Node-shaped
+  authorization/identity validation runs against it. Application data then
+  flows as **plaintext TCP**, loopback-only.
+- The Node-facing contract of the emulated socket (`authorized` /
+  `authorizationError` under `rejectUnauthorized:false`, the
+  `TLSSocket`-extends-`net.Socket` prototype chain, `renegotiate()` semantics
+  including the TLSv1.3 failure mode) is pinned against real Node v25.9.0 in
+  `tests/node_tls_builtins.rs`.
+
+**Fail-loud boundary:** when the peer is *not* an in-process `tls.Server`,
+`tls.connect` destroys the socket with `ERR_TLS_EMULATION_LOOPBACK_ONLY`
+instead of fabricating a handshake. Before ENG-23448 it emitted an immediate
+`secureConnect` with `authorized=true` and a synthetic peer certificate — i.e.
+it reported a secure, authorized connection over cleartext to real TLS
+endpoints (databases, SMTP, `https.js` client sockets on non-Windows
+platforms) while the remote server stalled waiting for a ClientHello. Refusing
+loudly is the LLP 0006 "honest reduced profile" behavior.
+
+Known limits of the detection, accepted deliberately:
+
+- The registry is port-keyed, so an in-process server reached via a
+  non-loopback address of this machine (e.g. its LAN IP) fails loudly even
+  though the connection would land in-process; the supported contract is
+  loopback addresses only.
+- TLS-over-IPC (`path:` options) never participated in the registry and also
+  fails loudly.
+- A real TLS bridge for out-of-process endpoints (platform TLS surfaced
+  through host functions, feeding the existing JS-side validation) is tracked
+  in ENG-23492.
 
 ## How the runtime consumes this
 

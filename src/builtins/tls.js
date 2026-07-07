@@ -1129,6 +1129,23 @@ function _isIpAddress(host) {
   return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
 }
 
+// True when a destination host can only reach this machine. Used by connect()
+// to decide whether an in-process tls.Server registry hit is meaningful: the
+// registry is keyed by port only, so a non-loopback destination that happens to
+// collide with a local listener's port must not be treated as in-process.
+function _isLoopbackHost(host) {
+  if (!host || typeof host !== 'string') return false;
+  var normalized = _unfqdn(host).toLowerCase();
+  if (normalized === 'localhost' || normalized === 'ip6-localhost') return true;
+  if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') return true;
+  // Connecting to the unspecified address reaches a local listener on the
+  // platforms ibex supports.
+  if (normalized === '::' || normalized === '0.0.0.0') return true;
+  if (/^127(\.\d{1,3}){3}$/.test(normalized)) return true;
+  if (normalized.indexOf('::ffff:127.') === 0) return true;
+  return false;
+}
+
 function _unfqdn(host) {
   return String(host || '').replace(/[.]$/, '');
 }
@@ -2147,7 +2164,20 @@ function connect() {
       socket._session = null;
       socket._sessionReused = false;
 
-      var tlsServer = _lookupTlsServer(port);
+      // In-process peer detection (see the fail-loud block below): the
+      // destination must be a loopback host AND an in-process tls.Server must
+      // be registered on the destination port. When the caller supplied an
+      // already-connected socket, its actual peer address/port describe the
+      // destination better than the (possibly defaulted) host/port options.
+      var peerHost = host;
+      var peerPort = port;
+      if (options.socket && netSocket) {
+        if (netSocket.remoteAddress) peerHost = netSocket.remoteAddress;
+        if (netSocket.remotePort !== undefined && netSocket.remotePort !== null) {
+          peerPort = netSocket.remotePort;
+        }
+      }
+      var tlsServer = _isLoopbackHost(peerHost) ? _lookupTlsServer(peerPort) : null;
       var serverHandshake = null;
       if (tlsServer) {
         var negotiatedCipher = _selectNegotiatedCipher(options, tlsServer._tlsOptions || {});
@@ -2196,15 +2226,22 @@ function connect() {
         return;
       }
 
-      var handshakeOk = _finalizeHandshake(socket);
-      if (handshakeOk || options.rejectUnauthorized === false) {
-        socket.emit('secure', true);
-        socket.emit('secureConnect');
-      } else if (socket.authorizationError) {
-        var err = socket._authorizationErrorObject || new Error(socket.authorizationError);
-        socket.emit('error', err);
-        socket.destroy(err);
-      }
+      // The peer is NOT an in-process tls.Server: fail loudly instead of
+      // fabricating a handshake. This emulation performs no wire cryptography;
+      // completing "secureConnect" here against a real TLS endpoint would
+      // report a secure, authorized connection over cleartext while the remote
+      // server stalls waiting for a ClientHello. destroy(err) delivers exactly
+      // one 'error' event through the raw-socket binding. A native TLS bridge
+      // for real endpoints is tracked in ENG-23492.
+      // @ref LLP 0004#the-tls-builtin-is-a-loopback-only-emulation — refuse to fabricate TLS to out-of-process peers
+      var emulationErr = _createError(
+        'ERR_TLS_EMULATION_LOOPBACK_ONLY',
+        'tls.connect: the Ibex runtime does not implement real TLS; refusing to fabricate a secure connection to ' +
+          peerHost + ':' + peerPort + ', which is not a tls.Server running in this process. ' +
+          'Only loopback connections to an in-process tls.Server are supported ' +
+          '(LLP 0004; native TLS bridge: ENG-23492).'
+      );
+      socket.destroy(emulationErr);
     }
 
     if (typeof netSocket.on === 'function') {
