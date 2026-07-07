@@ -1,0 +1,6 @@
+# (ENG-23319) Preload a suite-level guard so deliberate error-path tests whose
+# rejections trip the builtins' fail-loud reporter (ENG-23130) cannot fail an
+# otherwise-green `bun test` run via a leaked process.exitCode write. See
+# packages/bun-test-preload.ts for the full rationale.
+[test]
+preload = ["./packages/bun-test-preload.ts"]

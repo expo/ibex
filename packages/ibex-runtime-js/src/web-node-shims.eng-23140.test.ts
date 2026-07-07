@@ -602,7 +602,9 @@ describe('readline question abort-listener cleanup (ENG-23140 #13)', () => {
 
   test('closing the interface before the question resolves removes the abort listener', () => {
     const signal = makeTrackingSignal();
-    const rl = readline.createInterface({ input: makeInput(), terminal: false });
+    // output: null — the builtin defaults absent output to process.stdout
+    // (readline.js:548), which spams the prompt into the test runner's log.
+    const rl = readline.createInterface({ input: makeInput(), output: null, terminal: false });
     rl.question('q? ', { signal }, () => {});
     expect(signal.listeners).toHaveLength(1);
     rl.close();
@@ -614,7 +616,7 @@ describe('readline question abort-listener cleanup (ENG-23140 #13)', () => {
   test('an answered question also removes the abort listener', () => {
     const signal = makeTrackingSignal();
     const input = makeInput();
-    const rl = readline.createInterface({ input, terminal: false });
+    const rl = readline.createInterface({ input, output: null, terminal: false });
     const answers: string[] = [];
     rl.question('q? ', { signal }, (answer: string) => answers.push(answer));
     expect(signal.listeners).toHaveLength(1);
