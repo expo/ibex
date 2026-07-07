@@ -1516,11 +1516,12 @@ function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
     version: socket._protocol
   };
   socket._authorizationErrorObject = null;
-  if (opts.rejectUnauthorized === false) {
-    socket.authorizationError = null;
-    socket.authorized = true;
-    return true;
-  }
+  // Node semantics (verified v25.9.0): rejectUnauthorized:false only prevents
+  // the connection from being aborted — certificate validation still runs and
+  // socket.authorized / socket.authorizationError reflect its result (e.g.
+  // authorized=false with authorizationError='DEPTH_ZERO_SELF_SIGNED_CERT' for
+  // a self-signed peer). Callers use the return value (authorization success)
+  // together with rejectUnauthorized to decide whether to error/destroy.
   var authorizationError = _validatePeerAuthorization(
     socket._peerCertificate,
     opts,

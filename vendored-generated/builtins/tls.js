@@ -1137,11 +1137,6 @@ function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
 		version: socket._protocol
 	};
 	socket._authorizationErrorObject = null;
-	if (opts.rejectUnauthorized === false) {
-		socket.authorizationError = null;
-		socket.authorized = true;
-		return true;
-	}
 	var authorizationError = _validatePeerAuthorization(socket._peerCertificate, opts, host, socket.remotePort, remoteOptions);
 	if (authorizationError) {
 		socket.authorizationError = authorizationError.code || authorizationError.message || String(authorizationError);

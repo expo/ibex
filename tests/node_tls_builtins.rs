@@ -16,6 +16,65 @@ use tokio::time::timeout;
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
+/// Self-signed localhost certificate (SAN: DNS:localhost, IP:127.0.0.1),
+/// valid until 2046, used purely as in-process emulation fixture material.
+const TEST_CERT: &str = "-----BEGIN CERTIFICATE-----
+MIICyTCCAbGgAwIBAgIJAIhNqBAfSjJ0MA0GCSqGSIb3DQEBCwUAMBQxEjAQBgNV
+BAMMCWxvY2FsaG9zdDAeFw0yNjA3MDcwNzEzNTNaFw00NjA3MDIwNzEzNTNaMBQx
+EjAQBgNVBAMMCWxvY2FsaG9zdDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoC
+ggEBANqsn3OtDKJkvUqU+orW99gvf7iB7d8fj6/D0x4LhK5cBFZV/0y0XekyMKVp
+6AyuhaPqJ52TWk8/U1PP8V1yQBzd7ure0UIfTIG6enGkIkuFaCDaWtdboFsyPc7h
+IoT6xoIda7UPBvOu6g/8eOkhQ0mmXuehXwEr9iq0c0ETEbrjyUDxkfc4gqjRcv/R
+tmQIuqRwwF7wiCogX2HRrN+NDvVpvdrtG+Ed38vYjra9mYUQY0YojXZObaZjGAAD
+8SexhNnqLrNaFB+HZMtqbnnSongfhYE37p71Xtvx2ndynvAnMe9PV40DRmNWDzAu
+Zfty7FNbkESG8Q3G4pkhb5iZ1zkCAwEAAaMeMBwwGgYDVR0RBBMwEYIJbG9jYWxo
+b3N0hwR/AAABMA0GCSqGSIb3DQEBCwUAA4IBAQAXXGuxy2BNZMmkf2LkoZtE2wH6
+TOjuYdtQvIbf18ml6L6hUJDiAfnrefXcS40bAcg0r6YEZOa4Mcahd5CMRPm5a1x1
+9yLyK8V5roFT6NYD0n9gMtmIrnOLSsQQSCxE33nT6+lYyELgCG9eiRKvgNBuDSPf
+OaLPFE5C0v6yLhGBGwPv3dYMDH8iTnPS9pbEr6ZMbECBjtMt2jczm50rb2rn5VLB
+/dMltnA7CViKGs+n2w2UK+mJKBZlXgCPqksAX0kW9waxQkkR75WzAEC10Q9Iqfb+
+q/LkAWk7EoJDWScZbk7joFDnAI4D7Wk3maELFKYf8TiPxfZOXPfAg3JnE/Tr
+-----END CERTIFICATE-----";
+
+const TEST_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDarJ9zrQyiZL1K
+lPqK1vfYL3+4ge3fH4+vw9MeC4SuXARWVf9MtF3pMjClaegMroWj6iedk1pPP1NT
+z/FdckAc3e7q3tFCH0yBunpxpCJLhWgg2lrXW6BbMj3O4SKE+saCHWu1DwbzruoP
+/HjpIUNJpl7noV8BK/YqtHNBExG648lA8ZH3OIKo0XL/0bZkCLqkcMBe8IgqIF9h
+0azfjQ71ab3a7RvhHd/L2I62vZmFEGNGKI12Tm2mYxgAA/EnsYTZ6i6zWhQfh2TL
+am550qJ4H4WBN+6e9V7b8dp3cp7wJzHvT1eNA0ZjVg8wLmX7cuxTW5BEhvENxuKZ
+IW+Ymdc5AgMBAAECggEBAJppDIr9Jg/BvNxeSHAjjY0tNS3PKW3FdouxZnEvxvfr
+5/Ai94xtTGbvVuRm3UGfNqThIiols76Dw85J5nCKzXTUzfExd2gOe9KbH/0A3mqf
+gEC6jyzE+X2MA5MC7IIkJmoYZkbKnqkR2RuCtso//6iQ/zDmhRRpu4C6PSw1T+67
+vaTa9r3m05d+26m0Ioz92e0B5vazQYcjgALetFRiTA0s848yYYMkS5CJYdgcii/K
+TWmEB36hODB/fMihBYOkB1t4K/sb6yYrpKa3UFBDm+m0/qeVlVzFCL46HBVbD/ma
+IPL9VebNACr/LVDM9jQ1KALpvGxJiTwOcRYO5m1IdbUCgYEA9l5YoyxumsYqDjOO
+AUeBsphjnGwMPtnDSR5DZDb0ml8AbsFV7/UyAcy/HR9HGVNcvIHBXGb1utcWeREK
+zoL9oLyDq0AWMdoyF3twMhS4BUo/gdo2yNXAXX0+kO4iCPhjnwH/OKbM7hyK5436
+uT5Ysiih9pAT7+2GcGuvlsU+y5MCgYEA4zkc7/XKY88wrZx8jUrFoBp1FcimHhiz
+kQD225z4MwESb/mqjStpf5WZyCWKz/C10Z5MAJSIwrtuNBbxOVINkwfsM1dXNf7o
+XPij08+h3juPvotqYZ9lDA/IcfBYgXOsK8GdaFWlxMYY7+1sVR+YlfaEKnayYWwQ
+EZZyJgciiYMCgYA/EoRKsfNW+GiH3jb6qN3RZSYLQ7YW2RUfwPmrzE3uv2eS8zgX
+CITW5R4ATKOdHjRdpjJkf49lV+9O60gC+pIH9nsW+n80IBI25MkiaR97azi6+6yO
+2fo3dPrxi6V2+nA2owI99KX+R5xgD38isY1vfuuH/fa8s+h5G3iGdtTOtQKBgQC8
+cK4l93J8qeSV5pSI3PzelXKKuVfC1/t7gxA2+4v/SKFQyf5+iwU4MQpTKYdggiFX
+kW84f/aXgLeZbXlqbzkguc5SmdmSxy9Pg0jirWxxkHXasWZtRbKYeTJkA85ytUqR
+E0YGtBkBAsTFneJdChISNFpRmRTApM0CuQE7tmkXHwKBgQDqVxs4pHPIzjUZwMPU
+q4pcdaX/M45Em54lA86I4ebWsNcRlStP+XNeu/nhiXl1j/hCHZEKEc1pKWHTPXcC
+Md/fFsEQi8gONn+RDAEJjd+CR+EchO6UjciR+fZtUMeqhqM6Eq4td8d7t3t7/93v
+GZp+REcWUDv3rRhch2XhCaD5Hw==
+-----END PRIVATE KEY-----";
+
+/// Prefix a script with `KEY`/`CERT` consts holding the fixture PEMs.
+fn with_fixture_pems(script: &str) -> String {
+    format!(
+        "var CERT = {};\nvar KEY = {};\n{}",
+        serde_json::to_string(TEST_CERT).unwrap(),
+        serde_json::to_string(TEST_KEY).unwrap(),
+        script
+    )
+}
+
 async fn run_script(script: &str, secs: u64) -> Value {
     let mut cmd = Command::new(IBEX);
     cmd.arg("-e").arg(script);
@@ -140,4 +199,63 @@ function finish(s12) {
     assert!(v.get("destroyedCbFired").is_none(), "destroyed socket must not invoke callback: {v}");
     assert_eq!(v["fnAsOptions"], "ERR_INVALID_ARG_TYPE", "{v}");
     assert_eq!(v["badCallback"], "ERR_INVALID_ARG_TYPE", "{v}");
+}
+
+#[tokio::test]
+async fn tls_reject_unauthorized_false_still_reports_verification_result() {
+    // ENG-23448 finding 2: rejectUnauthorized:false used to force
+    // authorized=true and clear authorizationError. Node v25.9.0 oracle for a
+    // self-signed in-process server: secureConnect fires, but
+    // authorized=false with authorizationError='DEPTH_ZERO_SELF_SIGNED_CERT'.
+    // The strict default (rejectUnauthorized unset => true) must still abort
+    // with the same code.
+    let script = r#"
+var tls = require('tls');
+var out = {};
+var watchdog = setTimeout(function () {
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}, 10000);
+
+var server = tls.createServer({ key: KEY, cert: CERT }, function () {});
+server.listen(0, '127.0.0.1', function () {
+  var port = server.address().port;
+  var lax = tls.connect({ port: port, host: '127.0.0.1', rejectUnauthorized: false }, function () {
+    out.lax = {
+      secureConnect: true,
+      authorized: lax.authorized,
+      authorizationError: lax.authorizationError
+    };
+    lax.destroy();
+    var strict = tls.connect({ port: port, host: '127.0.0.1' }, function () {
+      out.strict = { secureConnect: true, authorized: strict.authorized };
+      done();
+    });
+    strict.on('error', function (e) {
+      out.strict = { error: e.code || e.message };
+      done();
+    });
+  });
+  lax.on('error', function (e) {
+    out.lax = { error: e.code || e.message };
+    done();
+  });
+  function done() {
+    clearTimeout(watchdog);
+    server.close(function () {
+      console.log(JSON.stringify(out));
+      process.exit(0);
+    });
+  }
+});
+"#;
+    let v = run_script(&with_fixture_pems(script), 30).await;
+    assert_eq!(v["lax"]["secureConnect"], true, "{v}");
+    assert_eq!(
+        v["lax"]["authorized"], false,
+        "rejectUnauthorized:false must not fabricate authorized=true: {v}"
+    );
+    assert_eq!(v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
+    assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
 }
