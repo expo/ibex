@@ -45,6 +45,16 @@ function validateInput(data) {
 function checkKMaxLength(length) {
 	if (_kMaxLength !== Infinity && length > _kMaxLength) throw makeError("ERR_BUFFER_TOO_LARGE", "RangeError", "Cannot create a Buffer larger than " + _kMaxLength + " bytes");
 }
+function validateMaxOutputLength(options) {
+	if (!options || options.maxOutputLength === void 0) return Infinity;
+	var value = options.maxOutputLength;
+	if (typeof value !== "number") throw makeError("ERR_INVALID_ARG_TYPE", "TypeError", "The \"options.maxOutputLength\" property must be of type number. Received type " + typeof value + " ('" + String(value) + "')");
+	if (value !== value || value < 0) throw makeError("ERR_OUT_OF_RANGE", "RangeError", "The value of \"options.maxOutputLength\" is out of range. It must be >= 0. Received " + String(value));
+	return value;
+}
+function checkMaxOutputLength(length, maxOutputLength) {
+	if (length > maxOutputLength) throw makeError("ERR_BUFFER_TOO_LARGE", "RangeError", "Cannot create a Buffer larger than " + maxOutputLength + " bytes");
+}
 function toBytes(data) {
 	if (typeof data === "string") {
 		if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(data);
@@ -93,8 +103,8 @@ function wrapInflateError(e) {
 	err.errno = -3;
 	return err;
 }
-function inflateSyncConsumed(bytes, mode) {
-	var raw = __exactInflateSync(bytes, mode, false, 2);
+function inflateSyncConsumed(bytes, mode, flags) {
+	var raw = __exactInflateSync(bytes, mode, false, flags === void 0 ? 2 : flags);
 	if (Array.isArray(raw)) return [toBuffer(raw[0]), raw[1]];
 	return [toBuffer(raw), bytes.length];
 }
@@ -106,6 +116,7 @@ function brotliDecompressSyncConsumed(bytes) {
 }
 function deflateSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, true, false);
 	var bytes = toBytes(data);
 	var level = options && options.level !== void 0 ? options.level : -1;
 	var dict = options && options.dictionary ? toBytes(options.dictionary) : void 0;
@@ -118,6 +129,8 @@ function deflateSync(data, options) {
 }
 function inflateSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, false, false);
+	var maxOutputLength = validateMaxOutputLength(options);
 	var bytes = toBytes(data);
 	var lenient = !!(options && options.finishFlush === 2);
 	var dict = options && options.dictionary ? toBytes(options.dictionary) : void 0;
@@ -129,6 +142,7 @@ function inflateSync(data, options) {
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(result.length);
+	checkMaxOutputLength(result.length, maxOutputLength);
 	if (options && options.info) return {
 		engine: new Inflate(options),
 		buffer: result
@@ -137,6 +151,7 @@ function inflateSync(data, options) {
 }
 function gzipSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, true, true);
 	var bytes = toBytes(data);
 	var level = options && options.level !== void 0 ? options.level : -1;
 	var buf = toBuffer(__exactDeflateSync(bytes, level, 1));
@@ -148,6 +163,8 @@ function gzipSync(data, options) {
 }
 function gunzipSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, false, true);
+	var maxOutputLength = validateMaxOutputLength(options);
 	var bytes = toBytes(data);
 	var lenient = !!(options && options.finishFlush === 2);
 	var allOutputs = [];
@@ -156,7 +173,7 @@ function gunzipSync(data, options) {
 		var memberResult;
 		var consumed;
 		try {
-			var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : 2);
+			var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : 2);
 			if (Array.isArray(raw)) {
 				memberResult = toBuffer(raw[0]);
 				consumed = raw[1];
@@ -165,7 +182,6 @@ function gunzipSync(data, options) {
 				consumed = remaining.length;
 			}
 		} catch (e) {
-			if (allOutputs.length > 0) break;
 			if (lenient) return toBuffer(new Uint8Array(0));
 			throw wrapInflateError(e);
 		}
@@ -175,6 +191,7 @@ function gunzipSync(data, options) {
 	}
 	var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
 	checkKMaxLength(result.length);
+	checkMaxOutputLength(result.length, maxOutputLength);
 	if (options && options.info) return {
 		engine: new Gunzip(options),
 		buffer: result
@@ -183,6 +200,7 @@ function gunzipSync(data, options) {
 }
 function deflateRawSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, true, false);
 	var bytes = toBytes(data);
 	var level = options && options.level !== void 0 ? options.level : -1;
 	var dict = options && options.dictionary ? toBytes(options.dictionary) : void 0;
@@ -195,6 +213,8 @@ function deflateRawSync(data, options) {
 }
 function inflateRawSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, false, false);
+	var maxOutputLength = validateMaxOutputLength(options);
 	var bytes = toBytes(data);
 	var lenient = !!(options && options.finishFlush === 2);
 	var dict = options && options.dictionary ? toBytes(options.dictionary) : void 0;
@@ -206,6 +226,7 @@ function inflateRawSync(data, options) {
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(result.length);
+	checkMaxOutputLength(result.length, maxOutputLength);
 	if (options && options.info) return {
 		engine: new InflateRaw(options),
 		buffer: result
@@ -214,6 +235,8 @@ function inflateRawSync(data, options) {
 }
 function unzipSync(data, options) {
 	validateInput(data);
+	validateZlibOptions(options, false, true);
+	var maxOutputLength = validateMaxOutputLength(options);
 	var bytes = toBytes(data);
 	var lenient = !!(options && options.finishFlush === 2);
 	if (bytes.length >= 2 && bytes[0] === 31 && bytes[1] === 139) {
@@ -223,7 +246,7 @@ function unzipSync(data, options) {
 			var memberResult;
 			var consumed;
 			try {
-				var raw = __exactInflateSync(remaining, 1, false, lenient ? 1 : 2);
+				var raw = __exactInflateSync(remaining, 1, false, lenient ? 3 : 2);
 				if (Array.isArray(raw)) {
 					memberResult = toBuffer(raw[0]);
 					consumed = raw[1];
@@ -232,7 +255,6 @@ function unzipSync(data, options) {
 					consumed = remaining.length;
 				}
 			} catch (e) {
-				if (allOutputs.length > 0) break;
 				if (lenient) return toBuffer(new Uint8Array(0));
 				throw wrapInflateError(e);
 			}
@@ -242,6 +264,7 @@ function unzipSync(data, options) {
 		}
 		var result = allOutputs.length === 1 ? allOutputs[0] : Buffer.concat(allOutputs);
 		checkKMaxLength(result.length);
+		checkMaxOutputLength(result.length, maxOutputLength);
 		if (options && options.info) return {
 			engine: new Unzip(options),
 			buffer: result
@@ -256,6 +279,7 @@ function unzipSync(data, options) {
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(singleResult.length);
+	checkMaxOutputLength(singleResult.length, maxOutputLength);
 	if (options && options.info) return {
 		engine: new Unzip(options),
 		buffer: singleResult
@@ -304,10 +328,10 @@ function brotliCompressSync(data, options) {
 function brotliDecompressSync(data, options) {
 	validateInput(data);
 	var bytes = toBytes(data);
-	var maxOutputLength = options && options.maxOutputLength !== void 0 ? options.maxOutputLength : Infinity;
+	var maxOutputLength = validateMaxOutputLength(options);
 	if (typeof __exactBrotliDecompressSync !== "function") throw new Error("brotliDecompressSync not available");
 	var result = __exactBrotliDecompressSync(bytes);
-	if (result.length > maxOutputLength) throw makeError("ERR_BUFFER_TOO_LARGE", "RangeError", "Cannot create a Buffer larger than " + maxOutputLength + " bytes");
+	checkMaxOutputLength(result.length, maxOutputLength);
 	checkKMaxLength(result.length);
 	var buf = toBuffer(result);
 	if (options && options.info) return {

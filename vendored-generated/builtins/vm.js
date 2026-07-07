@@ -3,19 +3,16 @@ function Script(code, options) {
 	this._code = code;
 	this._options = options || {};
 }
+function unsupported(method) {
+	var err = /* @__PURE__ */ new Error(method + " is not implemented in this runtime");
+	err.code = "ERR_METHOD_NOT_IMPLEMENTED";
+	return err;
+}
 Script.prototype.runInThisContext = function(options) {
 	return (0, eval)(this._code);
 };
 Script.prototype.runInNewContext = function(sandbox, options) {
-	var keys = sandbox ? Object.keys(sandbox) : [];
-	var values = keys.map(function(k) {
-		return sandbox[k];
-	});
-	var varDecls = keys.length > 0 ? "var " + keys.join(",") + ";\n" : "";
-	var assigns = "";
-	for (var i = 0; i < keys.length; i++) assigns += keys[i] + " = arguments[" + i + "];\n";
-	var body = varDecls + assigns + "return (" + this._code + ");\n";
-	return new Function(body).apply(null, values);
+	throw unsupported("vm.runInNewContext");
 };
 function createContext(sandbox) {
 	return sandbox || {};

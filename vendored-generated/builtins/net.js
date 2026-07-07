@@ -627,7 +627,7 @@ function _normalizeSocketIOError(err, syscall) {
 }
 function _schedulePausedSocketPoll(socket, poll) {
 	socket._pollTimer = _scheduleTimer(poll, 10, socket);
-	_setTimerRefState(socket._pollTimer, false);
+	_setTimerRefState(socket._pollTimer, socket && socket._unrefed === true ? false : true);
 }
 function _getSocketPollDelay(socket, readData) {
 	if (readData) return 0;
@@ -656,7 +656,33 @@ function _cancelPendingConnect(socket) {
 		socket._pendingConnectHandle = null;
 	}
 }
+function _clearSocketTimeoutTimer(socket) {
+	if (!socket || socket._timeoutTimer == null) return;
+	clearTimeout(socket._timeoutTimer);
+	socket._timeoutTimer = null;
+}
+function _maybeEmitSocketTimeout(socket) {
+	if (!socket || socket.destroyed || socket._timeoutMs <= 0 || socket._timeoutEmitted) return false;
+	if (Date.now() - socket._lastActivity < socket._timeoutMs) return false;
+	socket._timeoutEmitted = true;
+	socket.emit("timeout");
+	return true;
+}
+function _armConnectTimeoutTimer(socket) {
+	if (!socket) return;
+	_clearSocketTimeoutTimer(socket);
+	if (socket.destroyed || !socket.connecting || socket._timeoutMs <= 0) return;
+	var elapsed = Date.now() - socket._lastActivity;
+	var delay = socket._timeoutMs - elapsed;
+	if (delay < 0) delay = 0;
+	socket._timeoutTimer = _scheduleTimer(function() {
+		socket._timeoutTimer = null;
+		if (!socket.connecting || socket.destroyed || socket._timeoutMs <= 0) return;
+		if (!_maybeEmitSocketTimeout(socket)) _armConnectTimeoutTimer(socket);
+	}, delay, socket);
+}
 function _finishTcpConnectSuccess(selfRef, nativeHandle, address, family) {
+	_clearSocketTimeoutTimer(selfRef);
 	selfRef.remoteAddress = address;
 	if (family) selfRef.remoteFamily = _addressFamilyToName(family);
 	_setSocketHandle(selfRef._handle, nativeHandle);
@@ -688,6 +714,7 @@ function _pollTcpConnect(socket, nativeHandle, onConnected, onFailed) {
 			}
 			return;
 		}
+		_maybeEmitSocketTimeout(socket);
 		var status;
 		try {
 			status = __exactTcpConnectPoll(nativeHandle);
@@ -880,6 +907,7 @@ function _resetSocketForConnect(socket) {
 		socket._pollTimer = null;
 	}
 	_cancelPendingConnect(socket);
+	_clearSocketTimeoutTimer(socket);
 	if (socket._drainTimer != null) {
 		clearTimeout(socket._drainTimer);
 		socket._drainTimer = null;
@@ -919,6 +947,7 @@ function _resetSocketForConnect(socket) {
 	socket._readBufferLength = 0;
 	socket._readBackpressured = false;
 	socket._onreadEOF = false;
+	socket[kTimeout] = null;
 	socket._isUnix = false;
 	socket._socketPath = null;
 	socket._customHandle = false;
@@ -1256,6 +1285,7 @@ Socket.prototype._consumeReadBuffer = function(size) {
 		this._readBufferLength = 0;
 		return allData;
 	}
+	if (size > this._readBufferLength && !this._readEnded) return null;
 	if (size >= this._readBufferLength) return this._consumeReadBuffer();
 	var remaining = size;
 	var parts = [];
@@ -1641,6 +1671,16 @@ Socket.prototype.connect = function(options, connectListener) {
 		alreadyConnectingErr.code = "ERR_SOCKET_CONNECTING";
 		throw alreadyConnectingErr;
 	}
+	if (this._connected && !this.destroyed) {
+		var alreadyConnectedErr = /* @__PURE__ */ new Error("connect EISCONN " + (this.remoteAddress || this._requestedAddress || ""));
+		alreadyConnectedErr.code = "EISCONN";
+		alreadyConnectedErr.errno = "EISCONN";
+		alreadyConnectedErr.syscall = "connect";
+		_scheduleCallback(function() {
+			this.emit("error", alreadyConnectedErr);
+		}.bind(this));
+		return this;
+	}
 	if (options.address !== void 0 && options.address !== null && options.host === void 0 && options.hostname === void 0 && options.path === void 0) options = Object.assign({}, options, { host: options.address });
 	var hasCustomConnectHandle = this._handle && this._handle._exactHandle === void 0 && typeof this._handle.connect === "function";
 	if (this.destroyed || this._handle == null && !this.connecting || !hasCustomConnectHandle && this.readyState === "closed" && !this.connecting && !this._connected) _resetSocketForConnect(this);
@@ -1700,6 +1740,12 @@ Socket.prototype.connect = function(options, connectListener) {
 	this.pending = true;
 	this.readyState = "opening";
 	this.autoSelectFamilyAttemptedAddresses = void 0;
+	if (options.timeout !== void 0) this.setTimeout(options.timeout);
+	else if (this._timeoutMs > 0) {
+		this._lastActivity = Date.now();
+		this._timeoutEmitted = false;
+		_armConnectTimeoutTimer(this);
+	}
 	if (connectListener) this.once("connect", connectListener);
 	if (Object.prototype.hasOwnProperty.call(options, "noDelay")) this._noDelay = options.noDelay;
 	if (Object.prototype.hasOwnProperty.call(options, "keepAlive")) this._keepAlive = options.keepAlive;
@@ -2092,6 +2138,15 @@ Socket.prototype.end = function(data, encoding, callback) {
 		callback = encoding;
 		encoding = void 0;
 	}
+	if (this._finishEmitted) {
+		if (data != null) this.write(data, encoding);
+		if (callback) {
+			var alreadyFinishedErr = /* @__PURE__ */ new Error("stream already finished");
+			alreadyFinishedErr.code = "ERR_STREAM_ALREADY_FINISHED";
+			_scheduleCallback(callback, alreadyFinishedErr);
+		}
+		return this;
+	}
 	if (data != null) this.write(data, encoding);
 	if (!this._autoEnding) this._autoEndedFromPeer = false;
 	this._ended = true;
@@ -2141,10 +2196,7 @@ Socket.prototype.destroy = function(err) {
 		clearTimeout(this._drainEventTimer);
 		this._drainEventTimer = null;
 	}
-	if (this._timeoutTimer != null) {
-		clearTimeout(this._timeoutTimer);
-		this._timeoutTimer = null;
-	}
+	_clearSocketTimeoutTimer(this);
 	this[kTimeout] = null;
 	if (this._writeQueue.length) {
 		var endErr;
@@ -2172,7 +2224,9 @@ Socket.prototype.destroy = function(err) {
 		__exactTcpClose(nativeHandle);
 	} catch (e) {}
 	this._handle = null;
-	if (err) this.emit("error", err);
+	if (err) _scheduleCallback(function() {
+		this.emit("error", err);
+	}.bind(this));
 	var self = this;
 	_scheduleCallback(function(hadErr) {
 		self.emit("close", hadErr);
@@ -2214,6 +2268,8 @@ Socket.prototype.setTimeout = function(timeout, callback) {
 		else this.removeListener("timeout", callback);
 	}
 	_updateSocketTimeoutHandleState(this);
+	if (this.connecting && timeout > 0) _armConnectTimeoutTimer(this);
+	else if (timeout === 0 || !this.connecting) _clearSocketTimeoutTimer(this);
 	return this;
 };
 Socket.prototype.read = function(size) {
@@ -2329,7 +2385,7 @@ Socket.prototype.address = function() {
 Socket.prototype.pause = function() {
 	var wasPaused = this._paused === true;
 	this._paused = true;
-	_setTimerRefState(this._pollTimer, false);
+	_setTimerRefState(this._pollTimer, this._unrefed === true ? false : true);
 	if (this._customHandle && this._customReadStarted && this._handle && typeof this._handle.readStop === "function") try {
 		this._handle.readStop();
 		this._customReadStarted = false;
@@ -3003,45 +3059,130 @@ function setDefaultAutoSelectFamilyAttemptTimeout(milliseconds) {
 	} else if (arguments.length === 0) _defaultAutoSelectFamilyAttemptTimeout = 2500;
 	return _defaultAutoSelectFamilyAttemptTimeout;
 }
+function _normalizeBlockListFamily(type, address) {
+	if (type !== void 0 && type !== null) {
+		var family = String(type).toLowerCase();
+		if (family === "ipv4" || family === "4") return "ipv4";
+		if (family === "ipv6" || family === "6") return "ipv6";
+	}
+	return isIPv6(address) ? "ipv6" : "ipv4";
+}
+function _parseIPv4ToBigInt(address) {
+	if (!isIPv4(address)) return null;
+	var parts = String(address).split(".");
+	var value = BigInt(0);
+	for (var i = 0; i < parts.length; i++) value = value * BigInt(256) + BigInt(parseInt(parts[i], 10));
+	return value;
+}
+function _parseIPv6ToBigInt(address) {
+	if (typeof address !== "string") try {
+		address = String(address);
+	} catch (_addrErr) {
+		return null;
+	}
+	var zoneIdx = address.indexOf("%");
+	if (zoneIdx !== -1) address = address.substring(0, zoneIdx);
+	if (!isIPv6(address)) return null;
+	var lastColon = address.lastIndexOf(":");
+	if (lastColon !== -1) {
+		var tail = address.substring(lastColon + 1);
+		if (tail.indexOf(".") !== -1) {
+			var ipv4 = _parseIPv4ToBigInt(tail);
+			if (ipv4 === null) return null;
+			var hi = Number(ipv4 / BigInt(65536));
+			var lo = Number(ipv4 % BigInt(65536));
+			address = address.substring(0, lastColon) + ":" + hi.toString(16) + ":" + lo.toString(16);
+		}
+	}
+	var halves = address.split("::");
+	if (halves.length > 2) return null;
+	var left = halves[0] ? halves[0].split(":") : [];
+	var right = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+	var groups = [];
+	if (halves.length === 1) {
+		groups = left;
+		if (groups.length !== 8) return null;
+	} else {
+		var missing = 8 - left.length - right.length;
+		if (missing < 1) return null;
+		groups = left.slice();
+		for (var z = 0; z < missing; z++) groups.push("0");
+		groups = groups.concat(right);
+	}
+	if (groups.length !== 8) return null;
+	var value = BigInt(0);
+	for (var i = 0; i < groups.length; i++) {
+		if (!/^[0-9a-fA-F]{1,4}$/.test(groups[i])) return null;
+		value = value * BigInt(65536) + BigInt(parseInt(groups[i], 16));
+	}
+	return value;
+}
+function _parseIpToBigInt(address, family) {
+	family = _normalizeBlockListFamily(family, address);
+	return family === "ipv6" ? _parseIPv6ToBigInt(address) : _parseIPv4ToBigInt(address);
+}
+function _blockListPrefixMatches(value, base, prefix, bits) {
+	prefix = Number(prefix);
+	if (!isFinite(prefix) || Math.floor(prefix) !== prefix || prefix < 0 || prefix > bits) return false;
+	if (prefix === 0) return true;
+	var shift = BigInt(bits - prefix);
+	return value >> shift === base >> shift;
+}
 function BlockList() {
 	if (!(this instanceof BlockList)) return new BlockList();
 	this._rules = [];
 	this.rules = [];
 }
 BlockList.prototype.addAddress = function(address, type) {
-	type = type || (isIPv6(address) ? "ipv6" : "ipv4");
+	type = _normalizeBlockListFamily(type, address);
 	this._rules.push({
 		type: "address",
 		address,
-		family: type
+		family: type,
+		value: _parseIpToBigInt(address, type)
 	});
 };
 BlockList.prototype.addRange = function(start, end, type) {
-	type = type || (isIPv6(start) ? "ipv6" : "ipv4");
+	type = _normalizeBlockListFamily(type, start);
+	var startValue = _parseIpToBigInt(start, type);
+	var endValue = _parseIpToBigInt(end, type);
+	if (startValue !== null && endValue !== null && startValue > endValue) {
+		var tmp = startValue;
+		startValue = endValue;
+		endValue = tmp;
+	}
 	this._rules.push({
 		type: "range",
 		start,
 		end,
-		family: type
+		family: type,
+		startValue,
+		endValue
 	});
 };
 BlockList.prototype.addSubnet = function(address, prefix, type) {
-	type = type || (isIPv6(address) ? "ipv6" : "ipv4");
+	type = _normalizeBlockListFamily(type, address);
 	this._rules.push({
 		type: "subnet",
 		address,
-		prefix,
-		family: type
+		prefix: Number(prefix),
+		family: type,
+		value: _parseIpToBigInt(address, type)
 	});
 };
 BlockList.prototype.check = function(address, type) {
-	type = type || (isIPv6(address) ? "ipv6" : "ipv4");
+	type = _normalizeBlockListFamily(type, address);
+	var addressValue = _parseIpToBigInt(address, type);
 	for (var i = 0; i < this._rules.length; i++) {
 		var rule = this._rules[i];
 		if (rule.family !== type) continue;
-		if (rule.type === "address" && rule.address === address) return true;
-		if (rule.type === "range" && address >= rule.start && address <= rule.end) return true;
-		if (rule.type === "subnet" && address === rule.address) return true;
+		if (addressValue === null) continue;
+		if (rule.type === "address" && rule.value !== null && rule.value === addressValue) return true;
+		if (rule.type === "range" && rule.startValue !== null && rule.endValue !== null && addressValue >= rule.startValue && addressValue <= rule.endValue) return true;
+		if (rule.type === "subnet" && rule.value !== null) {
+			var bits = type === "ipv6" ? 128 : 32;
+			if (_blockListPrefixMatches(addressValue, rule.value, rule.prefix, bits)) return true;
+		}
 	}
 	return false;
 };

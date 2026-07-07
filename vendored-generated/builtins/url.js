@@ -2,36 +2,6 @@
 (function() {
 	var URLExport = typeof globalThis !== "undefined" && typeof globalThis.URL === "function" ? globalThis.URL : null;
 	var URLSearchParamsExport = typeof globalThis !== "undefined" && typeof globalThis.URLSearchParams === "function" ? globalThis.URLSearchParams : null;
-	function _canUseHostUrlConstructors(URLCtor, URLSearchParamsCtor) {
-		if (typeof URLCtor !== "function" || typeof URLSearchParamsCtor !== "function") return false;
-		try {
-			if (new URLSearchParamsCtor([["a", "b"]]).toString() !== "a=b") return false;
-			if (new URLSearchParamsCtor([["b", "%2sf*"]]).toString() !== "b=%252sf*") return false;
-			if (typeof DOMException === "function") {
-				if (new URLSearchParamsCtor(DOMException).get("TIMEOUT_ERR") !== "23") return false;
-			}
-			if (new URLCtor("http://ExAmPlE.CoM").origin !== "http://example.com") return false;
-			var fileHostProbe = new URLCtor("file://y/");
-			fileHostProbe.host = "loc%41lhost";
-			if (fileHostProbe.href !== "file:///") return false;
-			var filePortRejected = false;
-			try {
-				new URLCtor("file://example:1/");
-			} catch (_filePortErr) {
-				filePortRejected = true;
-			}
-			if (!filePortRejected) return false;
-			return true;
-		} catch (e) {
-			return false;
-		}
-	}
-	function _coerceUrl(value) {
-		if (value == null) throw new TypeError("Expected URL or string");
-		if (typeof value === "string") return new URLExport(value);
-		if (typeof value === "object" || typeof value === "function") return value;
-		throw new TypeError("Expected URL or string");
-	}
 	var _objectURLCounter = 0;
 	var _objectURLRegistry = {};
 	function _createObjectURL(object) {
@@ -51,178 +21,6 @@
 			throw err;
 		}
 		delete _objectURLRegistry[String(url)];
-	}
-	function _patchUrlStatics(URLCtor) {
-		URLCtor.canParse = function(input, base) {
-			if (arguments.length === 0) {
-				var err = /* @__PURE__ */ new TypeError("The \"url\" argument must be specified");
-				err.code = "ERR_MISSING_ARGS";
-				throw err;
-			}
-			if (typeof input === "undefined") return false;
-			if (arguments.length === 1) try {
-				new URLCtor(input);
-				return true;
-			} catch (e) {
-				return false;
-			}
-			try {
-				new URLCtor(input, base);
-				return true;
-			} catch (e) {
-				return false;
-			}
-		};
-		URLCtor.parse = function(input, base) {
-			if (typeof input === "undefined") return null;
-			try {
-				if (arguments.length === 1) return new URLCtor(input);
-				return new URLCtor(input, base);
-			} catch (e) {
-				return null;
-			}
-		};
-	}
-	function _patchProtocol(URLCtor) {
-		var desc = Object.getOwnPropertyDescriptor(URLCtor.prototype, "protocol");
-		if (!desc || typeof desc.set !== "function" || desc.set.__exactPatched) return;
-		var nativeSetProtocol = desc.set;
-		Object.defineProperty(URLCtor.prototype, "protocol", {
-			configurable: true,
-			get: desc.get,
-			set: function(value) {
-				value = String(value).replace(/\u0000/g, "");
-				return nativeSetProtocol.call(this, value);
-			}
-		});
-		Object.getOwnPropertyDescriptor(URLCtor.prototype, "protocol").set.__exactPatched = true;
-	}
-	function _patchUrlComponentSetter(URLCtor, propertyName) {
-		var desc = Object.getOwnPropertyDescriptor(URLCtor.prototype, propertyName);
-		if (!desc || typeof desc.set !== "function" || desc.set.__exactPatched) return;
-		var nativeSet = desc.set;
-		Object.defineProperty(URLCtor.prototype, propertyName, {
-			configurable: true,
-			get: desc.get,
-			set: function(value) {
-				if (this && this.protocol === "file:") return;
-				return nativeSet.call(this, _sanitizeUserinfoComponent(String(value)));
-			}
-		});
-		Object.getOwnPropertyDescriptor(URLCtor.prototype, propertyName).set.__exactPatched = true;
-	}
-	if (URLExport && URLSearchParamsExport && _canUseHostUrlConstructors(URLExport, URLSearchParamsExport)) {
-		_patchUrlStatics(URLExport);
-		_patchProtocol(URLExport);
-		_patchUrlComponentSetter(URLExport, "username");
-		_patchUrlComponentSetter(URLExport, "password");
-		URLExport.createObjectURL = _createObjectURL;
-		URLExport.revokeObjectURL = _revokeObjectURL;
-		var _nativeCanParse = URLExport.canParse ? URLExport.canParse.bind(URLExport) : null;
-		function _wrappedCanParse(input, base) {
-			if (arguments.length === 0) {
-				var err = /* @__PURE__ */ new TypeError("The \"url\" argument must be specified");
-				err.code = "ERR_MISSING_ARGS";
-				throw err;
-			}
-			if (_nativeCanParse) return arguments.length === 1 ? _nativeCanParse(input) : _nativeCanParse(input, base);
-			try {
-				arguments.length === 1 ? new URLExport(input) : new URLExport(input, base);
-				return true;
-			} catch (e) {
-				return false;
-			}
-		}
-		function fileURLToPath(path) {
-			if (typeof path !== "string" && !(typeof path === "object" && path !== null && typeof path.href === "string")) {
-				var typeErr = /* @__PURE__ */ new TypeError("The \"path\" argument must be of type string or an instance of URL. Received " + (path === null ? "null" : typeof path === "object" ? "an instance of " + (path.constructor ? path.constructor.name : "Object") : "type " + typeof path));
-				typeErr.code = "ERR_INVALID_ARG_TYPE";
-				throw typeErr;
-			}
-			if (typeof path === "string" && !path.startsWith("file:") && !/^[A-Za-z][A-Za-z0-9+.-]+:/.test(path)) return path;
-			var url = _coerceUrl(path);
-			if (url && url.protocol && url.protocol !== "file:") {
-				var schemeErr = /* @__PURE__ */ new TypeError("The URL must be of scheme file");
-				schemeErr.code = "ERR_INVALID_URL_SCHEME";
-				throw schemeErr;
-			}
-			var value = url.pathname || "";
-			if (value.match(/%2[fF]/)) {
-				var pathErr = /* @__PURE__ */ new TypeError("File URL path must not include encoded / characters");
-				pathErr.code = "ERR_INVALID_FILE_URL_PATH";
-				pathErr.input = url;
-				throw pathErr;
-			}
-			if (value.match(/%5[cC]/)) {
-				var bsErr = /* @__PURE__ */ new TypeError("File URL path must not include encoded \\ characters");
-				bsErr.code = "ERR_INVALID_FILE_URL_PATH";
-				bsErr.input = url;
-				throw bsErr;
-			}
-			if (typeof value === "string" && value.length >= 4 && value.charAt(0) === "/" && value.charAt(2) === ":") value = value.slice(1);
-			return decodeURIComponent(value);
-		}
-		function pathToFileURL(path) {
-			if (path == null) throw new TypeError("Path is required");
-			var pathValue = String(path).replace(/\\/g, "/");
-			if (pathValue.charAt(0) === "/") return new URLExport("file://" + _encodeFileURLPath(pathValue));
-			return new URLExport("file:///" + _encodeFileURLPath(pathValue));
-		}
-		function format(urlObj, options) {
-			if (options !== void 0 && options !== null && typeof options !== "object") {
-				var err = /* @__PURE__ */ new TypeError("The \"options\" argument must be of type object. Received type " + typeof options);
-				err.code = "ERR_INVALID_ARG_TYPE";
-				throw err;
-			}
-			var url = _coerceUrl(urlObj);
-			var href = url.href;
-			if (options) {
-				if (options.auth === false) {
-					var authority = url.username ? url.password ? url.username + ":" + url.password + "@" : url.username + "@" : "";
-					if (authority) href = href.replace(authority, "");
-				}
-				if (options.fragment === false) {
-					var hashIdx = href.indexOf("#");
-					if (hashIdx !== -1) href = href.substring(0, hashIdx);
-				}
-				if (options.search === false) {
-					var searchIdx = href.indexOf("?");
-					var hashIdx2 = href.indexOf("#");
-					if (searchIdx !== -1) href = href.substring(0, searchIdx) + (hashIdx2 !== -1 ? href.substring(hashIdx2) : "");
-				}
-			}
-			return href;
-		}
-		function parse(value) {
-			if (typeof value !== "string") {
-				var err = /* @__PURE__ */ new TypeError("The \"url\" argument must be of type string. Received type " + (value === null ? "null" : typeof value));
-				err.code = "ERR_INVALID_ARG_TYPE";
-				throw err;
-			}
-			return URLExport.parse(value);
-		}
-		function resolve(from, to) {
-			return new URLExport(to, from).href;
-		}
-		module.exports = {
-			URL: URLExport,
-			URLSearchParams: URLSearchParamsExport,
-			createObjectURL: URLExport.createObjectURL,
-			revokeObjectURL: URLExport.revokeObjectURL,
-			format,
-			parse,
-			resolve,
-			fileURLToPath,
-			pathToFileURL,
-			canParse: _wrappedCanParse,
-			domainToASCII: typeof URLExport.domainToASCII === "function" ? URLExport.domainToASCII.bind(URLExport) : function(domain) {
-				return domain;
-			},
-			domainToUnicode: typeof URLExport.domainToUnicode === "function" ? URLExport.domainToUnicode.bind(URLExport) : function(domain) {
-				return domain;
-			}
-		};
-		return;
 	}
 	typeof globalThis !== "undefined" && typeof globalThis.__exactUrlCtor === "function" ? globalThis.__exactUrlCtor : typeof globalThis.URL === "function" && globalThis.URL;
 	typeof globalThis !== "undefined" && typeof globalThis.__exactUrlSearchParamsCtor === "function" ? globalThis.__exactUrlSearchParamsCtor : typeof globalThis.URLSearchParams === "function" && globalThis.URLSearchParams;
@@ -428,10 +226,7 @@
 		if (isSpecial && value.indexOf("%") !== -1) try {
 			value = decodeURIComponent(value);
 		} catch (_decodeHostErr) {}
-		if (isSpecial) {
-			value = value.replace(/\u00AD/g, "");
-			if (/[^.]\.$/.test(value)) value = value.slice(0, -1);
-		}
+		if (isSpecial) value = value.replace(/\u00AD/g, "");
 		var ipv6 = _normalizeIPv6Host(value);
 		if (ipv6 !== null) return ipv6;
 		if (isSpecial) {
@@ -1613,7 +1408,6 @@
 				var key = keys[j];
 				var keyValue = _toUSVString(key);
 				if (typeof init === "function" && (key === "length" || key === "name" || key === "prototype" || isNaN(init[key]) || !isFinite(init[key]))) continue;
-				if (typeof init === "object" && typeof init[key] === "undefined") continue;
 				if (typeof init === "function" && typeof init[key] === "number" && isFinite(init[key])) {
 					if (typeof keyToIndex[keyValue] === "number") normalized[keyToIndex[keyValue]][1] = String(init[key]);
 					else {
@@ -1768,13 +1562,7 @@
 			globalThis.URLSearchParams = URLSearchParamsExport;
 		}
 	}
-	function _coerceUrl(input) {
-		if (input == null) throw new TypeError("Expected URL or string");
-		if (typeof input === "string") return new URLExport(input);
-		if (typeof input === "object") return input;
-		throw new TypeError("Expected URL or string");
-	}
-	function fileURLToPath(path) {
+	function fileURLToPath(path, options) {
 		if (path === null || path === void 0 || typeof path === "boolean" || typeof path === "number" || typeof path === "function" || typeof path === "symbol" || typeof path === "object" && path !== null && typeof path.href !== "string") {
 			var typeMsg;
 			if (path === null) typeMsg = "null";
@@ -1785,6 +1573,7 @@
 			typeErr.code = "ERR_INVALID_ARG_TYPE";
 			throw typeErr;
 		}
+		if (typeof path === "string" && !path.startsWith("file:") && (!/^[A-Za-z][A-Za-z0-9+.-]*:/.test(path) || /^[A-Za-z]:[\\/]/.test(path))) return path;
 		var urlObj;
 		if (typeof path === "string") try {
 			urlObj = new URL(path);
@@ -1806,6 +1595,9 @@
 			throw hostErr;
 		}
 		var value = urlObj.pathname || "";
+		var isWin = false;
+		if (options && typeof options === "object" && options.windows !== void 0) isWin = !!options.windows;
+		else isWin = typeof process !== "undefined" && process.platform === "win32";
 		if (value.match(/%2[fF]/)) {
 			var pathErr = /* @__PURE__ */ new TypeError("File URL path must not include encoded / characters");
 			Object.defineProperty(pathErr, "code", {
@@ -1822,7 +1614,7 @@
 			});
 			throw pathErr;
 		}
-		if (value.match(/%5[cC]/)) {
+		if (isWin && value.match(/%5[cC]/)) {
 			var bsErr = /* @__PURE__ */ new TypeError("File URL path must not include encoded \\ characters");
 			Object.defineProperty(bsErr, "code", {
 				value: "ERR_INVALID_FILE_URL_PATH",
@@ -1838,7 +1630,7 @@
 			});
 			throw bsErr;
 		}
-		if (typeof value === "string" && value.length >= 3 && value[0] === "/" && value[2] === ":") value = value.slice(1);
+		if (isWin && typeof value === "string" && value.length >= 3 && value[0] === "/" && value[2] === ":") value = value.slice(1);
 		return decodeURIComponent(value);
 	}
 	function _encodeFileURLPathChar(ch) {
@@ -2189,12 +1981,24 @@
 			result.protocol = u.protocol || null;
 			var _protoStr = u.protocol || "";
 			var _protoSlashIdx = value.toLowerCase().indexOf(_protoStr.toLowerCase());
-			var _firstTwo = (_protoSlashIdx >= 0 ? value.slice(_protoSlashIdx + _protoStr.length) : "").slice(0, 2);
+			var _afterProto = _protoSlashIdx >= 0 ? value.slice(_protoSlashIdx + _protoStr.length) : "";
+			var _firstTwo = _afterProto.slice(0, 2);
 			result.slashes = _firstTwo === "//" || _firstTwo === "\\\\" ? true : null;
 			var _hasAuthority = result.slashes === true;
 			result.host = u.host ? u.host : _hasAuthority ? u.host : null;
 			result.port = u.port || null;
 			result.hostname = u.hostname ? u.hostname : _hasAuthority ? u.hostname : null;
+			if (_hasAuthority) {
+				var _legacyAuthorityText = _afterProto.slice(2);
+				var _legacyAuthorityEnd = _legacyAuthorityText.search(/[/?#]/);
+				if (_legacyAuthorityEnd !== -1) _legacyAuthorityText = _legacyAuthorityText.slice(0, _legacyAuthorityEnd);
+				var _legacyAuthority = _legacyParseHost(_legacyAuthorityText);
+				if (_legacyAuthority && _legacyAuthority.port) {
+					result.port = _legacyAuthority.port;
+					result.hostname = _legacyAuthority.hostname;
+					result.host = _legacyAuthority.host;
+				}
+			}
 			if (typeof result.hostname === "string" && result.hostname.charAt(0) === "[" && result.hostname.charAt(result.hostname.length - 1) === "]") result.hostname = result.hostname.slice(1, -1);
 			result.hash = u.hash || null;
 			result.search = u.search || null;
@@ -2646,14 +2450,24 @@
 		var options = {
 			protocol: url.protocol,
 			hostname: typeof url.hostname === "string" && url.hostname.indexOf("[") === 0 ? url.hostname.slice(1, -1) : url.hostname,
-			port: url.port !== "" && url.port !== void 0 ? Number(url.port) : NaN,
 			path: (url.pathname || "") + (url.search || ""),
 			pathname: url.pathname,
 			search: url.search,
 			hash: url.hash,
 			href: url.href
 		};
-		if (url.username || url.password) options.auth = (url.username || "") + (url.password ? ":" + url.password : "");
+		if (url.port !== "" && url.port !== void 0) options.port = Number(url.port);
+		if (url.username || url.password) {
+			var user = url.username || "";
+			var pass = url.password || "";
+			try {
+				user = decodeURIComponent(user);
+			} catch (_userDecodeErr) {}
+			try {
+				pass = decodeURIComponent(pass);
+			} catch (_passDecodeErr) {}
+			options.auth = user + ":" + pass;
+		}
 		return options;
 	}
 	function _domainToUnicode(domain) {

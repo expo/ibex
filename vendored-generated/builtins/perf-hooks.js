@@ -17,6 +17,10 @@ var _loopIdle = 0;
 var _loopInitialized = false;
 var _histogramSecret = {};
 function _perfNow() {
+	if (typeof __exactPerformanceNow === "function") try {
+		var nativeNow = __exactPerformanceNow();
+		if (typeof nativeNow === "number" && isFinite(nativeNow)) return nativeNow;
+	} catch (_) {}
 	if (typeof __exactHrtime === "function") {
 		var parts = __exactHrtime();
 		if (typeof parts === "string") {

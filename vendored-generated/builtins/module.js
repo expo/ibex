@@ -1074,15 +1074,38 @@ function isBuiltin(specifier) {
 function createRequire(filename) {
 	if (typeof filename === "object" && filename !== null && filename.href) filename = filename.href;
 	if (typeof filename === "string" && filename.indexOf("file://") === 0) filename = filename.slice(7);
+	filename = String(filename || "");
+	var parentDir = "";
 	if (typeof filename === "string") {
 		var lastSlash = filename.lastIndexOf("/");
-		if (lastSlash >= 0) filename.substring(0, lastSlash);
+		if (lastSlash >= 0) parentDir = filename.substring(0, lastSlash);
+		else parentDir = ".";
+	}
+	function resolveFromFilename(specifier) {
+		if (isBuiltin(specifier) || specifier.indexOf("node:") === 0) return specifier;
+		var resolver = typeof globalThis.__exactModuleResolveMeta === "function" ? globalThis.__exactModuleResolveMeta : typeof globalThis.__exactModuleResolve === "function" ? globalThis.__exactModuleResolve : null;
+		if (resolver) {
+			var resolved = resolver(specifier, filename);
+			if (typeof resolved === "string") try {
+				var record = JSON.parse(resolved);
+				if (record && record.error) throw new Error(record.error);
+				return record && (record.path || record.id) || specifier;
+			} catch (parseErr) {
+				if (resolved.charAt(0) === "{") throw parseErr;
+				return resolved;
+			}
+			if (resolved && (resolved.path || resolved.id)) return resolved.path || resolved.id;
+		}
+		if (specifier.charAt(0) === "." && parentDir) return parentDir + "/" + specifier;
+		if (globalThis.require && globalThis.require.resolve) return globalThis.require.resolve(specifier);
+		return specifier;
 	}
 	var _require = function(specifier) {
-		return globalThis.require(specifier);
+		if (isBuiltin(specifier) || specifier.indexOf("node:") === 0) return globalThis.require(specifier);
+		return globalThis.require(resolveFromFilename(specifier));
 	};
 	_require.resolve = function(specifier) {
-		return globalThis.require.resolve(specifier);
+		return resolveFromFilename(specifier);
 	};
 	_require.resolve.paths = function(specifier) {
 		return globalThis.require.resolve.paths ? globalThis.require.resolve.paths(specifier) : null;

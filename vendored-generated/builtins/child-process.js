@@ -692,7 +692,7 @@ function _validateSignalOption(signal) {
 		}
 	}
 }
-var _signalMapDarwin = {
+var _signalMapDarwinFallback = {
 	SIGHUP: 1,
 	SIGINT: 2,
 	SIGQUIT: 3,
@@ -725,7 +725,7 @@ var _signalMapDarwin = {
 	SIGINFO: 29,
 	SIGSYS: 12
 };
-var _signalMapLinux = {
+var _signalMapLinuxFallback = {
 	SIGHUP: 1,
 	SIGINT: 2,
 	SIGQUIT: 3,
@@ -761,9 +761,27 @@ var _signalMapLinux = {
 	SIGSYS: 31
 };
 var _signalPlatform = typeof process !== "undefined" && process.platform || "darwin";
-var _signalMap = _signalPlatform === "linux" || _signalPlatform === "android" ? _signalMapLinux : _signalMapDarwin;
+function _loadSignalMap() {
+	var fallback = _signalPlatform === "linux" || _signalPlatform === "android" ? _signalMapLinuxFallback : _signalMapDarwinFallback;
+	var out = {};
+	for (var fk in fallback) out[fk] = fallback[fk];
+	var nativeMap = null;
+	if (typeof globalThis !== "undefined" && globalThis.__exactSignalNumbersMap) nativeMap = globalThis.__exactSignalNumbersMap;
+	else if (typeof __exactSignalNumbers === "function") try {
+		nativeMap = __exactSignalNumbers();
+	} catch (_) {}
+	if (nativeMap) {
+		for (var nk in nativeMap) if (typeof nativeMap[nk] === "number") out[nk] = nativeMap[nk];
+	}
+	return out;
+}
+var _signalMap = _loadSignalMap();
 var _signalNumbers = {};
 for (var _sk in _signalMap) if (_signalNumbers[_signalMap[_sk]] === void 0) _signalNumbers[_signalMap[_sk]] = _sk;
+if (typeof globalThis !== "undefined") {
+	globalThis.__exactSignalNumbersMap = globalThis.__exactSignalNumbersMap || _signalMap;
+	globalThis.__exactSignalNamesMap = globalThis.__exactSignalNamesMap || _signalNumbers;
+}
 function _isValidSignal(signal) {
 	if (typeof signal === "number") return Number.isInteger(signal) && signal > 0 && _signalNumbers[signal] !== void 0;
 	if (typeof signal === "string") return _signalMap[signal.toUpperCase()] !== void 0;

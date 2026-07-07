@@ -160,6 +160,11 @@ function _createStreamDestroyedError() {
 	err.code = "ERR_STREAM_DESTROYED";
 	return err;
 }
+function _createWriteAfterEndError() {
+	var err = /* @__PURE__ */ new Error("write after end");
+	err.code = "ERR_STREAM_WRITE_AFTER_END";
+	return err;
+}
 function _createMethodNotImplementedError(methodName) {
 	var err = /* @__PURE__ */ new Error("The " + methodName + "() method is not implemented");
 	err.code = "ERR_METHOD_NOT_IMPLEMENTED";
@@ -252,6 +257,11 @@ function _hasInvalidTransferEncoding(value) {
 }
 function _hasDuplicateContentLength(value) {
 	return Array.isArray(value) && value.length > 1;
+}
+function _isValidContentLengthValue(value) {
+	if (Array.isArray(value)) return value.length === 1 && _isValidContentLengthValue(value[0]);
+	if (value === void 0 || value === null) return true;
+	return /^\d+$/.test(String(value).trim());
 }
 function _findInvalidHeaderLineBreak(data) {
 	if (!data) return -1;
@@ -2867,6 +2877,12 @@ ClientRequest.prototype._attachToSocket = function(socket, requestOptions) {
 				return;
 			}
 			if (Array.isArray(cl)) cl = cl[0];
+			if (cl !== void 0 && !_isValidContentLengthValue(cl)) {
+				var badClIndex = headerSection.toLowerCase().indexOf("content-length");
+				if (badClIndex < 0) badClIndex = 0;
+				emitResponseParseError(responseBuffer, badClIndex, false, "HPE_INVALID_CONTENT_LENGTH", "Invalid Content-Length");
+				return;
+			}
 			if (cl !== void 0) contentLength = parseInt(cl, 10) || 0;
 			if (te && _hasChunkedTransferEncoding(te)) isChunked = true;
 			skipResponseBody = !_responseCanHaveBody(statusCode, self.method);
@@ -4149,6 +4165,10 @@ HttpRequestParser.prototype._parse = function() {
 					this._emitParseError("invalid_transfer_encoding", this._rawPacket, this._rawPacket.length);
 					return;
 				}
+				if (cl !== void 0 && !_isValidContentLengthValue(cl)) {
+					this._emitParseError("invalid_content_length", this._rawPacket, this._rawPacket.length);
+					return;
+				}
 				this._rawPacket = "";
 				if (Array.isArray(te)) te = te.join(", ");
 				if (Array.isArray(cl)) cl = cl[0];
@@ -4336,6 +4356,10 @@ function ServerResponse(reqOrServerId, requestId) {
 	this._finished = false;
 	this._streaming = false;
 	this._bodyParts = [];
+	this._nativeWriteQueue = [];
+	this._nativeWriteInFlight = false;
+	this._nativeNeedDrain = false;
+	this._nativeStreamFatalError = null;
 	this.socket = null;
 	this._socketDrainListener = null;
 	this.writableEnded = false;
@@ -4388,7 +4412,7 @@ Object.defineProperty(ServerResponse.prototype, "connection", {
 });
 Object.defineProperty(ServerResponse.prototype, "writableNeedDrain", {
 	get: function() {
-		return !!(this.socket && this.socket.writableNeedDrain);
+		return !!(this._nativeNeedDrain || this.socket && this.socket.writableNeedDrain);
 	},
 	enumerable: true,
 	configurable: true
@@ -4639,15 +4663,157 @@ ServerResponse.prototype._ensureStreaming = function() {
 		this._headersSent = true;
 		return true;
 	}
+	this._failNativeStream(_createNativeResponseSendError("start"));
 	return false;
 };
-ServerResponse.prototype._sendChunk = function(chunk) {
-	if (typeof __exactHttpRespondChunk !== "function") return;
+var HTTP_RESPOND_WOULD_BLOCK = 2;
+function _hasAsyncNativeHttpStream() {
+	return typeof __exactHttpRespondChunkTry === "function" && typeof __exactHttpRespondEndTry === "function" && typeof __exactHttpAwaitWritable === "function";
+}
+function _createNativeResponseSendError(action) {
+	var err = /* @__PURE__ */ new Error("HTTP response stream " + action + " failed");
+	err.code = "EPIPE";
+	return err;
+}
+function _scheduleNativeStreamCallback(callback, err) {
+	if (typeof callback !== "function") return;
+	setTimeout(function() {
+		if (err) callback(err);
+		else callback();
+	}, 0);
+}
+ServerResponse.prototype._failNativeStream = function(err) {
+	if (this._nativeStreamFatalError) return;
+	err = err || _createNativeResponseSendError("write");
+	this._nativeStreamFatalError = err;
+	this.errored = err;
+	var pending = this._nativeWriteQueue.splice(0);
+	for (var i = 0; i < pending.length; i++) _scheduleNativeStreamCallback(pending[i].callback, err);
+	_resetOutgoingBufferState(this);
+	if (this.listenerCount && this.listenerCount("error") > 0) {
+		var self = this;
+		setTimeout(function() {
+			self.emit("error", err);
+		}, 0);
+	}
+	if (this._nativeMode && typeof __exactHttpRespondAbort === "function") try {
+		__exactHttpRespondAbort(this._serverId, this._requestId);
+	} catch (_abortErr) {}
+	this.destroy(err);
+};
+ServerResponse.prototype._finishNativeStream = function() {
+	_resetOutgoingBufferState(this);
+	this.writableFinished = true;
+	var self = this;
+	setTimeout(function() {
+		self.emit("finish");
+		if (!self._closed) {
+			self._closed = true;
+			self.closed = true;
+			self.emit("close");
+		}
+	}, 0);
+};
+ServerResponse.prototype._issueNativeStreamItem = function(item) {
+	if (item.type === "end") {
+		if (_hasAsyncNativeHttpStream()) return __exactHttpRespondEndTry(this._serverId, this._requestId);
+		if (typeof __exactHttpRespondEnd === "function") {
+			var endResult = __exactHttpRespondEnd(this._serverId, this._requestId);
+			return endResult === void 0 ? 0 : endResult;
+		}
+		return -1;
+	}
+	if (_hasAsyncNativeHttpStream()) return __exactHttpRespondChunkTry(this._serverId, this._requestId, item.chunk);
+	if (typeof __exactHttpRespondChunk === "function") {
+		var chunkResult = __exactHttpRespondChunk(this._serverId, this._requestId, item.chunk);
+		return chunkResult === void 0 ? 0 : chunkResult;
+	}
+	return -1;
+};
+ServerResponse.prototype._processNativeWriteQueue = function() {
+	if (this._nativeWriteInFlight || this.destroyed || this._nativeStreamFatalError) return;
+	var self = this;
+	while (this._nativeWriteQueue.length > 0) {
+		var item = this._nativeWriteQueue[0];
+		var code;
+		try {
+			code = this._issueNativeStreamItem(item);
+		} catch (err) {
+			this._failNativeStream(err);
+			return;
+		}
+		if (code === 0 || code === void 0) {
+			this._nativeWriteQueue.shift();
+			_consumeOutgoingBytes(this, item.length || 0);
+			_scheduleNativeStreamCallback(item.callback, null);
+			if (item.type === "end") {
+				this._finishNativeStream();
+				return;
+			}
+			continue;
+		}
+		if (code === HTTP_RESPOND_WOULD_BLOCK && _hasAsyncNativeHttpStream()) {
+			this._nativeWriteInFlight = true;
+			__exactHttpAwaitWritable(this._serverId, this._requestId, 0).then(function(ready) {
+				self._nativeWriteInFlight = false;
+				if (self.destroyed || self._nativeStreamFatalError) return;
+				if (ready === 0) {
+					self._processNativeWriteQueue();
+					return;
+				}
+				self._failNativeStream(_createNativeResponseSendError("write"));
+			}).catch(function(err) {
+				self._nativeWriteInFlight = false;
+				self._failNativeStream(err);
+			});
+			return;
+		}
+		this._failNativeStream(_createNativeResponseSendError(item.type === "end" ? "end" : "write"));
+		return;
+	}
+	if (this._nativeNeedDrain) {
+		this._nativeNeedDrain = false;
+		setTimeout(function() {
+			if (!self.destroyed && !self._closed) self.emit("drain");
+		}, 0);
+	}
+};
+ServerResponse.prototype._enqueueNativeStreamItem = function(item) {
+	if (item.length) _recordOutgoingBytes(this, item.length);
+	this._nativeWriteQueue.push(item);
+	this._processNativeWriteQueue();
+	if (this._nativeWriteQueue.length > 0 || this._nativeWriteInFlight) {
+		this._nativeNeedDrain = true;
+		return false;
+	}
+	return !this._nativeStreamFatalError && this.writableLength < this.writableHighWaterMark;
+};
+ServerResponse.prototype._sendChunk = function(chunk, callback) {
+	if (this._nativeStreamFatalError) {
+		_scheduleNativeStreamCallback(callback, this._nativeStreamFatalError);
+		return false;
+	}
 	if (typeof chunk === "string") {
 		var encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
-		var bytes = encoder ? encoder.encode(chunk) : null;
-		if (bytes) __exactHttpRespondChunk(this._serverId, this._requestId, bytes);
-	} else if (chunk) __exactHttpRespondChunk(this._serverId, this._requestId, chunk);
+		chunk = encoder ? encoder.encode(chunk) : _toOutgoingBodyPart(chunk);
+	}
+	if (!chunk || !chunk.length) {
+		_scheduleNativeStreamCallback(callback, null);
+		return true;
+	}
+	return this._enqueueNativeStreamItem({
+		type: "chunk",
+		chunk,
+		length: _getOutgoingBodyPartLength(chunk),
+		callback
+	});
+};
+ServerResponse.prototype._sendNativeStreamEnd = function() {
+	return this._enqueueNativeStreamItem({
+		type: "end",
+		length: 0,
+		callback: null
+	});
 };
 ServerResponse.prototype.write = function(chunk, encoding, callback) {
 	if (typeof encoding === "function") {
@@ -4655,11 +4821,19 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
 		encoding = void 0;
 	}
 	if (this._finished) {
-		if (callback) callback(/* @__PURE__ */ new Error("write after end"));
+		var writeAfterEndErr = _createWriteAfterEndError();
+		if (callback) setTimeout(function() {
+			callback(writeAfterEndErr);
+		}, 0);
+		var selfWriteAfterEnd = this;
+		setTimeout(function() {
+			selfWriteAfterEnd.emit("error", writeAfterEndErr);
+		}, 0);
 		return false;
 	}
 	var writeOk = true;
 	var chunkLen = 0;
+	var callbackHandled = false;
 	if (chunk === null) throw _createNullWriteError();
 	if (chunk !== void 0 && chunk !== null) {
 		if (!_isOutgoingChunk(chunk)) throw _createInvalidChunkTypeError(chunk);
@@ -4677,8 +4851,14 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
 		}
 		_checkStrictContentLength(this, chunkLen, false);
 		var data = this._nativeMode ? _toOutgoingBodyPart(chunk, encoding) : _coerceServerResponseSocketChunk(chunk, encoding);
-		if (this._nativeMode && this._ensureStreaming()) this._sendChunk(data);
-		else if (this._streaming && this.socket && !this._nativeMode) if (this._useChunkedEncoding) try {
+		if (this._nativeMode && this._ensureStreaming()) {
+			writeOk = this._sendChunk(data, callback);
+			callbackHandled = true;
+		} else if (this._nativeMode && this._nativeStreamFatalError) {
+			_scheduleNativeStreamCallback(callback, this._nativeStreamFatalError);
+			callbackHandled = true;
+			writeOk = false;
+		} else if (this._streaming && this.socket && !this._nativeMode) if (this._useChunkedEncoding) try {
 			writeOk = _writeChunkedSocketFrame(this.socket, data);
 		} catch (e) {
 			writeOk = false;
@@ -4695,9 +4875,10 @@ ServerResponse.prototype.write = function(chunk, encoding, callback) {
 		}
 		_recordStrictContentLength(this, chunkLen);
 	}
-	if (callback) setTimeout(callback, 0);
+	if (callback && !callbackHandled) setTimeout(callback, 0);
 	var responseWriteOk = writeOk && this.writableLength < this.writableHighWaterMark;
-	if (!responseWriteOk) _scheduleOutgoingDrainFallback(this);
+	if (!responseWriteOk) if (this._nativeMode) this._nativeNeedDrain = true;
+	else _scheduleOutgoingDrainFallback(this);
 	return responseWriteOk;
 };
 ServerResponse.prototype._streamChunk = function(data, callback) {
@@ -4772,20 +4953,8 @@ ServerResponse.prototype.end = function(chunk, encoding, callback) {
 	this._finished = true;
 	this.finished = true;
 	this.writableEnded = true;
-	if (this._nativeMode) if (this._streaming) {
-		if (typeof __exactHttpRespondEnd === "function") __exactHttpRespondEnd(this._serverId, this._requestId);
-		_resetOutgoingBufferState(this);
-		this.writableFinished = true;
-		var selfStreaming = this;
-		setTimeout(function() {
-			selfStreaming.emit("finish");
-			if (!selfStreaming._closed) {
-				selfStreaming._closed = true;
-				selfStreaming.closed = true;
-				selfStreaming.emit("close");
-			}
-		}, 0);
-	} else this._sendNativeResponse();
+	if (this._nativeMode) if (this._streaming) this._sendNativeStreamEnd();
+	else this._sendNativeResponse();
 	else this._sendSocketResponse();
 	return this;
 };
@@ -4795,8 +4964,13 @@ ServerResponse.prototype._sendNativeResponse = function() {
 	var body = _concatOutgoingBodyParts(this._bodyParts);
 	var statusCode = _getServerResponseStatusCode(this);
 	this._headersSent = true;
-	if (typeof __exactHttpRespond === "function") __exactHttpRespond(this._serverId, this._requestId, statusCode, headersJson, body);
-	else if (typeof __exactHttpRespondString === "function") __exactHttpRespondString(this._serverId, this._requestId, statusCode, headersJson, typeof Buffer !== "undefined" && Buffer.isBuffer(body) ? body.toString("utf8") : body);
+	var result = 0;
+	if (typeof __exactHttpRespond === "function") result = __exactHttpRespond(this._serverId, this._requestId, statusCode, headersJson, body);
+	else if (typeof __exactHttpRespondString === "function") result = __exactHttpRespondString(this._serverId, this._requestId, statusCode, headersJson, typeof Buffer !== "undefined" && Buffer.isBuffer(body) ? body.toString("utf8") : body);
+	if (result === -1) {
+		this._failNativeStream(_createNativeResponseSendError("respond"));
+		return;
+	}
 	_resetOutgoingBufferState(this);
 	this.writableFinished = true;
 	var self = this;
@@ -5409,10 +5583,13 @@ ServerIncomingMessage.prototype.destroy = function(err) {
 			self.emit("close");
 		}
 		var socket = self.socket;
-		var activeResponse = socket && socket._httpMessage;
-		if (socket && !socket.destroyed && activeResponse && activeResponse._finished !== true) try {
-			self.socket.destroy();
+		var activeResponse = self._res || socket && socket._httpMessage;
+		if (activeResponse && !activeResponse.destroyed && activeResponse._finished !== true) try {
+			activeResponse.destroy();
 		} catch (e) {}
+		else if (socket && !socket.destroyed && activeResponse && activeResponse._finished !== true) try {
+			socket.destroy();
+		} catch (e2) {}
 	}, 0);
 	return this;
 };
@@ -5542,8 +5719,9 @@ function Server(options, requestListener) {
 	this._listening = false;
 	this._closing = false;
 	this._port = 0;
-	this._hostname = "127.0.0.1";
+	this._hostname = void 0;
 	this._netServer = null;
+	this._maxConnections = void 0;
 	this._serverId = 0;
 	this._useNative = false;
 	this._sockets = typeof Set === "function" ? /* @__PURE__ */ new Set() : null;
@@ -5629,6 +5807,17 @@ Server.prototype.constructor = Server;
 Object.defineProperty(Server.prototype, "listening", {
 	get: function() {
 		return this._listening;
+	},
+	enumerable: true,
+	configurable: true
+});
+Object.defineProperty(Server.prototype, "maxConnections", {
+	get: function() {
+		return this._netServer ? this._netServer.maxConnections : this._maxConnections;
+	},
+	set: function(value) {
+		this._maxConnections = value;
+		if (this._netServer) this._netServer.maxConnections = value;
 	},
 	enumerable: true,
 	configurable: true
@@ -5741,6 +5930,22 @@ Server.prototype._onConnection = function(socket) {
 			} catch (_destroyErrInvalidTe) {}
 		}
 	}
+	function sendInvalidContentLengthAndClose(rawPacket, bytesParsed) {
+		emitClientParseError(self, socket, rawPacket, bytesParsed, "HPE_INVALID_CONTENT_LENGTH", "Invalid Content-Length");
+		if (socket.destroyed) return;
+		if (typeof self.listenerCount === "function" && self.listenerCount("clientError") > 0) return;
+		try {
+			socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n", function() {
+				if (!socket.destroyed) try {
+					socket.destroy();
+				} catch (_destroyAfterInvalidClErr) {}
+			});
+		} catch (_writeErrInvalidCl) {
+			try {
+				socket.destroy();
+			} catch (_destroyErrInvalidCl) {}
+		}
+	}
 	function sendLfExpectedAndClose(rawPacket, bytesParsed) {
 		emitClientParseError(self, socket, rawPacket, bytesParsed, "HPE_LF_EXPECTED", "Missing expected LF after header value");
 		if (socket.destroyed) return;
@@ -5819,14 +6024,17 @@ Server.prototype._onConnection = function(socket) {
 		if (!socket.parser || !parser) return false;
 		return parser._state !== 0 || typeof parser._buffer === "string" && parser._buffer.length > 0;
 	}
+	var socketDataListener = null;
+	var socketCloseListener = null;
+	var socketErrorListener = null;
 	function detachServerHttpSocket() {
 		clearHeadersTimeout();
 		clearRequestTimeout();
 		clearKeepAliveTimeout();
-		socket.removeAllListeners("data");
-		socket.removeAllListeners("close");
-		socket.removeAllListeners("error");
-		socket.removeAllListeners("timeout");
+		if (socketDataListener) socket.removeListener("data", socketDataListener);
+		if (socketCloseListener) socket.removeListener("close", socketCloseListener);
+		if (socketErrorListener) socket.removeListener("error", socketErrorListener);
+		if (socket._exactServerSocketTimeoutListener) socket.removeListener("timeout", socket._exactServerSocketTimeoutListener);
 		socket[kTimeout] = null;
 		if (self._sockets) self._sockets.delete(socket);
 	}
@@ -6072,6 +6280,10 @@ Server.prototype._onConnection = function(socket) {
 			sendInvalidTransferEncodingAndClose(rawPacket, bytesParsed);
 			return;
 		}
+		if (code === "invalid_content_length") {
+			sendInvalidContentLengthAndClose(rawPacket, bytesParsed);
+			return;
+		}
 		if (code === "lf_expected") {
 			sendLfExpectedAndClose(rawPacket, bytesParsed);
 			return;
@@ -6099,7 +6311,7 @@ Server.prototype._onConnection = function(socket) {
 		if (completedReq && completedReq.complete) _activeReq = null;
 	};
 	armRequestParsingTimeouts();
-	socket.on("data", function(chunk) {
+	socketDataListener = function(chunk) {
 		clearKeepAliveTimeout();
 		if (socket._headersTimeoutAt && Date.now() >= socket._headersTimeoutAt || socket._requestTimeoutAt && Date.now() >= socket._requestTimeoutAt) {
 			sendRequestTimeout();
@@ -6113,10 +6325,11 @@ Server.prototype._onConnection = function(socket) {
 			parser.execute(chunk);
 			if (socket._isIdle) armPendingRequestTimeouts();
 		}
-	});
+	};
+	socket.on("data", socketDataListener);
 	var _activeReq = null;
 	var _activeRes = null;
-	socket.on("close", function() {
+	socketCloseListener = function() {
 		clearHeadersTimeout();
 		clearRequestTimeout();
 		clearKeepAliveTimeout();
@@ -6149,8 +6362,19 @@ Server.prototype._onConnection = function(socket) {
 		if (socket._httpMessage) socket._httpMessage = null;
 		if (parser) parser.close();
 		if (self._sockets) self._sockets.delete(socket);
-	});
-	socket.on("error", function() {});
+	};
+	socket.on("close", socketCloseListener);
+	socketErrorListener = function(err) {
+		if (err && typeof err.code === "string" && err.code.indexOf("HPE_") === 0) return;
+		if (typeof self.listenerCount === "function" && self.listenerCount("clientError") > 0) {
+			self.emit("clientError", err, socket);
+			return;
+		}
+		if (!socket.destroyed && typeof socket.destroy === "function") try {
+			socket.destroy(err);
+		} catch (_destroyAfterSocketErrorErr) {}
+	};
+	socket.on("error", socketErrorListener);
 	parser.onRequest = function(reqData) {
 		if (_activeReq && reqData.bodyComplete === false) return;
 		emitServerRequest(reqData, false);
@@ -6161,25 +6385,31 @@ Server.prototype._onConnection = function(socket) {
 	}
 };
 Server.prototype.listen = function(port, hostname, callback) {
+	var listenOptions = null;
+	var hasExplicitHost = false;
 	if (typeof port === "function") {
 		callback = port;
 		port = 0;
-		hostname = "0.0.0.0";
 	} else if (typeof port === "object" && port !== null) {
 		var opts = port;
-		port = opts.port || 0;
+		if (opts.path !== void 0) {
+			listenOptions = opts;
+			port = opts.path;
+		} else {
+			port = opts.port || 0;
+			if (opts.host !== void 0 || opts.hostname !== void 0) hasExplicitHost = true;
+		}
 		if (typeof hostname === "function") {
 			callback = hostname;
 			hostname = void 0;
 		}
-		hostname = opts.host || opts.hostname || hostname || "127.0.0.1";
-	}
+		if (listenOptions === null) hostname = opts.host || opts.hostname || hostname;
+	} else if (typeof hostname === "string") hasExplicitHost = true;
 	if (typeof hostname === "function") {
 		callback = hostname;
-		hostname = "127.0.0.1";
+		hostname = void 0;
 	}
 	port = port || 0;
-	hostname = hostname || "127.0.0.1";
 	if (typeof callback === "function") this.once("listening", callback);
 	this._port = port;
 	this._hostname = hostname;
@@ -6188,15 +6418,19 @@ Server.prototype.listen = function(port, hostname, callback) {
 		this._netServer.on("error", function(err) {
 			self.emit("error", err);
 		});
-		this._netServer.listen(port, hostname, function() {
+		var onNetListening = function() {
 			self._port = self._netServer && self._netServer._port ? self._netServer._port : self._port;
 			self._hostname = self._netServer && self._netServer._host ? self._netServer._host : self._hostname;
 			self._listening = true;
 			self.emit("listening", null, normalizeListenCallbackHost(self._hostname), self._port);
-		});
+		};
+		if (listenOptions !== null) this._netServer.listen(listenOptions, onNetListening);
+		else if (hasExplicitHost || hostname !== void 0) this._netServer.listen(port, hostname, onNetListening);
+		else this._netServer.listen(port, onNetListening);
 	} else if (typeof __exactHttpServe === "function") {
 		this._useNative = true;
-		var resultJson = __exactHttpServe(port, hostname);
+		var nativeHost = hostname == null ? "0.0.0.0" : hostname;
+		var resultJson = __exactHttpServe(port, nativeHost);
 		var result;
 		try {
 			result = JSON.parse(resultJson);
@@ -6217,6 +6451,7 @@ Server.prototype.listen = function(port, hostname, callback) {
 		}
 		this._serverId = result.id;
 		this._port = result.port || port;
+		this._hostname = nativeHost;
 		this._listening = true;
 		var self4 = this;
 		setTimeout(function() {
@@ -6279,6 +6514,12 @@ Server.prototype._handleNativeRequest = function(json) {
 	}
 	var req = _createServerIncomingMessage(this, data, this._serverId, null);
 	var res = _createServerResponse(this, null, this._serverId, data.id || 0);
+	req._res = res;
+	res.req = req;
+	res._req = req;
+	res.once("close", function() {
+		if (req._res === res) req._res = null;
+	});
 	if (req.listenerCount && req.listenerCount("data") > 0) req.resume();
 	this.emit("request", req, res);
 };

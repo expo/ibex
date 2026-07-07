@@ -1,5 +1,5 @@
 //#region src/builtins/diagnostics-channel.js
-var channels = {};
+var channels = typeof Map === "function" ? /* @__PURE__ */ new Map() : {};
 function Channel(name) {
 	this.name = name;
 	this._subscribers = [];
@@ -27,14 +27,20 @@ Object.defineProperty(Channel.prototype, "hasSubscribers", { get: function() {
 } });
 function channel(name) {
 	if (typeof name !== "string" && typeof name !== "symbol") throw new TypeError("Channel name must be a string or Symbol");
-	var key = String(name);
+	if (channels && typeof channels.get === "function") {
+		var existing = channels.get(name);
+		if (existing) return existing;
+		var created = new Channel(name);
+		channels.set(name, created);
+		return created;
+	}
+	var key = typeof name === "symbol" ? name : String(name);
 	if (!channels[key]) channels[key] = new Channel(name);
 	return channels[key];
 }
 function hasSubscribers(name) {
-	var key = String(name);
-	if (!channels[key]) return false;
-	return channels[key].hasSubscribers;
+	var ch = channels && typeof channels.get === "function" ? channels.get(name) : channels[typeof name === "symbol" ? name : String(name)];
+	return !!(ch && ch.hasSubscribers);
 }
 function TracingChannel(nameOrChannels) {
 	if (typeof nameOrChannels === "string") {

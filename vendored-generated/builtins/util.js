@@ -75,13 +75,16 @@ function format(value) {
 	}
 	var i = 1;
 	var args = arguments;
-	var result = value.replace(/%[sdjoO%]/g, function(match) {
+	var result = value.replace(/%[sdifjoOc%]/g, function(match) {
 		if (match === "%%") return "%";
 		if (i >= args.length) return match;
 		var arg = args[i];
 		i += 1;
 		if (match === "%s") return String(arg);
 		if (match === "%d") return String(Number(arg));
+		if (match === "%i") return String(parseInt(arg, 10));
+		if (match === "%f") return String(parseFloat(arg));
+		if (match === "%c") return "";
 		if (match === "%j") return JSON.stringify(arg);
 		if (match === "%o" || match === "%O") return inspect(arg);
 		return match;
@@ -106,13 +109,16 @@ function formatWithOptions(inspectOptions) {
 	var i = 2;
 	var args = arguments;
 	var opts = inspectOptions;
-	var result = value.replace(/%[sdjoO%]/g, function(match) {
+	var result = value.replace(/%[sdifjoOc%]/g, function(match) {
 		if (match === "%%") return "%";
 		if (i >= args.length) return match;
 		var arg = args[i];
 		i += 1;
 		if (match === "%s") return String(arg);
 		if (match === "%d") return String(Number(arg));
+		if (match === "%i") return String(parseInt(arg, 10));
+		if (match === "%f") return String(parseFloat(arg));
+		if (match === "%c") return "";
 		if (match === "%j") return JSON.stringify(arg);
 		if (match === "%o" || match === "%O") return inspect(arg, opts);
 		return match;
@@ -245,7 +251,19 @@ function inspect(value, options) {
 					result += baseIndent + "]";
 				} else result = singleLine;
 			}
-			else if (val instanceof Date) result = _colorize(val.toISOString(), "date");
+			else if (typeof Map !== "undefined" && val instanceof Map) {
+				var mapParts = [];
+				val.forEach(function(mapValue, mapKey) {
+					mapParts.push(_inspect(mapKey, currentDepth + 1) + " => " + _inspect(mapValue, currentDepth + 1));
+				});
+				result = "Map(" + val.size + ") {" + (mapParts.length ? " " + mapParts.join(", ") + " " : "") + "}";
+			} else if (typeof Set !== "undefined" && val instanceof Set) {
+				var setParts = [];
+				val.forEach(function(setValue) {
+					setParts.push(_inspect(setValue, currentDepth + 1));
+				});
+				result = "Set(" + val.size + ") {" + (setParts.length ? " " + setParts.join(", ") + " " : "") + "}";
+			} else if (val instanceof Date) result = _colorize(val.toISOString(), "date");
 			else if (val instanceof RegExp) result = _colorize(String(val), "regexp");
 			else if (val instanceof Error) {
 				var stack = typeof val.stack === "string" && val.stack ? val.stack : "";

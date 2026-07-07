@@ -217,41 +217,18 @@ function userInfoCompat(options) {
 }
 var EOL = _platform === "win32" ? "\r\n" : "\n";
 var devNull = _platform === "win32" ? "\\\\.\\NUL" : "/dev/null";
+function pickConstants(prefixRe) {
+	var out = {};
+	try {
+		var nodeConstants = require("constants");
+		var keys = Object.keys(nodeConstants || {});
+		for (var i = 0; i < keys.length; i++) if (prefixRe.test(keys[i]) && typeof nodeConstants[keys[i]] === "number") out[keys[i]] = nodeConstants[keys[i]];
+	} catch (_) {}
+	return out;
+}
 var constants = {
-	signals: {
-		SIGHUP: 1,
-		SIGINT: 2,
-		SIGQUIT: 3,
-		SIGILL: 4,
-		SIGTRAP: 5,
-		SIGABRT: 6,
-		SIGIOT: 6,
-		SIGBUS: 10,
-		SIGFPE: 8,
-		SIGKILL: 9,
-		SIGUSR1: 30,
-		SIGSEGV: 11,
-		SIGUSR2: 31,
-		SIGPIPE: 13,
-		SIGALRM: 14,
-		SIGTERM: 15,
-		SIGCHLD: 20,
-		SIGCONT: 19,
-		SIGSTOP: 17,
-		SIGTSTP: 18,
-		SIGTTIN: 21,
-		SIGTTOU: 22,
-		SIGURG: 16,
-		SIGXCPU: 24,
-		SIGXFSZ: 25,
-		SIGVTALRM: 26,
-		SIGPROF: 27,
-		SIGWINCH: 28,
-		SIGIO: 23,
-		SIGINFO: 29,
-		SIGSYS: 12
-	},
-	errno: {},
+	signals: pickConstants(/^SIG/),
+	errno: pickConstants(/^E[A-Z0-9]+$/),
 	priority: {
 		PRIORITY_LOW: 19,
 		PRIORITY_BELOW_NORMAL: 10,

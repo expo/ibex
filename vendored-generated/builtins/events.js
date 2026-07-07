@@ -102,9 +102,9 @@ function checkListener(listener) {
 		throw err;
 	}
 }
-function EventEmitter() {
+function EventEmitter(opts) {
 	if (!(this instanceof EventEmitter) && this && this.constructor !== EventEmitter) {}
-	EventEmitter.init.call(this);
+	EventEmitter.init.call(this, opts);
 }
 function EventEmitterAsyncResource(type, options) {
 	if (!(this instanceof EventEmitterAsyncResource)) return new EventEmitterAsyncResource(type, options);
@@ -125,6 +125,7 @@ EventEmitterAsyncResource.prototype.emit = function emit(eventName) {
 EventEmitter.init = function init(opts) {
 	if (this._events === void 0 || this._events === Object.getPrototypeOf(this)._events) this._events = Object.create(null);
 	this._maxListeners = this._maxListeners || void 0;
+	if (opts && Object.prototype.hasOwnProperty.call(opts, "captureRejections")) this.captureRejections = opts.captureRejections === true;
 };
 EventEmitter.prototype._events = void 0;
 EventEmitter.prototype._maxListeners = void 0;
