@@ -57,6 +57,11 @@ struct WebSocketEntry {
 
     std::mutex io_mutex;
     std::queue<OutboundMessage> outbound;
+    // Client close request, written by the JS thread under io_mutex and
+    // consumed by the io thread once close_requested is observed.
+    uint16_t close_code = 1005;
+    std::string close_reason;
+    std::atomic<bool> close_requested{false};
     std::atomic<bool> closed{false};
     std::atomic<bool> receive_paused{false};
     std::atomic<bool> flow_controlled_receive{false};
@@ -217,35 +222,104 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
     bool message_is_text = false;
     bool message_in_progress = false;
 
+    // Client-initiated close handshake state. The io thread is the only
+    // thread that ever touches entry->curl: the JS thread just records the
+    // requested code/reason and sets close_requested. After the CLOSE frame
+    // goes out we keep reading until the peer's CLOSE arrives (or the
+    // handshake times out) so the close callback always fires.
+    constexpr auto kCloseHandshakeTimeout = std::chrono::seconds(5);
+    bool close_sent = false;
+    uint16_t requested_close_code = 1005;
+    std::string requested_close_reason;
+    std::chrono::steady_clock::time_point close_sent_at{};
+
     while (!entry->closed.load(std::memory_order_relaxed)) {
-        // Drain outbound messages first.
-        for (;;) {
-            OutboundMessage msg;
-            {
-                std::lock_guard<std::mutex> lock(entry->io_mutex);
-                if (entry->outbound.empty()) {
+        if (close_sent &&
+            std::chrono::steady_clock::now() - close_sent_at > kCloseHandshakeTimeout) {
+            // Peer never acknowledged our CLOSE frame; complete the client
+            // close anyway so readyState cannot stay CLOSING forever.
+            call_close(entry, requested_close_code, requested_close_reason.c_str(), 1);
+            entry->closed.store(true, std::memory_order_relaxed);
+            break;
+        }
+
+        // Drain outbound messages first (data frames must not follow a
+        // CLOSE frame, RFC 6455 5.5.1).
+        if (!close_sent) {
+            bool send_failed = false;
+            for (;;) {
+                OutboundMessage msg;
+                {
+                    std::lock_guard<std::mutex> lock(entry->io_mutex);
+                    if (entry->outbound.empty()) {
+                        break;
+                    }
+                    msg = std::move(entry->outbound.front());
+                    entry->outbound.pop();
+                }
+
+                size_t sent = 0;
+                const unsigned int flags = msg.is_text ? CURLWS_TEXT : CURLWS_BINARY;
+                const CURLcode send_rc = curl_ws_send(
+                    entry->curl,
+                    msg.bytes.data(),
+                    msg.bytes.size(),
+                    &sent,
+                    0,
+                    flags
+                );
+                if (send_rc != CURLE_OK) {
+                    call_error(entry, curl_easy_strerror(send_rc));
+                    call_close(entry, 1006, "Connection error", 0);
+                    entry->closed.store(true, std::memory_order_relaxed);
+                    send_failed = true;
                     break;
                 }
-                msg = std::move(entry->outbound.front());
-                entry->outbound.pop();
+                call_bytes_sent(entry, sent);
             }
+            if (send_failed) {
+                break;
+            }
+        }
 
+        if (!close_sent && entry->close_requested.load(std::memory_order_acquire)) {
+            {
+                std::lock_guard<std::mutex> lock(entry->io_mutex);
+                requested_close_code = entry->close_code;
+                requested_close_reason = entry->close_reason;
+            }
+            // RFC 6455 5.5.1 close payload: 2-byte big-endian status code
+            // followed by the UTF-8 reason bytes; an empty payload when the
+            // client supplied no code (1005 never appears on the wire).
+            std::vector<uint8_t> payload;
+            if (requested_close_code != 1005) {
+                payload.push_back(static_cast<uint8_t>((requested_close_code >> 8) & 0xFF));
+                payload.push_back(static_cast<uint8_t>(requested_close_code & 0xFF));
+                payload.insert(
+                    payload.end(),
+                    requested_close_reason.begin(),
+                    requested_close_reason.end());
+            }
             size_t sent = 0;
-            const unsigned int flags = msg.is_text ? CURLWS_TEXT : CURLWS_BINARY;
-            const CURLcode send_rc = curl_ws_send(
+            const CURLcode close_rc = curl_ws_send(
                 entry->curl,
-                msg.bytes.data(),
-                msg.bytes.size(),
+                payload.data(),
+                payload.size(),
                 &sent,
                 0,
-                flags
+                CURLWS_CLOSE
             );
-            if (send_rc != CURLE_OK) {
-                call_error(entry, curl_easy_strerror(send_rc));
+            if (close_rc == CURLE_AGAIN) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                continue;
+            }
+            if (close_rc != CURLE_OK) {
+                call_close(entry, 1006, "Connection error", 0);
                 entry->closed.store(true, std::memory_order_relaxed);
                 break;
             }
-            call_bytes_sent(entry, sent);
+            close_sent = true;
+            close_sent_at = std::chrono::steady_clock::now();
         }
 
         if (entry->closed.load(std::memory_order_relaxed)) {
@@ -277,6 +351,17 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
                 if (nrecv >= 2) {
                     close_code = static_cast<uint16_t>((buffer[0] << 8) | buffer[1]);
                     close_reason.assign(reinterpret_cast<const char*>(buffer) + 2, nrecv - 2);
+                }
+                if (!close_sent) {
+                    // Server-initiated close: echo a CLOSE frame back
+                    // (best-effort) to complete the closing handshake.
+                    std::vector<uint8_t> ack;
+                    if (close_code != 1005) {
+                        ack.push_back(static_cast<uint8_t>((close_code >> 8) & 0xFF));
+                        ack.push_back(static_cast<uint8_t>(close_code & 0xFF));
+                    }
+                    size_t ack_sent = 0;
+                    curl_ws_send(entry->curl, ack.data(), ack.size(), &ack_sent, 0, CURLWS_CLOSE);
                 }
                 call_close(entry, close_code, close_reason.c_str(), 1);
                 entry->closed.store(true, std::memory_order_relaxed);
@@ -316,6 +401,14 @@ static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
             continue;
         }
 
+        if (close_sent) {
+            // We already sent our CLOSE frame; the peer tore the connection
+            // down without acknowledging it. The client close still
+            // completed, so report the requested code rather than an error.
+            call_close(entry, requested_close_code, requested_close_reason.c_str(), 1);
+            entry->closed.store(true, std::memory_order_relaxed);
+            break;
+        }
         call_error(entry, curl_easy_strerror(recv_rc));
         call_close(entry, 1006, "Connection error", 0);
         entry->closed.store(true, std::memory_order_relaxed);
@@ -446,7 +539,8 @@ extern "C" void native_ws_send(uint32_t ws_id, const uint8_t* data, size_t lengt
         }
         entry = it->second;
     }
-    if (!entry || entry->closed.load(std::memory_order_relaxed)) {
+    if (!entry || entry->closed.load(std::memory_order_relaxed) ||
+        entry->close_requested.load(std::memory_order_relaxed)) {
         return;
     }
 
@@ -480,33 +574,17 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
         return;
     }
 
-    entry->closed.store(true, std::memory_order_relaxed);
-    (void)reason;
-
-    size_t sent = 0;
-    if (code == 1005) {
-        curl_ws_send(
-            entry->curl,
-            nullptr,
-            0,
-            &sent,
-            0,
-            CURLWS_CLOSE
-        );
-    } else {
-        const uint8_t close_payload[2] = {
-            static_cast<uint8_t>((code >> 8) & 0xFF),
-            static_cast<uint8_t>(code & 0xFF)
-        };
-        curl_ws_send(
-            entry->curl,
-            close_payload,
-            sizeof(close_payload),
-            &sent,
-            0,
-            CURLWS_CLOSE
-        );
+    // Never touch the CURL easy handle from the JS thread: the io thread is
+    // concurrently inside curl_ws_recv/curl_ws_send on the same handle (a
+    // libcurl handle must not be used from two threads) and frees it on
+    // exit. Record the requested code/reason and let the io thread send the
+    // CLOSE frame and complete the closing handshake.
+    {
+        std::lock_guard<std::mutex> lock(entry->io_mutex);
+        entry->close_code = code;
+        entry->close_reason = reason ? reason : "";
     }
+    entry->close_requested.store(true, std::memory_order_release);
 #else
     (void)ws_id;
     (void)code;
