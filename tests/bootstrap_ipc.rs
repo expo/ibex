@@ -689,6 +689,83 @@ fn child_ipc_decode_survives_multibyte_split_across_reads_legacy_ipc() {
 }
 
 // ---------------------------------------------------------------------------
+// removeListener of a never-registered function must not stop delivery
+// (ENG-23481 #2)
+// ---------------------------------------------------------------------------
+
+const REMOVE_MISCOUNT_PARENT: &str = r#"
+const { fork } = require('child_process');
+const child = fork(__dirname + '/child.js');
+let got = [];
+child.on('message', (m) => {
+  got.push(m);
+  if (String(m).indexOf('removed-nothing') === 0) child.send('after-remove');
+  if (String(m).indexOf('after-remove-received') === 0) {
+    console.log('RESULT|' + JSON.stringify(got));
+    child.kill();
+    process.exit(0);
+  }
+});
+setTimeout(() => {
+  console.log('RESULT|timeout|' + JSON.stringify(got));
+  child.kill();
+  process.exit(1);
+}, 20000);
+"#;
+
+const REMOVE_MISCOUNT_CHILD: &str = r#"
+function nope() {}
+process.on('message', (m) => {
+  if (m === 'after-remove') {
+    process.send('after-remove-received:count=' + process.listenerCount('message'));
+  }
+});
+process.send('ready');
+process.removeListener('message', nope);
+process.send('removed-nothing:count=' + process.listenerCount('message'));
+"#;
+
+/// The async IPC listener patch keeps a shadow listener count. It used to
+/// decrement on every removeListener('message', fn) even when the emitter
+/// removed nothing, driving the tracked count to 0 while a live listener
+/// existed — the channel was unref'd (readStop) and later parent messages
+/// were never delivered, and listenerCount answered from the drifted count.
+#[test]
+fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
+    let dir = unique_dir("remove-miscount");
+    write_text(&dir.join("child.js"), REMOVE_MISCOUNT_CHILD);
+    write_text(&dir.join("app.js"), REMOVE_MISCOUNT_PARENT);
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("run")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = cmd.output().expect("run ibex");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout
+        .lines()
+        .find(|l| l.starts_with("RESULT|"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no RESULT line\nstdout:\n{}\nstderr:\n{}",
+                stdout,
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+    assert!(
+        line.contains("removed-nothing:count=1")
+            && line.contains("after-remove-received:count=1"),
+        "delivery stopped (or listenerCount drifted) after removing a \
+         never-registered listener: {}\nstderr:\n{}",
+        line,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Legacy bootstrap misc fixes (only reachable without the startup shared
 // runtime bundle; these run the bootstrap-globals / exact-global paths)
 // ---------------------------------------------------------------------------

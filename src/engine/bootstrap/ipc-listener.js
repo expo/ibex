@@ -810,19 +810,31 @@
             var BufferCtor = typeof Buffer === 'function' ? Buffer : null;
             if (fs && BufferCtor && typeof fs.read === 'function') {
               var buf = BufferCtor.alloc(pollReadSize);
+              // readPending must not survive a SYNCHRONOUS throw from
+              // fs.read (argument validation, bad fd): the callback that
+              // clears it never runs, and the outer finally skips
+              // schedulePoll while readPending is set — one sync throw would
+              // wedge IPC polling forever (ENG-23481 #7). Reset it before
+              // the surrounding catch swallows the error, so the finally
+              // rearms the poll.
               readPending = true;
-              fs.read(ipcFd, buf, 0, buf.length, null, function(err, bytesRead) {
-                readPending = false;
-                if (!process.connected) return;
-                var gotData = !err && bytesRead > 0;
-                try {
-                  if (gotData) {
-                    processIncomingPackets(buf.subarray(0, bytesRead));
+              try {
+                fs.read(ipcFd, buf, 0, buf.length, null, function(err, bytesRead) {
+                  readPending = false;
+                  if (!process.connected) return;
+                  var gotData = !err && bytesRead > 0;
+                  try {
+                    if (gotData) {
+                      processIncomingPackets(buf.subarray(0, bytesRead));
+                    }
+                  } finally {
+                    schedulePoll(gotData ? 0 : pollInterval);
                   }
-                } finally {
-                  schedulePoll(gotData ? 0 : pollInterval);
-                }
-              });
+                });
+              } catch (readErr) {
+                readPending = false;
+                throw readErr;
+              }
               return;
             }
           } catch (_) {}
@@ -1284,9 +1296,33 @@
       if (typeof process.removeListener === 'function') {
         var asyncOriginalRemoveListener = process.removeListener;
         process.removeListener = function(event, listener) {
+          // Decrement only when the underlying emitter actually removed a
+          // listener: an unconditional decrement let removeListener() with a
+          // never-registered function drive the tracked count to 0 while a
+          // live 'message' listener existed — syncTrackedIpcRef then unref'd
+          // (readStop'd) the channel and pending messages were never
+          // delivered (ENG-23481 #2). Node's listenerCount would also have
+          // answered from the drifted shadow count.
+          var trackedBefore = -1;
+          if (trackEvent(event) && typeof originalListenerCount === 'function') {
+            try {
+              trackedBefore = originalListenerCount.call(process, event);
+            } catch (_) {
+              trackedBefore = -1;
+            }
+          }
           var result = asyncOriginalRemoveListener.apply(this, arguments);
           if (trackEvent(event)) {
-            adjustTrackedIpcListeners(event, -1);
+            var removed = true;
+            if (trackedBefore >= 0) {
+              try {
+                removed =
+                  originalListenerCount.call(process, event) < trackedBefore;
+              } catch (_) {}
+            }
+            if (removed) {
+              adjustTrackedIpcListeners(event, -1);
+            }
             syncTrackedIpcRef();
           }
           return result;

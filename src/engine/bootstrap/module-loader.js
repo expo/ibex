@@ -3080,6 +3080,18 @@
     }
     return normalized.slice(0, idx);
   }
+  // A specifier that names a file location (relative or absolute) rather than
+  // a bare package/builtin name. Mirrors resolveModulePath's absolute-path
+  // matcher so Windows drive-letter (`C:\`/`C:/`) and UNC (`\\server\...`)
+  // absolutes are recognized wherever relative/absolute specifiers must be
+  // gated post-resolution (LLP 0013 Policy surface 3 / ENG-22637): the old
+  // '.'/'/'-only checks let a restricted package require a sibling by Windows
+  // absolute path without the import-policy check (ENG-23481 #8).
+  function isPathSpecifier(specifier) {
+    if (typeof specifier !== 'string' || !specifier) return false;
+    if (specifier.charAt(0) === '.') return true;
+    return /^([A-Za-z]:\\|[A-Za-z]:\/|\/|\\\\|\\)/.test(specifier);
+  }
   function resolveModulePath(basePath, relativePath) {
     if (!relativePath) {
       return "";
@@ -3497,11 +3509,15 @@
         var errorName = "__exactForOfError" + suffix;
         var returnName = "__exactForOfReturn" + suffix;
         var ignoreName = "__exactForOfIgnore" + suffix;
+        // The binding declaration rides on the header line (not a line of its
+        // own) so the rewrite replaces the original header/body/close lines
+        // one-for-one and stack-trace line numbers inside and after the loop
+        // stay aligned with the source (ENG-23481 #11).
         out.push(
           indent + "{ const " + iterName + " = (" + expr + ")[Symbol.iterator](); " +
-          "const " + bodyFnName + " = (" + valueName + ") => {"
+          "const " + bodyFnName + " = (" + valueName + ") => { " +
+          kind + " " + binding + " = " + valueName + ";"
         );
-        out.push(indent + "  " + kind + " " + binding + " = " + valueName + ";");
         for (var b2 = 0; b2 < emitBodyLines.length; b2++) {
           out.push(emitBodyLines[b2]);
         }
@@ -3535,7 +3551,13 @@
   // Replacements for well-known `import.meta.<prop>` properties. Any other
   // property (and bare `import.meta`) falls back to globalThis.__exactImportMeta.
   var importMetaPropertyReplacements = {
-    url: '("file://" + __filename)',
+    // Mirror Node's pathToFileURL shape: forward slashes and a guaranteed
+    // leading slash, so a Windows __filename ('C:\\app\\x.js') becomes
+    // 'file:///C:/app/x.js' instead of the malformed 'file://C:\\app\\x.js'
+    // the plain concatenation produced (new URL(import.meta.url) and
+    // fileURLToPath both choke on that) (ENG-23481 #12). POSIX paths already
+    // start with '/' and contain no backslashes, so they are unchanged.
+    url: '("file://" + (__filename.charAt(0) === "/" ? __filename : "/" + __filename).replace(/\\\\/g, "/"))',
     path: "__filename",
     filename: "__filename",
     file: "(typeof __filename !== 'undefined' ? __filename.split('/').pop() : '')",
@@ -4784,14 +4806,17 @@
 
       m = trimmed.match(/^\s*import\s+([A-Za-z_$][\w$]*)\s*from\s*(["'])([^'"]+)\2\s*;?\s*$/);
       if (m) {
+        // Same __esModule-conditional interop as the `import X, {a}` branch
+        // above: the old `require(m).default || require(m)` bound the whole
+        // namespace whenever the default export was falsy (0/''/false/null),
+        // so the two default-import forms disagreed (ENG-23481 #9). Kept to
+        // one emitted line so the transform stays line-preserving here.
         out.push(
           "var " +
             m[1] +
-            " = require(" +
+            " = (function(__exm){ return __exm && __exm.__esModule ? __exm.default : __exm; })(require(" +
             quote(m[3]) +
-            ").default || require(" +
-            quote(m[3]) +
-            ");"
+            "));"
         );
         continue;
       }
@@ -5214,8 +5239,7 @@
     // Gate the resolved target's package name when it differs from the requester's
     // (intra-package relative imports are not cross-package edges and are allowed).
     // (ENG-22637 review)
-    if (__privCheckImport && typeof specifier === 'string' &&
-        (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
+    if (__privCheckImport && isPathSpecifier(specifier)) {
       var __targetPkg = packageNameForRecord(record, parent);
       if (__targetPkg) {
         var __reqId = (parent && typeof parent.__exactPackageId === 'number')
@@ -5241,11 +5265,25 @@
     var filename = record.path || id;
     // For the entry module, use the original source path so that
     // __dirname/__filename and require.resolve work relative to
-    // the source dir, not the bundle cache dir.
+    // the source dir, not the bundle cache dir. The entry is the FIRST
+    // parentless non-builtin load (the Rust runner issues `require(<bundle>)`
+    // with no parent; builtins loaded during bootstrap are skipped above or
+    // carry kind 'builtin'). The old detector keyed on a '/Caches/' substring,
+    // which only exists in the macOS cache dir (~/Library/Caches/Ibex) — on
+    // Linux (~/.cache/ibex) and Windows (%LOCALAPPDATA%\ibex) it never fired
+    // and the entry's __dirname pointed into the bundle cache (ENG-23481 #4).
+    // Instead match the bundle_output_path shape from src/bin/ibex/runtime.rs
+    // (`<cache>/<key>.bundle.{js,mjs}` flat, `<cache>/<key>/bundle.{js,mjs}`
+    // per-package-chunked), which is platform-independent. The flag is
+    // consumed on the first candidate load either way so a later parentless
+    // require of a user file that happens to be named `*.bundle.js` cannot
+    // steal the remap.
     if (g.__exactEntryFile && !g.__exactEntryFileConsumed &&
-        filename.indexOf('/Caches/') !== -1) {
-      filename = g.__exactEntryFile;
+        !parent && record.kind !== 'builtin') {
       g.__exactEntryFileConsumed = true;
+      if (/(?:^|[\/.])bundle\.m?js$/.test(filename.replace(/\\/g, '/'))) {
+        filename = g.__exactEntryFile;
+      }
     }
     const modulePath = filename.indexOf('/') === -1 ? filename : dirname(filename);
     // Compute node_modules search paths for this module
@@ -5472,49 +5510,51 @@
           body: sourceText.slice(prologueEnd)
         };
       };
+      // The preamble is injected into EVERY loader-served module body: the
+      // shim must install per compartment global, not once per runtime —
+      // under LLP 0013 Phase 3 a package's bare `globalThis` resolves to its
+      // compartment global, so both the `__exactCompatEval` guard and the
+      // `globalThis.eval` wrap have to run inside the module's own compiled
+      // code (the loader's scope only sees the root global). It is emitted as
+      // a SINGLE line joined directly onto the body's first line so it adds
+      // zero lines: the old 38-line preamble sat under a sourceURL pointing
+      // at the original file, shifting every reported stack-trace line number
+      // ~39 lines below the real source line (ENG-23481 #11).
       const injectEvalShimPreamble = function(text) {
         var split = splitDirectivePrologue(text);
         return split.prologue + evalShimPreamble + split.body;
       };
       const evalShimPreamble =
-        "globalThis.__exactImportMeta = globalThis.__exactImportMeta || {};\n" +
-        "if (typeof globalThis.__exactCompatEval !== 'function') {\n" +
-        "  (function() {\n" +
-        "    var __exactNativeEval = globalThis.eval;\n" +
-        "    function __exactMaybeHandleNativesSyntax(source) {\n" +
-        "      if (typeof source !== 'string') {\n" +
-        "        return null;\n" +
-        "      }\n" +
-        "      var trimmed = source.trim();\n" +
-        "      if (trimmed.charAt(0) !== '%' || trimmed.charAt(trimmed.length - 1) !== ')') {\n" +
-        "        return null;\n" +
-        "      }\n" +
-        "      var openParen = trimmed.indexOf('(');\n" +
-        "      if (openParen <= 1) {\n" +
-        "        return null;\n" +
-        "      }\n" +
-        "      switch (trimmed.slice(1, openParen).trim()) {\n" +
-        "        case 'PrepareFunctionForOptimization':\n" +
-        "        case 'OptimizeFunctionOnNextCall':\n" +
-        "          return { handled: true, value: undefined };\n" +
-        "        default:\n" +
-        "          return null;\n" +
-        "      }\n" +
-        "    }\n" +
-        "    var __exactCompatEval = function evalCompat(source) {\n" +
-        "      var handled = __exactMaybeHandleNativesSyntax(source);\n" +
-        "      if (handled && handled.handled) {\n" +
-        "        return handled.value;\n" +
-        "      }\n" +
-        "      return __exactNativeEval(source);\n" +
-        "    };\n" +
-        "    __exactCompatEval.__exactWrappedForNativesSyntax = true;\n" +
-        "    globalThis.__exactCompatEval = __exactCompatEval;\n" +
-        "    if (typeof globalThis.eval === 'function' && !globalThis.eval.__exactWrappedForNativesSyntax) {\n" +
-        "      globalThis.eval = __exactCompatEval;\n" +
-        "    }\n" +
-        "  })();\n" +
-        "}\n";
+        "globalThis.__exactImportMeta = globalThis.__exactImportMeta || {}; " +
+        "if (typeof globalThis.__exactCompatEval !== 'function') { " +
+        "(function() { " +
+        "var __exactNativeEval = globalThis.eval; " +
+        "function __exactMaybeHandleNativesSyntax(source) { " +
+        "if (typeof source !== 'string') { return null; } " +
+        "var trimmed = source.trim(); " +
+        "if (trimmed.charAt(0) !== '%' || trimmed.charAt(trimmed.length - 1) !== ')') { return null; } " +
+        "var openParen = trimmed.indexOf('('); " +
+        "if (openParen <= 1) { return null; } " +
+        "switch (trimmed.slice(1, openParen).trim()) { " +
+        "case 'PrepareFunctionForOptimization': " +
+        "case 'OptimizeFunctionOnNextCall': " +
+        "return { handled: true, value: undefined }; " +
+        "default: " +
+        "return null; " +
+        "} " +
+        "} " +
+        "var __exactCompatEval = function evalCompat(source) { " +
+        "var handled = __exactMaybeHandleNativesSyntax(source); " +
+        "if (handled && handled.handled) { return handled.value; } " +
+        "return __exactNativeEval(source); " +
+        "}; " +
+        "__exactCompatEval.__exactWrappedForNativesSyntax = true; " +
+        "globalThis.__exactCompatEval = __exactCompatEval; " +
+        "if (typeof globalThis.eval === 'function' && !globalThis.eval.__exactWrappedForNativesSyntax) { " +
+        "globalThis.eval = __exactCompatEval; " +
+        "} " +
+        "})(); " +
+        "} ";
       const transformedSource =
         transformDynamicImport(transformImportMeta(applyRolldownCjsDirnameBindings(fixForOfScoping(fixEsmCjsInterop(source || "")), filename)));
       const directSource =
@@ -5984,11 +6024,18 @@
       // unregistered sentinel and allow), so resolve + gate the target package's
       // name SYNCHRONOUSLY here while the requester frame is still on the stack.
       // (ENG-22637 review pass2)
-      if (typeof specifier === 'string' &&
-          (specifier.charAt(0) === '.' || specifier.charAt(0) === '/')) {
+      if (isPathSpecifier(specifier)) {
         var __itp = null;
         try {
-          var __irj = __exactModuleResolve(stripViteImportQuery(specifier), referrer);
+          // This resolution only needs the target's package metadata, so use
+          // the metadata-only bridge (ENG-23007) when available — the full
+          // resolver would read + transpile + JSON-escape the module body a
+          // second time on the JS thread for every relative/absolute dynamic
+          // import, just for load() to redo it in the microtask (ENG-23481 #10).
+          var __iresolve = (typeof __exactModuleResolveMeta === 'function')
+            ? __exactModuleResolveMeta
+            : __exactModuleResolve;
+          var __irj = __iresolve(stripViteImportQuery(specifier), referrer);
           if (__irj) {
             var __irec = JSON.parse(__irj);
             if (!__irec.error) __itp = packageNameForRecord(__irec, parent);
