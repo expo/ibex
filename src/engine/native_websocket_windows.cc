@@ -304,6 +304,162 @@ void send_initial_error(
   native_ws_release_context(context);
 }
 
+// Reports an async connect failure (mirroring the macOS delegate's
+// connection-failure path: error callback, then close with 1006/unclean),
+// unless a concurrent close()/destroy already reported closure.
+void fail_connect(const std::shared_ptr<WebSocketEntry>& entry, const std::string& message) {
+  if (!entry->closed.exchange(true, std::memory_order_relaxed)) {
+    call_error(entry, message.c_str());
+    call_close(entry, 1006, message.c_str(), 0);
+  }
+  remove_connection(entry->ws_id);
+}
+
+// Stores a handle produced during the async handshake into the entry unless
+// the socket was concurrently closed/destroyed. On false the caller must
+// dispose of the handle and abandon the handshake (the closer already fired
+// the close callback and cleaned up).
+bool adopt_handshake_handle(
+    const std::shared_ptr<WebSocketEntry>& entry,
+    HINTERNET WebSocketEntry::*slot,
+    HINTERNET value) {
+  std::lock_guard<std::mutex> lock(entry->handle_mutex);
+  if (entry->closed.load(std::memory_order_relaxed)) {
+    return false;
+  }
+  (*entry).*slot = value;
+  return true;
+}
+
+// Runs on a detached thread: the WinHTTP connect/upgrade handshake is fully
+// synchronous (this session has no WINHTTP_FLAG_ASYNC), so running it on the
+// JS thread stalled the entire event loop for the handshake RTT -- ~30s for
+// an unreachable host. WHATWG requires connection establishment to run "in
+// parallel"; macOS is fully async already. Handles are published to the
+// entry as they are created so a concurrent close()/destroy can cancel the
+// blocking WinHTTP calls by closing them.
+void run_connect_handshake(
+    const std::shared_ptr<WebSocketEntry>& entry,
+    const std::wstring& host,
+    INTERNET_PORT port,
+    const std::wstring& path,
+    bool secure,
+    const std::string& protocols) {
+  DWORD access_type =
+      isLoopbackHost(host) ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY;
+  HINTERNET session = WinHttpOpen(
+      L"Exact/0.1",
+      access_type,
+      WINHTTP_NO_PROXY_NAME,
+      WINHTTP_NO_PROXY_BYPASS,
+      0);
+  if (!session) {
+    fail_connect(entry, lastErrorString("WinHttpOpen"));
+    return;
+  }
+  if (!adopt_handshake_handle(entry, &WebSocketEntry::session, session)) {
+    WinHttpCloseHandle(session);
+    return;
+  }
+  WinHttpSetTimeouts(session, 30000, 30000, 30000, 300000);
+
+  std::wstring connect_host = host == L"127.0.0.1" ? L"localhost" : host;
+  HINTERNET connect = WinHttpConnect(session, connect_host.c_str(), port, 0);
+  if (!connect) {
+    fail_connect(entry, lastErrorString("WinHttpConnect"));
+    return;
+  }
+  if (!adopt_handshake_handle(entry, &WebSocketEntry::connect, connect)) {
+    WinHttpCloseHandle(connect);
+    return;
+  }
+
+  DWORD request_flags = secure ? WINHTTP_FLAG_SECURE : 0;
+  HINTERNET request = WinHttpOpenRequest(
+      connect,
+      L"GET",
+      path.c_str(),
+      nullptr,
+      WINHTTP_NO_REFERER,
+      WINHTTP_DEFAULT_ACCEPT_TYPES,
+      request_flags);
+  if (!request) {
+    fail_connect(entry, lastErrorString("WinHttpOpenRequest"));
+    return;
+  }
+  if (!adopt_handshake_handle(entry, &WebSocketEntry::request, request)) {
+    WinHttpCloseHandle(request);
+    return;
+  }
+
+  if (!protocols.empty()) {
+    std::wstring header = L"Sec-WebSocket-Protocol: ";
+    header += utf8ToWide(protocols);
+    header += L"\r\n";
+    WinHttpAddRequestHeaders(
+        request,
+        header.c_str(),
+        static_cast<DWORD>(-1),
+        WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
+  }
+
+  if (!WinHttpSetOption(request, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
+    fail_connect(entry, lastErrorString("WinHttpSetOption(UPGRADE_TO_WEB_SOCKET)"));
+    return;
+  }
+
+  if (!WinHttpSendRequest(
+          request,
+          WINHTTP_NO_ADDITIONAL_HEADERS,
+          0,
+          WINHTTP_NO_REQUEST_DATA,
+          0,
+          0,
+          0)) {
+    fail_connect(entry, lastErrorString("WinHttpSendRequest"));
+    return;
+  }
+
+  if (!WinHttpReceiveResponse(request, nullptr)) {
+    fail_connect(entry, lastErrorString("WinHttpReceiveResponse"));
+    return;
+  }
+
+  DWORD status_code = 0;
+  DWORD status_size = sizeof(status_code);
+  if (WinHttpQueryHeaders(
+          request,
+          WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+          WINHTTP_HEADER_NAME_BY_INDEX,
+          &status_code,
+          &status_size,
+          WINHTTP_NO_HEADER_INDEX) &&
+      status_code != 101) {
+    fail_connect(
+        entry, "WebSocket upgrade failed with HTTP status " + std::to_string(status_code));
+    return;
+  }
+
+  HINTERNET websocket = WinHttpWebSocketCompleteUpgrade(request, 0);
+  if (!websocket) {
+    fail_connect(entry, lastErrorString("WinHttpWebSocketCompleteUpgrade"));
+    return;
+  }
+  if (!adopt_handshake_handle(entry, &WebSocketEntry::websocket, websocket)) {
+    WinHttpCloseHandle(websocket);
+    return;
+  }
+  {
+    std::lock_guard<std::mutex> lock(entry->handle_mutex);
+    if (entry->request) {
+      WinHttpCloseHandle(entry->request);
+      entry->request = nullptr;
+    }
+  }
+
+  receive_loop(entry);
+}
+
 } // namespace
 
 extern "C" uint32_t native_ws_connect(
@@ -341,130 +497,22 @@ extern "C" uint32_t native_ws_connect(
   entry->close_cb = close_cb;
   entry->error_cb = error_cb;
   entry->bytes_sent_cb = bytes_sent_cb;
+  // Adopt the caller's reference: the bridge creates the context with
+  // ref_count == 1 and transfers ownership when a nonzero ws_id is returned
+  // (remove_connection performs the balancing release). An extra retain here
+  // leaked the context -- and the JS WebSocket instance it pins -- on every
+  // successful connection.
   entry->context = context;
-  if (entry->context) {
-    native_ws_retain_context(entry->context);
-  }
-
-  DWORD access_type =
-      isLoopbackHost(host) ? WINHTTP_ACCESS_TYPE_NO_PROXY : WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY;
-  entry->session = WinHttpOpen(
-      L"Exact/0.1",
-      access_type,
-      WINHTTP_NO_PROXY_NAME,
-      WINHTTP_NO_PROXY_BYPASS,
-      0);
-  if (!entry->session) {
-    auto msg = lastErrorString("WinHttpOpen");
-    send_initial_error(error_cb, context, msg.c_str());
-    releaseContext(entry);
-    return 0;
-  }
-  WinHttpSetTimeouts(entry->session, 30000, 30000, 30000, 300000);
-
-  std::wstring connect_host = host == L"127.0.0.1" ? L"localhost" : host;
-  entry->connect = WinHttpConnect(entry->session, connect_host.c_str(), port, 0);
-  if (!entry->connect) {
-    auto msg = lastErrorString("WinHttpConnect");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  DWORD request_flags = secure ? WINHTTP_FLAG_SECURE : 0;
-  entry->request = WinHttpOpenRequest(
-      entry->connect,
-      L"GET",
-      path.c_str(),
-      nullptr,
-      WINHTTP_NO_REFERER,
-      WINHTTP_DEFAULT_ACCEPT_TYPES,
-      request_flags);
-  if (!entry->request) {
-    auto msg = lastErrorString("WinHttpOpenRequest");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  if (protocols && *protocols) {
-    std::wstring header = L"Sec-WebSocket-Protocol: ";
-    header += utf8ToWide(protocols);
-    header += L"\r\n";
-    WinHttpAddRequestHeaders(
-        entry->request,
-        header.c_str(),
-        static_cast<DWORD>(-1),
-        WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
-  }
-
-  if (!WinHttpSetOption(entry->request, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, nullptr, 0)) {
-    auto msg = lastErrorString("WinHttpSetOption(UPGRADE_TO_WEB_SOCKET)");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  if (!WinHttpSendRequest(
-          entry->request,
-          WINHTTP_NO_ADDITIONAL_HEADERS,
-          0,
-          WINHTTP_NO_REQUEST_DATA,
-          0,
-          0,
-          0)) {
-    auto msg = lastErrorString("WinHttpSendRequest");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  if (!WinHttpReceiveResponse(entry->request, nullptr)) {
-    auto msg = lastErrorString("WinHttpReceiveResponse");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  DWORD status_code = 0;
-  DWORD status_size = sizeof(status_code);
-  if (WinHttpQueryHeaders(
-          entry->request,
-          WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-          WINHTTP_HEADER_NAME_BY_INDEX,
-          &status_code,
-          &status_size,
-          WINHTTP_NO_HEADER_INDEX) &&
-      status_code != 101) {
-    std::string msg = "WebSocket upgrade failed with HTTP status " + std::to_string(status_code);
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-
-  entry->websocket = WinHttpWebSocketCompleteUpgrade(entry->request, 0);
-  if (!entry->websocket) {
-    auto msg = lastErrorString("WinHttpWebSocketCompleteUpgrade");
-    send_initial_error(error_cb, context, msg.c_str());
-    closeHandles(entry);
-    releaseContext(entry);
-    return 0;
-  }
-  WinHttpCloseHandle(entry->request);
-  entry->request = nullptr;
 
   {
     std::lock_guard<std::mutex> lock(g_ws_mutex);
     g_ws_connections[entry->ws_id] = entry;
   }
 
-  std::thread([entry]() { receive_loop(entry); }).detach();
+  std::string protocol_list = protocols ? protocols : "";
+  std::thread([entry, host, port, path, secure, protocol_list]() {
+    run_connect_handshake(entry, host, port, path, secure, protocol_list);
+  }).detach();
   return entry->ws_id;
 }
 

@@ -45,8 +45,12 @@ struct OutboundMessage {
 
 struct WebSocketEntry {
     uint32_t ws_id = 0;
+    // curl/headers are created and used exclusively by the io thread (the
+    // handshake runs there too); no other thread may touch them.
     CURL* curl = nullptr;
     curl_slist* headers = nullptr;
+    std::string url;
+    std::string protocols;
 
     NativeWsOpenCallback open_cb = nullptr;
     NativeWsMessageCallback message_cb = nullptr;
@@ -65,7 +69,6 @@ struct WebSocketEntry {
     std::atomic<bool> closed{false};
     std::atomic<bool> receive_paused{false};
     std::atomic<bool> flow_controlled_receive{false};
-    std::thread io_thread;
 };
 
 static std::mutex g_ws_mutex;
@@ -207,6 +210,55 @@ static void remove_connection(uint32_t ws_id) {
         native_ws_release_context(entry->context);
         entry->context = nullptr;
     }
+}
+
+// Runs on the io thread. Performs the blocking DNS/TCP/TLS/upgrade
+// handshake; on success entry->curl is ready for curl_ws_recv/curl_ws_send.
+// On failure the error and close callbacks fire (mirroring the macOS
+// delegate's connection-failure path) and false is returned.
+static bool perform_handshake(const std::shared_ptr<WebSocketEntry>& entry) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        call_error(entry, "Failed to initialize libcurl");
+        call_close(entry, 1006, "Failed to initialize libcurl", 0);
+        return false;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, entry->url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    if (should_disable_tls_verification_for_url(entry->url.c_str())) {
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    }
+
+    curl_slist* headers = nullptr;
+    if (!entry->protocols.empty()) {
+        std::string proto_header = "Sec-WebSocket-Protocol: ";
+        proto_header += entry->protocols;
+        headers = curl_slist_append(headers, proto_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+
+    const CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        if (headers) {
+            curl_slist_free_all(headers);
+        }
+        curl_easy_cleanup(curl);
+        const char* msg = curl_easy_strerror(rc);
+        if (!msg) {
+            msg = "WebSocket connect failed";
+        }
+        call_error(entry, msg);
+        call_close(entry, 1006, msg, 0);
+        return false;
+    }
+
+    entry->curl = curl;
+    entry->headers = headers;
+    return true;
 }
 
 static void run_io_loop(const std::shared_ptr<WebSocketEntry>& entry) {
@@ -446,69 +498,40 @@ extern "C" uint32_t native_ws_connect(
 
     ensure_curl_global_init();
 
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        if (error_cb && context) {
-            native_ws_retain_context(context);
-            error_cb(0, "Failed to initialize libcurl", context);
-            native_ws_release_context(context);
-        }
-        return 0;
-    }
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_CONNECT_ONLY, 2L); // websocket mode
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    if (should_disable_tls_verification_for_url(url)) {
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-    }
-
-    curl_slist* headers = nullptr;
-    if (protocols && *protocols) {
-        std::string proto_header = "Sec-WebSocket-Protocol: ";
-        proto_header += protocols;
-        headers = curl_slist_append(headers, proto_header.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    }
-
-    const CURLcode rc = curl_easy_perform(curl);
-    if (rc != CURLE_OK) {
-        if (headers) {
-            curl_slist_free_all(headers);
-        }
-        const char* msg = curl_easy_strerror(rc);
-        if (error_cb && context) {
-            native_ws_retain_context(context);
-            error_cb(0, msg ? msg : "WebSocket connect failed", context);
-            native_ws_release_context(context);
-        }
-        curl_easy_cleanup(curl);
-        return 0;
-    }
-
     auto entry = std::make_shared<WebSocketEntry>();
     entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
-    entry->curl = curl;
-    entry->headers = headers;
+    entry->url = url;
+    entry->protocols = protocols ? protocols : "";
     entry->open_cb = open_cb;
     entry->message_cb = message_cb;
     entry->close_cb = close_cb;
     entry->error_cb = error_cb;
     entry->bytes_sent_cb = bytes_sent_cb;
+    // Adopt the caller's reference: the bridge creates the context with
+    // ref_count == 1 and transfers ownership when a nonzero ws_id is
+    // returned (remove_connection performs the balancing release). An extra
+    // retain here leaked the context -- and the JS WebSocket instance it
+    // pins -- on every successful connection.
     entry->context = context;
-    if (entry->context) {
-        native_ws_retain_context(entry->context);
-    }
 
     {
         std::lock_guard<std::mutex> lock(g_ws_mutex);
         g_ws_connections[entry->ws_id] = entry;
     }
 
-    entry->io_thread = std::thread([entry]() { run_io_loop(entry); });
-    entry->io_thread.detach();
+    // Run the blocking DNS/TCP/TLS/upgrade handshake on the io thread and
+    // return immediately: a synchronous curl_easy_perform here would stall
+    // the whole JS event loop for the handshake RTT (up to CURLOPT_TIMEOUT,
+    // 30s, for an unreachable host). WHATWG requires connection
+    // establishment to run "in parallel"; macOS is fully async already.
+    std::thread io_thread([entry]() {
+        if (!perform_handshake(entry)) {
+            remove_connection(entry->ws_id);
+            return;
+        }
+        run_io_loop(entry);
+    });
+    io_thread.detach();
 
     return entry->ws_id;
 #else
