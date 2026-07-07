@@ -342,6 +342,7 @@ bool adopt_handshake_handle(
 // parallel"; macOS is fully async already. Handles are published to the
 // entry as they are created so a concurrent close()/destroy can cancel the
 // blocking WinHTTP calls by closing them.
+// @ref LLP 0003#websocket-bridge-threading-and-context-ownership
 void run_connect_handshake(
     const std::shared_ptr<WebSocketEntry>& entry,
     const std::wstring& host,
@@ -506,6 +507,7 @@ extern "C" uint32_t native_ws_connect(
   // (remove_connection performs the balancing release). An extra retain here
   // leaked the context -- and the JS WebSocket instance it pins -- on every
   // successful connection.
+  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership
   entry->context = context;
 
   {

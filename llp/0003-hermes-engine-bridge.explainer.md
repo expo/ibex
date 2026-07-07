@@ -160,6 +160,38 @@ when `IBEX_ALLOW_CURL_CLI_FALLBACK=1`; WebSocket remains unavailable in that
 profile `[observed]` (`src/engine/native_fetch_linux.cc`;
 `src/engine/native_websocket_linux.cc`).
 
+### WebSocket bridge threading and context ownership
+
+The desktop WebSocket backends share two invariants that are easy to break
+because nothing enforces them mechanically (ENG-23469 fixed violations of
+both on Linux and Windows):
+
+- **Context ownership transfers on success.** `__exactWsConnect` allocates
+  the `NativeWebSocketCallbackContext` with `ref_count == 1` and releases it
+  only when `native_ws_connect` returns 0. A nonzero ws_id transfers that
+  single reference to the native implementation, whose teardown path
+  (`remove_connection` / `destroy_entry`) performs the one balancing
+  release. Backends must **not** retain again at connect time — the extra
+  reference leaks the context and the `jsi::Object` pinning the whole JS
+  WebSocket instance on every successful connection. Callback invocations
+  take their own short-lived retain/release pairs around each call.
+- **Connect returns immediately; the handshake runs off the JS thread.**
+  WHATWG requires connection establishment to run "in parallel". All three
+  desktop backends allocate the ws_id, register the entry (so `close`/
+  `destroy` on a CONNECTING socket work), and return; the
+  handshake runs on the backend's io/delegate thread and reports failure as
+  an error callback followed by `close(1006, unclean)`.
+
+On Linux there is a third: **the io thread exclusively owns the CURL easy
+handle.** libcurl forbids using one handle from two threads, and the io
+thread frees the handle on exit, so the JS thread never touches it — sends
+and client closes are enqueued (`outbound`, `close_requested` +
+`close_code`/`close_reason` under `io_mutex`) and performed by the io
+thread. A client close sends the CLOSE frame from the io loop, then keeps
+reading until the peer's CLOSE arrives (reporting the peer's code/reason)
+or a 5s handshake timeout / connection teardown elapses (reporting the
+requested code with `was_clean = 1`, the same shape Windows uses).
+
 ### Crypto is platform-dependent (the fragile axis)
 
 Crypto is split between the non-Windows crypto shim and a Windows-specific file:
