@@ -288,13 +288,17 @@ export class SubtleCrypto {
     validateKey(key, 'encrypt');
     const bytes = toUint8Array(data);
     const alg = normalizeAlgorithm(algorithm);
-    
+    // Spec: the normalized request algorithm must name the same algorithm as
+    // the key, else InvalidAccessError — without this, e.g. an AES-CBC key
+    // silently encrypted in GCM mode (ENG-23455 finding 3).
+    requireKeyAlgorithmMatch(alg.name, key);
+
     switch (alg.name.toUpperCase()) {
       case 'AES-GCM': {
         const params = algorithm as AesGcmParams;
         const iv = toUint8Array(params.iv);
         const additionalData = params.additionalData ? toUint8Array(params.additionalData) : undefined;
-        const tagLength = params.tagLength ?? 128;
+        const tagLength = validateAesGcmParams(iv, params.tagLength);
 
         if (typeof __exactAesGcmEncrypt === 'function') {
           try {
@@ -319,16 +323,7 @@ export class SubtleCrypto {
       }
 
       case 'AES-CTR': {
-        const params = algorithm as AesCtrParams;
-        const counter = toUint8Array(params.counter);
-
-        if (typeof __exactAesCtrEncrypt === 'function') {
-          try {
-            const result = __exactAesCtrEncrypt((key as ExactCryptoKey)._keyData, counter, bytes);
-            return uint8ArrayToArrayBuffer(result);
-          } catch (e) { throw wrapNativeError(e, 'OperationError'); }
-        }
-        throw new DOMException('Native crypto not available for AES-CTR', 'NotSupportedError');
+        return aesCtrCrypt((key as ExactCryptoKey)._keyData, algorithm as AesCtrParams, bytes);
       }
 
       case 'RSA-OAEP': {
@@ -362,13 +357,16 @@ export class SubtleCrypto {
     validateKey(key, 'decrypt');
     const bytes = toUint8Array(data);
     const alg = normalizeAlgorithm(algorithm);
+    // Spec InvalidAccessError when the request algorithm names a different
+    // algorithm than the key (ENG-23455 finding 3).
+    requireKeyAlgorithmMatch(alg.name, key);
 
     switch (alg.name.toUpperCase()) {
       case 'AES-GCM': {
         const params = algorithm as AesGcmParams;
         const iv = toUint8Array(params.iv);
         const additionalData = params.additionalData ? toUint8Array(params.additionalData) : undefined;
-        const tagLength = params.tagLength ?? 128;
+        const tagLength = validateAesGcmParams(iv, params.tagLength);
 
         if (typeof __exactAesGcmDecrypt === 'function') {
           try {
@@ -393,17 +391,8 @@ export class SubtleCrypto {
       }
 
       case 'AES-CTR': {
-        const params = algorithm as AesCtrParams;
-        const counter = toUint8Array(params.counter);
-
         // CTR mode: encrypt and decrypt are the same operation
-        if (typeof __exactAesCtrEncrypt === 'function') {
-          try {
-            const result = __exactAesCtrEncrypt((key as ExactCryptoKey)._keyData, counter, bytes);
-            return uint8ArrayToArrayBuffer(result);
-          } catch (e) { throw wrapNativeError(e, 'OperationError'); }
-        }
-        throw new DOMException('Native crypto not available for AES-CTR', 'NotSupportedError');
+        return aesCtrCrypt((key as ExactCryptoKey)._keyData, algorithm as AesCtrParams, bytes);
       }
 
       case 'RSA-OAEP': {
@@ -437,6 +426,10 @@ export class SubtleCrypto {
     validateKey(key, 'sign');
     const bytes = toUint8Array(data);
     const alg = normalizeAlgorithm(algorithm);
+    // Spec InvalidAccessError on algorithm/key mismatch — sign({name:'HMAC'},
+    // rsaKey) used to HMAC the PEM bytes and resolve with a bogus MAC
+    // (ENG-23455 finding 3).
+    requireKeyAlgorithmMatch(alg.name, key);
     const native = getNativeCryptoModule();
     
     switch (alg.name.toUpperCase()) {
@@ -563,6 +556,8 @@ export class SubtleCrypto {
     const signatureBytes = toUint8Array(signature);
     const dataBytes = toUint8Array(data);
     const alg = normalizeAlgorithm(algorithm);
+    // Spec InvalidAccessError on algorithm/key mismatch (ENG-23455 finding 3).
+    requireKeyAlgorithmMatch(alg.name, key);
     const native = getNativeCryptoModule();
     
     switch (alg.name.toUpperCase()) {
@@ -670,7 +665,7 @@ export class SubtleCrypto {
    * Generate a new key or key pair
    */
   async generateKey(
-    algorithm: RsaHashedKeyGenParams | EcKeyGenParams | AesKeyGenParams | HmacKeyGenParams | KmacKeyGenParams,
+    algorithm: RsaHashedKeyGenParams | EcKeyGenParams | AesKeyGenParams | HmacKeyGenParams,
     extractable: boolean,
     keyUsages: KeyUsage[]
   ): Promise<CryptoKeyPair | CryptoKey> {
@@ -893,34 +888,9 @@ export class SubtleCrypto {
         throw new DOMException('Native crypto not available for X25519 key generation', 'NotSupportedError');
       }
 
-      case 'KMAC128':
-      case 'KMAC256': {
-        const params = algorithm as KmacKeyGenParams;
-        const length = params.length;
-        if (length !== 128 && length !== 160 && length !== 256) {
-          throw new DOMException('Invalid key length', 'DataError');
-        }
-
-        for (const usage of keyUsages) {
-          if (usage !== 'sign' && usage !== 'verify') {
-            throw new DOMException(
-              `Invalid key usage '${usage}' for ${algName}`,
-              'SyntaxError'
-            );
-          }
-        }
-
-        const keyData = new Uint8Array(length / 8);
-        crypto.getRandomValues(keyData);
-
-        return new ExactCryptoKey(
-          'secret',
-          extractable,
-          { name: alg.name, length },
-          keyUsages,
-          keyData
-        );
-      }
+      // KMAC128/KMAC256 generateKey was removed: no sign/verify/export path
+      // implements KMAC, so generated keys were unusable — an unimplemented
+      // algorithm must be NotSupportedError instead (ENG-23455 finding 3).
 
       default:
         throw new DOMException(`Unsupported algorithm: ${alg.name}`, 'NotSupportedError');
@@ -951,6 +921,7 @@ export class SubtleCrypto {
         case 'AES-CBC':
         case 'AES-CTR':
         case 'AES-KW': {
+          validateImportUsages(alg.name, 'secret', keyUsages);
           if (![16, 24, 32].includes(rawData.length)) {
             throw new DOMException('Invalid key length', 'DataError');
           }
@@ -962,8 +933,9 @@ export class SubtleCrypto {
             rawData
           );
         }
-        
+
         case 'HMAC': {
+          validateImportUsages('HMAC', 'secret', keyUsages);
           const params = algorithm as HmacImportParams;
           const hash = normalizeHashName(typeof params.hash === 'string' ? params.hash : params.hash.name);
           return new ExactCryptoKey(
@@ -974,9 +946,10 @@ export class SubtleCrypto {
             rawData
           );
         }
-        
+
         case 'PBKDF2':
         case 'HKDF': {
+          validateImportUsages(alg.name, 'secret', keyUsages);
           return new ExactCryptoKey(
             'secret',
             false, // PBKDF2/HKDF keys are never extractable
@@ -988,6 +961,7 @@ export class SubtleCrypto {
 
         case 'ED25519':
         case 'EDDSA': {
+          validateImportUsages('Ed25519', 'public', keyUsages);
           if (rawData.length !== 32) {
             throw new DOMException('Ed25519 key must be 32 bytes', 'DataError');
           }
@@ -1001,6 +975,7 @@ export class SubtleCrypto {
         }
 
         case 'X25519': {
+          validateImportUsages('X25519', 'public', keyUsages);
           if (rawData.length !== 32) {
             throw new DOMException('X25519 key must be 32 bytes', 'DataError');
           }
@@ -1057,6 +1032,7 @@ export class SubtleCrypto {
             algorithmInfo = { name: alg.name };
           }
 
+          validateImportUsages(algorithmInfo.name, 'public', keyUsages);
           return new ExactCryptoKey('public', extractable, algorithmInfo, keyUsages, rawKeyData);
         } catch (e) {
           throw wrapNativeError(e, 'NotSupportedError');
@@ -1097,6 +1073,7 @@ export class SubtleCrypto {
             algorithmInfo = { name: alg.name };
           }
 
+          validateImportUsages(algorithmInfo.name, 'private', keyUsages);
           return new ExactCryptoKey('private', extractable, algorithmInfo, keyUsages, rawKeyData);
         } catch (e) {
           throw wrapNativeError(e, 'NotSupportedError');
@@ -1118,7 +1095,12 @@ export class SubtleCrypto {
     keyUsages: KeyUsage[]
   ): Promise<CryptoKey> {
     const alg = normalizeAlgorithm(algorithm);
-    
+    // Spec-mandated JWK consistency checks — previously absent, so e.g. a JWK
+    // marked ext:false imported as an extractable key (ENG-23455 finding 3).
+    // kty is checked here; ext/key_ops/use are checked per-branch after the
+    // SyntaxError usage validation, matching the spec's error ordering.
+    validateJwkKty(jwk, alg.name);
+
     switch (jwk.kty) {
       case 'oct': {
         // Symmetric key
@@ -1126,8 +1108,18 @@ export class SubtleCrypto {
           throw new DOMException('Missing k parameter in JWK', 'DataError');
         }
         const rawData = base64UrlDecode(jwk.k);
-        
+
         if (alg.name.toUpperCase().startsWith('AES')) {
+          validateImportUsages(alg.name, 'secret', keyUsages);
+          validateJwkMembers(jwk, alg.name, extractable, keyUsages);
+          if (![16, 24, 32].includes(rawData.length)) {
+            throw new DOMException('Invalid key length', 'DataError');
+          }
+          // JWK "alg" must agree with the algorithm and key size (spec DataError).
+          const expectedAlg = `A${rawData.length * 8}${alg.name.toUpperCase().slice(4)}`;
+          if (typeof jwk.alg === 'string' && jwk.alg !== expectedAlg) {
+            throw new DOMException('JWK "alg" does not match the requested algorithm', 'DataError');
+          }
           return new ExactCryptoKey(
             'secret',
             extractable,
@@ -1136,10 +1128,16 @@ export class SubtleCrypto {
             rawData
           );
         }
-        
+
         if (alg.name.toUpperCase() === 'HMAC') {
+          validateImportUsages('HMAC', 'secret', keyUsages);
+          validateJwkMembers(jwk, 'HMAC', extractable, keyUsages);
           const params = algorithm as HmacImportParams;
           const hash = normalizeHashName(typeof params.hash === 'string' ? params.hash : params.hash.name);
+          const expectedAlg = `HS${hash.replace('SHA-', '')}`;
+          if (typeof jwk.alg === 'string' && jwk.alg !== expectedAlg) {
+            throw new DOMException('JWK "alg" does not match the requested algorithm', 'DataError');
+          }
           return new ExactCryptoKey(
             'secret',
             extractable,
@@ -1148,10 +1146,10 @@ export class SubtleCrypto {
             rawData
           );
         }
-        
+
         throw new DOMException(`Unsupported algorithm for oct key: ${alg.name}`, 'NotSupportedError');
       }
-      
+
       case 'RSA': {
         // Import RSA JWK - extract modulus and exponent
         if (!jwk.n || !jwk.e) {
@@ -1159,6 +1157,8 @@ export class SubtleCrypto {
         }
 
         const isPrivate = !!jwk.d;
+        validateImportUsages(alg.name, isPrivate ? 'private' : 'public', keyUsages);
+        validateJwkMembers(jwk, alg.name, extractable, keyUsages);
         const hash = (algorithm as RsaHashedImportParams).hash;
         const hashName = normalizeHashName(typeof hash === 'string' ? hash : hash.name);
 
@@ -1186,6 +1186,8 @@ export class SubtleCrypto {
         }
 
         const isPrivate = !!jwk.d;
+        validateImportUsages(alg.name, isPrivate ? 'private' : 'public', keyUsages);
+        validateJwkMembers(jwk, alg.name, extractable, keyUsages);
         const curve = jwk.crv || (algorithm as EcKeyImportParams).namedCurve;
 
         // Concatenate x, y (and d for private) coordinates as raw key data
@@ -1251,6 +1253,8 @@ export class SubtleCrypto {
         } else {
           throw new DOMException(`Unsupported OKP curve: ${curve}`, 'NotSupportedError');
         }
+        validateImportUsages(okpAlgName, isPrivate ? 'private' : 'public', keyUsages);
+        validateJwkMembers(jwk, okpAlgName, extractable, keyUsages);
 
         return new ExactCryptoKey(
           isPrivate ? 'private' : 'public',
@@ -1301,13 +1305,18 @@ export class SubtleCrypto {
         // it (ENG-23120 — generated OKP keys now store raw scalars). Raw EC
         // points (JWK import) need the SPKI DER conversion the bridge cannot
         // do itself.
-        const algName = key.algorithm.name.toLowerCase();
-        let keyData = exactKey._keyData;
-        if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
-          keyData = ecRawPointToSpkiDer(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
-        }
-        const result = __exactExportKeySpki(algName, keyData);
-        return uint8ArrayToArrayBuffer(result);
+        try {
+          const algName = key.algorithm.name.toLowerCase();
+          let keyData = exactKey._keyData;
+          if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
+            keyData = ecRawPointToSpkiDer(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
+          }
+          const result = __exactExportKeySpki(algName, keyData);
+          return uint8ArrayToArrayBuffer(result);
+        // Native bridge errors must surface as DOMException like every other
+        // native call (this and the pkcs8 branch were the only unwrapped ones
+        // — ENG-23455 finding 2).
+        } catch (e) { throw wrapNativeError(e, 'OperationError'); }
       }
       throw new DOMException('SPKI export requires native implementation', 'NotSupportedError');
     }
@@ -1320,15 +1329,17 @@ export class SubtleCrypto {
         // Lowercase key type + raw-form conversions, as in the spki branch
         // above (ENG-23120). OKP private keys store d[32] || x[32]; the
         // bridge's raw path takes the bare 32-byte scalar.
-        const algName = key.algorithm.name.toLowerCase();
-        let keyData = exactKey._keyData;
-        if ((algName === 'ed25519' || algName === 'x25519') && keyData.length === 64) {
-          keyData = keyData.slice(0, 32);
-        } else if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
-          keyData = ecRawKeyToPkcs8Der(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
-        }
-        const result = __exactExportKeyPkcs8(algName, keyData);
-        return uint8ArrayToArrayBuffer(result);
+        try {
+          const algName = key.algorithm.name.toLowerCase();
+          let keyData = exactKey._keyData;
+          if ((algName === 'ed25519' || algName === 'x25519') && keyData.length === 64) {
+            keyData = keyData.slice(0, 32);
+          } else if ((algName === 'ecdsa' || algName === 'ecdh') && isRawEcPoint(keyData)) {
+            keyData = ecRawKeyToPkcs8Der(keyData, (key.algorithm as EcKeyAlgorithm).namedCurve);
+          }
+          const result = __exactExportKeyPkcs8(algName, keyData);
+          return uint8ArrayToArrayBuffer(result);
+        } catch (e) { throw wrapNativeError(e, 'OperationError'); }
       }
       throw new DOMException('PKCS8 export requires native implementation', 'NotSupportedError');
     }
@@ -1480,7 +1491,10 @@ export class SubtleCrypto {
     this.#checkCapability();
     validateKey(baseKey, 'deriveBits');
     const alg = normalizeAlgorithm(algorithm);
-    
+    // Spec InvalidAccessError when the request algorithm names a different
+    // algorithm than the base key (ENG-23455 finding 3).
+    requireKeyAlgorithmMatch(alg.name, baseKey);
+
     switch (alg.name.toUpperCase()) {
       case 'PBKDF2': {
         const params = algorithm as Pbkdf2Params;
@@ -1488,16 +1502,27 @@ export class SubtleCrypto {
         const hash = typeof params.hash === 'string' ? params.hash : params.hash.name;
         const normalizedHash = normalizeHashName(hash);
 
+        // Spec OperationError checks, matching Node: null/non-multiple-of-8
+        // length and zero iterations were silently accepted (ENG-23455
+        // findings 1+3).
+        validateKdfDeriveLength(length);
+        if (!Number.isInteger(params.iterations) || params.iterations <= 0) {
+          throw new DOMException('iterations cannot be zero', 'OperationError');
+        }
+        if (length === 0) return new ArrayBuffer(0);
+
         if (typeof __exactPbkdf2 === 'function') {
-          // __exactPbkdf2(password, salt, iterations, keyLength, hashAlgo)
-          const result = __exactPbkdf2(
-            (baseKey as ExactCryptoKey)._keyData,
-            salt,
-            params.iterations,
-            length / 8,
-            normalizedHash
-          );
-          return uint8ArrayToArrayBuffer(result);
+          try {
+            // __exactPbkdf2(password, salt, iterations, keyLength, hashAlgo)
+            const result = __exactPbkdf2(
+              (baseKey as ExactCryptoKey)._keyData,
+              salt,
+              params.iterations,
+              length / 8,
+              normalizedHash
+            );
+            return uint8ArrayToArrayBuffer(result);
+          } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
 
         // JS fallback for PBKDF2-SHA256
@@ -1519,15 +1544,21 @@ export class SubtleCrypto {
         const hash = typeof params.hash === 'string' ? params.hash : params.hash.name;
         const normalizedHash = normalizeHashName(hash);
 
+        // Spec OperationError checks (ENG-23455 findings 1+3).
+        validateKdfDeriveLength(length);
+        if (length === 0) return new ArrayBuffer(0);
+
         if (typeof __exactHkdf === 'function') {
-          const result = __exactHkdf(
-            normalizedHash,
-            (baseKey as ExactCryptoKey)._keyData,
-            salt,
-            info,
-            length / 8
-          );
-          return uint8ArrayToArrayBuffer(result);
+          try {
+            const result = __exactHkdf(
+              normalizedHash,
+              (baseKey as ExactCryptoKey)._keyData,
+              salt,
+              info,
+              length / 8
+            );
+            return uint8ArrayToArrayBuffer(result);
+          } catch (e) { throw wrapNativeError(e, 'OperationError'); }
         }
 
         // JS fallback for HKDF
@@ -1543,6 +1574,7 @@ export class SubtleCrypto {
       case 'X25519': {
         const params = algorithm as EcdhKeyDeriveParams;
         const publicKey = params.public as ExactCryptoKey;
+        validateDerivePublicKey(alg.name, baseKey, publicKey, false);
 
         if (typeof __exactX25519DeriveBits === 'function') {
           let result: Uint8Array;
@@ -1565,6 +1597,7 @@ export class SubtleCrypto {
       case 'ECDH': {
         const params = algorithm as EcdhKeyDeriveParams;
         const publicKey = params.public as ExactCryptoKey;
+        validateDerivePublicKey(alg.name, baseKey, publicKey, true);
 
         if (typeof __exactEcdhDeriveBits === 'function') {
           let result: Uint8Array;
@@ -1740,6 +1773,9 @@ export class Crypto {
     // Check capability before proceeding
     requireCapability(Capabilities.CRYPTO_RANDOM);
 
+    if (!ArrayBuffer.isView(array)) {
+      throw new TypeError("Argument must be an integer-typed TypedArray");
+    }
     if (
       !(
         array instanceof Int8Array ||
@@ -1753,7 +1789,13 @@ export class Crypto {
         array instanceof BigUint64Array
       )
     ) {
-      throw new TypeError("Argument must be an integer-typed TypedArray");
+      // Spec: a non-integer ArrayBufferView (Float32Array/Float64Array/
+      // Float16Array/DataView) is a TypeMismatchError DOMException, not a
+      // TypeError (ENG-23455 finding 3; Node and browsers agree).
+      throw new DOMException(
+        "getRandomValues requires an integer-typed TypedArray",
+        "TypeMismatchError"
+      );
     }
 
     if (array.byteLength > 65536) {
@@ -2060,7 +2102,6 @@ interface AesKeyGenParams { name: string; length: number; }
 interface HmacKeyGenParams { name: string; hash: string | { name: string }; length?: number; }
 interface RsaHashedKeyGenParams { name: string; modulusLength: number; publicExponent: Uint8Array; hash: string | { name: string }; }
 interface EcKeyGenParams { name: string; namedCurve: string; }
-interface KmacKeyGenParams { name: string; length: number; }
 
 // Import parameter interfaces
 interface HmacImportParams { name: string; hash: string | { name: string }; length?: number; }
@@ -2122,6 +2163,308 @@ function validateKey(key: CryptoKey, operation: KeyUsage): void {
       `Key does not support the '${operation}' operation`,
       'InvalidAccessError'
     );
+  }
+}
+
+/**
+ * Canonical algorithm name for identity comparisons: case-insensitive, with
+ * the EdDSA alias folded onto Ed25519 (the sign/verify switches already treat
+ * them as the same algorithm).
+ */
+function canonicalAlgorithmName(name: unknown): string {
+  const upper = String(name).toUpperCase();
+  return upper === 'EDDSA' ? 'ED25519' : upper;
+}
+
+/**
+ * Spec: every keyed operation must verify that the normalized request
+ * algorithm names the same algorithm as the key, else InvalidAccessError.
+ * Without it sign({name:'HMAC'}, rsaKey) HMAC'd the PEM bytes (ENG-23455
+ * finding 3).
+ */
+function requireKeyAlgorithmMatch(algName: string, key: CryptoKey): void {
+  if (canonicalAlgorithmName(algName) !== canonicalAlgorithmName(key?.algorithm?.name)) {
+    throw new DOMException(
+      `The requested algorithm (${algName}) does not match the key's algorithm (${key?.algorithm?.name})`,
+      'InvalidAccessError'
+    );
+  }
+}
+
+/**
+ * Validate AesGcmParams per spec: tagLength must be one of the seven allowed
+ * values and the iv must be non-empty (a zero-length GCM nonce is rejected by
+ * every conformant implementation). Returns the effective tagLength.
+ * Previously any tagLength and an empty iv were forwarded to the native
+ * bridge unchecked (ENG-23455 finding 3).
+ */
+function validateAesGcmParams(iv: Uint8Array, tagLength: number | undefined): number {
+  const effective = tagLength ?? 128;
+  if (![32, 64, 96, 104, 112, 120, 128].includes(effective)) {
+    throw new DOMException(`${effective} is not a valid AES-GCM tag length`, 'OperationError');
+  }
+  if (iv.length === 0) {
+    throw new DOMException('AES-GCM requires a non-empty iv', 'OperationError');
+  }
+  return effective;
+}
+
+/**
+ * AES-CTR encrypt/decrypt honoring AesCtrParams.length per the WebCrypto spec.
+ *
+ * The native bridge increments the whole 128-bit block (standard CTR), but the
+ * spec says only the rightmost `length` bits count and wrap; the parameter was
+ * previously never read, so ciphertext diverged from Node/browsers as soon as
+ * the low bits wrapped (ENG-23455 finding 3). Within any run where the low
+ * `length` bits do not wrap, full-128-bit increment is identical, so the
+ * message is split at the (at most one) wrap boundary and the second half is
+ * encrypted with the low bits reset to zero. More blocks than the counter
+ * space (2^length) is an OperationError, as in Node.
+ */
+function aesCtrCrypt(keyData: Uint8Array, params: AesCtrParams, data: Uint8Array): ArrayBuffer {
+  const length = (params as { length?: unknown }).length;
+  if (typeof length !== 'number' || !Number.isInteger(length)) {
+    throw new TypeError("AES-CTR requires an integer 'length' member (AesCtrParams)");
+  }
+  if (length <= 0 || length > 128) {
+    throw new DOMException('AES-CTR counter length must be between 1 and 128 bits', 'OperationError');
+  }
+  const counter = toUint8Array(params.counter);
+  if (counter.length !== 16) {
+    throw new DOMException('AES-CTR counter must contain exactly 16 bytes', 'OperationError');
+  }
+  if (typeof __exactAesCtrEncrypt !== 'function') {
+    throw new DOMException('Native crypto not available for AES-CTR', 'NotSupportedError');
+  }
+
+  const numBlocks = Math.ceil(data.length / 16);
+  // 2 ** length is exact for length < 53; realistic data can never reach
+  // 2^53 blocks, so larger lengths cannot overflow the counter space.
+  if (length < 53 && numBlocks > 2 ** length) {
+    throw new DOMException('AES-CTR counter would repeat within this message', 'OperationError');
+  }
+
+  try {
+    const blocksUntilWrap = ctrBlocksUntilWrap(counter, length, numBlocks);
+    let out: Uint8Array;
+    if (numBlocks <= blocksUntilWrap) {
+      out = toUint8Array(__exactAesCtrEncrypt(keyData, counter, data));
+    } else {
+      const splitAt = blocksUntilWrap * 16;
+      const first = toUint8Array(__exactAesCtrEncrypt(keyData, counter, data.slice(0, splitAt)));
+      // After the wrap the low `length` bits are zero; the high bits never
+      // change under the spec's counter function.
+      const wrapped = counter.slice();
+      zeroCtrLowBits(wrapped, length);
+      const second = toUint8Array(__exactAesCtrEncrypt(keyData, wrapped, data.slice(splitAt)));
+      out = concatUint8Arrays([first, second]);
+    }
+    return uint8ArrayToArrayBuffer(out);
+  } catch (e) { throw wrapNativeError(e, 'OperationError'); }
+}
+
+/**
+ * Number of blocks that can be processed before the rightmost `length` bits
+ * of `counter` wrap to zero, i.e. (2^length - value) mod 2^length, saturated
+ * to `cap + 1` when it exceeds `cap` (callers only compare against counts up
+ * to `cap`, so saturation keeps the arithmetic inside exact Number range).
+ */
+function ctrBlocksUntilWrap(counter: Uint8Array, length: number, cap: number): number {
+  const nBytes = Math.ceil(length / 8);
+  const topBits = length % 8;
+  const topMask = topBits === 0 ? 0xff : (1 << topBits) - 1;
+
+  const low = new Uint8Array(nBytes);
+  for (let i = 0; i < nBytes; i++) low[i] = counter[16 - nBytes + i];
+  low[0] &= topMask;
+
+  let allZero = true;
+  for (let i = 0; i < nBytes; i++) {
+    if (low[i] !== 0) { allZero = false; break; }
+  }
+  // Low bits at zero: the full 2^length counter space lies ahead.
+  if (allZero) return cap + 1;
+
+  // Two's-complement negation mod 2^length gives 2^length - value.
+  let carry = 1;
+  for (let i = nBytes - 1; i >= 0; i--) {
+    const v = (low[i] ^ 0xff) + carry;
+    low[i] = v & 0xff;
+    carry = v >> 8;
+  }
+  low[0] &= topMask;
+
+  let value = 0;
+  for (let i = 0; i < nBytes; i++) {
+    value = value * 256 + low[i];
+    if (value > cap) return cap + 1;
+  }
+  return value;
+}
+
+/** Zero the rightmost `length` bits of a 16-byte CTR counter block in place. */
+function zeroCtrLowBits(counter: Uint8Array, length: number): void {
+  const fullBytes = Math.floor(length / 8);
+  for (let i = 0; i < fullBytes; i++) counter[15 - i] = 0;
+  const rem = length % 8;
+  if (rem !== 0) counter[15 - fullBytes] &= (0xff << rem) & 0xff;
+}
+
+/**
+ * Spec OperationError checks shared by PBKDF2 and HKDF deriveBits: length must
+ * be a non-negative multiple of 8, and null/undefined is invalid (unlike
+ * ECDH/X25519, where null means "the whole secret"). Matches Node's messages
+ * (ENG-23455 findings 1+3).
+ */
+function validateKdfDeriveLength(length: number | null | undefined): void {
+  if (length === null || length === undefined) {
+    throw new DOMException('length cannot be null', 'OperationError');
+  }
+  if (typeof length !== 'number' || !Number.isInteger(length) || length < 0) {
+    throw new DOMException('length must be a non-negative integer', 'OperationError');
+  }
+  if (length % 8 !== 0) {
+    throw new DOMException('length must be a multiple of 8', 'OperationError');
+  }
+}
+
+/**
+ * Spec checks for the ECDH/X25519 deriveBits `public` parameter and base key:
+ * the base key must be a private key, algorithm.public a public key of the
+ * same algorithm (and named curve for ECDH), else InvalidAccessError. None of
+ * this was checked before (ENG-23455 finding 3).
+ */
+function validateDerivePublicKey(
+  algName: string,
+  baseKey: CryptoKey,
+  publicKey: CryptoKey | undefined,
+  checkCurve: boolean
+): void {
+  if (baseKey.type !== 'private') {
+    throw new DOMException('baseKey must be a private key', 'InvalidAccessError');
+  }
+  if (!publicKey || typeof publicKey !== 'object' || publicKey.type !== 'public') {
+    throw new DOMException('algorithm.public must be a public key', 'InvalidAccessError');
+  }
+  requireKeyAlgorithmMatch(algName, publicKey);
+  if (checkCurve) {
+    const baseCurve = (baseKey.algorithm as EcKeyAlgorithm).namedCurve;
+    const pubCurve = (publicKey.algorithm as EcKeyAlgorithm).namedCurve;
+    if (baseCurve !== pubCurve) {
+      throw new DOMException('Named curve mismatch', 'InvalidAccessError');
+    }
+  }
+}
+
+// Spec-allowed key usages per algorithm and key type (SyntaxError otherwise).
+// Names are canonical (see canonicalAlgorithmName).
+const IMPORT_USAGES: Record<string, Partial<Record<'secret' | 'public' | 'private', readonly KeyUsage[]>>> = {
+  'AES-GCM': { secret: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'] },
+  'AES-CBC': { secret: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'] },
+  'AES-CTR': { secret: ['encrypt', 'decrypt', 'wrapKey', 'unwrapKey'] },
+  'AES-KW': { secret: ['wrapKey', 'unwrapKey'] },
+  'HMAC': { secret: ['sign', 'verify'] },
+  'PBKDF2': { secret: ['deriveKey', 'deriveBits'] },
+  'HKDF': { secret: ['deriveKey', 'deriveBits'] },
+  'RSA-OAEP': { public: ['encrypt', 'wrapKey'], private: ['decrypt', 'unwrapKey'] },
+  'RSASSA-PKCS1-V1_5': { public: ['verify'], private: ['sign'] },
+  'RSA-PSS': { public: ['verify'], private: ['sign'] },
+  'ECDSA': { public: ['verify'], private: ['sign'] },
+  'ED25519': { public: ['verify'], private: ['sign'] },
+  'ECDH': { public: [], private: ['deriveKey', 'deriveBits'] },
+  'X25519': { public: [], private: ['deriveKey', 'deriveBits'] },
+};
+
+/**
+ * Spec importKey usage validation: usages must be non-empty for secret and
+ * private keys and every usage must be legal for the algorithm/key type
+ * (SyntaxError). Previously any usages were accepted, minting keys that no
+ * operation could ever use (ENG-23455 finding 3).
+ */
+function validateImportUsages(
+  algName: string,
+  keyType: 'secret' | 'public' | 'private',
+  usages: KeyUsage[]
+): void {
+  if (keyType !== 'public' && usages.length === 0) {
+    throw new DOMException(
+      `Usages cannot be empty when importing a ${keyType} key`,
+      'SyntaxError'
+    );
+  }
+  const allowed = IMPORT_USAGES[canonicalAlgorithmName(algName)]?.[keyType];
+  if (!allowed) return; // unknown algorithm/type combos fail later on their own
+  for (const usage of usages) {
+    if (!allowed.includes(usage)) {
+      throw new DOMException(
+        `Unsupported key usage '${usage}' for a ${algName} ${keyType} key`,
+        'SyntaxError'
+      );
+    }
+  }
+}
+
+// Algorithms whose JWK "use" member must be "sig"; the rest of the supported
+// set requires "enc".
+const JWK_SIG_ALGS = new Set(['HMAC', 'RSASSA-PKCS1-V1_5', 'RSA-PSS', 'ECDSA', 'ED25519']);
+
+// Expected JWK "kty" per canonical algorithm name.
+function expectedJwkKty(canonicalAlg: string): string | null {
+  if (canonicalAlg.startsWith('AES') || canonicalAlg === 'HMAC' || canonicalAlg === 'PBKDF2' || canonicalAlg === 'HKDF') return 'oct';
+  if (canonicalAlg.startsWith('RSA')) return 'RSA';
+  if (canonicalAlg === 'ECDSA' || canonicalAlg === 'ECDH') return 'EC';
+  if (canonicalAlg === 'ED25519' || canonicalAlg === 'X25519') return 'OKP';
+  return null;
+}
+
+/**
+ * Spec JWK kty check (DataError, matching Node): the JWK's kty must match the
+ * requested algorithm's key family (ENG-23455 finding 3).
+ */
+function validateJwkKty(jwk: JsonWebKey, algName: string): void {
+  if (typeof jwk !== 'object' || jwk === null || typeof jwk.kty !== 'string') {
+    throw new DOMException('Invalid JWK "kty" Parameter', 'DataError');
+  }
+  const expectedKty = expectedJwkKty(canonicalAlgorithmName(algName));
+  if (expectedKty !== null && jwk.kty !== expectedKty) {
+    throw new DOMException('Invalid JWK "kty" Parameter', 'DataError');
+  }
+}
+
+/**
+ * Spec JWK member consistency checks (all DataError, matching Node):
+ * ext:false cannot become an extractable key, key_ops must cover the
+ * requested usages, and "use" must agree with the algorithm's operation
+ * family (ENG-23455 finding 3). Per the spec (and Node), these run after the
+ * SyntaxError usage validation, so callers invoke this after
+ * validateImportUsages.
+ */
+function validateJwkMembers(
+  jwk: JsonWebKey,
+  algName: string,
+  extractable: boolean,
+  keyUsages: KeyUsage[]
+): void {
+  if ((jwk as { ext?: boolean }).ext === false && extractable) {
+    throw new DOMException('JWK "ext" Parameter and extractable mismatch', 'DataError');
+  }
+  const keyOps = (jwk as { key_ops?: unknown }).key_ops;
+  if (keyOps !== undefined) {
+    if (!Array.isArray(keyOps)) {
+      throw new DOMException('Invalid JWK "key_ops" Parameter', 'DataError');
+    }
+    for (const usage of keyUsages) {
+      if (!keyOps.includes(usage)) {
+        throw new DOMException('Key operations and usage mismatch', 'DataError');
+      }
+    }
+  }
+  const use = (jwk as { use?: unknown }).use;
+  if (typeof use === 'string' && keyUsages.length > 0) {
+    const expectedUse = JWK_SIG_ALGS.has(canonicalAlgorithmName(algName)) ? 'sig' : 'enc';
+    if (use !== expectedUse) {
+      throw new DOMException('Invalid JWK "use" Parameter', 'DataError');
+    }
   }
 }
 

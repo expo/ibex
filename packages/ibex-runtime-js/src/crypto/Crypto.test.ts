@@ -520,8 +520,10 @@ function installNodeEcdhBridge() {
 }
 
 async function ecdhFixture() {
-  const alice = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
-  const bob = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  // Both usages: the exported JWK's key_ops must cover everything the ibex
+  // import requests, now that JWK consistency is enforced (ENG-23455).
+  const alice = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits", "deriveKey"]);
+  const bob = await nodeSubtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits", "deriveKey"]);
   const ibexPriv: any = await ibex.importKey(
     "jwk",
     await nodeSubtle.exportKey("jwk", alice.privateKey),
