@@ -2934,6 +2934,18 @@ function _modPow(base, exp, mod) {
   return result;
 }
 
+// DH peer public values must lie in [2, p-2] (DH_check_pub_key). Node rejects
+// out-of-range keys with ERR_CRYPTO_INVALID_KEYLEN; skipping the check would
+// let degenerate keys (0, 1, p-1) force a predictable "shared secret".
+function _checkDhPublicKeyRange(y, p) {
+  if (y < 2n) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_INVALID_KEYLEN', 'Supplied key is too small');
+  }
+  if (y > p - 2n) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_INVALID_KEYLEN', 'Supplied key is too large');
+  }
+}
+
 function _generateProbablePrime(bits) {
   // Generate a random odd number of the specified bit length and test for primality
   var byteLen = Math.ceil(bits / 8);
@@ -3035,6 +3047,7 @@ DiffieHellman.prototype.computeSecret = function(otherKey, inputEncoding, output
 
   var otherPub = _bytesToBigInt(otherBytes);
   var p = this._primeBigInt;
+  _checkDhPublicKeyRange(otherPub, p);
 
   // Shared secret: otherPub^privateKey mod p
   var secret = _modPow(otherPub, this._privateKeyBigInt, p);
@@ -3308,22 +3321,19 @@ function ECDH(curve) {
 }
 
 ECDH.prototype.generateKeys = function(encoding, format) {
-  if (typeof __exactGenerateKeyPairSync === 'function') {
-    var kp = __exactGenerateKeyPairSync('ec', JSON.stringify({namedCurve: this._webCurve}));
-    var parsed = typeof kp === 'string' ? JSON.parse(kp) : kp;
-    this._pemPrivateKey = parsed.privateKey;
-    this._pemPublicKey = parsed.publicKey;
-    this._publicKey = _bytesToBufferLike(_extractEcPublicPoint(parsed.publicKey, this._keyLen));
-    this._privateKey = _bytesToBufferLike(_extractEcPrivateScalar(parsed.privateKey, this._keyLen));
-  } else {
-    // Fallback: random keys (won't produce correct ECDH but API works)
-    this._privateKey = randomBytes(this._keyLen);
-    var pub = new Uint8Array(1 + this._keyLen * 2);
-    pub[0] = 0x04;
-    var randPub = randomBytes(this._keyLen * 2);
-    for (var i = 0; i < this._keyLen * 2; i++) pub[i + 1] = randPub[i];
-    this._publicKey = _bytesToBufferLike(pub);
+  // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles — on
+  // profiles without the native EC keygen bridge, fabricating random bytes as
+  // a "keypair" produces secrets no peer can ever agree on; throw instead.
+  if (typeof __exactGenerateKeyPairSync !== 'function') {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+      'ECDH key generation is not available in this build (no native EC keygen bridge)');
   }
+  var kp = __exactGenerateKeyPairSync('ec', JSON.stringify({namedCurve: this._webCurve}));
+  var parsed = typeof kp === 'string' ? JSON.parse(kp) : kp;
+  this._pemPrivateKey = parsed.privateKey;
+  this._pemPublicKey = parsed.publicKey;
+  this._publicKey = _bytesToBufferLike(_extractEcPublicPoint(parsed.publicKey, this._keyLen));
+  this._privateKey = _bytesToBufferLike(_extractEcPrivateScalar(parsed.privateKey, this._keyLen));
   if (encoding === 'hex') return this._publicKey.toString('hex');
   if (encoding === 'base64') return this._publicKey.toString('base64');
   return this._publicKey;
@@ -3340,18 +3350,18 @@ ECDH.prototype.computeSecret = function(otherKey, inputEncoding, outputEncoding)
   } else {
     otherBytes = _toBytes(otherKey);
   }
-  if (typeof __exactEcdhDeriveBits === 'function') {
-    var secret = __exactEcdhDeriveBits(this._webCurve, this._pemPrivateKey, otherBytes);
-    var secretBuf = _bytesToBufferLike(secret);
-    if (outputEncoding === 'hex') return secretBuf.toString('hex');
-    if (outputEncoding === 'base64') return secretBuf.toString('base64');
-    return secretBuf;
+  // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles — without
+  // the native ECDH bridge a random-bytes "shared secret" is a silent lie (two
+  // peers never agree); throw like the stateless diffieHellman (ENG-23144).
+  if (typeof __exactEcdhDeriveBits !== 'function') {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+      'ECDH key agreement is not available in this build (no native ECDH bridge)');
   }
-  // Fallback
-  var fallback = randomBytes(this._keyLen);
-  if (outputEncoding === 'hex') return fallback.toString('hex');
-  if (outputEncoding === 'base64') return fallback.toString('base64');
-  return fallback;
+  var secret = __exactEcdhDeriveBits(this._webCurve, this._pemPrivateKey, otherBytes);
+  var secretBuf = _bytesToBufferLike(secret);
+  if (outputEncoding === 'hex') return secretBuf.toString('hex');
+  if (outputEncoding === 'base64') return secretBuf.toString('base64');
+  return secretBuf;
 };
 ECDH.prototype.setPrivateKey = function(key, encoding) {
   if (typeof key === 'string' && encoding) {
@@ -3908,6 +3918,7 @@ function _statelessDhClassic(privateKey, publicKey) {
     // Node accepts a private KeyObject in the publicKey slot; recover y = g^x mod p.
     pubValue = _modPow(pub.g, pub.priv, pub.p);
   }
+  _checkDhPublicKeyRange(pubValue, priv.p);
   var secret = _modPow(pubValue, priv.priv, priv.p);
   var byteLen = Math.ceil(priv.p.toString(2).length / 8);
   return _bigIntToBytes(secret, byteLen);

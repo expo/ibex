@@ -2948,6 +2948,10 @@ function _modPow(base, exp, mod) {
 	}
 	return result;
 }
+function _checkDhPublicKeyRange(y, p) {
+	if (y < BigInt("2")) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_KEYLEN", "Supplied key is too small");
+	if (y > p - BigInt("2")) throw _createCryptoError(Error, "ERR_CRYPTO_INVALID_KEYLEN", "Supplied key is too large");
+}
 function _generateProbablePrime(bits) {
 	var byteLen = Math.ceil(bits / 8);
 	for (var attempt = 0; attempt < 1e3; attempt++) {
@@ -3017,6 +3021,7 @@ DiffieHellman.prototype.computeSecret = function(otherKey, inputEncoding, output
 	else otherBytes = _toBytes(otherKey);
 	var otherPub = _bytesToBigInt(otherBytes);
 	var p = this._primeBigInt;
+	_checkDhPublicKeyRange(otherPub, p);
 	var secretBuf = _bigIntToBytes(_modPow(otherPub, this._privateKeyBigInt, p), Math.ceil(Number(p.toString(2).length) / 8));
 	if (outputEncoding === "hex") return secretBuf.toString("hex");
 	if (outputEncoding === "base64") return secretBuf.toString("base64");
@@ -3151,21 +3156,13 @@ function ECDH(curve) {
 	this._pemPublicKey = null;
 }
 ECDH.prototype.generateKeys = function(encoding, format) {
-	if (typeof __exactGenerateKeyPairSync === "function") {
-		var kp = __exactGenerateKeyPairSync("ec", JSON.stringify({ namedCurve: this._webCurve }));
-		var parsed = typeof kp === "string" ? JSON.parse(kp) : kp;
-		this._pemPrivateKey = parsed.privateKey;
-		this._pemPublicKey = parsed.publicKey;
-		this._publicKey = _bytesToBufferLike(_extractEcPublicPoint(parsed.publicKey, this._keyLen));
-		this._privateKey = _bytesToBufferLike(_extractEcPrivateScalar(parsed.privateKey, this._keyLen));
-	} else {
-		this._privateKey = randomBytes(this._keyLen);
-		var pub = new Uint8Array(1 + this._keyLen * 2);
-		pub[0] = 4;
-		var randPub = randomBytes(this._keyLen * 2);
-		for (var i = 0; i < this._keyLen * 2; i++) pub[i + 1] = randPub[i];
-		this._publicKey = _bytesToBufferLike(pub);
-	}
+	if (typeof __exactGenerateKeyPairSync !== "function") throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "ECDH key generation is not available in this build (no native EC keygen bridge)");
+	var kp = __exactGenerateKeyPairSync("ec", JSON.stringify({ namedCurve: this._webCurve }));
+	var parsed = typeof kp === "string" ? JSON.parse(kp) : kp;
+	this._pemPrivateKey = parsed.privateKey;
+	this._pemPublicKey = parsed.publicKey;
+	this._publicKey = _bytesToBufferLike(_extractEcPublicPoint(parsed.publicKey, this._keyLen));
+	this._privateKey = _bytesToBufferLike(_extractEcPrivateScalar(parsed.privateKey, this._keyLen));
 	if (encoding === "hex") return this._publicKey.toString("hex");
 	if (encoding === "base64") return this._publicKey.toString("base64");
 	return this._publicKey;
@@ -3177,16 +3174,11 @@ ECDH.prototype.computeSecret = function(otherKey, inputEncoding, outputEncoding)
 	else if (inputEncoding === "base64") otherBytes = Buffer.from(otherKey, "base64");
 	else otherBytes = _toBytes(otherKey);
 	else otherBytes = _toBytes(otherKey);
-	if (typeof __exactEcdhDeriveBits === "function") {
-		var secretBuf = _bytesToBufferLike(__exactEcdhDeriveBits(this._webCurve, this._pemPrivateKey, otherBytes));
-		if (outputEncoding === "hex") return secretBuf.toString("hex");
-		if (outputEncoding === "base64") return secretBuf.toString("base64");
-		return secretBuf;
-	}
-	var fallback = randomBytes(this._keyLen);
-	if (outputEncoding === "hex") return fallback.toString("hex");
-	if (outputEncoding === "base64") return fallback.toString("base64");
-	return fallback;
+	if (typeof __exactEcdhDeriveBits !== "function") throw _createCryptoError(Error, "ERR_CRYPTO_OPERATION_FAILED", "ECDH key agreement is not available in this build (no native ECDH bridge)");
+	var secretBuf = _bytesToBufferLike(__exactEcdhDeriveBits(this._webCurve, this._pemPrivateKey, otherBytes));
+	if (outputEncoding === "hex") return secretBuf.toString("hex");
+	if (outputEncoding === "base64") return secretBuf.toString("base64");
+	return secretBuf;
 };
 ECDH.prototype.setPrivateKey = function(key, encoding) {
 	if (typeof key === "string" && encoding) this._privateKey = Buffer.from(key, encoding);
@@ -3613,6 +3605,7 @@ function _statelessDhClassic(privateKey, publicKey) {
 	if (priv.p !== pub.p || priv.g !== pub.g) throw _dhMismatchingDomainError();
 	var pubValue = pub.pub;
 	if (pubValue === void 0) pubValue = _modPow(pub.g, pub.priv, pub.p);
+	_checkDhPublicKeyRange(pubValue, priv.p);
 	return _bigIntToBytes(_modPow(pubValue, priv.priv, priv.p), Math.ceil(priv.p.toString(2).length / 8));
 }
 function _statelessEcdh(privateKey, publicKey) {

@@ -312,6 +312,67 @@ async fn diffie_hellman_group_agreement_and_rfc3526_prime() {
     );
 }
 
+/// ENG-23301: the ECDH class must never fabricate key material. On profiles
+/// with the native EC bridge two peers must agree on the shared secret; on
+/// reduced profiles generateKeys/computeSecret must throw an honest
+/// ERR_CRYPTO_OPERATION_FAILED (they returned fresh randomBytes before).
+#[tokio::test]
+async fn ecdh_class_agrees_or_throws_honestly() {
+    let js = "(function(){ var c = require('crypto'); \
+        try { \
+          var a = c.createECDH('prime256v1'); \
+          var b = c.createECDH('prime256v1'); \
+          a.generateKeys(); b.generateKeys(); \
+          var s1 = a.computeSecret(b.getPublicKey()).toString('hex'); \
+          var s2 = b.computeSecret(a.getPublicKey()).toString('hex'); \
+          return JSON.stringify({ agree: s1.length > 0 && s1 === s2 }); \
+        } catch (e) { return 'ERR:' + (e.code || '') + ':' + e.message; } })()";
+    let result = eval(js).await;
+    if let Some(rest) = result.strip_prefix("ERR:") {
+        assert!(
+            rest.starts_with("ERR_CRYPTO_OPERATION_FAILED:") && rest.contains("not available"),
+            "reduced-profile ECDH must fail with an honest ERR_CRYPTO_OPERATION_FAILED, got: {result}"
+        );
+        eprintln!("skipping agreement check: no native ECDH bridge ({result})");
+        return;
+    }
+    assert_eq!(
+        result, r#"{"agree":true}"#,
+        "two ECDH peers must derive the same shared secret (random-bytes fallback would disagree): {result}"
+    );
+}
+
+/// ENG-23301: classic-DH peer public values outside [2, p-2] must be rejected
+/// with ERR_CRYPTO_INVALID_KEYLEN (Node oracle: "Supplied key is too
+/// small"/"too large"); in-range values keep working.
+#[tokio::test]
+async fn dh_compute_secret_rejects_out_of_range_public_keys() {
+    let js = "(function(){ var c = require('crypto'); \
+        var a = c.getDiffieHellman('modp1'); a.generateKeys(); \
+        var b = c.getDiffieHellman('modp1'); b.generateKeys(); \
+        var p = a.getPrime(); \
+        var pMinus1 = Buffer.from(p); pMinus1[pMinus1.length - 1] -= 1; \
+        function code(k) { try { a.computeSecret(k); return 'no-throw'; } catch (e) { return e.code + '|' + e.message; } } \
+        return JSON.stringify({ \
+          zero: code(Buffer.from([0])), \
+          one: code(Buffer.from([1])), \
+          p: code(p), \
+          pMinus1: code(pMinus1), \
+          tooBig: code(Buffer.concat([Buffer.from([5]), p])), \
+          valid: a.computeSecret(b.getPublicKey()).length > 0 \
+        }); })()";
+    let result = eval(js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
+    let small = "ERR_CRYPTO_INVALID_KEYLEN|Supplied key is too small";
+    let large = "ERR_CRYPTO_INVALID_KEYLEN|Supplied key is too large";
+    assert_eq!(parsed["zero"], small, "y=0 must be rejected: {result}");
+    assert_eq!(parsed["one"], small, "y=1 must be rejected: {result}");
+    assert_eq!(parsed["p"], large, "y=p must be rejected: {result}");
+    assert_eq!(parsed["pMinus1"], large, "y=p-1 must be rejected: {result}");
+    assert_eq!(parsed["tooBig"], large, "y>p must be rejected: {result}");
+    assert_eq!(parsed["valid"], true, "in-range peer keys must keep working: {result}");
+}
+
 /// ENG-23129 finding 7 (bounds only — the bias fix is rejection sampling,
 /// reviewed at the source): every draw stays in [min, max) and small ranges
 /// are fully covered.
