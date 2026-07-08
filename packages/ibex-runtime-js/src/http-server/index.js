@@ -404,6 +404,9 @@ function serve(options) {
         init.body = b64ToBytes(req.body);
       } else {
         init.body = createReadableRequestBody(serverId, req.id);
+        // Spec-compliant Request constructors require duplex: "half" for
+        // ReadableStream bodies; without it a bodyless POST 400s (ENG-23636).
+        init.duplex = "half";
       }
     }
 

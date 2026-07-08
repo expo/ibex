@@ -1603,6 +1603,9 @@
             var init = { method: method };
             if (method !== 'GET' && method !== 'HEAD') {
               init.body = createReadableRequestBodyFromNode(req);
+              // Spec-compliant Request constructors require duplex: "half"
+              // for ReadableStream bodies (ENG-23636).
+              init.duplex = 'half';
             }
             var fullUrl = req && req.url ? String(req.url) : '/';
             if (fullUrl.indexOf('http://') !== 0 && fullUrl.indexOf('https://') !== 0) {
@@ -1831,6 +1834,9 @@
           init.body = decodeBase64ToBytes(data.body);
         } else {
           init.body = createReadableRequestBody(serverId, data.id);
+          // Spec-compliant Request constructors require duplex: "half"
+          // for ReadableStream bodies (ENG-23636).
+          init.duplex = 'half';
         }
       }
       return restoreRequestHeaders(new Request(fullUrl, init), data.headers || headers);
