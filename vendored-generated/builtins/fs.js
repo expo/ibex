@@ -805,6 +805,94 @@ function _asyncWritevFromBuffers(native, fd, buffers, position) {
 		throw _asyncFsError(err, "writev");
 	});
 }
+function _asyncFsPathOp(native, op, args, syscall, path, dest) {
+	var nativeArgs = [op];
+	for (var i = 0; i < args.length; i++) nativeArgs.push(args[i]);
+	return native.apply(null, nativeArgs).then(void 0, function(err) {
+		throw _asyncFsError(err, syscall, path, dest);
+	});
+}
+function _deferFsPromiseCallback(promise, callback) {
+	promise.then(function(value) {
+		_deferFsCallback(function() {
+			if (value === void 0) callback(null);
+			else callback(null, value);
+		});
+	}, function(err) {
+		_deferFsCallback(function() {
+			callback(err);
+		});
+	});
+	return true;
+}
+function _readdirEntriesFromNativePayload(payload, options) {
+	var encoding = (typeof options === "string" ? { encoding: options } : options || {}).encoding;
+	var rawEntries = JSON.parse(payload).sort();
+	if (encoding === "buffer") return rawEntries.map(function(e) {
+		return toUint8Array(e);
+	});
+	if (typeof encoding === "string" && encoding !== "utf8" && encoding !== "utf-8") return rawEntries.map(function(e) {
+		return decodeBytes(toUint8Array(e), encoding);
+	});
+	return rawEntries;
+}
+function _asyncReaddirSimple(native, path, options) {
+	var opts = typeof options === "string" ? { encoding: options } : options || {};
+	if (opts.withFileTypes || opts.recursive) return null;
+	var p = _pathToString(path);
+	return _asyncFsPathOp(native, "readdir", [p], "scandir", p).then(function(payload) {
+		return _readdirEntriesFromNativePayload(payload, opts);
+	});
+}
+function _asyncMkdirSimple(native, path, options) {
+	var p = _pathToString(path);
+	var recursive = false;
+	var mode;
+	var firstCreatedPath;
+	if (typeof options === "object" && options !== null) {
+		_validateMkdirRecursiveOption(options);
+		recursive = options.recursive === true;
+		mode = options.mode;
+	} else if (typeof options === "string" || typeof options === "number") mode = options;
+	if (mode !== void 0) mode = _coerceMode(mode) & 511;
+	if (recursive) firstCreatedPath = _getFirstMissingPath(p);
+	if (typeof path === "string" && path.charAt(0) !== "/") try {
+		statSync(_currentProcessCwd());
+	} catch (cwdErr) {
+		if (cwdErr && cwdErr.code === "ENOENT") throw cwdErr;
+	}
+	var result = recursive ? firstCreatedPath : void 0;
+	return _asyncFsPathOp(native, "mkdir", [
+		_nativeMkdirPath(p),
+		null,
+		recursive ? 1 : 0
+	], "mkdir", p).then(function() {
+		if (mode === void 0) return result;
+		return _asyncFsPathOp(native, "chmod", [
+			p,
+			null,
+			mode
+		], "chmod", p).then(function() {
+			return result;
+		}, function() {
+			return result;
+		});
+	});
+}
+function _asyncMkdtempResult(native, prefix, options) {
+	_validatePath(prefix, "prefix");
+	_validateEncodingOption(options);
+	var prefixPath = _pathToString(prefix);
+	var parent = _dirnamePath(prefixPath);
+	var rawPrefix = typeof prefix === "string" ? prefix : typeof Buffer !== "undefined" && Buffer.isBuffer(prefix) ? prefix.toString() : null;
+	if (!existsSync(parent)) throw _makeFsError(/* @__PURE__ */ new Error("ENOENT: no such file or directory, mkdtemp '" + prefix + "'"), "mkdtemp", prefix);
+	return _asyncFsPathOp(native, "mkdtemp", [prefixPath], "mkdtemp", prefix).then(function(createdPath) {
+		return {
+			actualPath: createdPath,
+			publicPath: rawPrefix !== null && !_isAbsolutePath(rawPrefix) ? relativePathFromCwd(createdPath) : createdPath
+		};
+	});
+}
 function _normalizeWatchOptions(options) {
 	if (options === void 0 || options === null) return {};
 	if (typeof options === "string") {
@@ -1959,6 +2047,14 @@ function statfs(path, options, cb) {
 	}
 	_validateCallback(cb);
 	_validatePath(path);
+	_validateEncodingOption(options);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "statfs", [p], "statfs", p).then(function(payload) {
+			return new StatFs(typeof payload === "string" ? JSON.parse(payload) : payload, options && options.bigint);
+		}), cb);
+	}
 	wrapCallback(function() {
 		return statfsSync(path, options);
 	}, cb, "statfs", _pathToString(path));
@@ -2545,6 +2641,11 @@ function readdir(path, optOrCb, cb) {
 	_validateCallback(callback);
 	_validatePath(path);
 	_validateEncodingOption(opts);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var readdirPromise = _asyncReaddirSimple(native, path, opts);
+		if (readdirPromise) return _deferFsPromiseCallback(readdirPromise, callback);
+	}
 	wrapCallback(function() {
 		return readdirSync(path, opts);
 	}, callback, "scandir", _pathToString(path));
@@ -2559,6 +2660,8 @@ function mkdir(path, optOrCb, cb) {
 	_validateCallback(callback);
 	_validatePath(path);
 	_validateMkdirRecursiveOption(opts);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) return _deferFsPromiseCallback(_asyncMkdirSimple(native, path, opts), callback);
 	wrapCallback(function() {
 		return mkdirSync(path, opts);
 	}, callback, "mkdir", _pathToString(path));
@@ -2572,6 +2675,11 @@ function rmdir(path, optOrCb, cb) {
 	}
 	_validateCallback(callback);
 	_validatePath(path);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native && !(opts && opts.recursive === true)) {
+		var rmdirPath = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "rmdir", [rmdirPath], "rmdir", rmdirPath), callback);
+	}
 	wrapCallback(function() {
 		rmdirSync(path, opts);
 	}, callback, "rmdir", _pathToString(path));
@@ -2579,6 +2687,11 @@ function rmdir(path, optOrCb, cb) {
 function unlink(path, cb) {
 	_validateCallback(cb);
 	_validatePath(path);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "unlink", [p], "unlink", p), cb);
+	}
 	wrapCallback(function() {
 		unlinkSync(path);
 	}, cb, "unlink", _pathToString(path));
@@ -2587,6 +2700,12 @@ function rename(o, n, cb) {
 	_validateCallback(cb);
 	_validatePath(o, "oldPath");
 	_validatePath(n, "newPath");
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var op = _pathToString(o);
+		var np = _pathToString(n);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "rename", [op, np], "rename", op, np), cb);
+	}
 	wrapCallback(function() {
 		renameSync(o, n);
 	}, cb, "rename", _pathToString(o));
@@ -2602,6 +2721,12 @@ function copyFile(s, d, modeOrCb, cb) {
 	_validatePath(s, "src");
 	_validatePath(d, "dest");
 	if (mode !== void 0 && mode !== null) _validateCopyFileMode(mode);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var sp = _pathToString(s);
+		var dp = _pathToString(d);
+		if ((mode & 1) !== 1) return _deferFsPromiseCallback(_asyncFsPathOp(native, "copyfile", [sp, dp], "copyfile", sp, dp), callback);
+	}
 	wrapCallback(function() {
 		copyFileSync(s, d, mode);
 	}, callback, "copyfile", _pathToString(s));
@@ -2615,7 +2740,16 @@ function access(path, modeOrCb, cb) {
 	}
 	_validateCallback(callback);
 	_validatePath(path);
-	if (mode !== void 0 && mode !== null) _validateAccessMode(mode);
+	var validatedMode = mode !== void 0 && mode !== null ? _validateAccessMode(mode) : 0;
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "access", [
+			p,
+			null,
+			validatedMode
+		], "access", p), callback);
+	}
 	wrapCallback(function() {
 		accessSync(path, mode);
 	}, callback, "access", _pathToString(path));
@@ -2623,6 +2757,15 @@ function access(path, modeOrCb, cb) {
 function chmod(path, mode, cb) {
 	_validateCallback(cb);
 	_validatePath(path);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "chmod", [
+			p,
+			null,
+			typeof mode === "string" ? parseInt(mode, 8) : mode
+		], "chmod", p), cb);
+	}
 	wrapCallback(function() {
 		chmodSync(path, mode);
 	}, cb, "chmod", _pathToString(path));
@@ -2637,6 +2780,20 @@ function realpath(path, optOrCb, cb) {
 	_validateCallback(callback);
 	_validatePath(path);
 	_validateEncodingOption(opts);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _mapVendoredNodeTestPath(_pathToString(path));
+		try {
+			lstatSync(p);
+		} catch (err) {
+			return _deferFsCallback(function() {
+				callback(_makeFsError(err, "lstat", p));
+			});
+		}
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "realpath", [p], "realpath", p).then(function(value) {
+			return _encodeFsPathResult(value, opts);
+		}), callback);
+	}
 	wrapCallback(function() {
 		return realpathSync(path, opts);
 	}, callback, "lstat", _pathToString(path));
@@ -2644,6 +2801,11 @@ function realpath(path, optOrCb, cb) {
 realpath.native = function(path, callback) {
 	_validateCallback(callback);
 	_validatePath(path);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _mapVendoredNodeTestPath(_pathToString(path));
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "realpath", [p], "realpath", p), callback);
+	}
 	wrapCallback(function() {
 		return realpathSyncNative(path);
 	}, callback, "realpath", _pathToString(path));
@@ -2658,6 +2820,10 @@ function mkdtemp(prefix, optOrCb, cb) {
 	_validateCallback(callback);
 	_validatePath(prefix, "prefix");
 	_validateEncodingOption(opts);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) return _deferFsPromiseCallback(_asyncMkdtempResult(native, prefix, opts).then(function(result) {
+		return result.publicPath;
+	}), callback);
 	wrapCallback(function() {
 		return _mkdtempResult(prefix, opts).publicPath;
 	}, callback, "mkdtemp", prefix);
@@ -4553,6 +4719,13 @@ function symlink(target, path, type, cb) {
 	_validatePath(target, "target");
 	_validatePath(path, "path");
 	_validateSymlinkType(type);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var t = _coercePathFromURL(target, "target");
+		var targetPath = typeof t === "string" ? t : Buffer.isBuffer(t) ? t.toString() : _coercePathFromURL(t, "target");
+		var linkPath = "" + _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "symlink", [targetPath, linkPath], "symlink", targetPath, linkPath), cb);
+	}
 	wrapCallback(function() {
 		symlinkSync(target, path, type);
 	}, cb, "symlink");
@@ -4574,6 +4747,12 @@ function link(existingPath, newPath, cb) {
 	_validateCallback(cb);
 	_validatePath(existingPath, "existingPath");
 	_validatePath(newPath, "newPath");
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var ep = _pathToString(existingPath);
+		var np = _pathToString(newPath);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "link", [ep, np], "link", ep, np), cb);
+	}
 	wrapCallback(function() {
 		linkSync(existingPath, newPath);
 	}, cb, "link");
@@ -4598,6 +4777,13 @@ function readlink(path, options, cb) {
 	_validateCallback(cb);
 	_validatePath(path, "path");
 	_validateEncodingOption(options);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "readlink", [p], "readlink", p).then(function(value) {
+			return _encodeFsPathResult(value, options);
+		}), cb);
+	}
 	wrapCallback(function() {
 		return readlinkSync(path, options);
 	}, cb, "readlink", _pathToString(path));
@@ -4624,6 +4810,15 @@ function truncate(path, len, cb) {
 	_validatePath(path);
 	len = _normalizeTruncateLen(len);
 	_validateCallback(cb);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "truncate", [
+			p,
+			null,
+			len
+		], "truncate", p), cb);
+	}
 	wrapCallback(function() {
 		truncateSync(path, len);
 	}, cb, "truncate", _pathToString(path));
@@ -4647,6 +4842,19 @@ function chown(path, uid, gid, cb) {
 	_validatePath(path);
 	_validateUidOrGid("uid", uid);
 	_validateUidOrGid("gid", gid);
+	if (uid === -1 && gid === -1) return _deferFsCallback(function() {
+		cb(null);
+	});
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "chown", [
+			p,
+			null,
+			uid,
+			gid
+		], "chown", p), cb);
+	}
 	wrapCallback(function() {
 		chownSync(path, uid, gid);
 	}, cb, "chown", _pathToString(path));
@@ -4694,6 +4902,18 @@ function utimesSync(path, atime, mtime) {
 function utimes(path, atime, mtime, cb) {
 	_validateCallback(cb);
 	_validatePath(path);
+	var at = _toUnixTimestamp(atime);
+	var mt = _toUnixTimestamp(mtime);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "utime", [
+			p,
+			null,
+			at,
+			mt
+		], "utime", p), cb);
+	}
 	wrapCallback(function() {
 		utimesSync(path, atime, mtime);
 	}, cb, "utime", _pathToString(path));
@@ -5074,51 +5294,126 @@ var promises = {
 	},
 	readdir: function(p, o) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			_validateEncodingOption(o);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var promise = _asyncReaddirSimple(native, p, o);
+				if (promise) return promise;
+			}
 			return readdirSync(p, o);
 		})();
 	},
 	mkdir: function(p, o) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			_validateMkdirRecursiveOption(o);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) return _asyncMkdirSimple(native, p, o);
 			return mkdirSync(p, o);
 		})();
 	},
 	rmdir: function(p, o) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native && !(o && o.recursive === true)) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "rmdir", [pathString], "rmdir", pathString);
+			}
 			rmdirSync(p, o);
 		})();
 	},
 	unlink: function(p) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "unlink", [pathString], "unlink", pathString);
+			}
 			unlinkSync(p);
 		})();
 	},
 	rename: function(o, n) {
 		return _resolveAsync(function() {
+			_validatePath(o, "oldPath");
+			_validatePath(n, "newPath");
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var op = _pathToString(o);
+				var np = _pathToString(n);
+				return _asyncFsPathOp(native, "rename", [op, np], "rename", op, np);
+			}
 			renameSync(o, n);
 		})();
 	},
 	copyFile: function(s, d, m) {
 		return _resolveAsync(function() {
+			_validatePath(s, "src");
+			_validatePath(d, "dest");
+			if (m !== void 0 && m !== null) _validateCopyFileMode(m);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native && (m & 1) !== 1) {
+				var sp = _pathToString(s);
+				var dp = _pathToString(d);
+				return _asyncFsPathOp(native, "copyfile", [sp, dp], "copyfile", sp, dp);
+			}
 			copyFileSync(s, d, m);
 		})();
 	},
 	access: function(p, m) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			var mode = _validateAccessMode(m);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "access", [
+					pathString,
+					null,
+					mode
+				], "access", pathString);
+			}
 			accessSync(p, m);
 		})();
 	},
 	chmod: function(p, m) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "chmod", [
+					pathString,
+					null,
+					typeof m === "string" ? parseInt(m, 8) : m
+				], "chmod", pathString);
+			}
 			chmodSync(p, m);
 		})();
 	},
 	realpath: function(p, o) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			_validateEncodingOption(o);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _mapVendoredNodeTestPath(_pathToString(p));
+				lstatSync(pathString);
+				return _asyncFsPathOp(native, "realpath", [pathString], "realpath", pathString).then(function(value) {
+					return _encodeFsPathResult(value, o);
+				});
+			}
 			return realpathSync(p, o);
 		})();
 	},
 	mkdtemp: function(p, o) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) return _asyncMkdtempResult(native, p, o).then(function(result) {
+				return result.publicPath;
+			});
 			return mkdtempSync(p, o);
 		})();
 	},
@@ -5137,6 +5432,15 @@ var promises = {
 	},
 	statfs: function(path, o) {
 		return _resolveAsync(function() {
+			_validatePath(path);
+			_validateEncodingOption(o);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var p = _pathToString(path);
+				return _asyncFsPathOp(native, "statfs", [p], "statfs", p).then(function(payload) {
+					return new StatFs(typeof payload === "string" ? JSON.parse(payload) : payload, o && o.bigint);
+				});
+			}
 			return statfsSync(path, o);
 		})();
 	},
@@ -5236,21 +5540,77 @@ var promises = {
 	},
 	truncate: function(p, l) {
 		return _resolveAsync(function() {
-			truncateSync(p, l);
+			if (typeof p === "number") {
+				ftruncateSync(p, l);
+				return;
+			}
+			_validatePath(p);
+			var len = _normalizeTruncateLen(l);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "truncate", [
+					pathString,
+					null,
+					len
+				], "truncate", pathString);
+			}
+			truncateSync(p, len);
 		})();
 	},
 	lchown: function(p, u, gi) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			_validateUidOrGid("uid", u);
+			_validateUidOrGid("gid", gi);
+			if (u === -1 && gi === -1) return;
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "lchown", [
+					pathString,
+					null,
+					u,
+					gi
+				], "lchown", pathString);
+			}
 			lchownSync(p, u, gi);
 		})();
 	},
 	chown: function(p, u, gi) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			_validateUidOrGid("uid", u);
+			_validateUidOrGid("gid", gi);
+			if (u === -1 && gi === -1) return;
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "chown", [
+					pathString,
+					null,
+					u,
+					gi
+				], "chown", pathString);
+			}
 			chownSync(p, u, gi);
 		})();
 	},
 	utimes: function(p, a, m) {
 		return _resolveAsync(function() {
+			_validatePath(p);
+			var at = _toUnixTimestamp(a);
+			var mt = _toUnixTimestamp(m);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "utime", [
+					pathString,
+					null,
+					at,
+					mt
+				], "utime", pathString);
+			}
 			utimesSync(p, a, m);
 		})();
 	},
@@ -5276,16 +5636,43 @@ var promises = {
 	},
 	symlink: function(t, p, ty) {
 		return _resolveAsync(function() {
+			var target = _coercePathFromURL(t, "target");
+			_validatePath(target, "target");
+			_validatePath(p, "path");
+			_validateSymlinkType(ty);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var targetPath = typeof target === "string" ? target : Buffer.isBuffer(target) ? target.toString() : _coercePathFromURL(target, "target");
+				var linkPath = "" + _pathToString(p);
+				return _asyncFsPathOp(native, "symlink", [targetPath, linkPath], "symlink", targetPath, linkPath);
+			}
 			symlinkSync(t, p, ty);
 		})();
 	},
 	link: function(e, n) {
 		return _resolveAsync(function() {
+			_validatePath(e, "existingPath");
+			_validatePath(n, "newPath");
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var ep = _pathToString(e);
+				var np = _pathToString(n);
+				return _asyncFsPathOp(native, "link", [ep, np], "link", ep, np);
+			}
 			linkSync(e, n);
 		})();
 	},
 	readlink: function(p, o) {
 		return _resolveAsync(function() {
+			_validatePath(p, "path");
+			_validateEncodingOption(o);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			if (native) {
+				var pathString = _pathToString(p);
+				return _asyncFsPathOp(native, "readlink", [pathString], "readlink", pathString).then(function(value) {
+					return _encodeFsPathResult(value, o);
+				});
+			}
 			return readlinkSync(p, o);
 		})();
 	},
@@ -5679,6 +6066,19 @@ function lchown(path, uid, gid, callback) {
 	_validateUidOrGid("uid", uid);
 	_validateUidOrGid("gid", gid);
 	_validateCallback(callback);
+	if (uid === -1 && gid === -1) return _deferFsCallback(function() {
+		callback(null);
+	});
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) {
+		var p = _pathToString(path);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, "lchown", [
+			p,
+			null,
+			uid,
+			gid
+		], "lchown", p), callback);
+	}
 	wrapCallback(function() {
 		lchownSync(path, uid, gid);
 	}, callback, "lchown", _pathToString(path));

@@ -218,6 +218,79 @@ fn fs_worker_pool_handles_concurrent_fanout() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+const PATH_OPS_JS: &str = r#"var fs = require('fs');
+var os = require('os');
+var path = require('path');
+
+function callbackOp(fn) {
+  return new Promise(function(resolve, reject) {
+    fn(function(err, value) {
+      if (err) reject(err);
+      else resolve(value);
+    });
+  });
+}
+
+(async function() {
+  var root = fs.mkdtempSync(path.join(os.tmpdir(), 'ibex-pathops-'));
+  var child = path.join(root, 'child');
+  var src = path.join(child, 'src.txt');
+  var copy = path.join(child, 'copy.txt');
+  var renamed = path.join(child, 'renamed.txt');
+  await fs.promises.mkdir(child);
+  fs.writeFileSync(src, 'abcdef');
+  await fs.promises.copyFile(src, copy);
+  var entries = await fs.promises.readdir(child);
+  var statfs = await fs.promises.statfs(child);
+  await callbackOp(function(done) { fs.rename(copy, renamed, done); });
+  var real = await fs.promises.realpath(renamed);
+  var expectedReal = fs.realpathSync(renamed);
+  await callbackOp(function(done) { fs.truncate(renamed, 3, done); });
+  await callbackOp(function(done) { fs.utimes(renamed, 1, 2, done); });
+  var content = fs.readFileSync(renamed, 'utf8');
+  await fs.promises.unlink(renamed);
+  await fs.promises.unlink(src);
+  await fs.promises.rmdir(child);
+  fs.rmSync(root, { recursive: true, force: true });
+  console.log('fs-pathops: ' + JSON.stringify({
+    entries: entries,
+    realOk: real === expectedReal,
+    statfsOk: Number(statfs.bsize) > 0,
+    content: content
+  }));
+})().catch(function(err) {
+  console.log('fs-pathops: err=' + (err && (err.stack || err.message || err)));
+  process.exitCode = 1;
+});
+"#;
+
+#[test]
+fn fs_worker_pool_handles_path_metadata_ops() {
+    let dir = unique_dir("fs-pathops");
+    let script = dir.join("pathops.js");
+    std::fs::write(&script, PATH_OPS_JS).expect("write script");
+
+    let out = Command::new(IBEX)
+        .args(["run", "pathops.js"])
+        .current_dir(&dir)
+        .output()
+        .expect("failed to spawn ibex binary");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        out.status.success(),
+        "path op script should exit successfully:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains(
+            r#"fs-pathops: {"entries":["copy.txt","src.txt"],"realOk":true,"statfsOk":true,"content":"abc"}"#
+        ),
+        "path metadata ops should complete through async fs APIs:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // Node-shaped error contract straight through the async path: errno/code/
 // syscall/path identical to the sync path (oracle: real Node v25).
 const ERROR_SHAPE_JS: &str = r#"var fs = require('fs');

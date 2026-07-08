@@ -86,6 +86,7 @@ function writeAllToFd(fd: number, bytes: Uint8Array): void {
   }
 }
 const asyncNativeCalls = { readv: 0, writev: 0 };
+const pathAsyncCalls: Record<string, number> = {};
 function bufferLikeLength(value: any): number {
   return typeof value?.byteLength === 'number' ? value.byteLength : (value?.length ?? 0);
 }
@@ -95,6 +96,9 @@ function asUint8Array(value: any): Uint8Array {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
   return new Uint8Array(value);
+}
+function recordPathAsyncCall(op: string): void {
+  pathAsyncCalls[op] = (pathAsyncCalls[op] || 0) + 1;
 }
 g.__exactFsReadFileAsync = (target: string | number, flags: number, mode: number) => {
   try {
@@ -167,6 +171,54 @@ g.__exactFsWritevAsync = (fd: number, buffers: ArrayBufferView[], position: numb
   try {
     const pos = typeof position === 'number' && position >= 0 ? position : null;
     return Promise.resolve(nodeFs.writevSync(fd, buffers.map(asUint8Array), pos));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?: number) => {
+  recordPathAsyncCall(op);
+  try {
+    switch (op) {
+      case 'readdir':
+        return Promise.resolve(JSON.stringify(nodeFs.readdirSync(a)));
+      case 'mkdir':
+        nodeFs.mkdirSync(a, { recursive: x !== 0 });
+        return Promise.resolve(undefined);
+      case 'rmdir':
+        nodeFs.rmdirSync(a);
+        return Promise.resolve(undefined);
+      case 'unlink':
+        nodeFs.unlinkSync(a);
+        return Promise.resolve(undefined);
+      case 'rename':
+        nodeFs.renameSync(a, b as string);
+        return Promise.resolve(undefined);
+      case 'copyfile':
+        nodeFs.copyFileSync(a, b as string);
+        return Promise.resolve(undefined);
+      case 'realpath':
+        return Promise.resolve(nodeFs.realpathSync(a));
+      case 'access':
+        nodeFs.accessSync(a, x ?? 0);
+        return Promise.resolve(undefined);
+      case 'chmod':
+        nodeFs.chmodSync(a, x ?? 0o666);
+        return Promise.resolve(undefined);
+      case 'mkdtemp':
+        return Promise.resolve(nodeFs.mkdtempSync(a));
+      case 'readlink':
+        return Promise.resolve(nodeFs.readlinkSync(a));
+      case 'truncate':
+        nodeFs.truncateSync(a, x ?? 0);
+        return Promise.resolve(undefined);
+      case 'utime':
+        nodeFs.utimesSync(a, x ?? Date.now() / 1000, y ?? Date.now() / 1000);
+        return Promise.resolve(undefined);
+      case 'statfs':
+        return Promise.resolve(JSON.stringify({ type: 0, bsize: 4096, blocks: 1, bfree: 1, bavail: 1, files: 1, ffree: 1 }));
+      default:
+        throw new Error(`unsupported path async op: ${op}`);
+    }
   } catch (e) {
     return Promise.reject(e);
   }
@@ -356,6 +408,96 @@ describe('fs-promises FileHandle.read (ENG-22963 #9)', () => {
     } finally {
       await fh.close();
     }
+  });
+});
+
+describe('path async fs natives (ENG-23541)', () => {
+  test('callback metadata and directory ops route through the path async native', async () => {
+    const d = nodePath.join(dir, 'path-async-cb');
+    const src = nodePath.join(d, 'a.txt');
+    const renamed = nodePath.join(d, 'b.txt');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+
+    await new Promise<void>((resolve, reject) => {
+      fs.mkdir(d, (err: any) => err ? reject(err) : resolve());
+    });
+    nodeFs.writeFileSync(src, 'abcdef');
+
+    const entries = await new Promise<string[]>((resolve, reject) => {
+      fs.readdir(d, (err: any, result: string[]) => err ? reject(err) : resolve(result));
+    });
+    expect(entries).toEqual(['a.txt']);
+
+    await new Promise<void>((resolve, reject) => {
+      fs.rename(src, renamed, (err: any) => err ? reject(err) : resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      fs.access(renamed, (err: any) => err ? reject(err) : resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      fs.chmod(renamed, 0o600, (err: any) => err ? reject(err) : resolve());
+    });
+    const real = await new Promise<string>((resolve, reject) => {
+      fs.realpath(renamed, (err: any, result: string) => err ? reject(err) : resolve(result));
+    });
+    expect(real).toBe(nodeFs.realpathSync(renamed));
+    await new Promise<void>((resolve, reject) => {
+      fs.truncate(renamed, 3, (err: any) => err ? reject(err) : resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      fs.utimes(renamed, 1, 2, (err: any) => err ? reject(err) : resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      fs.unlink(renamed, (err: any) => err ? reject(err) : resolve());
+    });
+    await new Promise<void>((resolve, reject) => {
+      fs.rmdir(d, (err: any) => err ? reject(err) : resolve());
+    });
+
+    expect(pathAsyncCalls.mkdir).toBe(1);
+    expect(pathAsyncCalls.readdir).toBe(1);
+    expect(pathAsyncCalls.rename).toBe(1);
+    expect(pathAsyncCalls.access).toBe(1);
+    expect(pathAsyncCalls.chmod).toBe(1);
+    expect(pathAsyncCalls.realpath).toBe(1);
+    expect(pathAsyncCalls.truncate).toBe(1);
+    expect(pathAsyncCalls.utime).toBe(1);
+    expect(pathAsyncCalls.unlink).toBe(1);
+    expect(pathAsyncCalls.rmdir).toBe(1);
+  });
+
+  test('fs.promises path ops route through the path async native', async () => {
+    const d = nodePath.join(dir, 'path-async-promises');
+    const src = nodePath.join(d, 'src.txt');
+    const copy = nodePath.join(d, 'copy.txt');
+    const tempPrefix = nodePath.join(dir, 'path-async-temp-');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+
+    await fs.promises.mkdir(d);
+    nodeFs.writeFileSync(src, 'hello');
+    await fs.promises.copyFile(src, copy);
+    expect(await fs.promises.readdir(d)).toEqual(['copy.txt', 'src.txt']);
+    const statfs = await fs.promises.statfs(d);
+    expect(Number(statfs.bsize)).toBe(4096);
+    const linkPath = nodePath.join(d, 'link.txt');
+    nodeFs.symlinkSync('copy.txt', linkPath);
+    expect(await fs.promises.readlink(linkPath)).toBe('copy.txt');
+    const temp = await fs.promises.mkdtemp(tempPrefix);
+    expect(temp.startsWith(tempPrefix)).toBe(true);
+    await fs.promises.unlink(linkPath);
+    await fs.promises.unlink(copy);
+    await fs.promises.unlink(src);
+    await fs.promises.rmdir(d);
+    nodeFs.rmSync(temp, { recursive: true, force: true });
+
+    expect(pathAsyncCalls.mkdir).toBe(1);
+    expect(pathAsyncCalls.copyfile).toBe(1);
+    expect(pathAsyncCalls.readdir).toBe(1);
+    expect(pathAsyncCalls.statfs).toBe(1);
+    expect(pathAsyncCalls.readlink).toBe(1);
+    expect(pathAsyncCalls.mkdtemp).toBe(1);
+    expect(pathAsyncCalls.unlink).toBe(3);
+    expect(pathAsyncCalls.rmdir).toBe(1);
   });
 });
 

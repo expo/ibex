@@ -1039,6 +1039,181 @@ static FsAsyncResult fsWritevWork(
   return result;
 }
 
+static FsAsyncResult fsAsyncString(std::string value) {
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
+  result.json = std::move(value);
+  return result;
+}
+
+static struct timeval fsTimevalFromDouble(double value) {
+  struct timeval tv;
+  if (value > 1e12) {
+    tv.tv_sec = static_cast<time_t>(value / 1000.0);
+    tv.tv_usec =
+        static_cast<suseconds_t>((static_cast<long long>(value) % 1000) * 1000);
+  } else {
+    tv.tv_sec = static_cast<time_t>(value);
+    tv.tv_usec = static_cast<suseconds_t>((value - tv.tv_sec) * 1e6);
+  }
+  return tv;
+}
+
+static FsAsyncResult fsStatfsPathWork(const std::string& path) {
+#if defined(__linux__) && !defined(EXACT_PLATFORM_ANDROID)
+  struct statfs buf;
+  if (::statfs(path.c_str(), &buf) != 0) {
+    return fsAsyncError(errno, "statfs", path);
+  }
+  uint64_t type = static_cast<uint64_t>(buf.f_type);
+#else
+  struct statvfs buf;
+  if (::statvfs(path.c_str(), &buf) != 0) {
+    return fsAsyncError(errno, "statfs", path);
+  }
+  uint64_t type = 0;
+#endif
+  std::ostringstream oss;
+  oss << "{"
+      << "\"type\":" << type << ","
+      << "\"bsize\":" << buf.f_bsize << ","
+      << "\"blocks\":" << static_cast<uint64_t>(buf.f_blocks) << ","
+      << "\"bfree\":" << static_cast<uint64_t>(buf.f_bfree) << ","
+      << "\"bavail\":" << static_cast<uint64_t>(buf.f_bavail) << ","
+      << "\"files\":" << static_cast<uint64_t>(buf.f_files) << ","
+      << "\"ffree\":" << static_cast<uint64_t>(buf.f_ffree) << "}";
+  return fsAsyncString(oss.str());
+}
+
+static FsAsyncResult fsPathOpWork(
+    const std::string& op,
+    const std::string& a,
+    const std::string& b,
+    double x,
+    double y,
+    double z,
+    uint64_t principal) {
+  (void)z;
+  if (op == "readdir") {
+    char* json = ex_host_fs_readdir(a.c_str());
+    if (!json) {
+      return fsAsyncError(errno, "scandir", a);
+    }
+    std::string out(json);
+    ex_host_free_string(json);
+    return fsAsyncString(std::move(out));
+  }
+  if (op == "mkdir") {
+    if (ex_host_fs_mkdir(a.c_str(), x != 0 ? 1 : 0) != 0) {
+      return fsAsyncError(errno, "mkdir", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "rmdir") {
+    if (ex_host_fs_rmdir(a.c_str()) != 0) {
+      return fsAsyncError(errno, "rmdir", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "unlink") {
+    if (ex_host_fs_unlink(a.c_str()) != 0) {
+      return fsAsyncError(errno, "unlink", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "rename") {
+    if (ex_host_fs_rename(a.c_str(), b.c_str()) != 0) {
+      return fsAsyncError(errno, "rename", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "copyfile") {
+    if (ex_host_fs_copy(a.c_str(), b.c_str()) != 0) {
+      return fsAsyncError(errno, "copyfile", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "realpath") {
+    char* resolved = ex_host_fs_realpath(a.c_str());
+    if (!resolved) {
+      return fsAsyncError(errno, "realpath", a);
+    }
+    std::string out(resolved);
+    ex_host_free_string(resolved);
+    return fsAsyncString(std::move(out));
+  }
+  if (op == "access") {
+    if (ex_host_fs_access(a.c_str(), static_cast<int32_t>(x)) != 0) {
+      return fsAsyncError(errno, "access", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "chmod") {
+    if (ex_host_fs_chmod(a.c_str(), static_cast<uint32_t>(x)) != 0) {
+      return fsAsyncError(errno, "chmod", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "mkdtemp") {
+    char* path = ex_host_fs_mkdtemp(a.c_str(), principal);
+    if (!path) {
+      return fsAsyncError(errno ? errno : EIO, "mkdtemp", a);
+    }
+    std::string out(path);
+    ex_host_free_string(path);
+    return fsAsyncString(std::move(out));
+  }
+  if (op == "symlink") {
+    if (::symlink(a.c_str(), b.c_str()) != 0) {
+      return fsAsyncError(errno, "symlink", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "link") {
+    if (::link(a.c_str(), b.c_str()) != 0) {
+      return fsAsyncError(errno, "link", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "readlink") {
+    char buf[PATH_MAX];
+    ssize_t len = ::readlink(a.c_str(), buf, sizeof(buf) - 1);
+    if (len < 0) {
+      return fsAsyncError(errno, "readlink", a);
+    }
+    buf[len] = '\0';
+    return fsAsyncString(std::string(buf));
+  }
+  if (op == "truncate") {
+    if (::truncate(a.c_str(), static_cast<off_t>(x)) != 0) {
+      return fsAsyncError(errno, "truncate", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "chown") {
+    if (::chown(a.c_str(), static_cast<uid_t>(x), static_cast<gid_t>(y)) != 0) {
+      return fsAsyncError(errno, "chown", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "lchown") {
+    if (::lchown(a.c_str(), static_cast<uid_t>(x), static_cast<gid_t>(y)) != 0) {
+      return fsAsyncError(errno, "lchown", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "utime") {
+    struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
+    if (::utimes(a.c_str(), times) != 0) {
+      return fsAsyncError(errno, "utime", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "statfs") {
+    return fsStatfsPathWork(a);
+  }
+  return fsAsyncError(EINVAL, op.c_str(), a);
+}
+
 static FsAsyncResult fsStatPathWork(const std::string& path, bool isLstat) {
   char* json = isLstat ? ex_host_fs_lstat(path.c_str()) : ex_host_fs_stat(path.c_str());
   if (!json) {
@@ -2866,6 +3041,107 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             });
       });
   rt.global().setProperty(rt, "__exactFsWritevAsync", std::move(fsWritevAsyncFn));
+
+  // __exactFsPathAsync(op, pathOrA, pathOrB, x, y, z) -> Promise<string|undefined>
+  // Generic worker-pool path op for simple metadata/directory calls. Argument
+  // validation and capability checks remain on the JS thread; the worker gets
+  // only plain strings/numbers and performs the blocking syscall.
+  auto fsPathAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsPathAsync"), 6,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isString()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsPathAsync: op and path required");
+        }
+        auto op = args[0].toString(runtime).utf8(runtime);
+        auto a = args[1].toString(runtime).utf8(runtime);
+        std::string b;
+        if (count > 2 && args[2].isString()) {
+          b = args[2].toString(runtime).utf8(runtime);
+        }
+        double x = (count > 3 && args[3].isNumber()) ? args[3].asNumber() : 0;
+        double y = (count > 4 && args[4].isNumber()) ? args[4].asNumber() : 0;
+        double z = (count > 5 && args[5].isNumber()) ? args[5].asNumber() : 0;
+        uint64_t principal = currentPrincipalId();
+
+        if (op == "readdir" || op == "realpath" || op == "readlink" ||
+            op == "statfs") {
+          if (!checkCapability("fs:read:" + a)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "mkdir" || op == "rmdir" || op == "unlink" ||
+                   op == "chmod" || op == "truncate" || op == "chown" ||
+                   op == "utime") {
+          if (!checkCapability("fs:write:" + a)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "lchown") {
+          if (!checkCapabilityNoFollowFinal("fs:write:" + a)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "access") {
+          if ((static_cast<int32_t>(x) & 2) != 0) {
+            if (!checkCapability("fs:write:" + a)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else if (!checkCapability("fs:read:" + a)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "rename") {
+          if (b.empty()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsPathAsync: rename destination required");
+          }
+          if (!checkCapability("fs:write:" + a) || !checkCapability("fs:write:" + b)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "copyfile") {
+          if (b.empty()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsPathAsync: copy destination required");
+          }
+          if (!checkCapability("fs:read:" + a) || !checkCapability("fs:write:" + b)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "symlink") {
+          if (b.empty()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsPathAsync: symlink path required");
+          }
+          if (!checkCapability("fs:write:" + b)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::string absTarget = a;
+          if (!absTarget.empty() && absTarget[0] != '/') {
+            auto slash = b.find_last_of('/');
+            std::string dir = slash == std::string::npos ? std::string(".")
+                                                         : b.substr(0, slash);
+            absTarget = dir + "/" + absTarget;
+          }
+          if (!checkCapability("fs:write:" + absTarget)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op == "link") {
+          if (b.empty()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsPathAsync: link destination required");
+          }
+          if (!checkCapability("fs:read:" + a) ||
+              !checkCapability("fs:write:" + a) ||
+              !checkCapability("fs:write:" + b)) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+        } else if (op != "mkdtemp") {
+          throw facebook::jsi::JSError(runtime, "__exactFsPathAsync: unsupported op");
+        }
+
+        return startFsAsync(
+            handle, runtime, [op, a, b, x, y, z, principal]() -> FsAsyncResult {
+              return fsPathOpWork(op, a, b, x, y, z, principal);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsPathAsync", std::move(fsPathAsyncFn));
 
   // __exactFsStatAsync(pathOrFd, kind) -> Promise<JSON string>
   // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is
