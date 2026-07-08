@@ -1,12 +1,19 @@
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
+#include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
+#include <random>
 #include <resolv.h>
 #include <sstream>
 #include <sys/socket.h>
+#include <unistd.h>
+#include <vector>
 
 #include "hermes_runtime_internal.h"
 
@@ -30,7 +37,40 @@ struct DnsResult {
   bool ok = false;
   std::string payload;  // JSON string on success
   std::string error;    // error message on failure
+  // Node-style dns error code ("ESERVFAIL", "EREFUSED", "ETIMEOUT", ...) when
+  // the failure cause is known. Attached as `.code` on the JS error and echoed
+  // in the message so dns.js can map resolver failures with fidelity instead
+  // of flattening everything to ENOTFOUND. Empty = unknown cause. (ENG-23506)
+  std::string code;
 };
+
+// DNS response rcode -> Node-compatible dns error code (c-ares naming).
+const char* dnsRcodeToErrorCode(int rcode) {
+  switch (rcode) {
+    case 1: return "EFORMERR";
+    case 2: return "ESERVFAIL";
+    case 3: return "ENOTFOUND";
+    case 4: return "ENOTIMP";
+    case 5: return "EREFUSED";
+    default: return "EBADRESP";
+  }
+}
+
+// getaddrinfo/getnameinfo EAI_* -> the code Node's dns.lookup surfaces for the
+// same condition (libuv maps EAI_NONAME/EAI_NODATA to ENOTFOUND and passes
+// other EAI_* names through). (ENG-23506)
+std::string gaiErrorToCode(int err) {
+  switch (err) {
+    case EAI_AGAIN: return "EAI_AGAIN";
+    case EAI_FAIL: return "EAI_FAIL";
+    case EAI_MEMORY: return "ENOMEM";
+#if defined(EAI_NODATA)
+    case EAI_NODATA: return "ENOTFOUND";
+#endif
+    case EAI_NONAME: return "ENOTFOUND";
+    default: return "ENOTFOUND";
+  }
+}
 
 // getaddrinfo + JSON serialization. No JSI: safe to run on a worker thread.
 // Mirrors the historical synchronous __exactDnsLookup body. (ENG-22995)
@@ -51,8 +91,11 @@ DnsResult doDnsLookup(const std::string& hostname, int family) {
     if (result) {
       freeaddrinfo(result);
     }
-    return {false, "",
-            std::string("getaddrinfo failed for ") + hostname + ": " + gai_strerror(ret)};
+    DnsResult out;
+    out.code = ret != 0 ? gaiErrorToCode(ret) : "ENOTFOUND";
+    out.error = std::string("getaddrinfo failed for ") + hostname + ": " + gai_strerror(ret) +
+        " (" + out.code + ")";
+    return out;
   }
 
   // Stream JSON output to avoid quadratic reallocations as records accumulate.
@@ -122,9 +165,245 @@ bool readDnsTextField(
   return true;
 }
 
-// res_query + record parsing. No JSI: safe to run on a worker thread. `qtype`
-// is already mapped (see dnsRrtypeToQtype); `rrtype` is carried for error
-// text. Mirrors the historical synchronous __exactDnsResolve body. (ENG-22995)
+#if !defined(EXACT_PLATFORM_ANDROID)
+
+// --- Raw UDP DNS transport with rcode preservation (ENG-23506) ---
+//
+// libresolv flattens resolver failures: res_nsend treats SERVFAIL/NOTIMP/
+// REFUSED responses as "try the next server" and, once every server has been
+// skipped, fails with a generic timeout (verified empirically on macOS
+// libresolv; glibc's send_dg has the same next_ns skip). Only NXDOMAIN and
+// NOERROR rcodes ever reach the caller, so res_query can never distinguish
+// ESERVFAIL/EREFUSED/ETIMEOUT the way Node's c-ares resolver does. To preserve
+// rcode fidelity the default resolver path sends the query on its own UDP
+// socket against the system-configured nameservers and inspects the rcode
+// itself, mirroring c-ares. Truncated (TC) responses and configurations with
+// no usable IPv4 nameserver fall back to the legacy res_query path.
+// @ref LLP 0008#sockets-dns-and-process — default-path DNS rcode fidelity.
+
+// Parse "timeout:N" / "attempts:N" tokens from the standard RES_OPTIONS env
+// variable. glibc's res_ninit honors these natively but macOS libresolv
+// ignores them (verified: retrans stays 30 regardless), so the raw transport
+// applies them itself for uniform, test-controllable timing. (ENG-23506)
+void applyResOptionsTiming(int& retransSec, int& retries) {
+  const char* resOptions = std::getenv("RES_OPTIONS");
+  if (!resOptions || !*resOptions) {
+    return;
+  }
+  std::istringstream tokens(resOptions);
+  std::string token;
+  while (tokens >> token) {
+    if (token.rfind("timeout:", 0) == 0) {
+      int value = atoi(token.c_str() + 8);
+      if (value > 0 && value <= 30) {
+        retransSec = value;
+      }
+    } else if (token.rfind("attempts:", 0) == 0) {
+      int value = atoi(token.c_str() + 9);
+      if (value > 0 && value <= 5) {
+        retries = value;
+      }
+    }
+  }
+}
+
+// Load the resolver target list + timing. `IBEX_DNS_SERVER` ("a.b.c.d" or
+// "a.b.c.d:port") overrides the system nameservers so tests can point the
+// DEFAULT resolver path at a loopback mock server without touching
+// /etc/resolv.conf (see tests/native_dns_rcode.rs); res_ninit supplies
+// retrans/retry, then RES_OPTIONS "timeout:"/"attempts:" are applied on top
+// for platforms whose res_ninit ignores them. (ENG-23506)
+void loadDnsServers(std::vector<struct sockaddr_in>& servers, int& retransSec, int& retries) {
+  retransSec = 5;
+  retries = 2;
+  const char* overrideSpec = std::getenv("IBEX_DNS_SERVER");
+  if (overrideSpec && *overrideSpec) {
+    std::string spec(overrideSpec);
+    int port = 53;
+    auto colon = spec.rfind(':');
+    if (colon != std::string::npos) {
+      port = atoi(spec.substr(colon + 1).c_str());
+      spec = spec.substr(0, colon);
+    }
+    struct sockaddr_in sa = {};
+    if (port > 0 && port <= 65535 && inet_pton(AF_INET, spec.c_str(), &sa.sin_addr) == 1) {
+      sa.sin_family = AF_INET;
+      sa.sin_port = htons(static_cast<uint16_t>(port));
+      servers.push_back(sa);
+    }
+  }
+  struct __res_state state;
+  memset(&state, 0, sizeof(state));
+  if (res_ninit(&state) == 0) {
+    if (state.retrans > 0 && state.retrans <= 30) {
+      retransSec = state.retrans;
+    }
+    if (state.retry > 0 && state.retry <= 5) {
+      retries = state.retry;
+    }
+    if (servers.empty()) {
+      for (int i = 0; i < state.nscount && i < MAXNS; ++i) {
+        const struct sockaddr_in& sa = state.nsaddr_list[i];
+        if (sa.sin_family == AF_INET && sa.sin_addr.s_addr != 0) {
+          servers.push_back(sa);
+        }
+      }
+    }
+    res_nclose(&state);
+  }
+  applyResOptionsTiming(retransSec, retries);
+}
+
+// Encode a standard recursive query (header + single QD). Returns false for
+// names that cannot be encoded (empty/oversized labels). No search-domain
+// semantics — res_query (the previous transport) never applied them either.
+bool buildRawDnsQuery(
+    const std::string& hostname,
+    int qtype,
+    uint16_t id,
+    std::vector<unsigned char>& out) {
+  out.clear();
+  out.reserve(hostname.size() + 18);
+  out.push_back(static_cast<unsigned char>(id >> 8));
+  out.push_back(static_cast<unsigned char>(id & 0xFF));
+  out.push_back(0x01);  // RD
+  out.push_back(0x00);
+  out.push_back(0x00);
+  out.push_back(0x01);  // QDCOUNT = 1
+  for (int i = 0; i < 6; ++i) {
+    out.push_back(0x00);  // AN/NS/AR counts
+  }
+  size_t labelStart = 0;
+  size_t nameLength = 0;
+  const std::string& name = hostname;
+  for (size_t i = 0; i <= name.size(); ++i) {
+    if (i == name.size() || name[i] == '.') {
+      size_t labelLen = i - labelStart;
+      if (labelLen == 0) {
+        // Allow a single trailing dot; reject empty labels elsewhere.
+        if (i == name.size() && i > 0) {
+          break;
+        }
+        return false;
+      }
+      if (labelLen > 63) {
+        return false;
+      }
+      nameLength += labelLen + 1;
+      if (nameLength > 255) {
+        return false;
+      }
+      out.push_back(static_cast<unsigned char>(labelLen));
+      out.insert(out.end(), name.begin() + labelStart, name.begin() + i);
+      labelStart = i + 1;
+    }
+  }
+  out.push_back(0x00);
+  out.push_back(static_cast<unsigned char>((qtype >> 8) & 0xFF));
+  out.push_back(static_cast<unsigned char>(qtype & 0xFF));
+  out.push_back(0x00);
+  out.push_back(0x01);  // class IN
+  return true;
+}
+
+struct RawDnsOutcome {
+  int len = -1;              // >= 0: usable response bytes written into `answer`
+  int rcode = -1;            // rcode of the last received response, -1 if none
+  bool truncated = false;    // TC bit seen: caller should retry via res_query (TCP)
+  bool connRefused = false;  // ICMP port unreachable observed
+};
+
+// Send the query to each configured server with per-attempt timeout
+// `retransSec`, `retries` passes. NOERROR/NXDOMAIN responses finish the query;
+// other rcodes are remembered and the next server is tried (like c-ares), so
+// a SERVFAIL from every server reports ESERVFAIL rather than a fake timeout.
+RawDnsOutcome sendRawDnsQuery(
+    const std::vector<struct sockaddr_in>& servers,
+    int retransSec,
+    int retries,
+    const std::vector<unsigned char>& query,
+    unsigned char* answer,
+    size_t answerCapacity) {
+  RawDnsOutcome outcome;
+  const uint16_t queryId =
+      static_cast<uint16_t>((static_cast<uint16_t>(query[0]) << 8) | query[1]);
+  for (int attempt = 0; attempt < retries && outcome.len < 0; ++attempt) {
+    for (const auto& server : servers) {
+      int fd = socket(AF_INET, SOCK_DGRAM, 0);
+      if (fd < 0) {
+        continue;
+      }
+      fcntl(fd, F_SETFD, FD_CLOEXEC);
+      // connect() so an ICMP port-unreachable surfaces as ECONNREFUSED on
+      // recv, which maps to Node's ECONNREFUSED "could not contact server".
+      if (connect(fd, reinterpret_cast<const struct sockaddr*>(&server), sizeof(server)) != 0 ||
+          send(fd, query.data(), query.size(), 0) != static_cast<ssize_t>(query.size())) {
+        if (errno == ECONNREFUSED) {
+          outcome.connRefused = true;
+        }
+        close(fd);
+        continue;
+      }
+      auto deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(retransSec);
+      bool gotFinalAnswer = false;
+      for (;;) {
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             deadline - std::chrono::steady_clock::now())
+                             .count();
+        if (remaining <= 0) {
+          break;
+        }
+        struct pollfd pfd = {fd, POLLIN, 0};
+        int pollResult = poll(&pfd, 1, static_cast<int>(remaining));
+        if (pollResult <= 0) {
+          break;  // timeout (or poll error): next server / next attempt
+        }
+        ssize_t got = recv(fd, answer, answerCapacity, 0);
+        if (got < 0) {
+          if (errno == ECONNREFUSED) {
+            outcome.connRefused = true;
+          }
+          break;
+        }
+        if (got < NS_HFIXEDSZ) {
+          continue;  // runt datagram: keep waiting for a real response
+        }
+        uint16_t responseId =
+            static_cast<uint16_t>((static_cast<uint16_t>(answer[0]) << 8) | answer[1]);
+        if (responseId != queryId || (answer[2] & 0x80) == 0) {
+          continue;  // not our response: keep waiting
+        }
+        outcome.rcode = answer[3] & 0x0F;
+        if ((answer[2] & 0x02) != 0) {
+          outcome.truncated = true;
+          gotFinalAnswer = true;
+          break;
+        }
+        if (outcome.rcode == 0 || outcome.rcode == 3 /* NXDOMAIN */) {
+          outcome.len = static_cast<int>(got);
+          gotFinalAnswer = true;
+        }
+        // Other rcodes (SERVFAIL/REFUSED/...): remembered in outcome.rcode;
+        // fall through to the next server in case another one can answer.
+        break;
+      }
+      close(fd);
+      if (gotFinalAnswer || outcome.truncated) {
+        return outcome;
+      }
+    }
+  }
+  return outcome;
+}
+
+#endif  // !EXACT_PLATFORM_ANDROID
+
+// Default-path record query + parsing. No JSI: safe to run on a worker thread.
+// `qtype` is already mapped (see dnsRrtypeToQtype); `rrtype` is carried for
+// error text. The transport preserves resolver rcodes (see the raw UDP block
+// above) so failures carry Node-compatible codes; parsing mirrors the
+// historical synchronous __exactDnsResolve body. (ENG-22995 / ENG-23506)
 DnsResult doDnsResolve(const std::string& hostname, int qtype, const std::string& rrtype) {
   unsigned char answer[4096];
   int len = -1;
@@ -145,16 +424,67 @@ DnsResult doDnsResolve(const std::string& hostname, int qtype, const std::string
   if (androidDnsResult > 0) {
     len = static_cast<int>(androidAnswerLength);
   }
+#else
+  // Raw UDP transport first so resolver rcodes survive; res_query only as the
+  // fallback for truncated responses (it retries over TCP) or configurations
+  // without a usable IPv4 nameserver. (ENG-23506)
+  std::vector<struct sockaddr_in> servers;
+  int retransSec = 5;
+  int retries = 2;
+  loadDnsServers(servers, retransSec, retries);
+  if (!servers.empty()) {
+    std::random_device randomDevice;
+    uint16_t queryId = static_cast<uint16_t>(randomDevice());
+    std::vector<unsigned char> query;
+    if (!buildRawDnsQuery(hostname, qtype, queryId, query)) {
+      DnsResult out;
+      out.code = "EBADNAME";
+      out.error = "DNS query failed for " + hostname + " type " + rrtype + " (EBADNAME)";
+      return out;
+    }
+    RawDnsOutcome outcome =
+        sendRawDnsQuery(servers, retransSec, retries, query, answer, sizeof(answer));
+    if (outcome.len >= 0) {
+      len = outcome.len;
+    } else if (!outcome.truncated) {
+      DnsResult out;
+      if (outcome.rcode > 0) {
+        out.code = dnsRcodeToErrorCode(outcome.rcode);
+      } else if (outcome.connRefused) {
+        out.code = "ECONNREFUSED";
+      } else {
+        out.code = "ETIMEOUT";
+      }
+      out.error =
+          "DNS query failed for " + hostname + " type " + rrtype + " (" + out.code + ")";
+      return out;
+    }
+    // Truncated: fall through to res_query below for the TCP retry.
+  }
 #endif
   if (len < 0) {
     len = res_query(hostname.c_str(), ns_c_in, qtype, answer, sizeof(answer));
   }
   if (len < 0) {
-    return {false, "", "DNS query failed for " + hostname + " type " + rrtype};
+    return {false, "", "DNS query failed for " + hostname + " type " + rrtype, ""};
+  }
+  // Any transport can hand back a non-NOERROR packet (NXDOMAIN from the raw
+  // UDP path, or whatever the Android DnsResolver returned): map its rcode
+  // before parsing so the JS layer sees ENOTFOUND/ESERVFAIL/... instead of an
+  // empty record set. (ENG-23506)
+  if (len >= NS_HFIXEDSZ) {
+    int responseRcode = answer[3] & 0x0F;
+    if (responseRcode != 0) {
+      DnsResult out;
+      out.code = dnsRcodeToErrorCode(responseRcode);
+      out.error =
+          "DNS query failed for " + hostname + " type " + rrtype + " (" + out.code + ")";
+      return out;
+    }
   }
   ns_msg msg;
   if (ns_initparse(answer, len, &msg) < 0) {
-    return {false, "", "Failed to parse DNS response"};
+    return {false, "", "Failed to parse DNS response", ""};
   }
   int rrCount = ns_msg_count(msg, ns_s_an);
   // Stream JSON output to avoid quadratic string growth when a response contains many
@@ -464,7 +794,7 @@ DnsResult doDnsReverse(const std::string& ip) {
     sa6->sin6_family = AF_INET6;
     salen = sizeof(struct sockaddr_in6);
   } else {
-    return {false, "", "invalid IP address: " + ip};
+    return {false, "", "invalid IP address: " + ip, ""};
   }
   char host[NI_MAXHOST];
   int ret = getnameinfo(
@@ -476,13 +806,44 @@ DnsResult doDnsReverse(const std::string& ip) {
       0,
       NI_NAMEREQD);
   if (ret != 0) {
-    return {false, "", "getnameinfo failed for " + ip + ": " + gai_strerror(ret)};
+    DnsResult out;
+    out.code = gaiErrorToCode(ret);
+    out.error = "getnameinfo failed for " + ip + ": " + gai_strerror(ret) +
+        " (" + out.code + ")";
+    return out;
   }
 
   DnsResult out;
   out.ok = true;
   out.payload = std::string("[") + jsonString(host) + "]";
   return out;
+}
+
+// Build the JS Error for a failed DnsResult, attaching the Node-style dns
+// `code` when known so dns.js can map the failure without message scraping
+// (the code token is also embedded in the message as a fallback). (ENG-23506)
+facebook::jsi::Value dnsErrorValue(facebook::jsi::Runtime& rt, const DnsResult& result) {
+  facebook::jsi::JSError jsError(rt, result.error);
+  facebook::jsi::Value errValue(rt, jsError.value());
+  if (!result.code.empty() && errValue.isObject()) {
+    errValue.asObject(rt).setProperty(
+        rt, "code", facebook::jsi::String::createFromUtf8(rt, result.code));
+  }
+  return errValue;
+}
+
+// Throw a failed DnsResult from a synchronous host function, preserving the
+// dns `code` property on the thrown error. (ENG-23506)
+[[noreturn]] void throwDnsError(facebook::jsi::Runtime& rt, const DnsResult& result) {
+  facebook::jsi::JSError jsError(rt, result.error);
+  if (!result.code.empty()) {
+    facebook::jsi::Value errValue(rt, jsError.value());
+    if (errValue.isObject()) {
+      errValue.asObject(rt).setProperty(
+          rt, "code", facebook::jsi::String::createFromUtf8(rt, result.code));
+    }
+  }
+  throw jsError;
 }
 
 // Bounded worker pool that runs the blocking resolver calls off the JS thread.
@@ -616,7 +977,7 @@ facebook::jsi::Value startDnsAsync(
                         resolve->call(
                             rt, facebook::jsi::String::createFromUtf8(rt, result.payload));
                       } else {
-                        reject->call(rt, facebook::jsi::JSError(rt, result.error).value());
+                        reject->call(rt, dnsErrorValue(rt, result));
                       }
                     } catch (...) {
                     }
@@ -659,7 +1020,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         }
         DnsResult result = doDnsLookup(hostname, family);
         if (!result.ok) {
-          throw facebook::jsi::JSError(runtime, result.error);
+          throwDnsError(runtime, result);
         }
         return facebook::jsi::String::createFromUtf8(runtime, result.payload);
       });
@@ -715,7 +1076,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         }
         DnsResult result = doDnsResolve(hostname, qtype, rrtype);
         if (!result.ok) {
-          throw facebook::jsi::JSError(runtime, result.error);
+          throwDnsError(runtime, result);
         }
         return facebook::jsi::String::createFromUtf8(runtime, result.payload);
       });
@@ -772,7 +1133,7 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
         requireNetworkResolveCapability(runtime, ip, "__exactDnsReverse");
         DnsResult result = doDnsReverse(ip);
         if (!result.ok) {
-          throw facebook::jsi::JSError(runtime, result.error);
+          throwDnsError(runtime, result);
         }
         return facebook::jsi::String::createFromUtf8(runtime, result.payload);
       });

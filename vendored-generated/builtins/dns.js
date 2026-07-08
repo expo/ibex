@@ -1,15 +1,47 @@
 //#region src/builtins/dns.js
 var Buffer = require("buffer").Buffer;
 var _hasDnsLookupAsync = typeof __exactDnsLookupAsync === "function";
-function _emitLookupNotFound(hostname, callback, defer) {
-	var err = /* @__PURE__ */ new Error("getaddrinfo ENOTFOUND " + hostname);
-	err.code = "ENOTFOUND";
+var _dnsMappableErrorCodes = {
+	ENODATA: true,
+	EFORMERR: true,
+	ESERVFAIL: true,
+	ENOTFOUND: true,
+	ENOTIMP: true,
+	EREFUSED: true,
+	EBADQUERY: true,
+	EBADNAME: true,
+	EBADFAMILY: true,
+	EBADRESP: true,
+	ECONNREFUSED: true,
+	ETIMEOUT: true,
+	ECANCELLED: true,
+	EAI_AGAIN: true,
+	EAI_FAIL: true,
+	ENOMEM: true
+};
+var _dnsErrorCodeTokenPattern = /\b(ENODATA|EFORMERR|ESERVFAIL|ENOTFOUND|ENOTIMP|EREFUSED|EBADQUERY|EBADNAME|EBADFAMILY|EBADRESP|ECONNREFUSED|ETIMEOUT|ECANCELLED|EAI_AGAIN|EAI_FAIL)\b/;
+function _extractDnsErrorCode(e) {
+	if (!e) return null;
+	if (typeof e.code === "string" && _dnsMappableErrorCodes[e.code] === true) return e.code;
+	var message = e.message !== void 0 ? String(e.message) : String(e);
+	var match = _dnsErrorCodeTokenPattern.exec(message);
+	return match ? match[1] : null;
+}
+function _emitLookupError(hostname, cause, callback, defer) {
+	var code = _extractDnsErrorCode(cause) || "ENOTFOUND";
+	var err = /* @__PURE__ */ new Error("getaddrinfo " + code + " " + hostname);
+	err.code = code;
+	err.errno = code;
+	err.syscall = "getaddrinfo";
 	err.hostname = hostname;
 	if (!callback) return;
 	if (defer) setTimeout(function() {
 		callback(err);
 	}, 0);
 	else callback(err);
+}
+function _emitLookupNotFound(hostname, callback, defer) {
+	_emitLookupError(hostname, null, callback, defer);
 }
 function _deliverLookupResult(hostname, options, results, callback) {
 	if (!results || results.length === 0) {
@@ -39,11 +71,11 @@ function lookup(hostname, options, callback) {
 					results = null;
 				}
 				_deliverLookupResult(hostname, options, results, callback);
-			}, function() {
-				_emitLookupNotFound(hostname, callback, false);
+			}, function(e) {
+				_emitLookupError(hostname, e, callback, false);
 			});
 		} catch (e) {
-			_emitLookupNotFound(hostname, callback, true);
+			_emitLookupError(hostname, e, callback, true);
 		}
 		return;
 	}
@@ -63,7 +95,7 @@ function lookup(hostname, options, callback) {
 			callback(null, result.address, result.family);
 		}, 0);
 	} catch (e) {
-		_emitLookupNotFound(hostname, callback, true);
+		_emitLookupError(hostname, e, callback, true);
 	}
 }
 var _hasDnsResolve = typeof __exactDnsResolve === "function";
@@ -385,11 +417,22 @@ function _parseDnsRecord(buffer, offset) {
 		nextOffset: dataEnd
 	};
 }
+var _dnsRcodeErrorCodes = {
+	1: "EFORMERR",
+	2: "ESERVFAIL",
+	3: "ENOTFOUND",
+	4: "ENOTIMP",
+	5: "EREFUSED"
+};
 function _parseDnsResponsePacket(buffer, expectedMessageId) {
 	if (!buffer || buffer.length < 12) throw new Error("Truncated DNS packet");
 	if (buffer.readUInt16BE(0) !== expectedMessageId) return null;
 	var rcode = buffer.readUInt16BE(2) & 15;
-	if (rcode !== 0) throw new Error("DNS query failed with rcode " + rcode);
+	if (rcode !== 0) {
+		var rcodeErr = /* @__PURE__ */ new Error("DNS query failed with rcode " + rcode);
+		rcodeErr.code = _dnsRcodeErrorCodes[rcode] || "EBADRESP";
+		throw rcodeErr;
+	}
 	var questionCount = buffer.readUInt16BE(4);
 	var answerCount = buffer.readUInt16BE(6);
 	var authorityCount = buffer.readUInt16BE(8);
@@ -621,8 +664,8 @@ function _startResolverQuery(resolver, hostname, rrtype, options, callback, isRe
 		var parsed;
 		try {
 			parsed = _parseDnsResponsePacket(msg, query.id);
-		} catch (_) {
-			_finishResolverQuery(query, _createDnsError("EBADRESP", query.syscall, query.hostname));
+		} catch (packetErr) {
+			_finishResolverQuery(query, _createDnsError(_extractDnsErrorCode(packetErr) || "EBADRESP", query.syscall, query.hostname));
 			return;
 		}
 		if (!parsed) return;
@@ -655,9 +698,14 @@ function _cancelResolverQueries(resolver) {
 	for (var i = 0; i < pending.length; i++) _finishResolverQuery(pending[i], _createDnsError("ECANCELLED", pending[i].syscall, pending[i].hostname));
 }
 function _resolveQueryError(hostname, rrtype, e, callback, defer) {
-	var err = /* @__PURE__ */ new Error("query" + rrtype + " " + (e && e.message ? e.message : String(e)));
-	err.code = "ENOTFOUND";
-	err.hostname = hostname;
+	var code = _extractDnsErrorCode(e);
+	var err;
+	if (code) err = _createDnsError(code, _getResolverSyscall(rrtype, false), hostname);
+	else {
+		err = /* @__PURE__ */ new Error("query" + rrtype + " " + (e && e.message ? e.message : String(e)));
+		err.code = "ENOTFOUND";
+		err.hostname = hostname;
+	}
 	if (!callback) return;
 	if (defer) setTimeout(function() {
 		callback(err);
@@ -846,9 +894,14 @@ function resolveNaptr(hostname, callback) {
 	if (_moduleUsesCustomServers) return _moduleResolverQuery(hostname, "NAPTR", {}, callback, false);
 	_resolveViaQuery(hostname, "NAPTR", callback);
 }
-function _reverseError(e, callback, defer) {
-	var err = /* @__PURE__ */ new Error("getHostByAddr " + (e && e.message ? e.message : String(e)));
-	err.code = "ENOTFOUND";
+function _reverseError(ip, e, callback, defer) {
+	var code = _extractDnsErrorCode(e);
+	var err;
+	if (code) err = _createDnsError(code, "getHostByAddr", ip);
+	else {
+		err = /* @__PURE__ */ new Error("getHostByAddr " + (e && e.message ? e.message : String(e)));
+		err.code = "ENOTFOUND";
+	}
 	if (!callback) return;
 	if (defer) setTimeout(function() {
 		callback(err);
@@ -872,15 +925,15 @@ function reverse(ip, callback) {
 				try {
 					hostnames = JSON.parse(json);
 				} catch (parseErr) {
-					_reverseError(parseErr, callback, false);
+					_reverseError(ip, parseErr, callback, false);
 					return;
 				}
 				if (callback) callback(null, hostnames);
 			}, function(e) {
-				_reverseError(e, callback, false);
+				_reverseError(ip, e, callback, false);
 			});
 		} catch (e) {
-			_reverseError(e, callback, true);
+			_reverseError(ip, e, callback, true);
 		}
 		return;
 	}
@@ -891,7 +944,7 @@ function reverse(ip, callback) {
 			callback(null, hostnames);
 		}, 0);
 	} catch (e) {
-		_reverseError(e, callback, true);
+		_reverseError(ip, e, callback, true);
 	}
 }
 function _promisify1(fn) {

@@ -2,13 +2,45 @@ var Buffer = require('buffer').Buffer;
 
 var _hasDnsLookupAsync = typeof __exactDnsLookupAsync === 'function';
 
-function _emitLookupNotFound(hostname, callback, defer) {
-  var err = new Error('getaddrinfo ENOTFOUND ' + hostname);
-  err.code = 'ENOTFOUND';
+// Native resolver failures carry a Node-style dns error code as `.code` on the
+// rejected/thrown error (and echo the same token in the message). Preserve it
+// instead of flattening every failure to ENOTFOUND, so SERVFAIL/REFUSED/
+// timeouts surface as ESERVFAIL/EREFUSED/ETIMEOUT like Node. (ENG-23506)
+// @ref LLP 0008#sockets-dns-and-process — why the native side owns the rcode
+// and how it is transported here.
+var _dnsMappableErrorCodes = {
+  ENODATA: true, EFORMERR: true, ESERVFAIL: true, ENOTFOUND: true,
+  ENOTIMP: true, EREFUSED: true, EBADQUERY: true, EBADNAME: true,
+  EBADFAMILY: true, EBADRESP: true, ECONNREFUSED: true, ETIMEOUT: true,
+  ECANCELLED: true, EAI_AGAIN: true, EAI_FAIL: true, ENOMEM: true
+};
+var _dnsErrorCodeTokenPattern = /\b(ENODATA|EFORMERR|ESERVFAIL|ENOTFOUND|ENOTIMP|EREFUSED|EBADQUERY|EBADNAME|EBADFAMILY|EBADRESP|ECONNREFUSED|ETIMEOUT|ECANCELLED|EAI_AGAIN|EAI_FAIL)\b/;
+
+function _extractDnsErrorCode(e) {
+  if (!e) return null;
+  if (typeof e.code === 'string' && _dnsMappableErrorCodes[e.code] === true) return e.code;
+  var message = e.message !== undefined ? String(e.message) : String(e);
+  var match = _dnsErrorCodeTokenPattern.exec(message);
+  return match ? match[1] : null;
+}
+
+// Deliver a lookup failure. `cause` is the native error (or null for an empty
+// result set); its dns code is preserved when recognizable, defaulting to the
+// historical getaddrinfo ENOTFOUND shape. (ENG-23506)
+function _emitLookupError(hostname, cause, callback, defer) {
+  var code = _extractDnsErrorCode(cause) || 'ENOTFOUND';
+  var err = new Error('getaddrinfo ' + code + ' ' + hostname);
+  err.code = code;
+  err.errno = code;
+  err.syscall = 'getaddrinfo';
   err.hostname = hostname;
   if (!callback) return;
   if (defer) setTimeout(function() { callback(err); }, 0);
   else callback(err);
+}
+
+function _emitLookupNotFound(hostname, callback, defer) {
+  _emitLookupError(hostname, null, callback, defer);
 }
 
 function _deliverLookupResult(hostname, options, results, callback) {
@@ -43,13 +75,13 @@ function lookup(hostname, options, callback) {
         var results;
         try { results = JSON.parse(json); } catch (_) { results = null; }
         _deliverLookupResult(hostname, options, results, callback);
-      }, function() {
-        _emitLookupNotFound(hostname, callback, false);
+      }, function(e) {
+        _emitLookupError(hostname, e, callback, false);
       });
     } catch (e) {
       // A synchronous throw (arg/capability rejection) still surfaces as an
-      // async ENOTFOUND, matching the historical behavior.
-      _emitLookupNotFound(hostname, callback, true);
+      // async error, matching the historical behavior.
+      _emitLookupError(hostname, e, callback, true);
     }
     return;
   }
@@ -67,7 +99,7 @@ function lookup(hostname, options, callback) {
       if (callback) setTimeout(function() { callback(null, result.address, result.family); }, 0);
     }
   } catch(e) {
-    _emitLookupNotFound(hostname, callback, true);
+    _emitLookupError(hostname, e, callback, true);
   }
 }
 
@@ -423,12 +455,26 @@ function _parseDnsRecord(buffer, offset) {
   };
 }
 
+var _dnsRcodeErrorCodes = {
+  1: 'EFORMERR',
+  2: 'ESERVFAIL',
+  3: 'ENOTFOUND',
+  4: 'ENOTIMP',
+  5: 'EREFUSED'
+};
+
 function _parseDnsResponsePacket(buffer, expectedMessageId) {
   if (!buffer || buffer.length < 12) throw new Error('Truncated DNS packet');
   if (buffer.readUInt16BE(0) !== expectedMessageId) return null;
   var flags = buffer.readUInt16BE(2);
   var rcode = flags & 0x000F;
-  if (rcode !== 0) throw new Error('DNS query failed with rcode ' + rcode);
+  if (rcode !== 0) {
+    // Carry the rcode as a Node dns error code so custom-server queries
+    // surface ESERVFAIL/EREFUSED/... instead of a flattened EBADRESP. (ENG-23506)
+    var rcodeErr = new Error('DNS query failed with rcode ' + rcode);
+    rcodeErr.code = _dnsRcodeErrorCodes[rcode] || 'EBADRESP';
+    throw rcodeErr;
+  }
   var questionCount = buffer.readUInt16BE(4);
   var answerCount = buffer.readUInt16BE(6);
   var authorityCount = buffer.readUInt16BE(8);
@@ -671,8 +717,9 @@ function _startResolverQuery(resolver, hostname, rrtype, options, callback, isRe
     var parsed;
     try {
       parsed = _parseDnsResponsePacket(msg, query.id);
-    } catch (_) {
-      _finishResolverQuery(query, _createDnsError('EBADRESP', query.syscall, query.hostname));
+    } catch (packetErr) {
+      _finishResolverQuery(query, _createDnsError(
+        _extractDnsErrorCode(packetErr) || 'EBADRESP', query.syscall, query.hostname));
       return;
     }
     if (!parsed) return;
@@ -712,9 +759,18 @@ function _cancelResolverQueries(resolver) {
 }
 
 function _resolveQueryError(hostname, rrtype, e, callback, defer) {
-  var err = new Error('query' + rrtype + ' ' + (e && e.message ? e.message : String(e)));
-  err.code = 'ENOTFOUND';
-  err.hostname = hostname;
+  // Preserve the native resolver's error code (ESERVFAIL, EREFUSED, ETIMEOUT,
+  // ...) when it is recognizable; otherwise keep the historical ENOTFOUND
+  // flattening with the underlying message. (ENG-23506)
+  var code = _extractDnsErrorCode(e);
+  var err;
+  if (code) {
+    err = _createDnsError(code, _getResolverSyscall(rrtype, false), hostname);
+  } else {
+    err = new Error('query' + rrtype + ' ' + (e && e.message ? e.message : String(e)));
+    err.code = 'ENOTFOUND';
+    err.hostname = hostname;
+  }
   if (!callback) return;
   if (defer) setTimeout(function() { callback(err); }, 0);
   else callback(err);
@@ -887,9 +943,16 @@ function resolveNaptr(hostname, callback) {
   _resolveViaQuery(hostname, 'NAPTR', callback);
 }
 
-function _reverseError(e, callback, defer) {
-  var err = new Error('getHostByAddr ' + (e && e.message ? e.message : String(e)));
-  err.code = 'ENOTFOUND';
+function _reverseError(ip, e, callback, defer) {
+  // Preserve the native resolver's error code when recognizable. (ENG-23506)
+  var code = _extractDnsErrorCode(e);
+  var err;
+  if (code) {
+    err = _createDnsError(code, 'getHostByAddr', ip);
+  } else {
+    err = new Error('getHostByAddr ' + (e && e.message ? e.message : String(e)));
+    err.code = 'ENOTFOUND';
+  }
   if (!callback) return;
   if (defer) setTimeout(function() { callback(err); }, 0);
   else callback(err);
@@ -910,13 +973,13 @@ function reverse(ip, callback) {
       __exactDnsReverseAsync(ip).then(function(json) {
         var hostnames;
         try { hostnames = JSON.parse(json); }
-        catch (parseErr) { _reverseError(parseErr, callback, false); return; }
+        catch (parseErr) { _reverseError(ip, parseErr, callback, false); return; }
         if (callback) callback(null, hostnames);
       }, function(e) {
-        _reverseError(e, callback, false);
+        _reverseError(ip, e, callback, false);
       });
     } catch (e) {
-      _reverseError(e, callback, true);
+      _reverseError(ip, e, callback, true);
     }
     return;
   }
@@ -925,7 +988,7 @@ function reverse(ip, callback) {
     var hostnames = JSON.parse(json);
     if (callback) setTimeout(function() { callback(null, hostnames); }, 0);
   } catch(e) {
-    _reverseError(e, callback, true);
+    _reverseError(ip, e, callback, true);
   }
 }
 

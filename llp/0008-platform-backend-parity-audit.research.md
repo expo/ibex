@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps; added the Windows Child Process section — ENG-23485)
+**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps; added the Windows Child Process section — ENG-23485; documented default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -128,6 +128,29 @@ implementations in `hermes_runtime_platform_windows.cc`.
 
 This pass made TCP server listen setup try all `getaddrinfo()` candidates before
 failing, matching the normal POSIX dual-stack pattern.
+
+Default-path DNS record queries (`dns.resolve*` without `setServers`) do not use
+`res_query`/`res_nsend` as their primary transport, because libresolv flattens
+resolver rcodes: `res_nsend` treats SERVFAIL/NOTIMP/REFUSED responses as "skip
+to the next server" and, once all servers are skipped, fails with a generic
+timeout (verified empirically on macOS libresolv against a loopback mock server;
+glibc's `send_dg` has the same next-ns skip). Node's c-ares resolver reports the
+actual rcode, so to match its error codes (`ESERVFAIL`, `EREFUSED`, `ETIMEOUT`,
+`ENOTFOUND`, `ENODATA`) the native side sends the query on its own UDP socket
+against the nameservers `res_ninit` reports and inspects the rcode itself
+(`src/engine/hermes_runtime_dns.cc`, ENG-23506). Truncated responses and
+configurations without a usable IPv4 nameserver fall back to `res_query` (which
+handles the TCP retry) at the cost of rcode fidelity. `IBEX_DNS_SERVER`
+(`ip[:port]`) overrides the nameserver list so tests can exercise the default
+path against a loopback mock server hermetically, and the standard `RES_OPTIONS`
+`timeout:`/`attempts:` tokens are honored on every platform (macOS libresolv
+ignores them natively). Android keeps the `DnsResolver`/`res_query` transports
+but maps non-zero rcodes in returned packets the same way. `lookup` and reverse
+lookup stay on `getaddrinfo`/`getnameinfo` and map `EAI_*` failures the way
+libuv does (`EAI_NONAME`/`EAI_NODATA` → `ENOTFOUND`, `EAI_AGAIN` passes
+through). Windows' `__exactDnsResolve` is a `getaddrinfo`-based stub with no
+record-query transport, so it has no rcode to preserve; the JS-side code mapping
+in `src/builtins/dns.js` is shared across platforms.
 
 ## OS Info
 
