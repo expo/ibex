@@ -70,14 +70,31 @@ void ex_hermes_free_string(char* value);
 
 /// Poll the event loop, executing any due timers and callbacks.
 /// Call this repeatedly from the host event loop (e.g., CADisplayLink or GCD timer).
+///
+/// CLOCK DOMAIN (ENG-23611 / exact ENG-23637): timer deadlines are stored as
+/// MONOTONIC milliseconds (steady_clock; `nowMs() + delay` in
+/// hermes_runtime_timers.cc), NOT wall/epoch time. `now_ms` MUST come from
+/// ex_hermes_now_ms(). Passing epoch milliseconds (e.g.
+/// Date().timeIntervalSince1970 * 1000) makes every pending timer due
+/// immediately — a 60 s setTimeout fires on the next poll.
 /// @param runtime The runtime handle
-/// @param now_ms Current time in milliseconds since epoch
+/// @param now_ms Current time from ex_hermes_now_ms() (monotonic ms)
 /// @return Number of tasks executed, or negative on error
 int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
 
-/// Get the time (in ms since epoch) when the next timer is due.
-/// @return Next timer due time, or -1 if no timers are pending
+/// Get the deadline of the next pending timer, on the same monotonic clock as
+/// ex_hermes_now_ms() (NOT epoch time). To convert to a host wait interval,
+/// subtract ex_hermes_now_ms() and clamp negative to 0.
+/// @return Next timer due time in monotonic ms, or -1 if no timers are pending
 int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
+
+/// The runtime's monotonic timer clock, in milliseconds. setTimeout /
+/// setInterval deadlines and ex_hermes_next_timer() are measured on THIS
+/// clock; hosts must pass it as `now_ms` to ex_hermes_poll(). There is exactly
+/// one source of truth for timer time — do not substitute a host-side
+/// monotonic clock (epochs of distinct monotonic sources are unrelated), and
+/// never wall time (NTP/manual steps would stall or mass-fire timers).
+uint64_t ex_hermes_now_ms(void);
 
 /// Check if there are any pending tasks (timers, callbacks, etc.)
 /// @return 1 if there are pending tasks, 0 if idle
