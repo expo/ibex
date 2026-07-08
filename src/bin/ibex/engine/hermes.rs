@@ -1655,10 +1655,6 @@ fn get_hermesc_version() -> Result<String> {
     Ok(version.trim().to_string())
 }
 
-fn extract_version(output: &str) -> Option<String> {
-    output.split_whitespace().last().map(|s| s.to_string())
-}
-
 /// Extract the `HBC bytecode version: N` from hermesc --version output.
 fn extract_hbc_version(version_output: &str) -> Option<u32> {
     for line in version_output.lines() {
@@ -1771,12 +1767,24 @@ pub async fn compile_to_bytecode(
     output: &std::path::Path,
     source_map: Option<&std::path::Path>,
 ) -> Result<()> {
-    let runtime_version = get_version().ok().and_then(|v| extract_version(&v));
-    let compiler_version = get_hermesc_version().ok().and_then(|v| extract_version(&v));
-    if let (Some(runtime), Some(compiler)) = (runtime_version, compiler_version) {
+    // Gate on the `HBC bytecode version:` line both tools print — the version
+    // that actually determines whether the runtime can load hermesc's output.
+    // Comparing an arbitrary token of the multi-line `--version` output
+    // (previously: the LAST whitespace token, which is `input` from hermes'
+    // trailing "Zip file input" feature line vs `99` from hermesc) made this
+    // gate a false positive on every call and silently disabled entry-bytecode
+    // caching (ENG-23495). When either version line is absent we proceed, as
+    // before: a genuinely incompatible buffer is caught at load time and falls
+    // back to source (`is_bytecode_load_error`, ENG-23484).
+    // @ref LLP 0005#bytecode-precompilation-hermesc — run-time entry cache gates on HBC version
+    let runtime_hbc = get_version().ok().and_then(|v| extract_hbc_version(&v));
+    let compiler_hbc = get_hermesc_version()
+        .ok()
+        .and_then(|v| extract_hbc_version(&v));
+    if let (Some(runtime), Some(compiler)) = (runtime_hbc, compiler_hbc) {
         if runtime != compiler {
             anyhow::bail!(
-                "Hermes version mismatch: runtime {} vs hermesc {}. Rebuild bytecode with matching Hermes.",
+                "Hermes bytecode version mismatch: runtime HBC {} vs hermesc HBC {}. Rebuild bytecode with matching Hermes.",
                 runtime,
                 compiler
             );
@@ -1980,6 +1988,84 @@ mod tests {
         // Nothing ran but a one-shot is already due: keep draining it.
         assert!(!eof_drain_complete(0, (now - 1) as i64, now));
         assert!(!eof_drain_complete(0, now as i64, now));
+    }
+
+    // Real (verbatim) multi-line `--version` outputs of the checked-in
+    // toolchain. The runtime binary appends a `Features:` block after the
+    // version lines, so any "last token" parse reads `input` instead of a
+    // version — the misparse that disabled entry-bytecode caching (ENG-23495).
+    const HERMES_RUNTIME_VERSION_OUTPUT: &str = "LLVM (http://llvm.org/):\n  \
+        LLVH version 8.0.0svn\n  Optimized build\n\n\
+        Hermes JavaScript compiler and Virtual Machine.\n  \
+        Hermes release version: 1.0.0\n  \
+        HBC bytecode version: 99\n\n  \
+        Features:\n    Unicode RegExp Property Escapes\n    Zip file input";
+    const HERMESC_VERSION_OUTPUT: &str = "LLVM (http://llvm.org/):\n  \
+        LLVH version 8.0.0svn\n  Optimized build\n\n\
+        Hermes JavaScript compiler.\n  \
+        Hermes release version: 1.0.0\n  \
+        HBC bytecode version: 99";
+
+    #[test]
+    fn extract_hbc_version_parses_real_multiline_outputs() {
+        // Both tools expose the HBC line; the runtime's trailing Features
+        // block must not confuse the parse.
+        assert_eq!(extract_hbc_version(HERMES_RUNTIME_VERSION_OUTPUT), Some(99));
+        assert_eq!(extract_hbc_version(HERMESC_VERSION_OUTPUT), Some(99));
+        // The gate in compile_to_bytecode compares exactly these two values,
+        // so the checked-in toolchain must gate as compatible.
+        assert_eq!(
+            extract_hbc_version(HERMES_RUNTIME_VERSION_OUTPUT),
+            extract_hbc_version(HERMESC_VERSION_OUTPUT)
+        );
+    }
+
+    #[test]
+    fn extract_hbc_version_rejects_output_without_hbc_line() {
+        // No HBC line -> None (gate then proceeds and defers to load-time
+        // rejection rather than comparing junk tokens).
+        assert_eq!(
+            extract_hbc_version("Hermes JavaScript compiler.\n  Hermes release version: 1.0.0"),
+            None
+        );
+        assert_eq!(extract_hbc_version(""), None);
+        // Non-numeric version value -> None.
+        assert_eq!(extract_hbc_version("HBC bytecode version: abc"), None);
+    }
+
+    #[test]
+    fn extract_hbc_version_detects_real_mismatch() {
+        let older = "Hermes JavaScript compiler.\n  Hermes release version: 0.12.0\n  \
+            HBC bytecode version: 96";
+        assert_eq!(extract_hbc_version(older), Some(96));
+        assert_ne!(
+            extract_hbc_version(older),
+            extract_hbc_version(HERMES_RUNTIME_VERSION_OUTPUT)
+        );
+    }
+
+    /// The live gate must agree with the parsed fixtures: with the checked-in
+    /// toolchain present, `compile_to_bytecode`'s version gate compares the
+    /// two tools' real `--version` outputs via `extract_hbc_version` and must
+    /// find them compatible (ENG-23495 regression: the old last-token parse
+    /// compared "input" vs "99" and bailed on every call).
+    #[test]
+    fn checked_in_toolchain_gates_as_compatible() {
+        let (Ok(runtime_out), Ok(compiler_out)) = (get_version(), get_hermesc_version()) else {
+            // Toolchain not present in this environment; the fixture tests
+            // above still cover the parse.
+            return;
+        };
+        let runtime = extract_hbc_version(&runtime_out);
+        let compiler = extract_hbc_version(&compiler_out);
+        assert!(
+            runtime.is_some(),
+            "hermes --version must expose an HBC bytecode version line: {runtime_out:?}"
+        );
+        assert_eq!(
+            runtime, compiler,
+            "checked-in hermes/hermesc HBC versions must match"
+        );
     }
 
     #[test]

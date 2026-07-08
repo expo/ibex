@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484)
+**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -107,7 +107,14 @@ The engine prefers bytecode and falls back to source at startup
 At run time the CLI keeps a parallel cache for **entry** bytecode: a bundled
 (or standalone) entry is compiled to a sibling `.hbc` when `hermesc` is
 available and reused while fresh (`src/bin/ibex/runtime.rs`,
-`prepare_bytecode_entry`). The fall-back-to-source rule is deliberately
+`prepare_bytecode_entry`). Like the build-time paths, the run-time compile gate
+(`compile_to_bytecode`) keys on the `HBC bytecode version:` line of both tools'
+`--version` output — the version that determines load compatibility — and
+proceeds when either line is absent, deferring to load-time rejection. It must
+never compare positional tokens of the multi-line output: the runtime binary's
+trailing `Features:` block made a last-token comparison fail on every call and
+silently disabled this cache for the checked-in toolchain (ENG-23495). The
+fall-back-to-source rule is deliberately
 narrower here than at startup: only a genuine **load** failure — the buffer
 rejected before any of the program ran (`is_bytecode_load_error`: version
 mismatch, sanity-check rejection, prepare-time rejection) — may delete the
