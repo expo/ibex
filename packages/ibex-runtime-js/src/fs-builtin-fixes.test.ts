@@ -85,6 +85,17 @@ function writeAllToFd(fd: number, bytes: Uint8Array): void {
     off += nodeFs.writeSync(fd, bytes, off, bytes.length - off, null);
   }
 }
+const asyncNativeCalls = { readv: 0, writev: 0 };
+function bufferLikeLength(value: any): number {
+  return typeof value?.byteLength === 'number' ? value.byteLength : (value?.length ?? 0);
+}
+function asUint8Array(value: any): Uint8Array {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+  return new Uint8Array(value);
+}
 g.__exactFsReadFileAsync = (target: string | number, flags: number, mode: number) => {
   try {
     if (typeof target === 'number') {
@@ -135,6 +146,27 @@ g.__exactFsWriteAsync = (fd: number, bytes: Uint8Array, position: number) => {
   try {
     const pos = typeof position === 'number' && position >= 0 ? position : null;
     return Promise.resolve(nodeFs.writeSync(fd, bytes, 0, bytes.length, pos));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsReadvAsync = (fd: number, buffers: ArrayBufferView[], position: number) => {
+  asyncNativeCalls.readv += 1;
+  try {
+    const nativeBuffers = buffers.map((buffer) => Buffer.allocUnsafe(bufferLikeLength(buffer)));
+    const pos = typeof position === 'number' && position >= 0 ? position : null;
+    const n = nodeFs.readvSync(fd, nativeBuffers, pos);
+    const out = Buffer.concat(nativeBuffers).subarray(0, n);
+    return Promise.resolve(new Uint8Array(out.buffer, out.byteOffset, out.length));
+  } catch (e) {
+    return Promise.reject(e);
+  }
+};
+g.__exactFsWritevAsync = (fd: number, buffers: ArrayBufferView[], position: number) => {
+  asyncNativeCalls.writev += 1;
+  try {
+    const pos = typeof position === 'number' && position >= 0 ? position : null;
+    return Promise.resolve(nodeFs.writevSync(fd, buffers.map(asUint8Array), pos));
   } catch (e) {
     return Promise.reject(e);
   }
@@ -324,5 +356,79 @@ describe('fs-promises FileHandle.read (ENG-22963 #9)', () => {
     } finally {
       await fh.close();
     }
+  });
+});
+
+describe('vectored async fs natives (ENG-23541)', () => {
+  test('callback readv/writev route through async natives', async () => {
+    const p = nodePath.join(dir, 'vec-async-cb.txt');
+    nodeFs.writeFileSync(p, 'ABCDE');
+    const fd = nodeFs.openSync(p, 'r+');
+    asyncNativeCalls.readv = 0;
+    asyncNativeCalls.writev = 0;
+    try {
+      const a = Buffer.alloc(2);
+      const b = new Uint8Array(2);
+      const read = await new Promise<{ bytesRead: number; buffers: any[] }>((resolve, reject) => {
+        fs.readv(fd, [a, b], 0, (err: any, bytesRead: number, buffers: any[]) => {
+          if (err) reject(err);
+          else resolve({ bytesRead, buffers });
+        });
+      });
+      expect(read.bytesRead).toBe(4);
+      expect(Buffer.concat([a, Buffer.from(b)]).toString('utf8')).toBe('ABCD');
+
+      const write = await new Promise<{ bytesWritten: number; buffers: any[] }>((resolve, reject) => {
+        fs.writev(fd, [Buffer.from('xy'), new Uint8Array([122])], 1, (err: any, bytesWritten: number, buffers: any[]) => {
+          if (err) reject(err);
+          else resolve({ bytesWritten, buffers });
+        });
+      });
+      expect(write.bytesWritten).toBe(3);
+      expect(nodeFs.readFileSync(p, 'utf8')).toBe('AxyzE');
+      expect(asyncNativeCalls.readv).toBe(1);
+      expect(asyncNativeCalls.writev).toBe(1);
+    } finally {
+      nodeFs.closeSync(fd);
+    }
+  });
+
+  test('promises and FileHandle readv/writev route through async natives', async () => {
+    const p = nodePath.join(dir, 'vec-async-promises.txt');
+    nodeFs.writeFileSync(p, '0123456789');
+    const fd = nodeFs.openSync(p, 'r+');
+    asyncNativeCalls.readv = 0;
+    asyncNativeCalls.writev = 0;
+    try {
+      const first = Buffer.alloc(2);
+      const second = new DataView(new ArrayBuffer(2));
+      const third = new Uint16Array(1);
+      const read = await fs.promises.readv(fd, [first, second, third], 2);
+      expect(read.bytesRead).toBe(6);
+      expect(first.toString('utf8')).toBe('23');
+      expect(String.fromCharCode(second.getUint8(0), second.getUint8(1))).toBe('45');
+      expect(Buffer.from(new Uint8Array(third.buffer)).toString('utf8')).toBe('67');
+
+      const write = await fs.promises.writev(fd, [Buffer.from('AA'), new Uint8Array([66])], 5);
+      expect(write.bytesWritten).toBe(3);
+      expect(nodeFs.readFileSync(p, 'utf8')).toBe('01234AAB89');
+    } finally {
+      nodeFs.closeSync(fd);
+    }
+
+    const fh = await fs.promises.open(p, 'r+');
+    try {
+      const fhBuf = Buffer.alloc(3);
+      const fhRead = await fh.readv([fhBuf], 4);
+      expect(fhRead.bytesRead).toBe(3);
+      expect(fhBuf.toString('utf8')).toBe('4AA');
+      const fhWrite = await fh.writev([Buffer.from('zz')], 0);
+      expect(fhWrite.bytesWritten).toBe(2);
+      expect(nodeFs.readFileSync(p, 'utf8')).toBe('zz234AAB89');
+    } finally {
+      await fh.close();
+    }
+    expect(asyncNativeCalls.readv).toBe(2);
+    expect(asyncNativeCalls.writev).toBe(2);
   });
 });

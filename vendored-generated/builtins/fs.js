@@ -758,6 +758,53 @@ function _asyncWriteFromArgs(native, fd, bufferOrString, offsetOrPosition, lengt
 		throw _asyncFsError(err, "write");
 	});
 }
+function _validateVectoredIoArgs(fd, buffers, position) {
+	_validateFd(fd);
+	if (!Array.isArray(buffers)) throw _fsInvalidArgType("buffers", "Array", buffers);
+	for (var i = 0; i < buffers.length; i++) if (!_isBufferLike(buffers[i])) throw _fsInvalidArgType("buffers[" + i + "]", "string or an instance of Buffer, TypedArray, or DataView", buffers[i]);
+	if (position !== void 0 && position !== null && typeof position !== "number") throw _fsInvalidArgType("position", "number", position);
+	return typeof position === "number" ? position : -1;
+}
+function _rawByteViewForBufferLike(value) {
+	if (typeof ArrayBuffer !== "undefined" && value instanceof ArrayBuffer) return new Uint8Array(value);
+	if (value && value.buffer && typeof value.byteLength === "number") {
+		var offset = typeof value.byteOffset === "number" ? value.byteOffset : 0;
+		try {
+			return new Uint8Array(value.buffer, offset, value.byteLength);
+		} catch (e) {}
+	}
+	return null;
+}
+function _bufferLikeByteLength(value) {
+	if (!value) return 0;
+	if (typeof value.byteLength === "number") return value.byteLength;
+	return _bufferLikeLength(value);
+}
+function _copyReadvBytesIntoBuffers(data, buffers) {
+	var copied = 0;
+	for (var i = 0; i < buffers.length && copied < data.length; i++) {
+		var target = buffers[i];
+		var length = Math.min(_bufferLikeByteLength(target), data.length - copied);
+		if (length <= 0) continue;
+		var raw = _rawByteViewForBufferLike(target);
+		if (raw && typeof raw.set === "function" && typeof data.subarray === "function") raw.set(data.subarray(copied, copied + length));
+		else for (var k = 0; k < length; k++) target[k] = data[copied + k];
+		copied += length;
+	}
+}
+function _asyncReadvIntoBuffers(native, fd, buffers, position) {
+	return native(fd, buffers, _validateVectoredIoArgs(fd, buffers, position)).then(function(data) {
+		if (data.length > 0) _copyReadvBytesIntoBuffers(data, buffers);
+		return data.length;
+	}, function(err) {
+		throw _asyncFsError(err, "readv");
+	});
+}
+function _asyncWritevFromBuffers(native, fd, buffers, position) {
+	return native(fd, buffers, _validateVectoredIoArgs(fd, buffers, position)).then(void 0, function(err) {
+		throw _asyncFsError(err, "writev");
+	});
+}
 function _normalizeWatchOptions(options) {
 	if (options === void 0 || options === null) return {};
 	if (typeof options === "string") {
@@ -2873,15 +2920,22 @@ function readv(fd, buffers, position, callback) {
 		callback = position;
 		position = void 0;
 	}
-	_validateFd(fd);
 	_validateCallback(callback);
-	if (position !== void 0 && position !== null && typeof position !== "number") throw _fsInvalidArgType("position", "number", position);
-	if (!Array.isArray(buffers)) throw _fsInvalidArgType("buffers", "Array", buffers);
-	for (var i = 0; i < buffers.length; i++) {
-		var buffer = buffers[i];
-		if (!_isBufferLike(buffer)) throw _fsInvalidArgType("buffers[" + i + "]", "string or an instance of Buffer, TypedArray, or DataView", buffer);
-	}
 	try {
+		var asyncNative = _fsAsyncNative("__exactFsReadvAsync");
+		if (asyncNative) {
+			_asyncReadvIntoBuffers(asyncNative, fd, buffers, position).then(function(bytesRead) {
+				_deferFsCallback(function() {
+					callback(null, bytesRead, buffers);
+				});
+			}, function(err) {
+				_deferFsCallback(function() {
+					callback(err);
+				});
+			});
+			return;
+		}
+		_validateVectoredIoArgs(fd, buffers, position);
 		if (typeof g.__exactFsReadv === "function") {
 			var pos = typeof position === "number" ? position : -1;
 			g.__exactFsReadv(fd, buffers, pos, function(err, bytesRead) {
@@ -2908,15 +2962,22 @@ function writev(fd, buffers, position, callback) {
 		callback = position;
 		position = void 0;
 	}
-	_validateFd(fd);
 	_validateCallback(callback);
-	if (position !== void 0 && position !== null && typeof position !== "number") throw _fsInvalidArgType("position", "number", position);
-	if (!Array.isArray(buffers)) throw _fsInvalidArgType("buffers", "Array", buffers);
-	for (var i = 0; i < buffers.length; i++) {
-		var buffer = buffers[i];
-		if (!_isBufferLike(buffer)) throw _fsInvalidArgType("buffers[" + i + "]", "string or an instance of Buffer, TypedArray, or DataView", buffer);
-	}
 	try {
+		var asyncNative = _fsAsyncNative("__exactFsWritevAsync");
+		if (asyncNative) {
+			_asyncWritevFromBuffers(asyncNative, fd, buffers, position).then(function(bytesWritten) {
+				_deferFsCallback(function() {
+					callback(null, bytesWritten, buffers);
+				});
+			}, function(err) {
+				_deferFsCallback(function() {
+					callback(err);
+				});
+			});
+			return;
+		}
+		_validateVectoredIoArgs(fd, buffers, position);
 		if (typeof g.__exactFsWritev === "function" && typeof position === "number") {
 			var pos = position;
 			g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
@@ -4793,6 +4854,13 @@ FileHandlePromise.prototype.readv = function(buffers, position) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
+		var native = _fsAsyncNative("__exactFsReadvAsync");
+		if (native) return _asyncReadvIntoBuffers(native, handle.fd, buffers, position).then(function(bytesRead) {
+			return {
+				bytesRead,
+				buffers
+			};
+		});
 		return {
 			bytesRead: readvSync(handle.fd, buffers, position),
 			buffers
@@ -4803,6 +4871,13 @@ FileHandlePromise.prototype.writev = function(buffers, position) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
+		var native = _fsAsyncNative("__exactFsWritevAsync");
+		if (native) return _asyncWritevFromBuffers(native, handle.fd, buffers, position).then(function(bytesWritten) {
+			return {
+				bytesWritten,
+				buffers
+			};
+		});
 		return {
 			bytesWritten: writevSync(handle.fd, buffers, position),
 			buffers
@@ -5067,6 +5142,13 @@ var promises = {
 	},
 	readv: function(fd, buffers, position) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsReadvAsync");
+			if (native) return _asyncReadvIntoBuffers(native, fd, buffers, position).then(function(bytesRead) {
+				return {
+					bytesRead,
+					buffers
+				};
+			});
 			return {
 				bytesRead: readvSync(fd, buffers, position),
 				buffers
@@ -5075,6 +5157,13 @@ var promises = {
 	},
 	writev: function(fd, buffers, position) {
 		return _resolveAsync(function() {
+			var native = _fsAsyncNative("__exactFsWritevAsync");
+			if (native) return _asyncWritevFromBuffers(native, fd, buffers, position).then(function(bytesWritten) {
+				return {
+					bytesWritten,
+					buffers
+				};
+			});
 			return {
 				bytesWritten: writevSync(fd, buffers, position),
 				buffers

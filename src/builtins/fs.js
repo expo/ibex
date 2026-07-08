@@ -943,9 +943,9 @@ function _makeFileTooLargeError(size) {
 // thread and merely defer the callback, so a large readFile stalled timers,
 // sockets, and every other JS task. When the worker-pool-backed async natives
 // (__exactFs*Async) are present, readFile/writeFile/appendFile/read/write/
-// stat/lstat/fstat and the stream data paths route through them; when absent
-// (Windows backend, partial test harnesses) they fall back to the historical
-// deferred-sync path. *Sync entry points always stay synchronous.
+// readv/writev/stat/lstat/fstat and the stream data paths route through them;
+// when absent (Windows backend, partial test harnesses) they fall back to the
+// historical deferred-sync path. *Sync entry points always stay synchronous.
 // @ref LLP 0003#blocking-work-worker-pools — worker-pool discipline and why
 // independent async ops may reorder (Node-faithful).
 
@@ -1064,6 +1064,78 @@ function _asyncWriteFromArgs(native, fd, bufferOrString, offsetOrPosition, lengt
   var writeArgs = _prepareWriteArgs(bufferOrString, offsetOrPosition, lengthOrEncoding, position);
   return native(fd, writeArgs.bytes, writeArgs.position).then(undefined, function(err) {
     throw _asyncFsError(err, 'write');
+  });
+}
+
+function _validateVectoredIoArgs(fd, buffers, position) {
+  _validateFd(fd);
+  if (!Array.isArray(buffers)) {
+    throw _fsInvalidArgType('buffers', 'Array', buffers);
+  }
+  for (var i = 0; i < buffers.length; i++) {
+    if (!_isBufferLike(buffers[i])) {
+      throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffers[i]);
+    }
+  }
+  if (position !== undefined && position !== null && typeof position !== 'number') {
+    throw _fsInvalidArgType('position', 'number', position);
+  }
+  return (typeof position === 'number') ? position : -1;
+}
+
+function _rawByteViewForBufferLike(value) {
+  if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+  if (value && value.buffer && typeof value.byteLength === 'number') {
+    var offset = typeof value.byteOffset === 'number' ? value.byteOffset : 0;
+    try {
+      return new Uint8Array(value.buffer, offset, value.byteLength);
+    } catch (e) {}
+  }
+  return null;
+}
+
+function _bufferLikeByteLength(value) {
+  if (!value) return 0;
+  if (typeof value.byteLength === 'number') return value.byteLength;
+  return _bufferLikeLength(value);
+}
+
+function _copyReadvBytesIntoBuffers(data, buffers) {
+  var copied = 0;
+  for (var i = 0; i < buffers.length && copied < data.length; i++) {
+    var target = buffers[i];
+    var length = Math.min(_bufferLikeByteLength(target), data.length - copied);
+    if (length <= 0) continue;
+    var raw = _rawByteViewForBufferLike(target);
+    if (raw && typeof raw.set === 'function' && typeof data.subarray === 'function') {
+      raw.set(data.subarray(copied, copied + length));
+    } else {
+      for (var k = 0; k < length; k++) {
+        target[k] = data[copied + k];
+      }
+    }
+    copied += length;
+  }
+}
+
+function _asyncReadvIntoBuffers(native, fd, buffers, position) {
+  var pos = _validateVectoredIoArgs(fd, buffers, position);
+  return native(fd, buffers, pos).then(function(data) {
+    if (data.length > 0) {
+      _copyReadvBytesIntoBuffers(data, buffers);
+    }
+    return data.length;
+  }, function(err) {
+    throw _asyncFsError(err, 'readv');
+  });
+}
+
+function _asyncWritevFromBuffers(native, fd, buffers, position) {
+  var pos = _validateVectoredIoArgs(fd, buffers, position);
+  return native(fd, buffers, pos).then(undefined, function(err) {
+    throw _asyncFsError(err, 'writev');
   });
 }
 
@@ -3407,21 +3479,20 @@ function readv(fd, buffers, position, callback) {
     callback = position;
     position = undefined;
   }
-  _validateFd(fd);
   _validateCallback(callback);
-  if (position !== undefined && position !== null && typeof position !== 'number') {
-    throw _fsInvalidArgType('position', 'number', position);
-  }
-  if (!Array.isArray(buffers)) {
-    throw _fsInvalidArgType('buffers', 'Array', buffers);
-  }
-  for (var i = 0; i < buffers.length; i++) {
-    var buffer = buffers[i];
-    if (!_isBufferLike(buffer)) {
-      throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
-    }
-  }
   try {
+    var asyncNative = _fsAsyncNative('__exactFsReadvAsync');
+    if (asyncNative) {
+      _asyncReadvIntoBuffers(asyncNative, fd, buffers, position).then(
+          function(bytesRead) {
+            _deferFsCallback(function() { callback(null, bytesRead, buffers); });
+          },
+          function(err) {
+            _deferFsCallback(function() { callback(err); });
+          });
+      return;
+    }
+    _validateVectoredIoArgs(fd, buffers, position);
     if (typeof g.__exactFsReadv === 'function') {
       var pos = (typeof position === 'number') ? position : -1;
       g.__exactFsReadv(fd, buffers, pos, function(err, bytesRead) {
@@ -3448,28 +3519,27 @@ function writev(fd, buffers, position, callback) {
     callback = position;
     position = undefined;
   }
-  _validateFd(fd);
   _validateCallback(callback);
-  if (position !== undefined && position !== null && typeof position !== 'number') {
-    throw _fsInvalidArgType('position', 'number', position);
-  }
-  if (!Array.isArray(buffers)) {
-    throw _fsInvalidArgType('buffers', 'Array', buffers);
-  }
-  for (var i = 0; i < buffers.length; i++) {
-    var buffer = buffers[i];
-    if (!_isBufferLike(buffer)) {
-      throw _fsInvalidArgType('buffers[' + i + ']', 'string or an instance of Buffer, TypedArray, or DataView', buffer);
-    }
-  }
   try {
-  if (typeof g.__exactFsWritev === 'function' && typeof position === 'number') {
-    var pos = position;
-    g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
-      _deferFsCallback(function() {
-        if (err) {
-          callback(_makeFsError(err, 'writev'));
-        } else {
+    var asyncNative = _fsAsyncNative('__exactFsWritevAsync');
+    if (asyncNative) {
+      _asyncWritevFromBuffers(asyncNative, fd, buffers, position).then(
+          function(bytesWritten) {
+            _deferFsCallback(function() { callback(null, bytesWritten, buffers); });
+          },
+          function(err) {
+            _deferFsCallback(function() { callback(err); });
+          });
+      return;
+    }
+    _validateVectoredIoArgs(fd, buffers, position);
+    if (typeof g.__exactFsWritev === 'function' && typeof position === 'number') {
+      var pos = position;
+      g.__exactFsWritev(fd, buffers, pos, function(err, bytesWritten) {
+        _deferFsCallback(function() {
+          if (err) {
+            callback(_makeFsError(err, 'writev'));
+          } else {
             callback(null, bytesWritten, buffers);
           }
         });
@@ -5578,6 +5648,12 @@ FileHandlePromise.prototype.readv = function(buffers, position) {
   var handle = this;
   return _resolveAsync(function() {
     handle._ensureOpen();
+    var native = _fsAsyncNative('__exactFsReadvAsync');
+    if (native) {
+      return _asyncReadvIntoBuffers(native, handle.fd, buffers, position).then(function(bytesRead) {
+        return { bytesRead: bytesRead, buffers: buffers };
+      });
+    }
     return { bytesRead: readvSync(handle.fd, buffers, position), buffers: buffers };
   })();
 };
@@ -5585,6 +5661,12 @@ FileHandlePromise.prototype.writev = function(buffers, position) {
   var handle = this;
   return _resolveAsync(function() {
     handle._ensureOpen();
+    var native = _fsAsyncNative('__exactFsWritevAsync');
+    if (native) {
+      return _asyncWritevFromBuffers(native, handle.fd, buffers, position).then(function(bytesWritten) {
+        return { bytesWritten: bytesWritten, buffers: buffers };
+      });
+    }
     return { bytesWritten: writevSync(handle.fd, buffers, position), buffers: buffers };
   })();
 };
@@ -5792,8 +5874,28 @@ var promises = {
     return _makeAsyncIteratorFromArray(globSync(pattern, o));
   },
   statfs: function(path, o) { return _resolveAsync(function() { return statfsSync(path, o); })(); },
-  readv: function(fd, buffers, position) { return _resolveAsync(function() { return { bytesRead: readvSync(fd, buffers, position), buffers: buffers }; })(); },
-  writev: function(fd, buffers, position) { return _resolveAsync(function() { return { bytesWritten: writevSync(fd, buffers, position), buffers: buffers }; })(); },
+  readv: function(fd, buffers, position) {
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsReadvAsync');
+      if (native) {
+        return _asyncReadvIntoBuffers(native, fd, buffers, position).then(function(bytesRead) {
+          return { bytesRead: bytesRead, buffers: buffers };
+        });
+      }
+      return { bytesRead: readvSync(fd, buffers, position), buffers: buffers };
+    })();
+  },
+  writev: function(fd, buffers, position) {
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsWritevAsync');
+      if (native) {
+        return _asyncWritevFromBuffers(native, fd, buffers, position).then(function(bytesWritten) {
+          return { bytesWritten: bytesWritten, buffers: buffers };
+        });
+      }
+      return { bytesWritten: writevSync(fd, buffers, position), buffers: buffers };
+    })();
+  },
   fdatasync: function(fd) { return _resolveAsync(function() { fdatasyncSync(fd); })(); },
   fsync: function(fd) { return _resolveAsync(function() { fsyncSync(fd); })(); },
   fstat: function(fd) {

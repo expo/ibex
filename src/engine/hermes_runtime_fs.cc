@@ -960,6 +960,85 @@ static FsAsyncResult fsWriteChunkWork(
   return result;
 }
 
+static std::vector<struct iovec> ioVecsForBuffers(std::vector<std::vector<uint8_t>>& buffers) {
+  std::vector<struct iovec> iovecs;
+  iovecs.reserve(buffers.size());
+  for (auto& buffer : buffers) {
+    struct iovec iov {
+      .iov_base = buffer.empty() ? nullptr : buffer.data(),
+      .iov_len = buffer.size()
+    };
+    iovecs.push_back(iov);
+  }
+  return iovecs;
+}
+
+static FsAsyncResult fsReadvWork(
+    int fd,
+    std::vector<std::vector<uint8_t>>& buffers,
+    bool positioned,
+    int64_t position) {
+  if (buffers.empty()) {
+    return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  }
+  auto iovecs = ioVecsForBuffers(buffers);
+  ssize_t bytesRead;
+  do {
+    bytesRead = positioned
+        ? ::preadv(fd, iovecs.data(), static_cast<int>(iovecs.size()),
+                   static_cast<off_t>(position))
+        : ::readv(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+  } while (bytesRead < 0 && errno == EINTR);
+  if (bytesRead < 0) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return fsAsyncOk(FsAsyncResult::Kind::Bytes);
+    }
+    return fsAsyncError(errno, "readv");
+  }
+
+  std::vector<uint8_t> data;
+  data.reserve(static_cast<size_t>(bytesRead));
+  size_t remaining = static_cast<size_t>(bytesRead);
+  for (auto& buffer : buffers) {
+    if (remaining == 0) {
+      break;
+    }
+    size_t copyLen = std::min(buffer.size(), remaining);
+    data.insert(data.end(), buffer.begin(), buffer.begin() + copyLen);
+    remaining -= copyLen;
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(data);
+  return result;
+}
+
+static FsAsyncResult fsWritevWork(
+    int fd,
+    std::vector<std::vector<uint8_t>>& buffers,
+    bool positioned,
+    int64_t position) {
+  if (buffers.empty()) {
+    auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+    result.number = 0;
+    return result;
+  }
+  auto iovecs = ioVecsForBuffers(buffers);
+  ssize_t bytesWritten;
+  do {
+    bytesWritten = positioned
+        ? ::pwritev(fd, iovecs.data(), static_cast<int>(iovecs.size()),
+                    static_cast<off_t>(position))
+        : ::writev(fd, iovecs.data(), static_cast<int>(iovecs.size()));
+  } while (bytesWritten < 0 && errno == EINTR);
+  if (bytesWritten < 0) {
+    normalizeWriteErrno(fd);
+    return fsAsyncError(errno, "writev");
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = static_cast<double>(bytesWritten);
+  return result;
+}
+
 static FsAsyncResult fsStatPathWork(const std::string& path, bool isLstat) {
   char* json = isLstat ? ex_host_fs_lstat(path.c_str()) : ex_host_fs_stat(path.c_str());
   if (!json) {
@@ -2726,6 +2805,67 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             });
       });
   rt.global().setProperty(rt, "__exactFsWriteAsync", std::move(fsWriteAsyncFn));
+
+  // __exactFsReadvAsync(fd, buffers, position) -> Promise<Uint8Array>
+  // Worker-pool sibling of __exactFsReadv. The worker reads into copied
+  // native buffers and resolves a compact byte payload; fs.js scatters it
+  // back into the caller's Buffer/TypedArray/DataView objects on the JS
+  // thread, preserving the no-JSI-off-thread rule.
+  auto fsReadvAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadvAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsReadvAsync: fd and buffers required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        requireFdRead(runtime, fd, "readv");
+        std::vector<std::vector<uint8_t>> buffers;
+        std::vector<struct iovec> iovecs;
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
+        }
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
+            std::move(buffers));
+        return startFsAsync(
+            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsReadvWork(fd, *buffersPtr, positioned, position);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsReadvAsync", std::move(fsReadvAsyncFn));
+
+  // __exactFsWritevAsync(fd, buffers, position) -> Promise<number bytesWritten>
+  // Async sibling of __exactFsWritev (same positional/pwritev semantics).
+  auto fsWritevAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsWritevAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsWritevAsync: fd and buffers required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        requireFdWrite(runtime, fd, "writev");
+        std::vector<std::vector<uint8_t>> buffers;
+        std::vector<struct iovec> iovecs;
+        if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactFsWritevAsync: buffers must be Uint8Array-like objects");
+        }
+        bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
+        int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
+        auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
+            std::move(buffers));
+        return startFsAsync(
+            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsWritevWork(fd, *buffersPtr, positioned, position);
+            });
+      });
+  rt.global().setProperty(rt, "__exactFsWritevAsync", std::move(fsWritevAsyncFn));
 
   // __exactFsStatAsync(pathOrFd, kind) -> Promise<JSON string>
   // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is

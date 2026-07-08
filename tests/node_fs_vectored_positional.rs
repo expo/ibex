@@ -123,3 +123,71 @@ async fn unpositioned_vectored_io_advances_cursor() {
     })()"#;
     assert_eq!(eval(js).await, r#"{"a":"AB","b":"CD"}"#);
 }
+
+/// Callback, fs.promises, and FileHandle readv/writev should all share the
+/// worker-pool-backed native path when it is available (ENG-23541), while
+/// preserving the same data/result contract as the sync bridge.
+#[tokio::test]
+async fn async_vectored_io_contracts_roundtrip() {
+    let js = r#"(async function(){
+      var fs = require('fs'); var os = require('os'); var path = require('path');
+      var dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ibex-vecasync-'));
+      var file = path.join(dir, 'f');
+      fs.writeFileSync(file, '0123456789');
+      var fd = fs.openSync(file, 'r+');
+      function readvCb(fd, buffers, position) {
+        return new Promise(function(resolve, reject) {
+          fs.readv(fd, buffers, position, function(err, bytesRead, resultBuffers) {
+            if (err) reject(err);
+            else resolve({ bytesRead: bytesRead, buffers: resultBuffers });
+          });
+        });
+      }
+      function writevCb(fd, buffers, position) {
+        return new Promise(function(resolve, reject) {
+          fs.writev(fd, buffers, position, function(err, bytesWritten, resultBuffers) {
+            if (err) reject(err);
+            else resolve({ bytesWritten: bytesWritten, buffers: resultBuffers });
+          });
+        });
+      }
+
+      var cbA = Buffer.alloc(2);
+      var cbB = new Uint8Array(2);
+      var cbRead = await readvCb(fd, [cbA, cbB], 2);
+      var cbWrite = await writevCb(fd, [Buffer.from('xy')], 0);
+
+      var promiseBuf = Buffer.alloc(3);
+      var promiseRead = await fs.promises.readv(fd, [promiseBuf], 4);
+      var promiseWrite = await fs.promises.writev(fd, [Buffer.from('ZZ')], 7);
+      fs.closeSync(fd);
+
+      var fh = await fs.promises.open(file, 'r+');
+      try {
+        var fhBuf = Buffer.alloc(2);
+        var fhRead = await fh.readv([fhBuf], 0);
+        var fhWrite = await fh.writev([Buffer.from('qq')], 5);
+      } finally {
+        await fh.close();
+      }
+
+      var out = {
+        cbRead: cbRead.bytesRead,
+        cbData: cbA.toString() + Buffer.from(cbB).toString(),
+        cbWrite: cbWrite.bytesWritten,
+        promiseRead: promiseRead.bytesRead,
+        promiseData: promiseBuf.toString(),
+        promiseWrite: promiseWrite.bytesWritten,
+        fhRead: fhRead.bytesRead,
+        fhData: fhBuf.toString(),
+        fhWrite: fhWrite.bytesWritten,
+        content: fs.readFileSync(file, 'utf8')
+      };
+      fs.rmSync(dir, { recursive: true, force: true });
+      return JSON.stringify(out);
+    })()"#;
+    assert_eq!(
+        eval(js).await,
+        r#"{"cbRead":4,"cbData":"2345","cbWrite":2,"promiseRead":3,"promiseData":"456","promiseWrite":2,"fhRead":2,"fhData":"xy","fhWrite":2,"content":"xy234qqZZ9"}"#
+    );
+}
