@@ -86,3 +86,62 @@ async fn node_zlib_missing_bridge_fails_cleanly_not_referenceerror() {
         "bridge-less zlib must throw the clean 'not available' error: {result}"
     );
 }
+
+#[tokio::test]
+async fn node_zlib_streams_roundtrip_incrementally_across_flush_and_split_input() {
+    let js = r#"(async function(){
+        var z = require('zlib');
+        var input = Buffer.alloc(256 * 1024);
+        for (var i = 0; i < input.length; i++) input[i] = 65 + (i % 26);
+
+        function gzipStream() {
+          return new Promise(function(resolve, reject) {
+            var gz = z.createGzip();
+            var chunks = [];
+            var bytesBeforeEnd = 0;
+            gz.on('data', function(chunk) { chunks.push(Buffer.from(chunk)); });
+            gz.on('error', reject);
+            gz.on('end', function() {
+              resolve({
+                compressed: Buffer.concat(chunks),
+                bytesBeforeEnd: bytesBeforeEnd,
+                chunkCount: chunks.length
+              });
+            });
+            gz.write(input.subarray(0, 64 * 1024));
+            gz.flush(z.constants.Z_SYNC_FLUSH, function(err) {
+              if (err) { reject(err); return; }
+              bytesBeforeEnd = Buffer.concat(chunks).length;
+              gz.write(input.subarray(64 * 1024, 128 * 1024));
+              gz.end(input.subarray(128 * 1024));
+            });
+          });
+        }
+
+        function gunzipStream(compressed) {
+          return new Promise(function(resolve, reject) {
+            var gunzip = z.createGunzip();
+            var out = [];
+            gunzip.on('data', function(chunk) { out.push(Buffer.from(chunk)); });
+            gunzip.on('error', reject);
+            gunzip.on('end', function() { resolve(Buffer.concat(out)); });
+            gunzip.write(compressed.subarray(0, 17));
+            gunzip.write(compressed.subarray(17, 4099));
+            gunzip.end(compressed.subarray(4099));
+          });
+        }
+
+        var gz = await gzipStream();
+        var decoded = await gunzipStream(gz.compressed);
+        return JSON.stringify({
+          roundtrip: decoded.equals(input),
+          emittedBeforeEnd: gz.bytesBeforeEnd > 0,
+          multipleGzipChunks: gz.chunkCount >= 2
+        });
+      })()"#;
+    let result = eval(js).await;
+    assert_eq!(
+        result, r#"{"roundtrip":true,"emittedBeforeEnd":true,"multipleGzipChunks":true}"#,
+        "zlib streams must round-trip split inputs and emit data before final end: {result}"
+    );
+}

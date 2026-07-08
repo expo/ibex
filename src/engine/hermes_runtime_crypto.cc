@@ -1,4 +1,5 @@
 #include "hermes_runtime_internal.h"
+#include "hermes_runtime_zlib_streams.h"
 
 #include <atomic>
 #include <cctype>
@@ -4709,6 +4710,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         return makeUint8Array(runtime, std::move(output));
       });
   rt.global().setProperty(rt, "__exactInflateSync", std::move(inflateSyncFn));
+  ibex_zlib_streams::installZlibStreamHostFunctions(handle);
 
 #if !defined(EXACT_NO_BROTLI)
   // --- Brotli: sync compress/decompress ---

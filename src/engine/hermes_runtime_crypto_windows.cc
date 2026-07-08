@@ -1,4 +1,5 @@
 #include "hermes_runtime_internal.h"
+#include "hermes_runtime_zlib_streams.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -358,6 +359,7 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
         return makeUint8Array(runtime, std::move(output));
       });
   rt.global().setProperty(rt, "__exactInflateSync", std::move(inflateSyncFn));
+  ibex_zlib_streams::installZlibStreamHostFunctions(handle);
 }
 
 } // namespace

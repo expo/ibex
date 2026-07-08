@@ -198,3 +198,58 @@ describe('zlib stream parity fixes (ENG-23478)', () => {
     expect(err.code).toMatch(/^Z_/);
   });
 });
+
+describe('incremental native zlib stream path (ENG-23505)', () => {
+  test('deflate streams write each chunk through the stateful native codec', async () => {
+    const originalDeflateSync = g.__exactDeflateSync;
+    const originalCreate = g.__exactZlibCreate;
+    const originalWrite = g.__exactZlibWrite;
+    const originalParams = g.__exactZlibParams;
+    const originalClose = g.__exactZlibClose;
+
+    let oneShotCalls = 0;
+    let nextId = 1;
+    const writes: Array<{ id: number; text: string; flush: number; final: boolean }> = [];
+    const closed: number[] = [];
+
+    g.__exactDeflateSync = (...args: any[]) => {
+      oneShotCalls += 1;
+      return originalDeflateSync(...args);
+    };
+    g.__exactZlibCreate = () => nextId++;
+    g.__exactZlibWrite = (id: number, bytes: Uint8Array, flush: number, final: boolean) => {
+      writes.push({ id, text: Buffer.from(bytes).toString(), flush, final });
+      return new Uint8Array(bytes);
+    };
+    g.__exactZlibParams = () => new Uint8Array(0);
+    g.__exactZlibClose = (id: number) => { closed.push(id); };
+
+    try {
+      const stream = zlib.createDeflate();
+      const done = collect(stream);
+      stream.write('alpha');
+      stream.write(Buffer.from('beta'));
+      stream.end('omega');
+
+      expect((await done).toString()).toBe('alphabetaomega');
+      expect(oneShotCalls).toBe(0);
+      expect(writes.map((w) => [w.text, w.flush, w.final])).toEqual([
+        ['alpha', zlib.constants.Z_NO_FLUSH, false],
+        ['beta', zlib.constants.Z_NO_FLUSH, false],
+        ['omega', zlib.constants.Z_NO_FLUSH, false],
+        ['', zlib.constants.Z_FINISH, true],
+      ]);
+      expect(closed).toEqual([1]);
+    } finally {
+      g.__exactDeflateSync = originalDeflateSync;
+      if (originalCreate === undefined) delete g.__exactZlibCreate;
+      else g.__exactZlibCreate = originalCreate;
+      if (originalWrite === undefined) delete g.__exactZlibWrite;
+      else g.__exactZlibWrite = originalWrite;
+      if (originalParams === undefined) delete g.__exactZlibParams;
+      else g.__exactZlibParams = originalParams;
+      if (originalClose === undefined) delete g.__exactZlibClose;
+      else g.__exactZlibClose = originalClose;
+    }
+  });
+});

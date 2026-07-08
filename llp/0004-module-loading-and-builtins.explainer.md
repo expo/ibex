@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23448: documented the loopback-only tls emulation)
+**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23448: documented the loopback-only tls emulation)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -113,6 +113,35 @@ The transformed builtin JS files are committed under
 `vendored-generated/builtins/*.js` and authored under `src/builtins/*.js`
 `[observed]` (`vendored-generated/README.md:11-27`). Two specifiers (`sqlite`,
 `sea`) are reserved Node-only `[observed]` (`modules.ts:19-21`).
+
+### The zlib builtin
+
+The `zlib` builtin (`src/builtins/zlib.js`) has two native codec layers
+`[observed]`:
+
+- **One-shot sync hooks** (`__exactDeflateSync` / `__exactInflateSync`) back
+  `gzipSync`, `deflateSync`, `gunzipSync`, `inflateSync`, raw variants, and
+  JS-only harness fallback behavior.
+- **Stateful stream hooks** (`__exactZlibCreate` / `__exactZlibWrite` /
+  `__exactZlibParams` / `__exactZlibClose`) back `createGzip`,
+  `createDeflate`, `createGunzip`, `createInflate`, and raw/unzip stream
+  variants when the native bridge is present.
+
+The stream hooks keep `z_stream` state natively and process each Transform
+chunk without concatenating the full compressed or decompressed payload in JS.
+`flush()` maps to zlib flush modes, `_final` maps to `Z_FINISH`, and
+`params()` calls `deflateParams()` so compression-level changes affect
+subsequent input without rebuilding a one-shot buffer `[observed]`.
+
+The JS implementation still keeps the historical one-shot fallback for Bun
+unit tests and embedded profiles that stub only the old hooks, but that path is
+explicitly degraded: mid-stream `flush()` cannot emit a true zlib boundary
+without the stateful native host functions `[observed]`.
+
+The native state lives in `src/engine/hermes_runtime_zlib_streams.h`, registered
+from both the non-Windows and Windows crypto host-function roots so zlib stream
+parity follows the same platform availability as the existing zlib sync hooks
+`[observed]`.
 
 ### The tls builtin
 

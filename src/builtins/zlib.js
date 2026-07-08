@@ -14,6 +14,12 @@ var _kMaxLength = (function() {
 
 // Valid brotli parameter keys (0-8)
 var VALID_BROTLI_PARAMS = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+var ZLIB_STREAM_DEFLATE = 0;
+var ZLIB_STREAM_INFLATE = 1;
+var Z_NO_FLUSH = 0;
+var Z_SYNC_FLUSH = 2;
+var Z_FULL_FLUSH = 3;
+var Z_FINISH = 4;
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -95,6 +101,13 @@ function toBuffer(uint8) {
   return uint8;
 }
 
+function copyBytesForNative(data) {
+  var bytes = toBytes(data);
+  var copy = new Uint8Array(bytes.length);
+  copy.set(bytes);
+  return copy;
+}
+
 function countBytesForChunk(chunk, encoding) {
   if (chunk === null || chunk === undefined) return 0;
   if (typeof chunk === 'string') return Buffer.byteLength(chunk, encoding || 'utf8');
@@ -142,6 +155,26 @@ function wrapInflateError(e) {
   return err;
 }
 
+function normalizeZlibStreamError(e) {
+  if (!e || !e.message) return e;
+  if (e.code) return e;
+  var msg = e.message;
+  if (/^inflate failed:/.test(msg)) {
+    var detail = msg.replace(/^inflate failed:\s*(data error:\s*)?/, '');
+    var inflateErr = new Error(detail);
+    inflateErr.code = 'Z_DATA_ERROR';
+    inflateErr.errno = -3;
+    return inflateErr;
+  }
+  if (/unexpected end of file|invalid stored block|invalid block type|unknown compression method|incorrect data check/.test(msg)) {
+    var dataErr = new Error(msg);
+    dataErr.code = 'Z_DATA_ERROR';
+    dataErr.errno = -3;
+    return dataErr;
+  }
+  return e;
+}
+
 // Guarded access to the native deflate/inflate bridge. On builds where the
 // host functions are not registered (the bridge registration is
 // platform-gated; Windows lacks it today) a bare call raised a bewildering
@@ -159,6 +192,13 @@ function _nativeInflateSync(bytes, mode, gzipMulti, flags, dict) {
     throw new Error('zlib inflate is not available in this build (native zlib bridge not registered on this platform)');
   }
   return __exactInflateSync(bytes, mode, gzipMulti, flags, dict);
+}
+
+function nativeZlibStreamsAvailable() {
+  return typeof __exactZlibCreate === 'function' &&
+    typeof __exactZlibWrite === 'function' &&
+    typeof __exactZlibParams === 'function' &&
+    typeof __exactZlibClose === 'function';
 }
 
 // Internal: inflate and return [buffer, bytesConsumed]
@@ -856,7 +896,7 @@ function unzipStreamFn(buf) {
 // ZlibTransform base class
 // ---------------------------------------------------------------------------
 
-function ZlibTransform(syncFn, opts, isDecoder) {
+function ZlibTransform(syncFn, opts, isDecoder, nativeMode, dictionary) {
   Transform.call(this, opts);
   this._syncFn = syncFn;
   this._isDecoder = !!isDecoder;
@@ -866,6 +906,12 @@ function ZlibTransform(syncFn, opts, isDecoder) {
   this.bytesRead = 0;
   this._handle = {};
   this._flushed = false;
+  this._nativeMode = typeof nativeMode === 'number' ? nativeMode : null;
+  this._nativeKind = this._isDecoder ? ZLIB_STREAM_INFLATE : ZLIB_STREAM_DEFLATE;
+  this._nativeDictionary = dictionary;
+  this._nativeId = 0;
+  this._nativeAvailable = this._nativeMode !== null && nativeZlibStreamsAvailable();
+  this._outputLength = 0;
 
   this._level = (opts && opts.level !== undefined && !isNaN(opts.level) && isFinite(opts.level)) ? opts.level : -1;
   this._strategy = (opts && opts.strategy !== undefined && !isNaN(opts.strategy) && isFinite(opts.strategy)) ? opts.strategy : 0;
@@ -909,6 +955,53 @@ ZlibTransform.prototype.setEncoding = function(enc) {
   return this;
 };
 
+ZlibTransform.prototype._ensureNativeStream = function() {
+  if (!this._nativeAvailable) return false;
+  if (this._nativeId) return true;
+  // @ref LLP 0004#the-zlib-builtin — stream transforms use native z_stream state
+  // when the bridge exists, falling back only for JS-only one-shot harnesses.
+  this._nativeId = __exactZlibCreate(
+    this._nativeKind,
+    this._nativeMode,
+    this._level,
+    this._strategy,
+    this._nativeDictionary);
+  return true;
+};
+
+ZlibTransform.prototype._closeNativeStream = function() {
+  if (!this._nativeId) return;
+  var id = this._nativeId;
+  this._nativeId = 0;
+  if (typeof __exactZlibClose === 'function') {
+    __exactZlibClose(id);
+  }
+};
+
+ZlibTransform.prototype._pushNativeOutput = function(raw) {
+  var result = toBuffer(raw || new Uint8Array(0));
+  if (this._isDecoder) {
+    var nextLength = this._outputLength + result.length;
+    checkMaxOutputLength(nextLength, this._maxOutputLength);
+    this._outputLength = nextLength;
+    this.bytesRead = this.bytesWritten;
+  }
+  if (result.length > 0) {
+    this.push(result);
+  }
+  return result;
+};
+
+ZlibTransform.prototype._writeNative = function(chunk, flushFlag, final) {
+  var raw = __exactZlibWrite(
+    this._nativeId,
+    copyBytesForNative(chunk || Buffer.alloc(0)),
+    flushFlag,
+    !!final,
+    this._isDecoder && this._finishFlush === Z_SYNC_FLUSH);
+  return this._pushNativeOutput(raw);
+};
+
 ZlibTransform.prototype.write = function(chunk, encoding, callback) {
   if (chunk !== null && chunk !== undefined &&
       typeof chunk !== 'string' &&
@@ -941,11 +1034,26 @@ ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
   this._bytesWritten += countBytesForChunk(chunk, encoding || 'utf8');
   this.bytesWritten = this._bytesWritten;
 
+  var inputChunk = chunk;
   if (typeof chunk === 'string') {
-    this._chunks.push(Buffer.from(chunk, encoding));
-  } else {
-    this._chunks.push(chunk);
+    inputChunk = Buffer.from(chunk, encoding);
   }
+
+  if (this._ensureNativeStream()) {
+    try {
+      this._writeNative(inputChunk, Z_NO_FLUSH, false);
+      if (typeof callback === 'function') callback();
+    } catch (e) {
+      if (typeof callback === 'function') {
+        callback(normalizeZlibStreamError(e));
+      } else {
+        this.emit('error', normalizeZlibStreamError(e));
+      }
+    }
+    return;
+  }
+
+  this._chunks.push(inputChunk);
   if (typeof callback !== 'function') return;
   if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
     process.nextTick(callback);
@@ -958,6 +1066,18 @@ ZlibTransform.prototype._flush = function(callback) {
   if (typeof callback !== 'function') callback = function() {};
   if (this._flushed) { callback(); return; }
   this._flushed = true;
+  if (this._ensureNativeStream()) {
+    try {
+      var finalFlush = this._isDecoder && this._finishFlush === Z_SYNC_FLUSH ? Z_SYNC_FLUSH : Z_FINISH;
+      this._writeNative(Buffer.alloc(0), finalFlush, true);
+      this._closeNativeStream();
+      callback();
+    } catch (e) {
+      this._closeNativeStream();
+      callback(normalizeZlibStreamError(e));
+    }
+    return;
+  }
   try {
     var input = concatChunks(this._chunks);
 
@@ -1052,25 +1172,27 @@ ZlibTransform.prototype.flush = function(kind, callback) {
   }
   var flushCallback = typeof callback === 'function' ? callback : null;
 
-  // flush() must NOT finalize the stream. The host ABI exposes only a one-shot
-  // deflate/inflate that terminates every stream with Z_FINISH; there is no
-  // incremental/partial (Z_SYNC_FLUSH-style) codec, so we cannot emit a
-  // mid-stream flush boundary the way Node does. The previous implementation
-  // worked around this by, on each encoder flush(), compressing everything
-  // buffered so far into a *complete* Z_FINISH-terminated member, setting
-  // `_flushed = true`, and clearing `_chunks`. That silently dropped any data
-  // written after the flush:
-  //     gz.write('hello');
-  //     gz.flush(() => gz.end('world'));   // 'world' was lost
-  // because `_transform` kept appending post-flush writes to `_chunks` while
-  // `_final` short-circuited on `_flushed` and never compressed them (and for
-  // deflate/raw a second member wouldn't be decodable anyway).
-  //
-  // Instead, flush() is a deferred no-op for BOTH encoders and decoders: all
-  // (de)compression happens exactly once in `_final`, over the full input, so
-  // the whole stream round-trips as one valid member and no bytes are lost.
-  // This mirrors what the decoder path already did. (True mid-stream flushing
-  // would require an incremental native codec the host does not provide.)
+  if (this._ensureNativeStream()) {
+    try {
+      this._writeNative(Buffer.alloc(0), kind === undefined ? Z_FULL_FLUSH : kind, false);
+    } catch (e) {
+      var err = normalizeZlibStreamError(e);
+      if (flushCallback) {
+        if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
+          process.nextTick(function() { flushCallback(err); });
+        } else {
+          setTimeout(function() { flushCallback(err); }, 0);
+        }
+      } else {
+        this.emit('error', err);
+      }
+      return this;
+    }
+  }
+
+  // Fallback for JS-only harnesses that only stub the one-shot native bridge:
+  // without the stateful host functions, a real mid-stream flush would require
+  // emitting a complete Z_FINISH member and corrupt/drop later writes.
   if (flushCallback) {
     if (typeof process === 'object' && process && typeof process.nextTick === 'function') {
       process.nextTick(flushCallback);
@@ -1082,11 +1204,13 @@ ZlibTransform.prototype.flush = function(kind, callback) {
 };
 
 ZlibTransform.prototype.reset = function() {
+  this._closeNativeStream();
   this._chunks = [];
   this._bytesWritten = 0;
   this.bytesWritten = 0;
   this.bytesRead = 0;
   this._flushed = false;
+  this._outputLength = 0;
   return this;
 };
 
@@ -1095,6 +1219,18 @@ ZlibTransform.prototype.params = function(level, strategy, callback) {
   validateStrategyArg(strategy, 'strategy');
   this._level = level;
   this._strategy = strategy;
+  if (!this._isDecoder && this._ensureNativeStream()) {
+    try {
+      this._pushNativeOutput(__exactZlibParams(this._nativeId, level, strategy));
+    } catch (e) {
+      var err = normalizeZlibStreamError(e);
+      if (typeof callback === 'function') {
+        setTimeout(function() { callback(err); }, 0);
+        return this;
+      }
+      throw err;
+    }
+  }
   if (typeof callback === 'function') {
     setTimeout(function() { callback(); }, 0);
   }
@@ -1106,6 +1242,7 @@ ZlibTransform.prototype.close = function(callback) {
 };
 
 ZlibTransform.prototype._destroy = function(err, callback) {
+  this._closeNativeStream();
   this._handle = null;
   if (typeof callback === 'function') callback(err);
 };
@@ -1130,7 +1267,7 @@ function Deflate(opts) {
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
     return toBuffer(_nativeDeflateSync(toBytes(buf), level, 0, _dict));
-  }, opts, false);
+  }, opts, false, 0, _dict);
 }
 Deflate.prototype = Object.create(ZlibTransform.prototype);
 Deflate.prototype.constructor = Deflate;
@@ -1143,7 +1280,7 @@ function Inflate(opts) {
     var r = _nativeInflateSync(toBytes(buf), 0, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
-  }, opts, true);
+  }, opts, true, 0, _dict);
 }
 Inflate.prototype = Object.create(ZlibTransform.prototype);
 Inflate.prototype.constructor = Inflate;
@@ -1154,7 +1291,7 @@ function Gzip(opts) {
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
     return toBuffer(_nativeDeflateSync(toBytes(buf), level, 1));
-  }, opts, false);
+  }, opts, false, 1);
 }
 Gzip.prototype = Object.create(ZlibTransform.prototype);
 Gzip.prototype.constructor = Gzip;
@@ -1162,7 +1299,7 @@ Gzip.prototype.constructor = Gzip;
 function Gunzip(opts) {
   if (!(this instanceof Gunzip)) return new Gunzip(opts);
   validateZlibOptions(opts, false, true);
-  ZlibTransform.call(this, gunzipStreamFn, opts, true);
+  ZlibTransform.call(this, gunzipStreamFn, opts, true, 1);
   this._multiMember = true;
 }
 Gunzip.prototype = Object.create(ZlibTransform.prototype);
@@ -1176,7 +1313,7 @@ function DeflateRaw(opts) {
   ZlibTransform.call(this, function(buf) {
     var level = this._level;
     return toBuffer(_nativeDeflateSync(toBytes(buf), level, 2, _dict));
-  }, opts, false);
+  }, opts, false, 2, _dict);
 }
 DeflateRaw.prototype = Object.create(ZlibTransform.prototype);
 DeflateRaw.prototype.constructor = DeflateRaw;
@@ -1189,7 +1326,7 @@ function InflateRaw(opts) {
     var r = _nativeInflateSync(toBytes(buf), 2, false, this._finishFlush === 2 ? 3 : 2, _dict);
     if (Array.isArray(r)) return { output: toBuffer(r[0]), consumed: r[1] };
     return { output: toBuffer(r), consumed: toBytes(buf).length };
-  }, opts, true);
+  }, opts, true, 2, _dict);
 }
 InflateRaw.prototype = Object.create(ZlibTransform.prototype);
 InflateRaw.prototype.constructor = InflateRaw;
@@ -1197,7 +1334,7 @@ InflateRaw.prototype.constructor = InflateRaw;
 function Unzip(opts) {
   if (!(this instanceof Unzip)) return new Unzip(opts);
   validateZlibOptions(opts, false, true);
-  ZlibTransform.call(this, unzipStreamFn, opts, true);
+  ZlibTransform.call(this, unzipStreamFn, opts, true, 1);
   this._multiMember = true;
 }
 Unzip.prototype = Object.create(ZlibTransform.prototype);
