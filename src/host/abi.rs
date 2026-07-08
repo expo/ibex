@@ -262,6 +262,13 @@ struct ConsoleQueue {
     dropped: std::sync::atomic::AtomicU64,
 }
 
+// Lines accepted into the queue but not yet written by the writer thread.
+// `ex_host_console_flush` waits (bounded) on this reaching zero so
+// process.exit does not discard output enqueued in the same tick — the
+// writer thread otherwise races process teardown, and on Windows
+// (exactHostExit -> ExitProcess) it loses deterministically. (ENG-23639)
+static CONSOLE_PENDING: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 impl ConsoleQueue {
     fn enqueue(&self, line: ConsoleLine) {
         use std::sync::atomic::Ordering;
@@ -271,11 +278,15 @@ impl ConsoleQueue {
             let notice = ConsoleLine::Err(format!(
                 "[ibex-console] dropped {dropped} line(s) under stdio backpressure"
             ));
-            if self.tx.try_send(notice).is_err() {
+            if self.tx.try_send(notice).is_ok() {
+                CONSOLE_PENDING.fetch_add(1, Ordering::Release);
+            } else {
                 self.dropped.fetch_add(dropped, Ordering::Relaxed);
             }
         }
-        if self.tx.try_send(line).is_err() {
+        if self.tx.try_send(line).is_ok() {
+            CONSOLE_PENDING.fetch_add(1, Ordering::Release);
+        } else {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -295,6 +306,7 @@ fn console_queue() -> &'static ConsoleQueue {
                         ConsoleLine::Out(msg) => write_stdout_line(&msg),
                         ConsoleLine::Err(msg) => write_stderr_line(&msg),
                     }
+                    CONSOLE_PENDING.fetch_sub(1, std::sync::atomic::Ordering::Release);
                 }
             });
         ConsoleQueue {
@@ -302,6 +314,25 @@ fn console_queue() -> &'static ConsoleQueue {
             dropped: std::sync::atomic::AtomicU64::new(0),
         }
     })
+}
+
+/// Wait (bounded by `timeout_ms`) for the console writer thread to drain
+/// every line already accepted into the queue. Called by `exactHostExit`
+/// before terminating so `console.log(...); process.exit(0)` cannot lose
+/// the log line; a stalled stdio consumer only delays exit by the timeout,
+/// never wedges it. (ENG-23639)
+#[no_mangle]
+pub extern "C" fn ex_host_console_flush(timeout_ms: u32) {
+    use std::sync::atomic::Ordering;
+
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(u64::from(timeout_ms));
+    while CONSOLE_PENDING.load(Ordering::Acquire) > 0 {
+        if std::time::Instant::now() >= deadline {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
 }
 
 fn enqueue_stdout_line(msg: String) {

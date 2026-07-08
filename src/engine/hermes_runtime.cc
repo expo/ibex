@@ -24,6 +24,7 @@
 #include <atomic>
 #include <cerrno>
 #include <climits>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #if defined(__APPLE__)
@@ -226,6 +227,7 @@ bool env_flag_enabled(const char* env_name) {
 }
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
+extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
@@ -547,7 +549,17 @@ double processUptimeSeconds() {
 }
 
 [[noreturn]] void exactHostExit(int code) {
+  // console.log lines travel through a bounded queue serviced by a writer
+  // thread; terminating without draining it discards output enqueued in the
+  // same tick (`console.log(...); process.exit(0)` printed nothing). Windows
+  // lost the race deterministically — ExitProcess kills the writer thread and,
+  // unlike std::exit, skips CRT stream flushing — but POSIX std::exit does not
+  // wait for the writer thread either. Drain (bounded) on every platform, then
+  // flush the C streams Windows would otherwise abandon. (ENG-23639)
+  ex_host_console_flush(2000);
 #if defined(_WIN32)
+  std::fflush(stdout);
+  std::fflush(stderr);
   ExitProcess(static_cast<UINT>(code));
 #else
   std::exit(code);
