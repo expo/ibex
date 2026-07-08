@@ -54,7 +54,7 @@ function _createError(code, message) {
 }
 function _getEmptyBuffer() {
 	if (typeof Buffer !== "undefined" && typeof Buffer.alloc === "function") return Buffer.alloc(0);
-	return typeof Uint8Array !== "undefined" ? /* @__PURE__ */ new Uint8Array(0) : [];
+	return typeof Uint8Array !== "undefined" ? new Uint8Array(0) : [];
 }
 function _isArrayBufferView(value) {
 	if (!value || typeof value !== "object") return false;

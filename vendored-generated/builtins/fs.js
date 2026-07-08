@@ -1101,7 +1101,7 @@ function readFileSync(path, options) {
 			if (sizeErr && sizeErr.code === "ERR_FS_FILE_TOO_LARGE") throw sizeErr;
 		}
 		var chunks = [];
-		var buf = /* @__PURE__ */ new Uint8Array(65536);
+		var buf = new Uint8Array(65536);
 		var bytesRead;
 		do {
 			bytesRead = readSync(path, buf, 0, buf.length, -1);
@@ -1131,7 +1131,7 @@ function readFileSync(path, options) {
 	try {
 		_throwIfReadFileTooLarge(fstatSync(fd));
 		var chunks = [];
-		var fileBuffer = /* @__PURE__ */ new Uint8Array(65536);
+		var fileBuffer = new Uint8Array(65536);
 		var fileBytesRead;
 		do {
 			fileBytesRead = readSync(fd, fileBuffer, 0, fileBuffer.length, -1);

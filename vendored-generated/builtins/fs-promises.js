@@ -92,7 +92,7 @@ FileHandle.prototype.read = function(buffer, offset, length, position, callback)
 		length = readOpts2.length;
 		position = readOpts2.position;
 	}
-	if (buffer === void 0 || buffer === null) buffer = /* @__PURE__ */ new Uint8Array(16384);
+	if (buffer === void 0 || buffer === null) buffer = new Uint8Array(16384);
 	if (offset === void 0 || offset === null) offset = 0;
 	if (length === void 0 || length === null) length = (buffer.byteLength !== void 0 ? buffer.byteLength : buffer.length) - offset;
 	if (position === void 0) position = null;
