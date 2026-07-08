@@ -278,15 +278,17 @@ impl ConsoleQueue {
             let notice = ConsoleLine::Err(format!(
                 "[ibex-console] dropped {dropped} line(s) under stdio backpressure"
             ));
-            if self.tx.try_send(notice).is_ok() {
-                CONSOLE_PENDING.fetch_add(1, Ordering::Release);
-            } else {
+            // Count BEFORE sending so the writer's decrement can never land
+            // first and transiently wrap the counter below zero.
+            CONSOLE_PENDING.fetch_add(1, Ordering::Release);
+            if self.tx.try_send(notice).is_err() {
+                CONSOLE_PENDING.fetch_sub(1, Ordering::Release);
                 self.dropped.fetch_add(dropped, Ordering::Relaxed);
             }
         }
-        if self.tx.try_send(line).is_ok() {
-            CONSOLE_PENDING.fetch_add(1, Ordering::Release);
-        } else {
+        CONSOLE_PENDING.fetch_add(1, Ordering::Release);
+        if self.tx.try_send(line).is_err() {
+            CONSOLE_PENDING.fetch_sub(1, Ordering::Release);
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
