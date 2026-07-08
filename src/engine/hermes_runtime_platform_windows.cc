@@ -2227,6 +2227,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
       "__exactUdpRecv",
       "__exactUdpClose",
       "__exactUdpAddress"});
+
+  // Native TLS bridge (ENG-23526): these shims ride the Windows TCP globals
+  // above and are driven from src/builtins/tls.js just like the Unix bridge.
+  installTlsHostFunctions(handle);
 }
 
 extern "C" int ex_hermes_debugger_enable(ExactHermesRuntime* runtime) {

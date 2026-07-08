@@ -965,6 +965,10 @@ fn main() {
         build.file("src/engine/hermes_runtime_fs_windows.cc");
         build.file("src/engine/hermes_runtime_crypto_windows.cc");
         build.file("src/engine/hermes_runtime_http.cc");
+        // Native TLS bridge JSI shims (ENG-23526). Windows now has TCP host
+        // functions in hermes_runtime_platform_windows.cc, so the same
+        // sans-IO rustls engine can be driven from src/builtins/tls.js.
+        build.file("src/engine/hermes_runtime_tls.cc");
         // Despite the historical filename, this file owns the platform-neutral
         // exact.dispatch/module/kernel C ABI that native hosts install.
         build.file("src/engine/hermes_runtime_ios.cc");
@@ -989,8 +993,7 @@ fn main() {
             .file("src/engine/hermes_runtime_fs.cc")
             .file("src/engine/hermes_runtime_process.cc")
             .file("src/engine/hermes_runtime_net.cc")
-            // Native TLS bridge JSI shims (ENG-23492); non-Windows only, like
-            // the TCP host functions the bridge rides.
+            // Native TLS bridge JSI shims (ENG-23492).
             .file("src/engine/hermes_runtime_tls.cc")
             .file("src/engine/hermes_runtime_http.cc")
             .file("src/engine/hermes_runtime_debugger.cc")

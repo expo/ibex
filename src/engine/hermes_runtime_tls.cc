@@ -8,10 +8,9 @@
 // null for end-of-stream, "" for would-block/no-data.
 // @ref LLP 0004#the-tls-builtin — native TLS bridge host surface
 //
-// Not compiled on Windows (build.rs); the Rust engine module is likewise
-// cfg-gated off there. Installed from installNetHostFunctions
-// (hermes_runtime_net.cc), so availability tracks the TCP host functions the
-// bridge rides.
+// Installed from installNetHostFunctions, so availability tracks the platform
+// TCP host functions the bridge rides (Unix hermes_runtime_net.cc, Windows
+// hermes_runtime_platform_windows.cc).
 
 #include "hermes_runtime_internal.h"
 

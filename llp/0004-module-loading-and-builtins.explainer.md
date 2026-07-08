@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23448: documented the loopback-only tls emulation)
+**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -185,8 +185,8 @@ bridge/fail-loud path.
 
 Every `tls.connect` destination that is not an in-process loopback
 `tls.Server` — real HTTPS endpoints, databases, SMTP, and `https.js` client
-sockets (which route through `tls.connect` on non-Windows) — gets **real wire
-TLS** through a native engine:
+sockets (which route through `tls.connect`) — gets **real wire TLS** through a
+native engine:
 
 - **Sans-IO rustls engine, no threads.** One rustls `ClientConnection` per
   socket lives in Rust (`src/engine/tls_bridge.rs`, `ibex_tls_*` extern "C"
@@ -248,11 +248,16 @@ local trust store; session resumption is not implemented
 (`isSessionReused()` always false); TLS < 1.2 is not supported (rustls), so
 requested minimums below 1.2 clamp to 1.2.
 
-**Windows:** the TCP host functions (`hermes_runtime_net.cc`) are not
-compiled on Windows, so there is no transport for the bridge to ride; the
-Rust engine module and its dependencies are cfg-gated off there and Windows
-keeps its previous behavior (https does not route through `tls.connect` on
-Windows). Follow-up tracked in ENG-23526.
+**Windows:** ENG-23526 enables the same native bridge through the Winsock TCP
+host functions in `src/engine/hermes_runtime_platform_windows.cc`. The shared
+Rust `tls_bridge` module, rustls dependencies, and `hermes_runtime_tls.cc` JSI
+shims now compile on Windows, and `installNetHostFunctions` installs the
+`__exactTlsEngine*` host functions after the Windows TCP globals. The full
+timer-driven `tls.connect` oracle tests still run on non-Windows, while Windows
+has a synchronous `tests/node_tls_builtins.rs` smoke that proves the TLS engine
+host surface installs, constructs a rustls engine, and emits initial ClientHello
+bytes. End-to-end Windows `tls.connect` oracle coverage depends on closing the
+separate Windows CLI timer keepalive gap (ENG-23639).
 
 #### Fail-loud boundary without the bridge
 

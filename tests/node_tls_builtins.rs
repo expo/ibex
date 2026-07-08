@@ -1,5 +1,5 @@
 //! End-to-end regression tests for the Node-compat `tls` builtin, driving the
-//! real `ibex` binary over loopback TCP (ENG-23448, ENG-23492).
+//! real `ibex` binary over loopback TCP (ENG-23448, ENG-23492, ENG-23526).
 //!
 //! Two client paths are covered (see LLP 0004, "The tls builtin"): the
 //! in-process loopback emulation (no wire cryptography) and the native TLS
@@ -19,6 +19,7 @@ const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 /// Self-signed localhost certificate (SAN: DNS:localhost, IP:127.0.0.1),
 /// valid until 2046, used purely as in-process emulation fixture material.
+#[cfg(not(target_os = "windows"))]
 const TEST_CERT: &str = "-----BEGIN CERTIFICATE-----
 MIICyTCCAbGgAwIBAgIJAIhNqBAfSjJ0MA0GCSqGSIb3DQEBCwUAMBQxEjAQBgNV
 BAMMCWxvY2FsaG9zdDAeFw0yNjA3MDcwNzEzNTNaFw00NjA3MDIwNzEzNTNaMBQx
@@ -37,6 +38,7 @@ OaLPFE5C0v6yLhGBGwPv3dYMDH8iTnPS9pbEr6ZMbECBjtMt2jczm50rb2rn5VLB
 q/LkAWk7EoJDWScZbk7joFDnAI4D7Wk3maELFKYf8TiPxfZOXPfAg3JnE/Tr
 -----END CERTIFICATE-----";
 
+#[cfg(not(target_os = "windows"))]
 const TEST_KEY: &str = "-----BEGIN PRIVATE KEY-----
 MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDarJ9zrQyiZL1K
 lPqK1vfYL3+4ge3fH4+vw9MeC4SuXARWVf9MtF3pMjClaegMroWj6iedk1pPP1NT
@@ -67,6 +69,7 @@ GZp+REcWUDv3rRhch2XhCaD5Hw==
 -----END PRIVATE KEY-----";
 
 /// Prefix a script with `KEY`/`CERT` consts holding the fixture PEMs.
+#[cfg(not(target_os = "windows"))]
 fn with_fixture_pems(script: &str) -> String {
     format!(
         "var CERT = {};\nvar KEY = {};\n{}",
@@ -97,6 +100,76 @@ async fn run_script(script: &str, secs: u64) -> Value {
         .unwrap_or_else(|e| panic!("last stdout line should be JSON ({e}): {stdout}"))
 }
 
+#[cfg(target_os = "windows")]
+#[tokio::test]
+async fn node_tls_windows_native_bridge_host_functions_install_and_engine_starts() {
+    // ENG-23526: Windows can validate the native bridge synchronously even
+    // though the full timer-driven tls.connect oracle tests require the
+    // Windows CLI timer keepalive gap (ENG-23639) to be closed first.
+    let script = r#"
+require('tls');
+var required = [
+  '__exactTlsEngineNew',
+  '__exactTlsEngineWriteTls',
+  '__exactTlsEngineReadTls',
+  '__exactTlsEngineReadPlain',
+  '__exactTlsEngineWritePlain',
+  '__exactTlsEngineStatus',
+  '__exactTlsEnginePeerCerts',
+  '__exactTlsEngineTransportEof',
+  '__exactTlsEngineShutdown',
+  '__exactTlsEngineClose',
+  '__exactTcpConnect',
+  '__exactTcpRead',
+  '__exactTcpWrite'
+];
+var types = {};
+for (var i = 0; i < required.length; i++) {
+  types[required[i]] = typeof globalThis[required[i]];
+}
+var id = __exactTlsEngineNew(JSON.stringify({
+  host: 'localhost',
+  servername: 'localhost',
+  alpn: ['http/1.1']
+}));
+var status = JSON.parse(__exactTlsEngineStatus(id));
+var hello = __exactTlsEngineReadTls(id, 32);
+var out = {
+  types: types,
+  idType: typeof id,
+  handshaking: status.handshaking,
+  tlsBytes: hello && hello.byteLength || 0
+};
+__exactTlsEngineClose(id);
+console.log(JSON.stringify(out));
+"#;
+    let v = run_script(script, 5).await;
+    for name in [
+        "__exactTlsEngineNew",
+        "__exactTlsEngineWriteTls",
+        "__exactTlsEngineReadTls",
+        "__exactTlsEngineReadPlain",
+        "__exactTlsEngineWritePlain",
+        "__exactTlsEngineStatus",
+        "__exactTlsEnginePeerCerts",
+        "__exactTlsEngineTransportEof",
+        "__exactTlsEngineShutdown",
+        "__exactTlsEngineClose",
+        "__exactTcpConnect",
+        "__exactTcpRead",
+        "__exactTcpWrite",
+    ] {
+        assert_eq!(v["types"][name], "function", "{name}: {v}");
+    }
+    assert_eq!(v["idType"], "number", "{v}");
+    assert_eq!(v["handshaking"], true, "{v}");
+    assert!(
+        v["tlsBytes"].as_u64().unwrap_or(0) > 0,
+        "engine should emit initial TLS bytes: {v}"
+    );
+}
+
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_socket_prototype_chain_extends_net_socket() {
     // ENG-23448 finding 3: setPrototypeOf was applied to the constructor only,
@@ -145,6 +218,7 @@ setTimeout(function () {
     );
 }
 
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_renegotiate_matches_node_contract() {
     // ENG-23448 finding 4: the stub claimed success unconditionally. Node
@@ -214,6 +288,7 @@ function finish(s12) {
     assert_eq!(v["badCallback"], "ERR_INVALID_ARG_TYPE", "{v}");
 }
 
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_reject_unauthorized_false_still_reports_verification_result() {
     // ENG-23448 finding 2: rejectUnauthorized:false used to force
@@ -276,6 +351,7 @@ server.listen(0, '127.0.0.1', function () {
     assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
 }
 
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_connect_to_non_tls_peer_errors_and_never_reports_secure() {
     // ENG-23448 pinned "never fabricate secureConnect against a peer that is
@@ -340,7 +416,7 @@ plain.listen(0, '127.0.0.1', function () {
 }
 
 // ============================================================
-// Native TLS bridge (ENG-23492): real wire TLS against an in-process rustls
+// Native TLS bridge (ENG-23492/ENG-23526): real wire TLS against an in-process rustls
 // server over loopback — hermetic (no network), same crypto stack the bridge
 // itself uses. The fixture cert is self-signed for localhost/127.0.0.1, so
 // `ca: [CERT]` exercises the trusted path and omitting it exercises the
@@ -650,6 +726,7 @@ https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
     assert_eq!(v["body"], "ok-over-real-tls", "{v}");
 }
 
+#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_in_process_server_emulation_still_works_end_to_end() {
     // ENG-23448 finding 1 control: the supported loopback path — an

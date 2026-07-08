@@ -723,12 +723,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
 void installNetHostFunctions(ExactHermesRuntime* handle);
-#if !defined(EXACT_PLATFORM_WINDOWS)
-// Native TLS bridge host functions (ENG-23492); installed from
-// installNetHostFunctions on non-Windows only — the bridge rides the TCP
-// host functions, which Windows does not compile.
+// Native TLS bridge host functions (ENG-23492/ENG-23526); installed from
+// installNetHostFunctions and driven by the platform TCP host functions.
 void installTlsHostFunctions(ExactHermesRuntime* handle);
-#endif
 void installHttpHostFunctions(ExactHermesRuntime* handle);
 void installSqliteHostFunctions(ExactHermesRuntime* handle);
 void installConsoleGlobals(ExactHermesRuntime* handle);

@@ -8,10 +8,9 @@
 //! This module provides supporting utilities like source map handling.
 
 pub mod sourcemap;
-// Native TLS bridge engine for the `tls` builtin (ENG-23492). Not compiled on
-// Windows: the TCP host functions the bridge rides (hermes_runtime_net.cc) are
-// non-Windows-only, so there is no transport to bridge there.
-#[cfg(not(target_os = "windows"))]
+// Native TLS bridge engine for the `tls` builtin (ENG-23492/ENG-23526).
+// Platform-specific TCP host functions provide the transport; the Rust engine
+// itself is sans-I/O and shared across Unix and Windows.
 pub mod tls_bridge;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
