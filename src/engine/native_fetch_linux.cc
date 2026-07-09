@@ -9,6 +9,7 @@
 
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -19,17 +20,26 @@
 #include <functional>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifdef EXACT_HAS_CURL
 #include <curl/curl.h>
 #include <cstring>
 #endif
+
+// ENG-23874 — the degraded curl CLI fallback spawns via posix_spawnp with the
+// caller's environment (PATH lookup for `curl` is intentional: this fallback
+// exists only for constrained dev builds, opted into by
+// IBEX_ALLOW_CURL_CLI_FALLBACK=1 at build time; supported builds use libcurl
+// in-process and never take this path).
+extern char** environ;
 
 typedef void (*NativeFetchResponseCallback)(
     uint32_t request_id,
@@ -409,19 +419,6 @@ static void native_fetch_perform_async(
         return;
     }
 
-    auto shell_quote = [](const std::string& input) -> std::string {
-        std::string out = "'";
-        for (char c : input) {
-            if (c == '\'') {
-                out += "'\"'\"'";
-            } else {
-                out.push_back(c);
-            }
-        }
-        out.push_back('\'');
-        return out;
-    };
-
     auto make_temp_path = [](const char* tmpl) -> std::string {
         char path[256];
         std::snprintf(path, sizeof(path), "/tmp/%s", tmpl);
@@ -447,13 +444,22 @@ static void native_fetch_perform_async(
         req_out.close();
     }
 
-    std::ostringstream cmd;
-    // No -L flag: don't auto-follow redirects — let JS handle redirect logic
-    cmd << "curl -sS --connect-timeout 30 --max-time 300 "
-        << "-X " << shell_quote(method)
-        << " -D " << shell_quote(header_path)
-        << " -o " << shell_quote(body_path)
-        << " -w '%{http_code}' ";
+    // @ref LLP 0008#linux-networking — ENG-23874: the degraded CLI fallback
+    // must not route request data through a shell: build an argv array and
+    // posix_spawnp it directly, so there is no quoting layer whose correctness
+    // every future flag has to preserve. The URL is bound to --url (not
+    // positional) so a URL beginning with `-` cannot be parsed as a curl
+    // option.
+    // No -L flag: don't auto-follow redirects — let JS handle redirect logic.
+    std::vector<std::string> args = {
+        "curl", "-sS",
+        "--connect-timeout", "30",
+        "--max-time", "300",
+        "-X", method,
+        "-D", header_path,
+        "-o", body_path,
+        "-w", "%{http_code}",
+    };
 
     if (!headers.empty()) {
         const char* line_start = headers.c_str();
@@ -461,8 +467,8 @@ static void native_fetch_perform_async(
         while (*p) {
             if (*p == '\r' && *(p + 1) == '\n') {
                 if (p > line_start) {
-                    std::string line(line_start, static_cast<size_t>(p - line_start));
-                    cmd << "-H " << shell_quote(line) << " ";
+                    args.emplace_back("-H");
+                    args.emplace_back(line_start, static_cast<size_t>(p - line_start));
                 }
                 p += 2;
                 line_start = p;
@@ -471,18 +477,52 @@ static void native_fetch_perform_async(
             p++;
         }
         if (p > line_start) {
-            std::string line(line_start, static_cast<size_t>(p - line_start));
-            cmd << "-H " << shell_quote(line) << " ";
+            args.emplace_back("-H");
+            args.emplace_back(line_start, static_cast<size_t>(p - line_start));
         }
     }
 
     if (!req_body_path.empty()) {
-        cmd << "--data-binary @" << shell_quote(req_body_path) << " ";
+        args.emplace_back("--data-binary");
+        args.emplace_back("@" + req_body_path);
     }
 
-    cmd << shell_quote(url) << " > " << shell_quote(code_path) << " 2>/dev/null";
+    args.emplace_back("--url");
+    args.emplace_back(url);
 
-    const int rc = std::system(cmd.str().c_str());
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    for (std::string& arg : args) {
+        argv.push_back(&arg[0]);
+    }
+    argv.push_back(nullptr);
+
+    // stdout carries only curl's `-w %{http_code}` output; capture it in the
+    // mkstemp-created (0600) status file. stdin/stderr go to /dev/null, as the
+    // shell redirection used to do.
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(
+        &actions, STDOUT_FILENO, code_path.c_str(), O_WRONLY | O_TRUNC, 0);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+
+    pid_t curl_pid = 0;
+    const int spawn_rc =
+        posix_spawnp(&curl_pid, "curl", &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+
+    int rc = -1;
+    if (spawn_rc == 0) {
+        int wait_status = 0;
+        pid_t waited;
+        do {
+            waited = waitpid(curl_pid, &wait_status, 0);
+        } while (waited < 0 && errno == EINTR);
+        if (waited == curl_pid && WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0) {
+            rc = 0;
+        }
+    }
     const bool cancelled = request_cancelled(request_state);
     if (rc != 0) {
         if (!header_path.empty()) std::remove(header_path.c_str());

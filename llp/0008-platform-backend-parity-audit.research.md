@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-07 (removed a stale local macOS test-build setup note from residual platform gaps; added the Windows Child Process section — ENG-23485; documented default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-09 (Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; previously 2026-07-07: Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -26,8 +26,14 @@ Linux native networking is a libcurl-backed profile for Fetch and WebSocket:
 - `build.rs` now treats libcurl >= 7.86 plus `pkg-config` as the supported
   Linux profile and fails closed when they are absent.
 - `IBEX_ALLOW_CURL_CLI_FALLBACK=1` intentionally opts into a degraded local
-  build: fetch shells out to `curl`, WebSocket is unavailable, and the build
+  build: fetch runs the `curl` CLI, WebSocket is unavailable, and the build
   emits a warning.
+- The CLI fallback spawns `curl` via `posix_spawnp` with an argv array — never
+  a shell — and binds the URL with `--url` so request data (method, headers,
+  URL) cannot be reinterpreted as shell syntax or curl options; request/response
+  bodies stage through `mkstemp` (0600) temp files (ENG-23874; the earlier
+  `std::system` transport made every future flag change a potential
+  command-injection surface even though its arguments were shell-quoted).
 
 This pass also added Linux fetch cancellation plumbing. With libcurl, aborts
 are observed by `CURLOPT_XFERINFOFUNCTION` and suppress the response callback;
