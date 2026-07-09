@@ -11,7 +11,12 @@
 
 use super::Host;
 use getrandom::getrandom;
-use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags, ToSql};
+use rusqlite::{
+    hooks::{AuthAction, AuthContext, Authorization},
+    params_from_iter,
+    types::ValueRef,
+    Connection, OpenFlags, ToSql,
+};
 use serde_json::json;
 use std::collections::HashMap;
 #[cfg(target_os = "android")]
@@ -485,6 +490,22 @@ fn sqlite_open_flags(options: &SqliteOpenOptions) -> OpenFlags {
         }
     }
     open_flags
+}
+
+fn sqlite_authorizer(ctx: AuthContext<'_>) -> Authorization {
+    match ctx.action {
+        AuthAction::Attach { .. } | AuthAction::Detach { .. } => Authorization::Deny,
+        AuthAction::Function { function_name }
+            if function_name.eq_ignore_ascii_case("load_extension") =>
+        {
+            Authorization::Deny
+        }
+        _ => Authorization::Allow,
+    }
+}
+
+fn install_sqlite_authorizer(db: &Connection) {
+    db.authorizer(Some(sqlite_authorizer));
 }
 
 fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
@@ -1947,6 +1968,7 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
         Ok(db) => db,
         Err(_) => return 0,
     };
+    install_sqlite_authorizer(&db);
 
     with_sqlite_state(|state| {
         let handle = state.next_db_handle;
@@ -2800,6 +2822,44 @@ mod tests {
         );
 
         assert_eq!(ex_host_sqlite_close(ro), 0);
+    }
+
+    #[test]
+    fn sqlite_authorizer_denies_attach_detach_and_load_extension() {
+        let _guard = host_test_lock();
+
+        let mem = CString::new(":memory:").unwrap();
+        let db = ex_host_sqlite_open(mem.as_ptr(), ptr::null());
+        assert_ne!(db, 0);
+
+        let attach = CString::new("ATTACH DATABASE ':memory:' AS other").unwrap();
+        let attach_result = take_json(ex_host_sqlite_exec(db, attach.as_ptr(), ptr::null()));
+        assert!(
+            attach_result
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|err| err.to_ascii_lowercase().contains("not authorized")),
+            "ATTACH must be denied by the SQLite authorizer, got {attach_result}"
+        );
+
+        let detach = CString::new("DETACH DATABASE main").unwrap();
+        let detach_result = take_json(ex_host_sqlite_exec(db, detach.as_ptr(), ptr::null()));
+        assert!(
+            detach_result
+                .get("error")
+                .and_then(serde_json::Value::as_str)
+                .is_some(),
+            "DETACH must be denied by the SQLite authorizer, got {detach_result}"
+        );
+
+        let load_extension = CString::new("SELECT load_extension('x')").unwrap();
+        let load_extension_result = take_json(ex_host_sqlite_prepare(db, load_extension.as_ptr()));
+        assert!(
+            load_extension_result.get("error").is_some(),
+            "load_extension() must be denied or unavailable, got {load_extension_result}"
+        );
+
+        assert_eq!(ex_host_sqlite_close(db), 0);
     }
 
     #[test]

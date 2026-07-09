@@ -34,7 +34,7 @@ serde_json = "1.0"
 getrandom = "0.2"
 
 # SQLite support for exact:sqlite builtin module
-rusqlite = { version = "0.31", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.31", features = ["bundled", "column_decltype", "hooks"] }
 
 # Module resolution (Node/ESM)
 oxc_resolver = "11.17.0"

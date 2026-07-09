@@ -10,3 +10,10 @@
 vendored-generated/*.deps.json
 *.o
 *.a.tmp
+
+# Local secrets and environment overrides. Keep example templates trackable.
+.env
+.env.*
+!.env.example
+*.env
+secrets.env

@@ -5,7 +5,7 @@
 **Systems:** Engine, Host ABI, Module Loader, Runtime, Build
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-05
-**Revised:** 2026-07-07 (marked W4(b)/R3 advisory-enforce startup behavior as implemented in code and CI)
+**Revised:** 2026-07-09 (marked W4(a)/R4 enforce-without-lockdown warning as implemented; W4(b)/R3 advisory-enforce startup behavior remains implemented in code and CI)
 **Related:** LLP 0013 (the compartments RFC this reviews); LLP 0014 (grant
 authoring); LLP 0006 (design principles); LLP 0002 (host ABI); LLP 0004
 (module loading); LLP 0012 (runtime identity)
@@ -448,11 +448,13 @@ Frame accuracy is demonstrated on macOS; the other platforms inherit
 whatever their framework build contains. A mode named "enforce" should
 either mean one thing or say loudly which thing it currently means (R3).
 
-**Implementation note (2026-07-07):** W4(b)'s startup behavior has landed:
+**Implementation note (2026-07-07; revised 2026-07-09):** W4(b)'s startup behavior has landed:
 Enforce now fails closed when hard attribution prerequisites are missing unless
 the operator passes `--capsec-allow-advisory`; Audit emits the same readiness
-report without blocking. The remaining W4(a) lockdown convergence question is
-separate.
+report without blocking. W4(a)'s interim disclosure has also landed: enforce
+without lockdown now warns that shared intrinsics remain mutable and
+intrinsic-integrity attacks between packages are not defended. The remaining
+lockdown-convergence question is separate.
 
 **W5 — Fork sustainability under upstream drift.** Static Hermes is the
 named unknown; the re-derivation posture is the right hedge but has never
@@ -605,7 +607,9 @@ mechanism `[assessment]`.
 - **R4 — Plan the enforce ⇒ lockdown convergence.** If R1's numbers allow,
   enforce should eventually imply lockdown (with per-package repairs); in
   the interim, an enforce-without-lockdown run should say what it does not
-  defend (intrinsic-integrity attacks between packages).
+  defend (intrinsic-integrity attacks between packages). **Status
+  (2026-07-09): implemented for startup/readiness warning; enforce-to-lockdown
+  convergence remains open.**
 - **R5 — Land class-sensitive expansion gates** (LLP 0014 Open Q2):
   expansions touching `process:spawn`, `fs:write`, `env:read:*`, or
   `network:*` require a distinct approval (CODEOWNERS on the artifact).

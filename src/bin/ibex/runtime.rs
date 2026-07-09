@@ -1811,6 +1811,13 @@ fn check_capsec_readiness(
                 .to_string(),
         );
     }
+    if mode == SecurityMode::Enforce && !readiness.lockdown {
+        soft.push(
+            "capsec enforce is running without lockdown: shared intrinsics remain mutable, \
+             so intrinsic-integrity attacks between packages are not defended"
+                .to_string(),
+        );
+    }
 
     if hard.is_empty() && soft.is_empty() {
         return Ok(vec![report]);
@@ -3377,7 +3384,7 @@ mod tests {
         let ready = CapsecReadiness {
             frame_attribution: true,
             package_isolation: PackageIsolation::Enabled,
-            lockdown: false,
+            lockdown: true,
             dynamic_ceiling: false,
         };
 
@@ -3387,6 +3394,27 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("frame-attribution=present"));
         assert!(lines[0].contains("package-isolation=per-package"));
+
+        // Enforce without lockdown is allowed for compatibility, but it must not
+        // silently imply full shared-intrinsics integrity.
+        let enforce_without_lockdown = CapsecReadiness {
+            lockdown: false,
+            ..ready
+        };
+        let lines = check_capsec_readiness(
+            SecurityMode::Enforce,
+            CapsecStage::Run,
+            enforce_without_lockdown,
+            false,
+        )
+        .unwrap();
+        assert!(
+            lines.iter().any(|line| line.contains("without lockdown"))
+                && lines
+                    .iter()
+                    .any(|line| line.contains("intrinsic-integrity attacks")),
+            "enforce without lockdown must state the claim ceiling: {lines:?}"
+        );
 
         // Missing frame attribution (an engine built without
         // EXACT_HAVE_FRAME_ATTRIBUTION): an enforce run fails closed with the

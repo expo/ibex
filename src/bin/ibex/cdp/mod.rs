@@ -43,6 +43,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::sync::Notify;
+use tokio_tungstenite::tungstenite::handshake::server::{
+    ErrorResponse, Request as WsRequest, Response as WsResponse,
+};
+use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
@@ -371,11 +375,20 @@ async fn handle_connection(
         return Ok(());
     }
 
+    // `peek_text` is only a routing hint; the complete WebSocket handshake is
+    // validated by the tungstenite callback below after all headers are parsed.
+    let ws =
+        tokio_tungstenite::accept_hdr_async(stream, |request: &WsRequest, response: WsResponse| {
+            if cdp_websocket_request_allowed(request) {
+                Ok(response)
+            } else {
+                Err(cdp_websocket_forbidden_response())
+            }
+        })
+        .await?;
     if !connected.swap(true, Ordering::SeqCst) {
         notify.notify_waiters();
     }
-
-    let ws = tokio_tungstenite::accept_async(stream).await?;
     let (mut write, mut read) = ws.split();
 
     if cdp_log_enabled() {
@@ -508,8 +521,174 @@ async fn close_policy_violation(write: &mut WsWrite, reason: &'static str) {
 }
 
 fn is_websocket_upgrade(headers: &str) -> bool {
-    let lower = headers.to_ascii_lowercase();
-    lower.contains("upgrade: websocket")
+    header_values(headers, "upgrade")
+        .into_iter()
+        .any(|value| value.trim().eq_ignore_ascii_case("websocket"))
+        && header_values(headers, "connection")
+            .into_iter()
+            .flat_map(|value| value.split(','))
+            .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+}
+
+fn header_values<'a>(headers: &'a str, name: &str) -> Vec<&'a str> {
+    headers
+        .lines()
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .filter_map(|line| line.split_once(':'))
+        .filter_map(|(key, value)| {
+            key.trim()
+                .eq_ignore_ascii_case(name)
+                .then_some(value.trim())
+        })
+        .collect()
+}
+
+fn cdp_request_headers_allowed(headers: &str) -> bool {
+    let hosts = header_values(headers, "host");
+    if hosts.len() != 1 || !loopback_host_header_allowed(hosts[0]) {
+        return false;
+    }
+
+    let origins = header_values(headers, "origin");
+    if origins.len() > 1 {
+        return false;
+    }
+    match origins.first() {
+        Some(origin) => inspector_origin_allowed(origin),
+        None => true,
+    }
+}
+
+fn cdp_websocket_request_allowed(request: &WsRequest) -> bool {
+    let hosts = request
+        .headers()
+        .get_all("host")
+        .iter()
+        .map(|value| value.to_str())
+        .collect::<std::result::Result<Vec<_>, _>>();
+    let Ok(hosts) = hosts else {
+        return false;
+    };
+    if hosts.len() != 1 || !loopback_host_header_allowed(hosts[0]) {
+        return false;
+    }
+
+    let origins = request
+        .headers()
+        .get_all("origin")
+        .iter()
+        .map(|value| value.to_str())
+        .collect::<std::result::Result<Vec<_>, _>>();
+    let Ok(origins) = origins else {
+        return false;
+    };
+    if origins.len() > 1 {
+        return false;
+    }
+    match origins.first() {
+        Some(origin) => inspector_origin_allowed(origin),
+        None => true,
+    }
+}
+
+fn cdp_websocket_forbidden_response() -> ErrorResponse {
+    let mut response = ErrorResponse::new(Some("Forbidden".to_string()));
+    *response.status_mut() = StatusCode::FORBIDDEN;
+    response
+}
+
+fn loopback_host_header_allowed(value: &str) -> bool {
+    let Some(host) = host_header_name(value) else {
+        return false;
+    };
+    host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1"
+}
+
+fn host_header_name(value: &str) -> Option<&str> {
+    let value = value.trim();
+    if value.is_empty()
+        || value
+            .bytes()
+            .any(|b| b.is_ascii_control() || matches!(b, b'/' | b'\\' | b'@'))
+    {
+        return None;
+    }
+
+    if let Some(rest) = value.strip_prefix('[') {
+        let end = rest.find(']')?;
+        let host = &rest[..end];
+        let suffix = &rest[end + 1..];
+        if !valid_optional_port_suffix(suffix) {
+            return None;
+        }
+        return (!host.is_empty()).then_some(host);
+    }
+
+    let colon_count = value.bytes().filter(|b| *b == b':').count();
+    match colon_count {
+        0 => Some(value),
+        1 => {
+            let (host, port) = value.split_once(':')?;
+            (valid_port(port) && !host.is_empty()).then_some(host)
+        }
+        _ => Some(value),
+    }
+}
+
+fn valid_port(port: &str) -> bool {
+    !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit())
+}
+
+fn valid_optional_port_suffix(suffix: &str) -> bool {
+    if suffix.is_empty() {
+        return true;
+    }
+    let Some(port) = suffix.strip_prefix(':') else {
+        return false;
+    };
+    valid_port(port)
+}
+
+fn inspector_origin_allowed(origin: &str) -> bool {
+    let origin = origin.trim();
+    if origin.is_empty() || origin.eq_ignore_ascii_case("null") {
+        return false;
+    }
+
+    let lower = origin.to_ascii_lowercase();
+    if lower.starts_with("devtools://") || lower.starts_with("chrome-devtools://") {
+        return true;
+    }
+
+    let Some((scheme, rest)) = origin.split_once("://") else {
+        return false;
+    };
+    if !matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https") {
+        return false;
+    }
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    loopback_host_header_allowed(authority)
+}
+
+async fn write_http_response(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    body: &str,
+) -> Result<()> {
+    let response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status,
+        body.len(),
+        body
+    );
+    stream.write_all(response.as_bytes()).await?;
+    let _ = stream.shutdown().await;
+    Ok(())
 }
 
 async fn handle_http_request(
@@ -550,6 +729,10 @@ async fn handle_http_request(
     let mut parts = request_line.split_whitespace();
     let _method = parts.next().unwrap_or("GET");
     let path = parts.next().unwrap_or("/");
+    if !cdp_request_headers_allowed(&request) {
+        write_http_response(stream, "403 Forbidden", "{}").await?;
+        return Ok(());
+    }
 
     // Advertise the address the server is actually bound to. SocketAddr's
     // Display brackets IPv6 (`[::1]:9229`), which the ws/devtools URL forms
@@ -590,15 +773,7 @@ async fn handle_http_request(
         _ => ("404 Not Found", "{}".to_string()),
     };
 
-    let response = format!(
-        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        status,
-        body.len(),
-        body
-    );
-    stream.write_all(response.as_bytes()).await?;
-    let _ = stream.shutdown().await;
-    Ok(())
+    write_http_response(stream, status, &body).await
 }
 
 async fn handle_request(
@@ -871,10 +1046,12 @@ fn method_not_found_response(id: i64, method: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        method_not_found_response, MessageBudget, CDP_MAX_MESSAGES_PER_WINDOW,
-        CDP_RATE_LIMIT_WINDOW,
+        cdp_request_headers_allowed, cdp_websocket_request_allowed, inspector_origin_allowed,
+        is_websocket_upgrade, loopback_host_header_allowed, method_not_found_response,
+        MessageBudget, CDP_MAX_MESSAGES_PER_WINDOW, CDP_RATE_LIMIT_WINDOW,
     };
     use std::time::{Duration, Instant};
+    use tokio_tungstenite::tungstenite::http::Request;
 
     #[test]
     fn unknown_method_response_is_json_rpc_method_not_found() {
@@ -916,5 +1093,105 @@ mod tests {
         }
 
         assert!(budget.try_record(start + CDP_RATE_LIMIT_WINDOW + Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn websocket_upgrade_requires_real_upgrade_headers() {
+        assert!(is_websocket_upgrade(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:9229\r\nConnection: keep-alive, Upgrade\r\nUpgrade: websocket\r\n\r\n"
+        ));
+        assert!(!is_websocket_upgrade(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:9229\r\nUpgrade: websocket\r\n\r\n"
+        ));
+    }
+
+    #[test]
+    fn inspector_host_allowlist_is_loopback_only() {
+        for host in [
+            "localhost",
+            "localhost:9229",
+            "127.0.0.1",
+            "[::1]:9229",
+            "::1",
+        ] {
+            assert!(
+                loopback_host_header_allowed(host),
+                "host should pass: {host}"
+            );
+        }
+        for host in [
+            "attacker.example",
+            "attacker.example:9229",
+            "localhost.evil",
+            "127.0.0.1.evil",
+            "0.0.0.0:9229",
+        ] {
+            assert!(
+                !loopback_host_header_allowed(host),
+                "host should fail: {host}"
+            );
+        }
+    }
+
+    #[test]
+    fn inspector_origin_allowlist_rejects_cross_site_web_pages() {
+        for origin in [
+            "devtools://devtools",
+            "chrome-devtools://devtools",
+            "http://localhost:9229",
+            "https://127.0.0.1",
+            "http://[::1]:9229",
+        ] {
+            assert!(
+                inspector_origin_allowed(origin),
+                "origin should pass: {origin}"
+            );
+        }
+        for origin in [
+            "https://attacker.example",
+            "http://localhost.evil",
+            "null",
+            "file:///",
+        ] {
+            assert!(
+                !inspector_origin_allowed(origin),
+                "origin should fail: {origin}"
+            );
+        }
+    }
+
+    #[test]
+    fn cdp_requests_require_loopback_host_and_safe_origin() {
+        assert!(cdp_request_headers_allowed(
+            "GET /json HTTP/1.1\r\nHost: 127.0.0.1:9229\r\n\r\n"
+        ));
+        assert!(cdp_request_headers_allowed(
+            "GET / HTTP/1.1\r\nHost: localhost:9229\r\nOrigin: devtools://devtools\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+        ));
+        assert!(!cdp_request_headers_allowed(
+            "GET /json HTTP/1.1\r\nHost: attacker.example\r\n\r\n"
+        ));
+        assert!(!cdp_request_headers_allowed(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:9229\r\nOrigin: https://attacker.example\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
+        ));
+    }
+
+    #[test]
+    fn websocket_handshake_callback_validates_full_headers() {
+        let allowed = Request::builder()
+            .uri("/")
+            .header("Host", "127.0.0.1:9229")
+            .header("Origin", "chrome-devtools://devtools")
+            .body(())
+            .unwrap();
+        assert!(cdp_websocket_request_allowed(&allowed));
+
+        let denied = Request::builder()
+            .uri("/")
+            .header("Host", "127.0.0.1:9229")
+            .header("Origin", "https://attacker.example")
+            .body(())
+            .unwrap();
+        assert!(!cdp_websocket_request_allowed(&denied));
     }
 }

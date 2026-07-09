@@ -109,6 +109,21 @@ std::mutex g_android_animation_frame_mutex;
 std::unordered_map<uint64_t, AndroidAnimationFrameCallback> g_android_animation_frame_callbacks;
 std::atomic<uint64_t> g_next_android_animation_frame_token{1};
 
+void requireAndroidCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& capability,
+    const char* surface) {
+  if (!checkCapability(capability)) {
+    throw facebook::jsi::JSError(
+        runtime,
+        std::string("Permission denied: ") + surface + " requires " + capability);
+  }
+}
+
+bool androidLocationAccuracyNeedsPrecise(const std::string& accuracy) {
+  return accuracy == "best" || accuracy == "nearestTenMeters";
+}
+
 std::vector<std::string> splitLocaleTags(const char* value) {
   std::vector<std::string> tags;
   if (!value || !*value) {
@@ -554,6 +569,18 @@ void installAndroidLocationBridge(facebook::jsi::Runtime& rt) {
          size_t count) -> facebook::jsi::Value {
         std::string accuracy =
             count > 0 ? valueToString(runtime, args[0]) : std::string("hundredMeters");
+        // @ref LLP 0013#policy — Android location is a native host-boundary
+        // capability, so direct __exactAndroidLocation calls must be gated here.
+        requireAndroidCapability(
+            runtime,
+            "device:location:whenInUse",
+            "__exactAndroidLocation.getCurrentLocation");
+        if (androidLocationAccuracyNeedsPrecise(accuracy)) {
+          requireAndroidCapability(
+              runtime,
+              "device:location:precise",
+              "__exactAndroidLocation.getCurrentLocation");
+        }
         int timeout_ms = 10000;
         if (count > 1 && args[1].isNumber()) {
           timeout_ms = static_cast<int>(args[1].asNumber());
@@ -611,6 +638,9 @@ void installAndroidCameraBridge(facebook::jsi::Runtime& rt) {
          size_t count) -> facebook::jsi::Value {
         std::string operation = count > 0 ? valueToString(runtime, args[0]) : std::string("");
         std::string payload = count > 1 ? valueToString(runtime, args[1]) : std::string("{}");
+        // @ref LLP 0013#policy — camera host calls must enforce the runtime
+        // camera bit at the native boundary, not only through JS wrappers.
+        requireAndroidCapability(runtime, "device:camera", "__exactAndroidCameraHostCall");
         char* json = nullptr;
         char error[256] = {};
         int rc = android_camera_host_call(
@@ -766,6 +796,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
         char error[256] = {};
         // @ref LLP 0008#android-backend-matrix — Android clipboard uses the
         // app Context's ClipboardManager through the Android Java bridge.
+        requireAndroidCapability(runtime, "clipboard:read", "__exactClipboardRead");
         int rc = android_clipboard_read_text(&text, error, sizeof(error));
         if (rc < 0) {
           throw facebook::jsi::JSError(
@@ -790,6 +821,7 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle) {
         std::string text =
             count > 0 ? valueToString(runtime, args[0]) : std::string("");
         char error[256] = {};
+        requireAndroidCapability(runtime, "clipboard:write", "__exactClipboardWrite");
         int rc = android_clipboard_write_text(text.c_str(), error, sizeof(error));
         if (rc < 0) {
           throw facebook::jsi::JSError(
