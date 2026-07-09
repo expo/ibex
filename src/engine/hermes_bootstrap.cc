@@ -602,7 +602,17 @@ void runLegacyCompatPolyfills(ExactHermesRuntime* handle, bool sharedRuntimeInst
   }
 
   if (compatEvaluated) {
-    handle->runtime->drainMicrotasks(-1);
+    try {
+      handle->runtime->drainMicrotasks(-1);
+    } catch (const facebook::jsi::JSError& err) {
+      // A throwing bootstrap microtask must not escape runtime creation as a
+      // C++ exception (ENG-23731); report like the eval catches above.
+      ex_host_console_log(
+          1, (std::string("Compatibility polyfill error: ") + err.getMessage()).c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Compatibility polyfill error: ") + err.what()).c_str());
+    }
   }
   if (tracing) {
     auto elapsed =
@@ -671,7 +681,14 @@ void runLegacyExactGlobal(ExactHermesRuntime* handle, bool sharedRuntimeInstalle
   }
 
   if (exactEvaluated) {
-    handle->runtime->drainMicrotasks(-1);
+    try {
+      handle->runtime->drainMicrotasks(-1);
+    } catch (const facebook::jsi::JSError& err) {
+      // See the compat drain above (ENG-23731).
+      ex_host_console_log(1, err.getMessage().c_str());
+    } catch (const std::exception& err) {
+      ex_host_console_log(1, err.what());
+    }
   }
   if (tracing) {
     auto elapsed =

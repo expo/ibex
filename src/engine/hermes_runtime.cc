@@ -613,6 +613,75 @@ void drainMicrotasks(facebook::jsi::Runtime& rt) {
 #endif
 }
 
+// Consult the runtime's __exactUncaughtExceptionHandler with the original
+// thrown value (stack/custom props intact). Returns true when the handler
+// exists and returned true (error consumed).
+bool invokeUncaughtHandler(facebook::jsi::Runtime& rt,
+                           const facebook::jsi::JSError& err) {
+  try {
+    auto handler =
+        rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
+    if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
+      auto errVal = facebook::jsi::Value(rt, err.value());
+      auto result =
+          handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
+      if (result.isBool() && result.getBool()) return true;
+    }
+  } catch (...) {
+    // The handler itself threw — fall through to raw reporting.
+  }
+  return false;
+}
+
+// Shared disposition for a JS error escaping any drained async callback
+// (timer, microtask, nextTick, cross-thread task/callback). Consults the
+// uncaught handler; unconsumed errors report raw and then follow the host
+// policy: the CLI default marks fatal_async_error so the observing poll
+// returns -1 and the host loop exits nonzero (ENG-23130); embedded app
+// hosts that opted in via ex_hermes_set_keep_alive_on_async_error() keep
+// the runtime pumping — one bad app callback must not crash or zombify the
+// host (ENG-23731). Returns true when the poll may keep processing.
+bool disposeAsyncCallbackError(ExactHermesRuntime* runtime,
+                               const facebook::jsi::JSError& err) {
+  if (invokeUncaughtHandler(*runtime->runtime, err)) {
+    return true;
+  }
+  ex_host_console_log(1, err.getMessage().c_str());
+  if (runtime->keep_alive_on_async_error) {
+    return true;
+  }
+  runtime->fatal_async_error = true;
+  return false;
+}
+
+// Drain microtasks without letting a throwing reaction escape as a C++
+// exception: Hermes rethrows a job's synchronous throw out of
+// drainMicrotasks, and uncaught it would unwind through ex_hermes_poll's
+// extern "C" boundary and std::terminate the host (ENG-23731 leg 1).
+// Hermes leaves the remaining jobs queued when one throws, so on a consumed
+// error we resume draining rather than strand the rest of the queue.
+void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
+  for (;;) {
+    try {
+      drainMicrotasks(*runtime->runtime);
+      return;
+    } catch (const facebook::jsi::JSError& err) {
+      if (!disposeAsyncCallbackError(runtime, err)) {
+        return;
+      }
+    } catch (const std::exception& err) {
+      // Non-JS failure: no per-job progress guarantee (unlike the JSError
+      // arm, which consumes the throwing job), so never loop — leave any
+      // remaining jobs for the next poll.
+      ex_host_console_log(1, err.what());
+      if (!runtime->keep_alive_on_async_error) {
+        runtime->fatal_async_error = true;
+      }
+      return;
+    }
+  }
+}
+
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
@@ -3204,34 +3273,24 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
           task(rt);
           executed++;
         } catch (const facebook::jsi::JSError& err) {
-          // Try the uncaughtException handler first, mirroring the timer and
-          // nextTick paths; an unconsumed throw is fatal, not log-and-continue.
-          // (ENG-23130)
-          bool handled = false;
-          try {
-            auto handler =
-                rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
-            if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-              auto errVal = facebook::jsi::Value(rt, err.value());
-              auto result =
-                  handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
-              if (result.isBool() && result.getBool()) handled = true;
-            }
-          } catch (...) {}
-          if (!handled) {
-            ex_host_console_log(1, err.getMessage().c_str());
-            runtime->fatal_async_error = true;
-          }
+          // Uncaught-handler consult first; unconsumed throws follow the
+          // host's async-error policy (fatal for the CLI per ENG-23130,
+          // report-and-continue for embedded hosts per ENG-23731).
+          disposeAsyncCallbackError(runtime, err);
         } catch (const std::exception& err) {
           ex_host_console_log(1, err.what());
-          runtime->fatal_async_error = true;
+          if (!runtime->keep_alive_on_async_error) {
+            runtime->fatal_async_error = true;
+          }
         }
       }
     }
   }
 
   runNextTickQueue(runtime);
-  drainMicrotasks(*runtime->runtime);
+  // Guarded: a throwing microtask must not escape the extern "C" boundary
+  // (std::terminate → host SIGABRT; ENG-23731 leg 1).
+  drainMicrotasksGuarded(runtime);
 
   // Check if there are any referenced tasks keeping the loop alive
   // (excluding unref'd timers). If not, skip unref'd due timers.
@@ -3321,32 +3380,33 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       }
       executed += 1;
       runNextTickQueue(runtime);
-      drainMicrotasks(*runtime->runtime);
+      // Guarded: a microtask throw here must neither escape (SIGABRT) nor be
+      // misattributed to the timer catch below (which would retire an
+      // innocent timer and, for the CLI, return -1). (ENG-23731)
+      drainMicrotasksGuarded(runtime);
     } catch (const facebook::jsi::JSError& err) {
       executed += 1;
-      // Try uncaughtException handler before terminating
-      bool handled = false;
-      try {
-        auto& rt = *runtime->runtime;
-        auto handler = rt.global().getProperty(rt, "__exactUncaughtExceptionHandler");
-        if (handler.isObject() && handler.asObject(rt).isFunction(rt)) {
-          auto errVal = facebook::jsi::Value(rt, err.value());
-          auto result = handler.asObject(rt).asFunction(rt).call(rt, std::move(errVal));
-          if (result.isBool() && result.getBool()) handled = true;
-        }
-      } catch (...) {}
-      if (!handled) {
+      // Uncaught-handler consult + host policy. Embedded hosts keep
+      // processing the remaining due timers (ENG-23731); the CLI keeps the
+      // fatal -1 contract (ENG-23130).
+      if (!disposeAsyncCallbackError(runtime, err)) {
         retireTimer();
-        ex_host_console_log(1, err.getMessage().c_str());
+        // This return -1 IS the one-shot report for this throw; leaving
+        // fatal_async_error set would make the NEXT poll return -1 again
+        // for the same error (double-report — breaks the transient--1 REPL
+        // contract pinned by throwing_one_shot_timer_does_not_refire).
+        runtime->fatal_async_error = false;
         return -1;
       }
-      // Continue processing remaining timers after handled exception
+      // Continue processing remaining timers after a consumed exception
       runNextTickQueue(runtime);
-      drainMicrotasks(*runtime->runtime);
+      drainMicrotasksGuarded(runtime);
     } catch (const std::exception& err) {
       retireTimer();
       ex_host_console_log(1, err.what());
-      return -1;
+      if (!runtime->keep_alive_on_async_error) {
+        return -1;
+      }
     }
 
     retireTimer();
@@ -3378,6 +3438,14 @@ extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime) {
     return -1;
   }
   return static_cast<int64_t>(next_due);
+}
+
+extern "C" void ex_hermes_set_keep_alive_on_async_error(
+    ExactHermesRuntime* runtime, int enabled) {
+  if (!runtime) {
+    return;
+  }
+  runtime->keep_alive_on_async_error = enabled != 0;
 }
 
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {

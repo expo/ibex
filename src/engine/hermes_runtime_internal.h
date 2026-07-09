@@ -126,6 +126,15 @@ struct ExactHermesRuntime {
   // touched on the runtime thread.
   // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
   bool fatal_async_error = false;
+  // Host policy for JS errors escaping drained async callbacks (timers,
+  // microtasks, nextTick, cross-thread tasks). CLI default (false): the
+  // fatal_async_error / poll -1 contract above. Embedded app hosts opt in
+  // via ex_hermes_set_keep_alive_on_async_error(): the error still reports
+  // through the __exactUncaughtExceptionHandler consult + raw console path,
+  // but the runtime keeps pumping — one bad app callback must not crash or
+  // zombify the host (ENG-23731; graceful degradation). Set by hosts during
+  // engine construction before the loop starts; read on the runtime thread.
+  bool keep_alive_on_async_error = false;
 
   void (*ios_dispatch_callback)(const uint8_t* data, size_t length, void* context) = nullptr;
   void* ios_dispatch_context = nullptr;

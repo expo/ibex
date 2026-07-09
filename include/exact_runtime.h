@@ -96,6 +96,18 @@ int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 /// never wall time (NTP/manual steps would stall or mass-fire timers).
 uint64_t ex_hermes_now_ms(void);
 
+/// Host policy for JS errors escaping drained async callbacks (timers,
+/// microtasks, nextTick, cross-thread tasks). Default (0, the CLI contract —
+/// ENG-23130): an unconsumed error reports and the observing ex_hermes_poll
+/// returns -1 so the host loop exits nonzero. Embedded app hosts pass 1
+/// (ENG-23731): the error still reports through the
+/// __exactUncaughtExceptionHandler consult + raw console path, but the poll
+/// keeps executing and never returns -1 for it — one bad app callback must
+/// not crash or zombify the host. Call during engine construction, before
+/// the event loop starts.
+void ex_hermes_set_keep_alive_on_async_error(ExactHermesRuntime* runtime,
+                                             int enabled);
+
 /// Check if there are any pending tasks (timers, callbacks, etc.)
 /// @return 1 if there are pending tasks, 0 if idle
 int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
