@@ -77,9 +77,19 @@ pub struct HostConfig {
     pub allow: Vec<String>,
     /// Explicit deny list (CLI overrides)
     pub deny: Vec<String>,
-    /// Root directory for file access (if restricted)
+    /// Host-boundary fence for filesystem access: when set, EVERY `fs:*`
+    /// capability value (module loading included) must name a path inside this
+    /// root or it is denied. The fence is enforced in every `SecurityMode` —
+    /// Permissive and Audit do not bypass it — and applies to every principal
+    /// including root; policy grants compose *within* it and cannot widen past
+    /// it. (ENG-23876) @ref LLP 0002#host-boundary-constraints
     pub root_dir: Option<std::path::PathBuf>,
-    /// Allowed network hosts (if restricted)
+    /// Host-boundary fence for network access: when set, EVERY `network:*`
+    /// capability value must name one of these hosts (`host` or `host:port`
+    /// entries; a port-less entry covers the host across ports) or it is
+    /// denied. Same hard-fence semantics as `root_dir`: all modes, all
+    /// principals, not widenable by policy grants. An empty list denies all
+    /// network access. (ENG-23876) @ref LLP 0002#host-boundary-constraints
     pub allowed_hosts: Option<Vec<String>>,
 }
 
@@ -152,7 +162,13 @@ impl Host {
             }
         }
 
-        let manager = Arc::new(capability::CapabilityManager::new(config.mode));
+        let mut manager = capability::CapabilityManager::new(config.mode);
+        // Translate the embedder's host-boundary fields into the enforced
+        // fence before the manager is shared; they were previously stored but
+        // never consulted (fail-open for embedders that relied on them).
+        // (ENG-23876) @ref LLP 0002#host-boundary-constraints
+        manager.set_host_boundary(config.root_dir.as_deref(), config.allowed_hosts.as_deref());
+        let manager = Arc::new(manager);
         let loader = Arc::new(ModuleLoader::new());
 
         if let Some(policy) = policy_file {
@@ -223,8 +239,15 @@ impl Host {
     /// `Audit` mode the C++ boundary relies on this returning false so the real
     /// check runs and the would-deny decision gets logged even though the
     /// operation ultimately proceeds.
+    ///
+    /// It must ALSO return false when a host-boundary fence (`root_dir` /
+    /// `allowed_hosts`) is configured, even in Permissive mode: the C++
+    /// boundary short-circuits every capability check when this returns true,
+    /// which would silently skip the fence the embedder asked for. (ENG-23876)
     pub fn is_allow_all(&self) -> bool {
         self.config.mode == SecurityMode::Permissive
+            && self.config.root_dir.is_none()
+            && self.config.allowed_hosts.is_none()
     }
 
     /// The active security mode.
@@ -333,5 +356,48 @@ impl Host {
             }
         }
         Ok(meta)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ENG-23876 — an embedder constructing `HostConfig { root_dir,
+    // allowed_hosts, .. }` must actually get the restriction it asked for, in
+    // every mode. These are Host-level (embedding API) assertions; the
+    // manager-level fence matrix lives in capability.rs.
+    #[test]
+    fn embedder_host_boundary_fields_are_enforced() {
+        for mode in [
+            SecurityMode::Permissive,
+            SecurityMode::Audit,
+            SecurityMode::Enforce,
+        ] {
+            let host = Host::new(HostConfig {
+                mode,
+                root_dir: Some(std::path::PathBuf::from("/fence-root")),
+                allowed_hosts: Some(vec!["api.example.com".to_string()]),
+                ..Default::default()
+            });
+
+            // The C++ boundary short-circuits on is_allow_all: it must be
+            // false whenever a fence is configured, even in Permissive mode.
+            assert!(!host.is_allow_all(), "fence skipped under {mode:?}");
+
+            assert!(host.check_capability("0", "fs:read:/fence-root/data.txt"));
+            assert!(!host.check_capability("0", "fs:read:/outside/data.txt"));
+            assert!(host.check_capability("0", "network:fetch:api.example.com"));
+            assert!(!host.check_capability("0", "network:fetch:evil.example.com"));
+        }
+    }
+
+    // A fence-less permissive host must stay allow-all (the legacy fast path
+    // the iOS/Swift embedding relies on).
+    #[test]
+    fn permissive_host_without_boundary_stays_allow_all() {
+        let host = Host::default_legacy();
+        assert!(host.is_allow_all());
+        assert!(host.check_capability("0", "fs:read:/outside/data.txt"));
     }
 }

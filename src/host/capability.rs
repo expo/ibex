@@ -94,6 +94,16 @@ pub struct CapabilityManager {
     /// Capabilities the root principal may acquire at runtime (the dynamic
     /// "prompt" ceiling). @ref LLP 0013#interaction-with-user-facing-dynamic-permissions
     ceiling: RwLock<Vec<String>>,
+    /// Host-boundary fence from `HostConfig.root_dir`: the symlink-resolved
+    /// root every `fs:*` capability value must fall inside. Unlike the policy
+    /// plane above, the fence denies in EVERY mode and no grant can widen past
+    /// it — see `fence_denial`. Plain fields (not locked): set once via
+    /// `set_host_boundary` before the manager is shared. (ENG-23876)
+    /// @ref LLP 0002#host-boundary-constraints
+    fs_root: Option<String>,
+    /// Host-boundary fence from `HostConfig.allowed_hosts`: normalized host
+    /// entries every `network:*` capability value must match. (ENG-23876)
+    allowed_hosts: Option<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
 }
@@ -171,8 +181,32 @@ impl CapabilityManager {
             import_allowed_memo: RwLock::new(HashMap::new()),
             deputy_classes: RwLock::new(HashSet::new()),
             ceiling: RwLock::new(Vec::new()),
+            fs_root: None,
+            allowed_hosts: None,
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
         }
+    }
+
+    /// Configure the host-boundary fence (`HostConfig.root_dir` /
+    /// `HostConfig.allowed_hosts`). The root is normalized exactly like checked
+    /// `fs:*` values (absolutized, symlinks resolved) so containment compares
+    /// resolved-to-resolved; host entries are normalized like `network:*`
+    /// resources. Takes `&mut self`: called once from `Host::new` before the
+    /// manager is shared. (ENG-23876)
+    pub fn set_host_boundary(
+        &mut self,
+        root_dir: Option<&Path>,
+        allowed_hosts: Option<&[String]>,
+    ) {
+        self.fs_root = root_dir.map(|root| {
+            normalize_fs_resource(
+                &root.to_string_lossy(),
+                FsNormalizationMode::FollowFinal,
+                FsResourceKind::Value,
+            )
+        });
+        self.allowed_hosts = allowed_hosts
+            .map(|hosts| hosts.iter().map(|h| normalize_network_resource(h)).collect());
     }
 
     /// Apply policy file allow/deny rules
@@ -284,6 +318,13 @@ impl CapabilityManager {
     /// (neither). @ref LLP 0013 — §dynamic permissions — grant status is tri-state
     /// at the host surface, not boolean.
     pub fn grant_status(&self, capability: &str) -> u8 {
+        // The host-boundary fence caps the tri-state: a capability outside it
+        // is denied and not acquirable by prompt either. (ENG-23876)
+        let normalized =
+            normalize_capability_value_with_fs_mode(capability, FsNormalizationMode::FollowFinal);
+        if self.fence_denial(&normalized).is_some() {
+            return 0;
+        }
         if self.decide("0", capability, FsNormalizationMode::FollowFinal) {
             1
         } else if self.within_ceiling(capability) {
@@ -409,9 +450,73 @@ impl CapabilityManager {
         fs_mode: FsNormalizationMode,
     ) -> bool {
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
+        if self.fence_denies(module_id, &normalized) {
+            return false;
+        }
         let decision =
             self.mode == SecurityMode::Permissive || self.decide(module_id, &normalized, fs_mode);
         self.gate_and_record(module_id, normalized, decision)
+    }
+
+    /// Which host-boundary fence (if any) denies this normalized capability
+    /// value. The fence is the embedder's `HostConfig.root_dir` /
+    /// `allowed_hosts` sandbox: a hard boundary on the host itself, distinct
+    /// from the policy plane — it applies in EVERY mode (Permissive and Audit
+    /// do not bypass it, unlike policy would-denies) and to every principal
+    /// including root and the module loader, and no policy grant can widen
+    /// past it. Fields configured here were previously accepted but silently
+    /// unenforced — a fail-open embedding API. (ENG-23876)
+    /// @ref LLP 0002#host-boundary-constraints
+    fn fence_denial(&self, capability: &str) -> Option<&'static str> {
+        let mut parts = capability.splitn(3, ':');
+        let scope = parts.next().unwrap_or("");
+        let _action = parts.next();
+        let resource = parts.next();
+        match scope {
+            "fs" => {
+                let root = self.fs_root.as_deref()?;
+                // A resource-less `fs:<action>` value claims authority over
+                // ANY path, which necessarily exceeds the fence: deny. Checked
+                // values are symlink-resolved by normalization, and the root
+                // was resolved the same way, so prefix containment is sound.
+                let inside = resource
+                    .is_some_and(|path| path == root || path_prefix_match(&format!("{root}/**"), path));
+                (!inside).then_some("root_dir")
+            }
+            "network" => {
+                let hosts = self.allowed_hosts.as_deref()?;
+                // Endpoint values are `<host>` or `<host>:<port>`; an entry
+                // without a port covers the host across ports via the same
+                // scope-specific matcher grants use (`example.com` does not
+                // match `example.com.evil`). A resource-less `network:<action>`
+                // claims any endpoint: deny.
+                let allowed = resource.is_some_and(|endpoint| {
+                    hosts.iter().any(|h| network_endpoint_match(h, endpoint))
+                });
+                (!allowed).then_some("allowed_hosts")
+            }
+            _ => None,
+        }
+    }
+
+    /// Apply the host-boundary fence to a normalized capability value: on a
+    /// fence miss, record the denial (tagged with which fence fired, so audit
+    /// output distinguishes it from a policy would-deny) and deny. (ENG-23876)
+    fn fence_denies(&self, module_id: &str, normalized: &str) -> bool {
+        let Some(fence) = self.fence_denial(normalized) else {
+            return false;
+        };
+        self.record(AuditEntry {
+            timestamp: std::time::SystemTime::now(),
+            module_id: module_id.to_string(),
+            package: self.principal_for(module_id),
+            capability: normalized.to_string(),
+            constraint: Some(format!("host-boundary:{fence}")),
+            decision: false,
+            allowed: false,
+            mode: self.mode,
+        });
+        true
     }
 
     /// Apply mode gating to a real policy `decision`, record it, and return
@@ -556,6 +661,9 @@ impl CapabilityManager {
             capability_str,
             FsNormalizationMode::FollowFinal,
         );
+        if self.fence_denies(module_id, &normalized) {
+            return false;
+        }
         let decision = self.mode == SecurityMode::Permissive
             || (module_id != NO_USER_PRINCIPAL
                 && self
@@ -709,6 +817,9 @@ impl CapabilityManager {
     ) -> bool {
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         let top = stack.first().copied().unwrap_or("");
+        if self.fence_denies(top, &normalized) {
+            return false;
+        }
 
         let decision = if self.mode == SecurityMode::Permissive {
             true
@@ -1300,6 +1411,121 @@ fn path_prefix_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ENG-23876 — the host-boundary fence (`HostConfig.root_dir` /
+    // `allowed_hosts`) must deny outside-the-fence operations in EVERY mode,
+    // for every principal, and must not be widenable by policy grants. The
+    // fence root here is a non-existent path so symlink resolution keeps it
+    // literal and the assertions are platform-stable.
+    #[test]
+    fn host_boundary_root_dir_fences_fs_in_every_mode() {
+        for mode in [
+            SecurityMode::Permissive,
+            SecurityMode::Audit,
+            SecurityMode::Enforce,
+        ] {
+            let mut manager = CapabilityManager::new(mode);
+            manager.set_host_boundary(Some(Path::new("/fence-root")), None);
+
+            // Inside the fence: root principal is trusted (or mode allows).
+            assert!(
+                manager.check("0", "fs:read:/fence-root/data.txt"),
+                "inside-fence read denied under {mode:?}"
+            );
+            assert!(manager.check("0", "fs:read:/fence-root"));
+            // Outside: denied regardless of mode.
+            assert!(
+                !manager.check("0", "fs:read:/fence-root-sibling/data.txt"),
+                "boundary must not be a string prefix match"
+            );
+            assert!(
+                !manager.check("0", "fs:write:/outside/data.txt"),
+                "outside-fence write allowed under {mode:?}"
+            );
+            // The module loader is fenced too: root_dir bounds ALL file access.
+            assert!(!manager.check("module-loader", "fs:read:/outside/mod.js"));
+            // A resource-less fs capability claims any path: denied.
+            assert!(!manager.check("0", "fs:read"));
+            // A blanket policy grant cannot widen past the fence.
+            manager.grant("*", "fs:read", None);
+            assert!(!manager.check("0", "fs:read:/outside/data.txt"));
+            // Non-fs capabilities are untouched by the fs fence.
+            assert!(manager.check("0", "crypto:random"));
+        }
+    }
+
+    #[test]
+    fn host_boundary_allowed_hosts_fences_network_in_every_mode() {
+        for mode in [
+            SecurityMode::Permissive,
+            SecurityMode::Audit,
+            SecurityMode::Enforce,
+        ] {
+            let mut manager = CapabilityManager::new(mode);
+            manager.set_host_boundary(None, Some(&["api.example.com".to_string()]));
+
+            assert!(manager.check("0", "network:fetch:api.example.com"));
+            // A port-less entry covers the host across ports.
+            assert!(manager.check("0", "network:connect:api.example.com:443"));
+            assert!(
+                !manager.check("0", "network:fetch:evil.example.com"),
+                "unlisted host allowed under {mode:?}"
+            );
+            // Not a generic string prefix.
+            assert!(!manager.check("0", "network:fetch:api.example.com.evil"));
+            // Resource-less network capability claims any endpoint: denied.
+            assert!(!manager.check("0", "network:fetch"));
+            // A blanket grant cannot widen past the fence.
+            manager.grant("*", "network:fetch", None);
+            assert!(!manager.check("0", "network:fetch:evil.example.com"));
+            // fs is untouched by the network fence (root is trusted absent a
+            // ceiling, so this holds under Enforce too).
+            assert!(manager.check("0", "fs:read:/anywhere"));
+        }
+    }
+
+    #[test]
+    fn host_boundary_empty_allowed_hosts_denies_all_network() {
+        let mut manager = CapabilityManager::new(SecurityMode::Permissive);
+        manager.set_host_boundary(None, Some(&[]));
+        assert!(!manager.check("0", "network:fetch:api.example.com"));
+        assert!(!manager.check("0", "network:listen:127.0.0.1:8080"));
+    }
+
+    // The fence must hold at every checking chokepoint, not just `check`:
+    // stack-intersection checks, handle minting, and the tri-state grant
+    // status (an outside-fence capability is not acquirable by prompt).
+    #[test]
+    fn host_boundary_fence_covers_stack_mint_and_grant_status() {
+        let mut manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.set_host_boundary(
+            Some(Path::new("/fence-root")),
+            Some(&["api.example.com".to_string()]),
+        );
+        manager.grant("0", "fs:read", None);
+        manager.grant("0", "network:fetch", None);
+
+        assert!(!manager.check_stack(&["0"], "fs:read:/outside/data.txt"));
+        assert!(manager.check_stack(&["0"], "fs:read:/fence-root/data.txt"));
+        assert!(!manager.check_handle_mint("0", "fs:read:/outside/data.txt"));
+        assert!(manager.check_handle_mint("0", "fs:read:/fence-root/data.txt"));
+        assert_eq!(manager.grant_status("network:fetch:evil.example.com"), 0);
+        assert_eq!(manager.grant_status("network:fetch:api.example.com"), 1);
+    }
+
+    // Fence denials are recorded (allowed=false even in Audit) and tagged so
+    // audit output distinguishes them from policy would-denies.
+    #[test]
+    fn host_boundary_fence_denials_are_recorded_with_fence_tag() {
+        let mut manager = CapabilityManager::new(SecurityMode::Audit);
+        manager.set_host_boundary(Some(Path::new("/fence-root")), None);
+        assert!(!manager.check("0", "fs:read:/outside/data.txt"));
+        let log = manager.audit_log();
+        let entry = log.last().expect("fence denial must be recorded");
+        assert_eq!(entry.constraint.as_deref(), Some("host-boundary:root_dir"));
+        assert!(!entry.decision);
+        assert!(!entry.allowed, "audit mode must not let the fence fail open");
+    }
 
     #[test]
     fn normalize_capability_aliases_net_to_network() {

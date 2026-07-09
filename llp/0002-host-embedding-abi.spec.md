@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (SecurityMode vocabulary updated after the capsec mode collapse: `Permissive | Audit | Enforce`)
+**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -124,6 +124,40 @@ installs the legacy permissive host `[observed]`
 strings parse to `Enforce` for compatibility. The C++ bridge short-circuits
 capability checks when `ex_host_is_allow_all()` returns 1 `[observed]`
 (`src/host/abi.rs:597-599`).
+
+### Host-boundary constraints
+
+`HostConfig.root_dir` and `HostConfig.allowed_hosts` are the embedder's
+**host-boundary fence** — a restriction plane distinct from the LLP 0013
+capability policy (`src/host/mod.rs`, `src/host/capability.rs::fence_denial`,
+ENG-23876; both fields were previously stored but never consulted, a fail-open
+embedding API):
+
+- `root_dir`: every `fs:*` capability value must name a path inside this root
+  (compared symlink-resolved on both sides, same normalization as path-scoped
+  grants). Module loading is included: the `module-loader` principal's reads
+  are fenced like everyone else's.
+- `allowed_hosts`: every `network:*` capability value must name a listed host.
+  Entries are `host` or `host:port`; a port-less entry covers the host across
+  ports via the same scope-specific endpoint matcher grants use. An empty list
+  denies all network access.
+
+Composition with the capability policy: the fence is checked first and is a
+**hard ceiling** — policy grants compose *within* it and cannot widen past it,
+it applies to every principal (root and `module-loader` included), and it
+denies in **every** `SecurityMode`. Permissive does not bypass it
+(`Host::is_allow_all()` returns false whenever a fence is configured, so the
+C++ boundary's short-circuit stays off), and Audit does not observe-and-proceed
+past it the way it does for policy would-denies: a fence miss is a real denial
+in all modes, recorded in the audit log with a `host-boundary:root_dir` /
+`host-boundary:allowed_hosts` constraint tag. A capability outside the fence is
+also not acquirable through the dynamic-permission prompt path
+(`grant_status` reports 0) and cannot be minted into a passable handle.
+
+The CLI does not set these fields (`src/bin/ibex/runtime.rs` passes `None`);
+they exist for embedders. Resource-less class values (`fs:read`,
+`network:fetch`) claim unbounded authority and are denied whenever the
+corresponding fence is configured.
 
 ### What the host backs
 
