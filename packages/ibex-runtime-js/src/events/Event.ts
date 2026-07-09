@@ -46,7 +46,17 @@ export class Event {
     this.bubbles = eventInitDict?.bubbles ?? false;
     this.cancelable = eventInitDict?.cancelable ?? false;
     this.composed = eventInitDict?.composed ?? false;
-    this.timeStamp = performance?.now?.() ?? Date.now();
+    // Sandboxed embedders (snapback's deterministic handler tier) deny the
+    // ambient clocks at runtime; an Event constructed on an internal dispatch
+    // path (e.g. rejectionhandled) must not throw through that denial — a
+    // zero timeStamp is truthful there, since no clock is observable at all.
+    this.timeStamp = (() => {
+      try {
+        return performance?.now?.() ?? Date.now();
+      } catch {
+        return 0;
+      }
+    })();
     // Per spec, isTrusted must be an own property with a getter (no setter)
     // so that it shows up in Object.getOwnPropertyDescriptor().
     Object.defineProperty(this, "isTrusted", {
