@@ -10,6 +10,11 @@ pub async fn run_all(cli: &Cli) -> Result<()> {
 
     expect_eval(&runtime, "1 + 1", "2", "eval arithmetic").await?;
 
+    // Windows skip reason (audited for ENG-23705): these rows need the
+    // embedded node-compat runtime, which is disabled on Windows
+    // (`use_embedded_runtime = ... && !cfg!(windows)` in engine/hermes.rs) —
+    // unrelated to the ENG-23639 console-flush fix that un-gated the
+    // timer-driven TLS oracle tests.
     if !cfg!(windows) {
         expect_eval(
             &runtime,

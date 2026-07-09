@@ -19,7 +19,6 @@ const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 /// Self-signed localhost certificate (SAN: DNS:localhost, IP:127.0.0.1),
 /// valid until 2046, used purely as in-process emulation fixture material.
-#[cfg(not(target_os = "windows"))]
 const TEST_CERT: &str = "-----BEGIN CERTIFICATE-----
 MIICyTCCAbGgAwIBAgIJAIhNqBAfSjJ0MA0GCSqGSIb3DQEBCwUAMBQxEjAQBgNV
 BAMMCWxvY2FsaG9zdDAeFw0yNjA3MDcwNzEzNTNaFw00NjA3MDIwNzEzNTNaMBQx
@@ -38,7 +37,6 @@ OaLPFE5C0v6yLhGBGwPv3dYMDH8iTnPS9pbEr6ZMbECBjtMt2jczm50rb2rn5VLB
 q/LkAWk7EoJDWScZbk7joFDnAI4D7Wk3maELFKYf8TiPxfZOXPfAg3JnE/Tr
 -----END CERTIFICATE-----";
 
-#[cfg(not(target_os = "windows"))]
 const TEST_KEY: &str = "-----BEGIN PRIVATE KEY-----
 MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDarJ9zrQyiZL1K
 lPqK1vfYL3+4ge3fH4+vw9MeC4SuXARWVf9MtF3pMjClaegMroWj6iedk1pPP1NT
@@ -69,7 +67,6 @@ GZp+REcWUDv3rRhch2XhCaD5Hw==
 -----END PRIVATE KEY-----";
 
 /// Prefix a script with `KEY`/`CERT` consts holding the fixture PEMs.
-#[cfg(not(target_os = "windows"))]
 fn with_fixture_pems(script: &str) -> String {
     format!(
         "var CERT = {};\nvar KEY = {};\n{}",
@@ -103,9 +100,9 @@ async fn run_script(script: &str, secs: u64) -> Value {
 #[cfg(target_os = "windows")]
 #[tokio::test]
 async fn node_tls_windows_native_bridge_host_functions_install_and_engine_starts() {
-    // ENG-23526: Windows can validate the native bridge synchronously even
-    // though the full timer-driven tls.connect oracle tests require the
-    // Windows CLI timer keepalive gap (ENG-23639) to be closed first.
+    // ENG-23526: synchronous native-bridge smoke, kept as a fast Windows
+    // sanity check. The timer-driven oracle tests below run on Windows too
+    // since ENG-23639/ENG-23705 (console output now survives process.exit).
     let script = r#"
 require('tls');
 var required = [
@@ -169,7 +166,6 @@ console.log(JSON.stringify(out));
     );
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_socket_prototype_chain_extends_net_socket() {
     // ENG-23448 finding 3: setPrototypeOf was applied to the constructor only,
@@ -218,7 +214,6 @@ setTimeout(function () {
     );
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_renegotiate_matches_node_contract() {
     // ENG-23448 finding 4: the stub claimed success unconditionally. Node
@@ -288,7 +283,6 @@ function finish(s12) {
     assert_eq!(v["badCallback"], "ERR_INVALID_ARG_TYPE", "{v}");
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_reject_unauthorized_false_still_reports_verification_result() {
     // ENG-23448 finding 2: rejectUnauthorized:false used to force
@@ -351,7 +345,6 @@ server.listen(0, '127.0.0.1', function () {
     assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_connect_to_non_tls_peer_errors_and_never_reports_secure() {
     // ENG-23448 pinned "never fabricate secureConnect against a peer that is
@@ -423,7 +416,6 @@ plain.listen(0, '127.0.0.1', function () {
 // DEPTH_ZERO_SELF_SIGNED_CERT verdicts (all oracle-pinned on Node v25.9.0).
 // ============================================================
 
-#[cfg(not(target_os = "windows"))]
 mod tls_bridge_support {
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -494,7 +486,6 @@ mod tls_bridge_support {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_bridge_real_handshake_with_ca_authorizes_and_moves_data() {
     // Trusted path: the self-signed fixture passed as `ca` must authorize
@@ -569,7 +560,6 @@ sock.on('error', function (e) {{
     assert_eq!(v["gotBody"], true, "application data over real TLS: {v}");
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_bridge_selfsigned_verdicts_match_node() {
     // Untrusted (default roots) against the self-signed fixture. Node
@@ -633,7 +623,6 @@ lax.on('error', function (e) {{
     assert_eq!(v["strict"]["authorized"], false, "{v}");
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_bridge_hostname_mismatch_matches_node_shape() {
     // Chain trusted via ca but servername does not match the cert SANs.
@@ -686,6 +675,12 @@ sock.on('close', function () {{
     assert_eq!(v["authorized"], false, "{v}");
 }
 
+// Windows gate reason (ENG-23705 audit): NOT the ENG-23639 output loss — on
+// Windows, https.js routes default-agent requests to the WinHTTP fetch path
+// even when socket-transport options like `ca` are present, so the option is
+// dropped and the request fails with WINHTTP_SECURE_FAILURE (12175) instead
+// of authorizing via the bridge. Un-gate when ENG-23716 fixes the transport
+// predicate.
 #[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_bridge_https_get_roundtrip() {
@@ -726,7 +721,6 @@ https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
     assert_eq!(v["body"], "ok-over-real-tls", "{v}");
 }
 
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_in_process_server_emulation_still_works_end_to_end() {
     // ENG-23448 finding 1 control: the supported loopback path — an
