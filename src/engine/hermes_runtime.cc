@@ -1525,6 +1525,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               "process.chdir() expected path string");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // @ref LLP 0013#policy — __exactSetCwd backs process.chdir's
+        // process-global mutation path and must share the process:cwd gate.
+        if (!checkCapability("process:cwd")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: process:cwd capability required");
+        }
 #if defined(_WIN32)
         if (_chdir(path.c_str()) != 0) {
 #else

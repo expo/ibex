@@ -206,6 +206,13 @@ void installProcessSetup(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "The first argument must be of type string");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        // @ref LLP 0013#policy — process-global cwd mutation is ambient host
+        // authority; enforce the canonical process:cwd gate before chdir().
+        if (!checkCapability("process:cwd")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: process:cwd capability required");
+        }
         if (chdir(path.c_str()) != 0) {
           throw facebook::jsi::JSError(
               runtime, "Failed to change directory: " + std::string(strerror(errno)));
