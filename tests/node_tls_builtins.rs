@@ -675,13 +675,6 @@ sock.on('close', function () {{
     assert_eq!(v["authorized"], false, "{v}");
 }
 
-// Windows gate reason (ENG-23705 audit): NOT the ENG-23639 output loss — on
-// Windows, https.js routes default-agent requests to the WinHTTP fetch path
-// even when socket-transport options like `ca` are present, so the option is
-// dropped and the request fails with WINHTTP_SECURE_FAILURE (12175) instead
-// of authorizing via the bridge. Un-gate when ENG-23716 fixes the transport
-// predicate.
-#[cfg(not(target_os = "windows"))]
 #[tokio::test]
 async fn node_tls_bridge_https_get_roundtrip() {
     // https client over the bridged socket: URL + ca option, status and body

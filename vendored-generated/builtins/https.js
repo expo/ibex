@@ -84,7 +84,7 @@ function _isWindowsRuntime() {
 	return typeof process !== "undefined" && process && process.platform === "win32";
 }
 function _canUseNativeFetchTransport(options) {
-	return _isWindowsRuntime() && typeof fetch === "function" && (!_requiresSocketTransport(options) || options.agent === globalAgent);
+	return _isWindowsRuntime() && typeof fetch === "function" && !_requiresSocketTransport(options);
 }
 function _headersToObject(headers) {
 	var out = {};

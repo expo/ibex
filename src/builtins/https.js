@@ -103,9 +103,12 @@ function _isWindowsRuntime() {
 }
 
 function _canUseNativeFetchTransport(options) {
+  // The WinHTTP fetch path cannot honor socket-transport options (ca,
+  // rejectUnauthorized, cert/key, servername, ...); those requests must go
+  // through Agent.createConnection -> tls.connect even on the default agent.
   return _isWindowsRuntime() &&
     typeof fetch === 'function' &&
-    (!_requiresSocketTransport(options) || options.agent === globalAgent);
+    !_requiresSocketTransport(options);
 }
 
 function _headersToObject(headers) {
