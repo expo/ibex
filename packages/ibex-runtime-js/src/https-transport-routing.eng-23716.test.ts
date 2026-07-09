@@ -63,6 +63,25 @@ describe('https transport routing (ENG-23716)', () => {
     expect(httpRequestCalls.length).toBe(1);
   });
 
+  test('win32: agent constructed with ca, option-free request takes the socket path (ENG-23728)', () => {
+    const pinned = new https.Agent({ ca: ['CERT'] });
+    https.request({ hostname: 'localhost', port: 4443, agent: pinned }, () => {});
+    expect(httpRequestCalls.length).toBe(1);
+  });
+
+  test('win32: agent constructed with rejectUnauthorized=false, option-free request takes the socket path (ENG-23728)', () => {
+    const lax = new https.Agent({ rejectUnauthorized: false });
+    https.request({ hostname: 'localhost', port: 4443, agent: lax }, () => {});
+    expect(httpRequestCalls.length).toBe(1);
+  });
+
+  test('win32: agent constructed without socket options keeps the WinHTTP fetch fast path (ENG-23728)', () => {
+    const plain = new https.Agent({ keepAlive: true, maxSockets: 4 });
+    const req = https.request({ hostname: 'example.com', agent: plain }, () => {});
+    expect(httpRequestCalls.length).toBe(0);
+    req.destroy();
+  });
+
   test('win32: option-free request keeps the WinHTTP fetch fast path', () => {
     const req = https.request({ hostname: 'example.com' }, () => {});
     expect(httpRequestCalls.length).toBe(0);

@@ -83,8 +83,11 @@ var globalAgent = new Agent();
 function _isWindowsRuntime() {
 	return typeof process !== "undefined" && process && process.platform === "win32";
 }
+function _agentRequiresSocketTransport(agent) {
+	return !!(agent && typeof agent === "object" && _requiresSocketTransport(agent.options));
+}
 function _canUseNativeFetchTransport(options) {
-	return _isWindowsRuntime() && typeof fetch === "function" && !_requiresSocketTransport(options);
+	return _isWindowsRuntime() && typeof fetch === "function" && !_requiresSocketTransport(options) && !_agentRequiresSocketTransport(options && options.agent);
 }
 function _headersToObject(headers) {
 	var out = {};

@@ -102,13 +102,23 @@ function _isWindowsRuntime() {
   return typeof process !== 'undefined' && process && process.platform === 'win32';
 }
 
+function _agentRequiresSocketTransport(agent) {
+  // Agent constructor options flow into every createConnection for the
+  // agent's sockets (http.Agent stores them on agent.options), so an agent
+  // built with ca/rejectUnauthorized/... forces the socket path even when
+  // the request itself carries no socket-transport option.
+  return !!(agent && typeof agent === 'object' &&
+    _requiresSocketTransport(agent.options));
+}
+
 function _canUseNativeFetchTransport(options) {
   // The WinHTTP fetch path cannot honor socket-transport options (ca,
   // rejectUnauthorized, cert/key, servername, ...); those requests must go
   // through Agent.createConnection -> tls.connect even on the default agent.
   return _isWindowsRuntime() &&
     typeof fetch === 'function' &&
-    !_requiresSocketTransport(options);
+    !_requiresSocketTransport(options) &&
+    !_agentRequiresSocketTransport(options && options.agent);
 }
 
 function _headersToObject(headers) {
