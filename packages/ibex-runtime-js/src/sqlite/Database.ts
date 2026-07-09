@@ -11,6 +11,18 @@ import { Statement, type Changes } from './Statement';
 
 const g = globalThis as any;
 
+const CRSQLITE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function validateCrSqliteIdentifier(tableName: string): string {
+  if (typeof tableName !== 'string' || !CRSQLITE_IDENTIFIER_RE.test(tableName)) {
+    throw new TypeError(
+      'markAsCrr tableName must be a simple SQLite identifier matching ' +
+      '[A-Za-z_][A-Za-z0-9_]*'
+    );
+  }
+  return tableName;
+}
+
 export interface DatabaseOptions {
   /** Open the database as read-only. */
   readonly?: boolean;
@@ -331,7 +343,8 @@ export class Database {
   markAsCrr(tableName: string): void {
     this._checkClosed();
     this._requireCrSqlite();
-    this.run(`SELECT crsql_as_crr('${tableName}')`);
+    const validatedTableName = validateCrSqliteIdentifier(tableName);
+    this.run(`SELECT crsql_as_crr('${validatedTableName}')`);
   }
 
   /**

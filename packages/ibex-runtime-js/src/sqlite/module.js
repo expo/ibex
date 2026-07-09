@@ -6,6 +6,17 @@
  */
 
 var g = globalThis;
+var CRSQLITE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function validateCrSqliteIdentifier(tableName) {
+  if (typeof tableName !== 'string' || !CRSQLITE_IDENTIFIER_RE.test(tableName)) {
+    throw new TypeError(
+      'markAsCrr tableName must be a simple SQLite identifier matching ' +
+      '[A-Za-z_][A-Za-z0-9_]*'
+    );
+  }
+  return tableName;
+}
 
 // ============================================================================
 // SQLiteError
@@ -374,7 +385,8 @@ Database.prototype.getDbVersion = function() {
 Database.prototype.markAsCrr = function(tableName) {
   this._checkClosed();
   if (!this._crSqliteLoaded) throw new Error('cr-sqlite is not loaded. Call db.enableCrSqlite() first.');
-  this.run("SELECT crsql_as_crr('" + tableName + "')");
+  var validatedTableName = validateCrSqliteIdentifier(tableName);
+  this.run("SELECT crsql_as_crr('" + validatedTableName + "')");
 };
 
 Database.prototype.getChanges = function(sinceVersion, excludeSiteId) {
