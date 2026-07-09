@@ -5,6 +5,7 @@
 // on Linux. @ref LLP 0008#sockets-dns-and-process
 #include <limits.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -346,32 +347,47 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           }
         }
 
-        // Build the actual command: optionally prepend cd
-        std::string fullCommand = command;
-        if (!cwd.empty()) {
-          fullCommand = "cd " + cwd + " && " + command;
-        }
-
         // Redirect stderr to a temp file so we can capture it separately
         char stderrTmpPath[] = "/tmp/ex_stderr_XXXXXX";
         int stderrFd = mkstemp(stderrTmpPath);
         if (stderrFd < 0) {
           throw facebook::jsi::JSError(runtime, "Failed to create temp file for stderr");
         }
-        close(stderrFd);
-
-        std::string shellCmd = "( " + fullCommand + " ) 2>" + stderrTmpPath;
+        int stdoutPipe[2] = {-1, -1};
+        if (pipe(stdoutPipe) != 0) {
+          close(stderrFd);
+          unlink(stderrTmpPath);
+          throw facebook::jsi::JSError(runtime, "Failed to create stdout pipe");
+        }
 
         // ENG-23113 — cancellable, self-joining timeout watchdog (see
         // SyncTimeoutWatchdog): the previous detached thread wrote a stack
         // `timedOut` that had been freed once a fast command returned.
         SyncTimeoutWatchdog watchdog;
 
-        FILE* fp = popen(shellCmd.c_str(), "r");
-        if (!fp) {
+        pid_t pid = fork();
+        if (pid < 0) {
+          close(stderrFd);
+          close(stdoutPipe[0]);
+          close(stdoutPipe[1]);
           unlink(stderrTmpPath);
           throw facebook::jsi::JSError(runtime, "Failed to execute command");
         }
+        if (pid == 0) {
+          close(stdoutPipe[0]);
+          dup2(stdoutPipe[1], STDOUT_FILENO);
+          close(stdoutPipe[1]);
+          dup2(stderrFd, STDERR_FILENO);
+          close(stderrFd);
+          if (!cwd.empty() && chdir(cwd.c_str()) != 0) {
+            _exit(127);
+          }
+          execl("/bin/sh", "sh", "-c", command.c_str(), nullptr);
+          _exit(127);
+        }
+
+        close(stderrFd);
+        close(stdoutPipe[1]);
 
         // Start timeout thread if needed
         if (timeout_ms > 0) {
@@ -388,18 +404,48 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Read stdout
         std::string stdoutStr;
         char buf[4096];
-        while (!watchdog.timedOut.load()) {
-          size_t bytesRead = fread(buf, 1, sizeof(buf), fp);
-          if (bytesRead == 0) break;
-          if (stdoutStr.size() + bytesRead > max_buffer) {
-            stdoutStr.append(buf, max_buffer - stdoutStr.size());
-            break;
+        bool stdoutOpen = true;
+        bool childReaped = false;
+        int childStatus = 0;
+        while (stdoutOpen || !childReaped) {
+          if (watchdog.timedOut.load() && !childReaped) {
+            kill(pid, SIGKILL);
           }
-          stdoutStr.append(buf, bytesRead);
+          if (stdoutOpen) {
+            struct pollfd pfd;
+            pfd.fd = stdoutPipe[0];
+            pfd.events = POLLIN | POLLHUP | POLLERR;
+            pfd.revents = 0;
+            int pollResult = poll(&pfd, 1, 20);
+            if (pollResult > 0 && (pfd.revents & (POLLIN | POLLHUP | POLLERR))) {
+              ssize_t bytesRead = read(stdoutPipe[0], buf, sizeof(buf));
+              if (bytesRead < 0) {
+                if (errno != EINTR) {
+                  stdoutOpen = false;
+                }
+              } else if (bytesRead == 0) {
+                stdoutOpen = false;
+              } else if (stdoutStr.size() < max_buffer) {
+                size_t remaining = max_buffer - stdoutStr.size();
+                size_t toAppend = std::min(static_cast<size_t>(bytesRead), remaining);
+                stdoutStr.append(buf, toAppend);
+              }
+            } else if (pollResult < 0 && errno != EINTR) {
+              stdoutOpen = false;
+            }
+          }
+          if (!childReaped) {
+            pid_t waited = waitpid(pid, &childStatus, WNOHANG);
+            if (waited == pid) {
+              childReaped = true;
+            } else if (waited < 0 && errno != EINTR) {
+              childReaped = true;
+            }
+          }
         }
+        close(stdoutPipe[0]);
 
-        int pcloseResult = pclose(fp);
-        int exitStatus = WIFEXITED(pcloseResult) ? WEXITSTATUS(pcloseResult) : -1;
+        int exitStatus = WIFEXITED(childStatus) ? WEXITSTATUS(childStatus) : -1;
 
         // Command finished: cancel + join the watchdog before this frame can
         // return (or throw building the result), so it can never wake late and
