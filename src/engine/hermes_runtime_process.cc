@@ -66,7 +66,15 @@ struct SyncTimeoutWatchdog {
 };
 }  // namespace
 
-static std::string s_parseEnvJsonStr(const std::string& value, size_t& pos) {
+static void s_skipJsonWhitespace(const std::string& value, size_t& pos) {
+  while (pos < value.size()) {
+    char ch = value[pos];
+    if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
+    pos++;
+  }
+}
+
+static std::string s_parseJsonString(const std::string& value, size_t& pos) {
   std::string out;
   if (pos >= value.size() || value[pos] != '"') return out;
   ++pos;
@@ -89,24 +97,146 @@ static std::string s_parseEnvJsonStr(const std::string& value, size_t& pos) {
   return out;
 }
 
+static bool s_skipJsonValue(const std::string& value, size_t& pos) {
+  s_skipJsonWhitespace(value, pos);
+  if (pos >= value.size()) return false;
+  if (value[pos] == '"') {
+    s_parseJsonString(value, pos);
+    return true;
+  }
+  if (value[pos] == '{' || value[pos] == '[') {
+    int depth = 0;
+    while (pos < value.size()) {
+      char ch = value[pos];
+      if (ch == '"') {
+        s_parseJsonString(value, pos);
+        continue;
+      }
+      if (ch == '{' || ch == '[') {
+        depth++;
+      } else if (ch == '}' || ch == ']') {
+        depth--;
+        pos++;
+        if (depth == 0) return true;
+        continue;
+      }
+      pos++;
+    }
+    return false;
+  }
+  while (pos < value.size() && value[pos] != ',' && value[pos] != '}' && value[pos] != ']') {
+    pos++;
+  }
+  return true;
+}
+
+static bool s_findTopLevelJsonValue(const std::string& optsJson,
+                                    const char* key,
+                                    size_t& valuePos) {
+  size_t pos = 0;
+  s_skipJsonWhitespace(optsJson, pos);
+  if (pos >= optsJson.size() || optsJson[pos] != '{') return false;
+  pos++;
+  while (pos < optsJson.size()) {
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos >= optsJson.size() || optsJson[pos] == '}') return false;
+    if (optsJson[pos] != '"') return false;
+    auto parsedKey = s_parseJsonString(optsJson, pos);
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos >= optsJson.size() || optsJson[pos] != ':') return false;
+    pos++;
+    s_skipJsonWhitespace(optsJson, pos);
+    if (parsedKey == key) {
+      valuePos = pos;
+      return true;
+    }
+    if (!s_skipJsonValue(optsJson, pos)) return false;
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos < optsJson.size() && optsJson[pos] == ',') {
+      pos++;
+    }
+  }
+  return false;
+}
+
+static bool s_parseTopLevelJsonString(const std::string& optsJson,
+                                      const char* key,
+                                      std::string& out) {
+  size_t pos = 0;
+  if (!s_findTopLevelJsonValue(optsJson, key, pos) || pos >= optsJson.size() ||
+      optsJson[pos] != '"') {
+    return false;
+  }
+  out = s_parseJsonString(optsJson, pos);
+  return true;
+}
+
+static bool s_parseTopLevelJsonBool(const std::string& optsJson,
+                                    const char* key,
+                                    bool& out) {
+  size_t pos = 0;
+  if (!s_findTopLevelJsonValue(optsJson, key, pos)) return false;
+  if (optsJson.compare(pos, 4, "true") == 0) {
+    out = true;
+    return true;
+  }
+  if (optsJson.compare(pos, 5, "false") == 0) {
+    out = false;
+    return true;
+  }
+  return false;
+}
+
+static bool s_parseTopLevelJsonUnsigned(const std::string& optsJson,
+                                        const char* key,
+                                        unsigned long long& out) {
+  size_t pos = 0;
+  if (!s_findTopLevelJsonValue(optsJson, key, pos)) return false;
+  if (pos >= optsJson.size() || optsJson[pos] < '0' || optsJson[pos] > '9') return false;
+  char* end = nullptr;
+  auto parsed = std::strtoull(optsJson.c_str() + pos, &end, 10);
+  if (end == optsJson.c_str() + pos) return false;
+  out = parsed;
+  return true;
+}
+
+static bool s_parseTopLevelJsonLong(const std::string& optsJson, const char* key, long& out) {
+  size_t pos = 0;
+  if (!s_findTopLevelJsonValue(optsJson, key, pos)) return false;
+  char* end = nullptr;
+  auto parsed = std::strtol(optsJson.c_str() + pos, &end, 10);
+  if (end == optsJson.c_str() + pos) return false;
+  out = parsed;
+  return true;
+}
+
 static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) {
   std::vector<std::string> envVec;
-  auto envPos = optsJson.find("\"env\":{");
-  if (envPos == std::string::npos) return envVec;
-  size_t pos = envPos + 7;
+  size_t pos = 0;
+  if (!s_findTopLevelJsonValue(optsJson, "env", pos) || pos >= optsJson.size() ||
+      optsJson[pos] != '{') {
+    return envVec;
+  }
+  pos++;
   while (pos < optsJson.size()) {
-    while (pos < optsJson.size() && (optsJson[pos] == ' ' || optsJson[pos] == ',' ||
-           optsJson[pos] == '\n' || optsJson[pos] == '\r' || optsJson[pos] == '\t')) pos++;
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos < optsJson.size() && optsJson[pos] == ',') {
+      pos++;
+      s_skipJsonWhitespace(optsJson, pos);
+    }
     if (pos >= optsJson.size() || optsJson[pos] == '}') break;
     if (optsJson[pos] != '"') break;
-    auto key = s_parseEnvJsonStr(optsJson, pos);
-    while (pos < optsJson.size() && (optsJson[pos] == ':' || optsJson[pos] == ' ')) pos++;
+    auto key = s_parseJsonString(optsJson, pos);
+    s_skipJsonWhitespace(optsJson, pos);
+    if (pos >= optsJson.size() || optsJson[pos] != ':') break;
+    pos++;
+    s_skipJsonWhitespace(optsJson, pos);
     if (pos >= optsJson.size()) break;
     if (optsJson[pos] == '"') {
-      auto val = s_parseEnvJsonStr(optsJson, pos);
+      auto val = s_parseJsonString(optsJson, pos);
       envVec.push_back(key + "=" + val);
     } else {
-      while (pos < optsJson.size() && optsJson[pos] != ',' && optsJson[pos] != '}') pos++;
+      s_skipJsonValue(optsJson, pos);
     }
   }
   return envVec;
@@ -121,17 +251,14 @@ static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) 
 static void s_parseSpawnCredentials(const std::string& optsJson,
                                     long& spawnUid,
                                     long& spawnGid) {
-  auto envKeyPos = optsJson.find("\"env\":");
-  auto readCredential = [&](const char* key) -> long {
-    auto pos = optsJson.find(key);
-    if (pos == std::string::npos) return -1;
-    if (envKeyPos != std::string::npos && pos > envKeyPos) return -1;
-    const char* p = optsJson.c_str() + pos + std::strlen(key);
-    if (*p < '0' || *p > '9') return -1;
-    return std::strtol(p, nullptr, 10);
-  };
-  spawnUid = readCredential("\"uid\":");
-  spawnGid = readCredential("\"gid\":");
+  long parsed = -1;
+  if (s_parseTopLevelJsonLong(optsJson, "uid", parsed) && parsed >= 0) {
+    spawnUid = parsed;
+  }
+  parsed = -1;
+  if (s_parseTopLevelJsonLong(optsJson, "gid", parsed) && parsed >= 0) {
+    spawnGid = parsed;
+  }
 }
 
 // (ENG-23485) Apply options.gid/options.uid in the forked child, gid before
@@ -594,49 +721,27 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
-          auto cwdPos = optsJson.find("\"cwd\":\"");
-          if (cwdPos != std::string::npos) {
-            auto start = cwdPos + 7;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              cwd = optsJson.substr(start, end - start);
-            }
-          }
-          if (optsJson.find("\"shell\":true") != std::string::npos) {
+          s_parseTopLevelJsonString(optsJson, "cwd", cwd);
+          bool shellBool = false;
+          if (s_parseTopLevelJsonBool(optsJson, "shell", shellBool) && shellBool) {
             useShell = true;
           }
-          auto shellPos = optsJson.find("\"shell\":\"");
-          if (shellPos != std::string::npos) {
+          if (s_parseTopLevelJsonString(optsJson, "shell", shellPath)) {
             useShell = true;
-            // (ENG-23032) Extract the requested shell binary instead of always
-            // exec'ing /bin/sh. A path never contains a JSON quote, so scan to
-            // the next '"' (same shape as the cwd parse above).
-            auto sstart = shellPos + 9;
-            auto send = optsJson.find("\"", sstart);
-            if (send != std::string::npos) {
-              shellPath = optsJson.substr(sstart, send - sstart);
-            }
           }
-          auto timeoutPos = optsJson.find("\"timeout\":");
-          if (timeoutPos != std::string::npos) {
-            auto start = timeoutPos + 10;
-            timeout_ms = static_cast<uint32_t>(std::strtoul(optsJson.c_str() + start, nullptr, 10));
+          unsigned long long parsedUnsigned = 0;
+          if (s_parseTopLevelJsonUnsigned(optsJson, "timeout", parsedUnsigned)) {
+            timeout_ms = static_cast<uint32_t>(parsedUnsigned);
           }
-          auto maxBufPos = optsJson.find("\"maxBuffer\":");
-          if (maxBufPos != std::string::npos) {
-            auto start = maxBufPos + 12;
-            // strtoull (not stoul) so a non-digit (e.g. JSON null) never throws.
-            unsigned long long parsed = std::strtoull(optsJson.c_str() + start, nullptr, 10);
-            if (parsed == 0ULL) {
+          if (s_parseTopLevelJsonUnsigned(optsJson, "maxBuffer", parsedUnsigned)) {
+            if (parsedUnsigned == 0ULL) {
               max_buffer_unlimited = true;
             } else {
-              max_buffer = static_cast<size_t>(parsed);
+              max_buffer = static_cast<size_t>(parsedUnsigned);
             }
           }
-          auto killSigPos = optsJson.find("\"killSignal\":");
-          if (killSigPos != std::string::npos) {
-            auto start = killSigPos + 13;
-            int parsedSig = static_cast<int>(std::strtol(optsJson.c_str() + start, nullptr, 10));
+          if (s_parseTopLevelJsonUnsigned(optsJson, "killSignal", parsedUnsigned)) {
+            int parsedSig = static_cast<int>(parsedUnsigned);
             if (parsedSig > 0) kill_signal = parsedSig;
           }
           s_parseSpawnCredentials(optsJson, spawnUid, spawnGid);
@@ -647,87 +752,53 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           // previously parsed only the string form and silently left the default
           // "pipe" — so an array-form stdio was ignored (stdout/stderr captured
           // instead of reaching the terminal; stdin left inherited).
-          auto strPos = optsJson.find("\"stdio\":\"");
-          if (strPos != std::string::npos) {
-            auto start = strPos + 9;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              std::string mode = optsJson.substr(start, end - start);
-              stdinMode = mode;
-              stdoutMode = mode;
-              stderrMode = mode;
-            }
+          size_t stdioPos = 0;
+          if (s_findTopLevelJsonValue(optsJson, "stdio", stdioPos) &&
+              stdioPos < optsJson.size() && optsJson[stdioPos] == '"') {
+            std::string mode = s_parseJsonString(optsJson, stdioPos);
+            stdinMode = mode;
+            stdoutMode = mode;
+            stderrMode = mode;
           } else {
-            auto arrPos = optsJson.find("\"stdio\":[");
-            if (arrPos != std::string::npos) {
-              size_t pos = arrPos + 9;
+            size_t pos = 0;
+            if (s_findTopLevelJsonValue(optsJson, "stdio", pos) &&
+                pos < optsJson.size() && optsJson[pos] == '[') {
+              pos++;
               std::string* slots[3] = {&stdinMode, &stdoutMode, &stderrMode};
               int slot = 0;
               while (pos < optsJson.size() && optsJson[pos] != ']') {
-                while (pos < optsJson.size() &&
-                       (optsJson[pos] == ' ' || optsJson[pos] == ',')) pos++;
+                s_skipJsonWhitespace(optsJson, pos);
+                if (pos < optsJson.size() && optsJson[pos] == ',') {
+                  pos++;
+                  s_skipJsonWhitespace(optsJson, pos);
+                }
                 if (pos >= optsJson.size() || optsJson[pos] == ']') break;
                 if (optsJson[pos] == '"') {
-                  pos++;
-                  std::string val;
-                  while (pos < optsJson.size() && optsJson[pos] != '"') {
-                    val += optsJson[pos++];
-                  }
-                  if (pos < optsJson.size()) pos++; // closing quote
+                  std::string val = s_parseJsonString(optsJson, pos);
                   if (slot < 3) *slots[slot] = val;
                 } else {
                   // non-string entry (number fd / null): skip, keep default
-                  while (pos < optsJson.size() && optsJson[pos] != ',' &&
-                         optsJson[pos] != ']') pos++;
+                  s_skipJsonValue(optsJson, pos);
                 }
                 slot++;
               }
             }
           }
           // Parse input option for stdin
-          auto inputPos = optsJson.find("\"input\":\"");
-          if (inputPos != std::string::npos) {
-            auto start = inputPos + 9;
-            std::string inputStr;
-            while (start < optsJson.size() && optsJson[start] != '"') {
-              if (optsJson[start] == '\\' && start + 1 < optsJson.size()) {
-                start++;
-                if (optsJson[start] == 'n') inputStr += '\n';
-                else if (optsJson[start] == 't') inputStr += '\t';
-                else if (optsJson[start] == 'r') inputStr += '\r';
-                else inputStr += optsJson[start];
-              } else {
-                inputStr += optsJson[start];
-              }
-              start++;
-            }
+          std::string inputStr;
+          if (s_parseTopLevelJsonString(optsJson, "input", inputStr)) {
             stdinInput = inputStr;
             hasStdinInput = true;
           }
           // (ENG-23009) When JS marks the stdin payload as base64 the raw bytes
           // were preserved across the JSON boundary; decode below before writing.
-          if (optsJson.find("\"inputEncoding\":\"base64\"") != std::string::npos) {
+          std::string inputEncoding;
+          if (s_parseTopLevelJsonString(optsJson, "inputEncoding", inputEncoding) &&
+              inputEncoding == "base64") {
             inputIsBase64 = true;
           }
           // Parse argv0 option for custom process.argv[0]
-          auto argv0Pos = optsJson.find("\"argv0\":\"");
-          if (argv0Pos != std::string::npos) {
-            auto start = argv0Pos + 9;
-            std::string argv0Str;
-            while (start < optsJson.size() && optsJson[start] != '"') {
-              if (optsJson[start] == '\\' && start + 1 < optsJson.size()) {
-                start++;
-                if (optsJson[start] == 'n') argv0Str += '\n';
-                else if (optsJson[start] == 't') argv0Str += '\t';
-                else if (optsJson[start] == 'r') argv0Str += '\r';
-                else argv0Str += optsJson[start];
-              } else {
-                argv0Str += optsJson[start];
-              }
-              start++;
-            }
-            argv0 = argv0Str;
-          }
+          s_parseTopLevelJsonString(optsJson, "argv0", argv0);
         }
 
         const bool syncStdoutPipe = (stdoutMode == "pipe");
@@ -1379,36 +1450,6 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
 
-        auto skipJsonWhitespace = [](const std::string& value, size_t& pos) {
-          while (pos < value.size()) {
-            char ch = value[pos];
-            if (ch != ' ' && ch != '\n' && ch != '\r' && ch != '\t') break;
-            pos++;
-          }
-        };
-
-        auto parseJsonString = [](const std::string& value, size_t& pos) {
-          std::string out;
-          if (pos >= value.size() || value[pos] != '"') return out;
-          ++pos;
-          while (pos < value.size()) {
-            char ch = value[pos++];
-            if (ch == '\\' && pos < value.size()) {
-              char escaped = value[pos++];
-              if (escaped == 'n') out.push_back('\n');
-              else if (escaped == 't') out.push_back('\t');
-              else if (escaped == 'r') out.push_back('\r');
-              else if (escaped == '"') out.push_back('"');
-              else if (escaped == '\\') out.push_back('\\');
-              else out.push_back(escaped);
-              continue;
-            }
-            if (ch == '"') break;
-            out.push_back(ch);
-          }
-          return out;
-        };
-
         auto normalizeStdioMode = [](const std::string& value) {
           if (value == "ignore") return std::string("ignore");
           if (value == "inherit") return std::string("inherit");
@@ -1422,45 +1463,29 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
 
         if (count > 2 && args[2].isString()) {
           auto optsJson = args[2].toString(runtime).utf8(runtime);
-          auto cwdPos = optsJson.find("\"cwd\":\"");
-          if (cwdPos != std::string::npos) {
-            auto start = cwdPos + 7;
-            auto end = optsJson.find("\"", start);
-            if (end != std::string::npos) {
-              cwd = optsJson.substr(start, end - start);
-            }
-          }
-          if (optsJson.find("\"shell\":true") != std::string::npos) {
+          s_parseTopLevelJsonString(optsJson, "cwd", cwd);
+          bool shellBool = false;
+          if (s_parseTopLevelJsonBool(optsJson, "shell", shellBool) && shellBool) {
             useShell = true;
           }
-          auto shellPos = optsJson.find("\"shell\":\"");
-          if (shellPos != std::string::npos) {
+          if (s_parseTopLevelJsonString(optsJson, "shell", shellPath)) {
             useShell = true;
-            // (ENG-23032) Extract the requested shell binary; the async JS path
-            // forwards options.shell verbatim, so honor a custom shell string
-            // here instead of always exec'ing /bin/sh.
-            auto sstart = shellPos + 9;
-            auto send = optsJson.find("\"", sstart);
-            if (send != std::string::npos) {
-              shellPath = optsJson.substr(sstart, send - sstart);
-            }
           }
           // (ENG-23032) `detached` was never parsed, so JS honored it only via
           // child.unref(): the child stayed in the parent's process group and
           // session, so process.kill(-pid) missed it and terminal SIGINT still
           // reached it. Plumb it through and setsid() in the child below.
-          if (optsJson.find("\"detached\":true") != std::string::npos) {
+          bool detachedBool = false;
+          if (s_parseTopLevelJsonBool(optsJson, "detached", detachedBool) && detachedBool) {
             detached = true;
           }
           s_parseSpawnCredentials(optsJson, spawnUid, spawnGid);
 
-          auto stdioPos = optsJson.find("\"stdio\":");
-          if (stdioPos != std::string::npos) {
-            size_t modePos = stdioPos + 8;
-            skipJsonWhitespace(optsJson, modePos);
+          size_t modePos = 0;
+          if (s_findTopLevelJsonValue(optsJson, "stdio", modePos)) {
             if (modePos < optsJson.size()) {
               if (optsJson[modePos] == '"') {
-                auto parsed = parseJsonString(optsJson, modePos);
+                auto parsed = s_parseJsonString(optsJson, modePos);
                 auto normalized = normalizeStdioMode(parsed);
                 stdioModes[0] = normalized;
                 stdioModes[1] = normalized;
@@ -1470,11 +1495,11 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                 ++modePos;
                 int slot = 0;
                 while (modePos < optsJson.size()) {
-                  skipJsonWhitespace(optsJson, modePos);
+                  s_skipJsonWhitespace(optsJson, modePos);
                   if (modePos >= optsJson.size() || optsJson[modePos] == ']') break;
                   std::string parsed;
                   if (optsJson[modePos] == '"') {
-                    parsed = parseJsonString(optsJson, modePos);
+                    parsed = s_parseJsonString(optsJson, modePos);
                   } else {
                     if (optsJson.compare(modePos, 4, "null") == 0) {
                       modePos += 4;
@@ -1492,7 +1517,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
                     stdioModes.push_back(normalizeStdioMode(parsed));
                   }
                   slot++;
-                  skipJsonWhitespace(optsJson, modePos);
+                  s_skipJsonWhitespace(optsJson, modePos);
                   if (modePos < optsJson.size() && optsJson[modePos] == ',') {
                     modePos++;
                   }
