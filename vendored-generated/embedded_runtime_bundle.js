@@ -3287,7 +3287,7 @@ init_defineProperty();let _Symbol$iterator,_Symbol$for,_Symbol$toStringTag$2;_Sy
 		*/;_proto83.getgroups=function getgroups(){return[this._gid];}/**
 		* Send a signal to a process.
 		* Validates signal names/numbers per Node.js behavior.
-		*/;_proto83.kill=function kill(pid,signal){const normalizedPid=normalizeProcessId(pid);const normalizedSignal=normalizeSignal(signal);this._kill.call(this,normalizedPid,normalizedSignal);return true;};_proto83._kill=function _kill(pid,signalNumber){if(_nativeProcessKill)try{_nativeProcessKill(pid,signalNumber);return true;}catch{}if(pid===this.pid)return true;const e=/* @__PURE__ */new Error("kill ESRCH");e.code="ESRCH";e.errno=-3;e.syscall="kill";throw e;}/**
+		*/;_proto83.kill=function kill(pid,signal){const normalizedPid=normalizeProcessId(pid);const normalizedSignal=normalizeSignal(signal);this._kill.call(this,normalizedPid,normalizedSignal);return true;};_proto83._kill=function _kill(pid,signalNumber){if(_nativeProcessKill)try{_nativeProcessKill(pid,signalNumber);return true;}catch(e){if(String(e&&e.message||e||"").indexOf("process:signal")!==-1)throw e;}if(pid===this.pid)return true;const e=/* @__PURE__ */new Error("kill ESRCH");e.code="ESRCH";e.errno=-3;e.syscall="kill";throw e;}/**
 		* Returns the current working directory.
 		* In mobile context, this is the app's documents directory.
 		*/;_proto83.cwd=function cwd(){if(_processCwd&&_processCwd!=="/")return _processCwd;const nativeCwd=_readNativeCwd();if(nativeCwd){_processCwd=nativeCwd;return _processCwd;}if(!_processCwd||_processCwd==="/")_processCwd="/";return _processCwd;}/**

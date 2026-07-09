@@ -693,6 +693,13 @@ void installProcessSetup(ExactHermesRuntime* handle) {
             }
           }
         }
+        // @ref LLP 0013#policy — process.kill crosses the host process boundary;
+        // require the canonical signal capability before any kill(2) syscall.
+        if (!checkCapability("process:signal")) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "Permission denied: process:signal capability required");
+        }
         int result = kill(targetPid, sig);
         if (result != 0) {
           throw facebook::jsi::JSError(runtime, std::string("kill failed: ") + strerror(errno));

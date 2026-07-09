@@ -1862,7 +1862,13 @@ class Process {
       try {
         _nativeProcessKill(pid, signalNumber);
         return true;
-      } catch {
+      } catch (e) {
+        const message = String((e && (e as any).message) || e || '');
+        // @ref LLP 0013#policy — a native process:signal denial is the policy
+        // decision; do not fall through to the self-pid compatibility fallback.
+        if (message.indexOf('process:signal') !== -1) {
+          throw e;
+        }
         // Fall through to manual handling if native kill fails (e.g. sandbox)
       }
     }
