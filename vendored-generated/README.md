@@ -26,6 +26,11 @@ snapshot from the generated `OUT_DIR` artifacts.
   `OUT_DIR/runtime_bundle_source.h` (C++ raw-string literal) and compiles it to
   `OUT_DIR/runtime_bundle_bytecode.h` via the configured `hermesc`.
 
+- `source-fingerprint.generated.txt`
+  A deterministic fingerprint of the authored/generated JS and TypeScript
+  sources embedded by the snapshot. `build.rs` compares it without invoking
+  bun, so checkout/touch mtimes cannot create false stale-artifact warnings.
+
 ## NOT vendored (regenerated at build time from sources already in this repo)
 
 - `bootstrap_source.h` / `bootstrap_bytecode.h` and the per-file `*.hbc`

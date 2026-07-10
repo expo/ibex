@@ -36,6 +36,9 @@ if ! bun run generate:modules --check >/dev/null 2>&1; then
   # one check covers both the JS helper and the Rust builtin manifest.
   stale+=("vendored-generated/builtin_manifest.generated.rs" "src/builtins/helpers/runtime-module-manifest.cjs")
 fi
+if ! bun run generate:vendored-fingerprint --check >/dev/null 2>&1; then
+  stale+=("vendored-generated/source-fingerprint.generated.txt")
+fi
 
 # --- bundle builders (write to scratch, diff against committed) -------------
 bun run build:builtins --out-dir "$scratch/builtins" >/dev/null 2>&1

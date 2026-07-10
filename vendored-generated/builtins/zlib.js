@@ -177,7 +177,7 @@ function inflateSync(data, options) {
 	try {
 		result = toBuffer(_nativeInflateSync(bytes, 0, false, lenient ? 1 : 0, dict));
 	} catch (e) {
-		if (lenient) return toBuffer(/* @__PURE__ */ new Uint8Array(0));
+		if (lenient) return toBuffer(new Uint8Array(0));
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(result.length);
@@ -219,7 +219,7 @@ function gunzipSync(data, options) {
 				consumed = remaining.length;
 			}
 		} catch (e) {
-			if (lenient) return toBuffer(/* @__PURE__ */ new Uint8Array(0));
+			if (lenient) return toBuffer(new Uint8Array(0));
 			throw wrapInflateError(e);
 		}
 		allOutputs.push(memberResult);
@@ -256,7 +256,7 @@ function inflateRawSync(data, options) {
 	try {
 		result = toBuffer(_nativeInflateSync(bytes, 2, false, lenient ? 1 : 0, dict));
 	} catch (e) {
-		if (lenient) return toBuffer(/* @__PURE__ */ new Uint8Array(0));
+		if (lenient) return toBuffer(new Uint8Array(0));
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(result.length);
@@ -289,7 +289,7 @@ function unzipSync(data, options) {
 					consumed = remaining.length;
 				}
 			} catch (e) {
-				if (lenient) return toBuffer(/* @__PURE__ */ new Uint8Array(0));
+				if (lenient) return toBuffer(new Uint8Array(0));
 				throw wrapInflateError(e);
 			}
 			allOutputs.push(memberResult);
@@ -309,7 +309,7 @@ function unzipSync(data, options) {
 	try {
 		singleResult = toBuffer(_nativeInflateSync(bytes, 1, false, lenient ? 1 : 0));
 	} catch (e) {
-		if (lenient) return toBuffer(/* @__PURE__ */ new Uint8Array(0));
+		if (lenient) return toBuffer(new Uint8Array(0));
 		throw wrapInflateError(e);
 	}
 	checkKMaxLength(singleResult.length);
@@ -797,7 +797,7 @@ ZlibTransform.prototype._closeNativeStream = function() {
 	if (typeof __exactZlibClose === "function") __exactZlibClose(id);
 };
 ZlibTransform.prototype._pushNativeOutput = function(raw) {
-	var result = toBuffer(raw || /* @__PURE__ */ new Uint8Array(0));
+	var result = toBuffer(raw || new Uint8Array(0));
 	if (this._isDecoder) {
 		var nextLength = this._outputLength + result.length;
 		checkMaxOutputLength(nextLength, this._maxOutputLength);
@@ -1293,7 +1293,7 @@ var codes = Object.freeze({
 var _crc32Table = null;
 function _getCrc32Table() {
 	if (_crc32Table) return _crc32Table;
-	_crc32Table = /* @__PURE__ */ new Uint32Array(256);
+	_crc32Table = new Uint32Array(256);
 	for (var i = 0; i < 256; i++) {
 		var c = i;
 		for (var j = 0; j < 8; j++) if (c & 1) c = 3988292384 ^ c >>> 1;

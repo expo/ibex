@@ -86,7 +86,7 @@ function _ipcBytesToBase64(bytes) {
 		var array;
 		if (typeof ArrayBuffer !== "undefined" && bytes instanceof ArrayBuffer) array = new Uint8Array(bytes);
 		else if (typeof ArrayBuffer !== "undefined" && ArrayBuffer.isView && ArrayBuffer.isView(bytes)) array = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-		else array = /* @__PURE__ */ new Uint8Array(0);
+		else array = new Uint8Array(0);
 		var binary = "";
 		for (var i = 0; i < array.length; i++) binary += String.fromCharCode(array[i]);
 		return btoa(binary);
@@ -107,7 +107,7 @@ function _ipcBase64ToByteArray(base64) {
 		for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 255;
 		return bytes;
 	}
-	return /* @__PURE__ */ new Uint8Array(0);
+	return new Uint8Array(0);
 }
 function _ipcAdvancedTag(type) {
 	return {
@@ -1844,7 +1844,7 @@ function _bytesToBuffer(value) {
 	return value;
 }
 function _toByteArray(data) {
-	if (data == null) return /* @__PURE__ */ new Uint8Array(0);
+	if (data == null) return new Uint8Array(0);
 	var B = _childProcessBufferCtor();
 	if (B && typeof B.isBuffer === "function" && B.isBuffer(data)) return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
 	if (typeof data === "string") {

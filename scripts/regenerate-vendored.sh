@@ -2,7 +2,7 @@
 # Regenerate every committed generated artifact from its source authority.
 # @ref LLP 0017#2-add-one-regenerate-command-and-one-drift-check — one command
 # so an agent editing JS/builtins/capability-bit/runtime-identity sources does
-# not have to remember which of the five generators to run.
+# not have to remember each generator and fingerprint step.
 #
 # This is the opt-in, bun-mediated regeneration path. Per LLP 0005/0006 it is
 # NOT part of the hermetic `cargo build`; the full build.rs-mediated refresh is
@@ -30,5 +30,6 @@ bun run generate:modules
 bun run generate:modules --check
 bun run build:builtins
 bun run build:runtime
+bun run generate:vendored-fingerprint
 
 echo "Regenerated vendored artifacts. Review with: git status vendored-generated/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2

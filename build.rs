@@ -481,11 +481,11 @@ fn main() {
         emit_rerun_for_tree(&manifest_dir.join("src").join("identity_generated.rs"));
 
         // Replaces the old always-on "using vendored generated artifacts"
-        // warning: fire a loud signal ONLY when a source is actually newer than
-        // its embedded output, so agents/humans do not learn to ignore a warning
-        // that prints on every build. Fatal under IBEX_FAIL_ON_STALE_VENDORED
-        // (set by scripts/run-tests.sh) so an agent's verification exits nonzero
-        // rather than testing stale bytes.
+        // warning: fire a loud signal ONLY when the source fingerprint differs
+        // from the committed snapshot. Unlike mtimes, this stays correct across
+        // checkouts and Exact's cargo re-fingerprinting touches. Fatal under
+        // IBEX_FAIL_ON_STALE_VENDORED (set by scripts/run-tests.sh) so an agent's
+        // verification exits nonzero rather than testing stale bytes.
         if let Some(why) = vendored_generated_stale(&manifest_dir, &vendored_generated_dir) {
             let hint = "run `IBEX_REGENERATE_RUNTIME=1 cargo …` (iterate) or \
                         `bun run regenerate:vendored` + `bun run check:drift` (commit)";
@@ -1507,40 +1507,36 @@ fn emit_rerun_for_tree(path: &Path) {
     }
 }
 
-/// Newest modification time under `path` (recursing into directories, skipping
-/// node_modules), or None if the path does not exist. Used to detect when a
-/// generated *source* is newer than its committed generated *output*.
-/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
-fn newest_mtime(path: &Path) -> Option<std::time::SystemTime> {
-    let meta = std::fs::symlink_metadata(path).ok()?;
-    if meta.file_type().is_dir() {
-        let mut newest: Option<std::time::SystemTime> = None;
-        for entry in std::fs::read_dir(path).ok()?.flatten() {
+fn collect_fingerprint_files(path: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
             if entry.file_name() == "node_modules" {
                 continue;
             }
-            if let Some(t) = newest_mtime(&entry.path()) {
-                newest = Some(match newest {
-                    Some(cur) if cur >= t => cur,
-                    _ => t,
-                });
-            }
+            collect_fingerprint_files(&entry.path(), files)?;
         }
-        newest
-    } else {
-        meta.modified().ok()
+    } else if metadata.file_type().is_file() {
+        files.push(path.to_path_buf());
+    }
+    Ok(())
+}
+
+fn update_fnv1a(hash: &mut u64, bytes: &[u8]) {
+    const FNV_PRIME: u64 = 1_099_511_628_211;
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(FNV_PRIME);
     }
 }
 
-/// If any generated *source* (the JS/TS you edit) is newer than every committed
-/// generated *output* it feeds, return a human description of the staleness;
-/// otherwise None. mtime-based and cheap — no bun/node, no network. Compares the
-/// newest source against the newest output so a fresh checkout (all mtimes ≈
-/// equal) does not read as stale, while a real post-checkout edit does.
-/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
-fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) -> Option<String> {
-    // Sources that regeneration consumes.
-    let sources = [
+/// Hash the exact source trees covered by the original LLP 0018 stale gate.
+/// Paths are checkout-relative and slash-normalized so the committed value is
+/// portable across platforms. FNV-1a is used as a compact drift checksum, not
+/// as a security boundary.
+fn vendored_source_fingerprint(manifest_dir: &Path) -> std::io::Result<String> {
+    let roots = [
         manifest_dir.join("src").join("builtins"),
         manifest_dir
             .join("packages")
@@ -1548,31 +1544,75 @@ fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) 
             .join("src"),
         manifest_dir.join("modules.ts"),
     ];
-    // Committed outputs those sources are embedded into (mirrors the
-    // input/output pairs scripts/check-generated-drift.sh tracks).
-    let outputs = [
-        vendored_generated_dir.join("builtins"),
-        vendored_generated_dir.join("embedded_runtime_bundle.js"),
-        vendored_generated_dir.join("builtin_manifest.generated.rs"),
-        manifest_dir.join("src").join("identity_generated.rs"),
-    ];
-
-    let newest_source = sources.iter().filter_map(|p| newest_mtime(p)).max()?;
-    let newest_output = outputs.iter().filter_map(|p| newest_mtime(p)).max()?;
-
-    if newest_source > newest_output {
-        Some(format!(
-            "a generated source under {} is newer than the committed output under {}",
-            sources
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(" / "),
-            vendored_generated_dir.display()
-        ))
-    } else {
-        None
+    let mut files = Vec::new();
+    for root in roots {
+        collect_fingerprint_files(&root, &mut files)?;
     }
+    files.sort_by_key(|path| {
+        path.strip_prefix(manifest_dir)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    });
+
+    let mut hash = 14_695_981_039_346_656_037_u64;
+    for file in files {
+        let relative = file
+            .strip_prefix(manifest_dir)
+            .unwrap_or(&file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        update_fnv1a(&mut hash, relative.as_bytes());
+        update_fnv1a(&mut hash, &[0]);
+        update_fnv1a(&mut hash, &std::fs::read(file)?);
+        update_fnv1a(&mut hash, &[0xff]);
+    }
+    Ok(format!("{hash:016x}"))
+}
+
+/// If the generated-source fingerprint differs from the one committed with the
+/// vendored snapshot, return a human description of the staleness; otherwise
+/// None. This is content-based and cheap — no bun/node, no network, and no mtime
+/// false positives after checkout or build-system `touch` operations.
+/// @ref LLP 0018#5-make-the-dev-build-loud-when-vendored-generated-is-stale
+fn vendored_generated_stale(manifest_dir: &Path, vendored_generated_dir: &Path) -> Option<String> {
+    let fingerprint_path = vendored_generated_dir.join("source-fingerprint.generated.txt");
+    let committed_contents = match std::fs::read_to_string(&fingerprint_path) {
+        Ok(contents) => contents,
+        Err(error) => {
+            return Some(format!(
+                "the committed source fingerprint at {} cannot be read: {error}",
+                fingerprint_path.display()
+            ))
+        }
+    };
+    let committed = match committed_contents
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+    {
+        Some(fingerprint) => fingerprint,
+        None => {
+            return Some(format!(
+                "the committed source fingerprint at {} is malformed",
+                fingerprint_path.display()
+            ))
+        }
+    };
+    let current = match vendored_source_fingerprint(manifest_dir) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            return Some(format!(
+                "generated sources cannot be fingerprinted: {error}"
+            ))
+        }
+    };
+    (current != committed).then(|| {
+        format!(
+            "generated source content differs from the fingerprint committed at {}",
+            fingerprint_path.display()
+        )
+    })
 }
 
 fn generate_builtin_manifest(

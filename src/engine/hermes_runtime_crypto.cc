@@ -194,6 +194,8 @@ CFRefPtr<T> adoptCF(T ptr) {
 // from the signature on verify (RSA_PSS_SALTLEN_MAX_SIGN / RSA_PSS_SALTLEN_AUTO,
 // ENG-23129). Both are optional so legacy 3/4-argument callers keep PKCS#1 v1.5
 // behavior.
+#if (defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)) || \
+    (!defined(__APPLE__) && !defined(EXACT_NO_OPENSSL))
 static void parseRsaSignScheme(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value* args,
@@ -213,6 +215,7 @@ static void parseRsaSignScheme(
     saltLen = static_cast<int>(args[saltIndex].asNumber());
   }
 }
+#endif
 
 #if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
 // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles

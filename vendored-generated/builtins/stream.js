@@ -231,7 +231,7 @@ function _normalizeAwaitDrainWriters(readableState) {
 			return current;
 		}
 		if (!(current instanceof Set)) {
-			current = /* @__PURE__ */ new Set([current]);
+			current = new Set([current]);
 			readableState.awaitDrainWriters = current;
 		}
 		return current;
@@ -260,7 +260,7 @@ function _addAwaitDrainWriter(readableState, writer) {
 	}
 	if (!(current instanceof Set)) {
 		if (current === writer) return;
-		current = /* @__PURE__ */ new Set([current]);
+		current = new Set([current]);
 		readableState.awaitDrainWriters = current;
 		_clearAwaitDrainSizeAccessor(current, readableState);
 	}
@@ -5703,7 +5703,7 @@ function _abortErrorFromSignal() {
 	return _createAbortError();
 }
 function _toConsumerBufferChunk(chunk) {
-	if (chunk == null) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
+	if (chunk == null) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
 	if (typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(chunk)) return chunk;
 	if (typeof chunk === "string") return typeof Buffer !== "undefined" ? Buffer.from(chunk) : new TextEncoder().encode(chunk);
 	if (chunk instanceof ArrayBuffer) return new Uint8Array(chunk);
@@ -5711,7 +5711,7 @@ function _toConsumerBufferChunk(chunk) {
 	return typeof Buffer !== "undefined" ? Buffer.from(String(chunk)) : new TextEncoder().encode(String(chunk));
 }
 function _toConsumerBuffer(chunks) {
-	if (!chunks || chunks.length === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : /* @__PURE__ */ new Uint8Array(0);
+	if (!chunks || chunks.length === 0) return typeof Buffer !== "undefined" ? Buffer.alloc(0) : new Uint8Array(0);
 	var normalized = [];
 	var totalLen = 0;
 	for (var i = 0; i < chunks.length; i++) {

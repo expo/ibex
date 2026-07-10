@@ -9,9 +9,9 @@
 # wrapper sums the reported test counts and exits nonzero when zero tests ran.
 #
 # It also exports IBEX_FAIL_ON_STALE_VENDORED=1 so build.rs fails the run when an
-# edited src/builtins/*.js (or other generated source) is newer than its embedded
-# vendored-generated output — closing the "green build over stale bytes" gap
-# (LLP 0018 item 5).
+# edited src/builtins/*.js (or other generated source) differs from the source
+# fingerprint committed with its vendored output — closing the "green build over
+# stale bytes" gap without relying on checkout mtimes (LLP 0018 item 5).
 #
 # Usage: scripts/run-tests.sh [--scope lib|bin|test|all] [--test NAME] [--allow-zero]
 #                             [--features LIST] [FILTER]

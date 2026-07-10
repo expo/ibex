@@ -178,7 +178,7 @@ function _installReadableStdinFallback(proc) {
 		}
 		if (typeof TextDecoder === "function") try {
 			if (!stream._decoder) stream._decoder = new TextDecoder(stream._encoding === "utf8" ? "utf-8" : stream._encoding);
-			return stream._decoder.decode(bytes || /* @__PURE__ */ new Uint8Array(0), { stream: !flush });
+			return stream._decoder.decode(bytes || new Uint8Array(0), { stream: !flush });
 		} catch (_) {
 			stream._decoder = null;
 		}
@@ -194,7 +194,7 @@ function _installReadableStdinFallback(proc) {
 	}
 	function flushStdinDecoder() {
 		if (!stream._encoding || !stream._decoder || typeof stream.emit !== "function") return;
-		var tail = stdinChunk(/* @__PURE__ */ new Uint8Array(0), true);
+		var tail = stdinChunk(new Uint8Array(0), true);
 		if (!tail) return;
 		stream.readableLength += tail.length || 0;
 		stream.emit("data", tail);

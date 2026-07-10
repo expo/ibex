@@ -3342,8 +3342,8 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   // Node/libuv fire coalesced due timers by deadline first, then insertion id.
   std::sort(due.begin(), due.end());
 
-  for (auto [deadline, id] : due) {
-    (void)deadline;
+  for (const auto& due_timer : due) {
+    const uint64_t id = due_timer.second;
     auto it = runtime->timers.find(id);
     if (it == runtime->timers.end()) {
       continue;
