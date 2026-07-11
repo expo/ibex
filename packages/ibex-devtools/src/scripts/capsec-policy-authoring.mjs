@@ -159,6 +159,10 @@ export function classifyPolicyDrift(before, after) {
   const newKeys = new Set(newRows.map((row) => row.rendered));
   const removed = oldRows.filter((row) => !newKeys.has(row.rendered));
   const added = newRows.filter((row) => !oldKeys.has(row.rendered));
+  const importRows = (policy) => new Set(policy.principals.flatMap((principal) =>
+    principal.imports.builtins.map((builtin) => `${principal.principal.locator}: import ${builtin}`)));
+  const oldImports = importRows(before);
+  const newImports = importRows(after);
   const context = { sameSnapshot: true, samePackageRootOwner: true };
   const isContained = (parent, child) =>
     parent.principal === child.principal &&
@@ -170,10 +174,12 @@ export function classifyPolicyDrift(before, after) {
     expansions: added
       .filter((row) => !removed.some((oldRow) => isContained(oldRow, row)))
       .map((row) => row.rendered)
+      .concat([...newImports].filter((row) => !oldImports.has(row)))
       .sort(),
     narrowings: removed
       .filter((row) => !added.some((newRow) => isContained(newRow, row)))
       .map((row) => row.rendered)
+      .concat([...oldImports].filter((row) => !newImports.has(row)))
       .sort(),
   };
 }

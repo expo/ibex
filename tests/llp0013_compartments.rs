@@ -520,7 +520,7 @@ fn generated_policy_endows_granted_package_and_contains_the_rest() {
             "--lockdown",
             "--capsec-allow-advisory",
             "--policy",
-            dir.join("ibex-policy.json").to_str().unwrap(),
+            dir.join("runtime-policy.json").to_str().unwrap(),
             "run",
             dir.join("app.mjs").to_str().unwrap(),
         ],
@@ -727,27 +727,27 @@ fn generated_policy_keeps_delegation_version_local() {
     );
     let artifact: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
-    let packages = artifact
-        .get("packages")
-        .and_then(|p| p.as_object())
-        .expect("packages object");
+    let principals = artifact["principals"].as_array().expect("principals array");
     // No helper-pkg selector (bare or identity) may carry a capability.
-    for key in ["helper-pkg", "helper-pkg@1.0.0"] {
-        let entry = packages
-            .get(key)
+    for key in ["helper-pkg@1.0.0"] {
+        let entry = principals
+            .iter()
+            .find(|entry| entry["principal"]["locator"] == key)
             .unwrap_or_else(|| panic!("expected {key} in the analyzed graph"));
         assert!(
-            entry.get("capabilities").is_none(),
+            entry["floor"].as_array().is_some_and(Vec::is_empty),
             "cross-version delegation leak: {key} received a capability:\n{}",
             serde_json::to_string_pretty(&artifact).unwrap()
         );
     }
     // The app-wide import-site grant still reaches shared-pkg under the bare name.
     assert!(
-        packages
-            .get("shared-pkg")
-            .and_then(|e| e.get("capabilities"))
-            .is_some(),
+        principals
+            .iter()
+            .any(|entry| entry["principal"]["locator"] == "shared-pkg@2.0.0"
+                && entry["floor"]
+                    .as_array()
+                    .is_some_and(|rows| !rows.is_empty())),
         "the import-site grant on shared-pkg must survive:\n{}",
         serde_json::to_string_pretty(&artifact).unwrap()
     );
@@ -766,7 +766,7 @@ fn policy_check_reports_capability_expansion_on_drift() {
     let app = dir.join("app.mjs");
     let source = std::fs::read_to_string(&app).unwrap().replace(
         "import steal from \"evil-pkg\";",
-        "import steal from \"evil-pkg\" with { grants: \"network:fetch\" };",
+        "import steal from \"evil-pkg\" with { authorities: \"[{\\\"cap\\\":\\\"network:fetch\\\",\\\"resource\\\":{\\\"kind\\\":\\\"fetch-endpoint\\\",\\\"schemes\\\":[\\\"https\\\"],\\\"host\\\":{\\\"kind\\\":\\\"dns-name\\\",\\\"name\\\":\\\"example.com\\\"},\\\"port\\\":{\\\"kind\\\":\\\"exact\\\",\\\"value\\\":443},\\\"peerClasses\\\":[\\\"public\\\"],\\\"route\\\":{\\\"kind\\\":\\\"direct\\\"}}}]\" };",
     );
     std::fs::write(&app, source).unwrap();
     let out = run_ibex(
@@ -781,7 +781,7 @@ fn policy_check_reports_capability_expansion_on_drift() {
         out.stderr
     );
     assert!(
-        out.stderr.contains("evil-pkg: network:fetch"),
+        out.stderr.contains("network:fetch"),
         "the expanded grant should be named:\n{}",
         out.stderr
     );
@@ -805,7 +805,7 @@ fn generated_policy_closes_builtins_axis() {
         return;
     }
     let dir = fixtures_dir().join("generated-builtins");
-    let policy = dir.join("ibex-policy.json");
+    let policy = dir.join("runtime-policy.json");
     let out = run_ibex(
         &[
             "--capsec",
@@ -1046,13 +1046,21 @@ exports.platform = os.platform();
     );
     let artifact: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
-    let packages = artifact["packages"]
-        .as_object()
-        .expect("generated artifact packages object");
-    let old_builtins = packages["shared-pkg@1.0.0"]["builtins"]
+    let principals = artifact["principals"]
+        .as_array()
+        .expect("generated principals array");
+    let old = principals
+        .iter()
+        .find(|entry| entry["principal"]["locator"] == "shared-pkg@1.0.0")
+        .unwrap();
+    let top = principals
+        .iter()
+        .find(|entry| entry["principal"]["locator"] == "shared-pkg@2.0.0")
+        .unwrap();
+    let old_builtins = old["imports"]["builtins"]
         .as_array()
         .expect("old shared-pkg builtins array");
-    let top_builtins = packages["shared-pkg@2.0.0"]["builtins"]
+    let top_builtins = top["imports"]["builtins"]
         .as_array()
         .expect("top shared-pkg builtins array");
     assert!(

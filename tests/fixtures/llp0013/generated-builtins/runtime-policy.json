@@ -1,0 +1,9 @@
+{
+  "mode": "enforce",
+  "packages": {
+    "os-user": { "builtins": [] },
+    "os-user@1.0.0": { "builtins": ["node:os"] },
+    "sneaky-os": { "builtins": [] },
+    "sneaky-os@1.0.0": { "builtins": [] }
+  }
+}

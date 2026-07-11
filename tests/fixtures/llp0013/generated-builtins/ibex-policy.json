@@ -1,25 +1,45 @@
 {
-  "generated": {
-    "version": 1,
-    "tool": "generate-policy.mjs",
-    "entry": "app.mjs"
-  },
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-8zA3ZAVN8MSOprmwO814tmTrTYccExWfJYp-dY4Y8Uo",
+  "policyDigest": "sha256-DUVeeRlmYdmuU2m0rSwFrzj7yWQNhPXox6F447dq-xw",
+  "purpose": "production",
   "mode": "enforce",
-  "packages": {
-    "os-user": {
-      "builtins": []
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "os-user",
+        "integrity": "sha256-qGp9nlG6e0VXg8fCX2GIL57-Mev3wnswGvJEEf4pmfI",
+        "locator": "os-user@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [
+          "node:os"
+        ],
+        "packages": []
+      },
+      "endowments": []
     },
-    "os-user@1.0.0": {
-      "builtins": [
-        "node:os"
-      ]
-    },
-    "sneaky-os": {
-      "builtins": []
-    },
-    "sneaky-os@1.0.0": {
-      "builtins": []
+    {
+      "principal": {
+        "kind": "package",
+        "name": "sneaky-os",
+        "integrity": "sha256-zmab0DTfaQ-3uk0mRJDnZHt9ak3zj_CT4J0XaXc_Ekg",
+        "locator": "sneaky-os@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
     }
-  },
-  "provenance": {}
+  ]
 }

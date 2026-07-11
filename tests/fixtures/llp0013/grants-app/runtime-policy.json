@@ -1,0 +1,17 @@
+{
+  "mode": "enforce",
+  "packages": {
+    "env-reader": { "capabilities": ["env:read:SECRET_TOKEN"], "endow": ["process"], "builtins": [] },
+    "env-reader@1.0.0": { "builtins": [] },
+    "evil-pkg": { "builtins": [] },
+    "evil-pkg@1.0.0": { "builtins": [] },
+    "fast-codec": { "builtins": [] },
+    "fast-codec@1.0.0": { "capabilities": ["fs:read:/tmp/ibex-llp0013/**"], "builtins": [] },
+    "image-lib": { "capabilities": ["fs:read:/tmp/ibex-llp0013/**"], "builtins": [] },
+    "image-lib@1.0.0": { "builtins": [] },
+    "sneaky-helper": { "builtins": [] },
+    "sneaky-helper@1.0.0": { "builtins": [] },
+    "sneaky-pkg": { "builtins": [] },
+    "sneaky-pkg@1.0.0": { "builtins": [] }
+  }
+}
