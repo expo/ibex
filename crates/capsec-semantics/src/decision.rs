@@ -247,6 +247,46 @@ pub struct Decision {
     pub evidence: Vec<DecisionEvidence>,
 }
 
+/// Complete evidence envelope emitted by an immutable decision context. It
+/// keeps actor, effect owner, constrained principals, stage, authority source,
+/// loaded semantic identity, and generations distinct instead of flattening
+/// them into one ambient package label.
+/// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StructuredDecisionEvidence {
+    pub identity: SemanticIdentity,
+    pub generations: GenerationSet,
+    pub operation_id: NonEmptyString,
+    pub stage: crate::model::Stage,
+    pub actor: Principal,
+    pub effect_owners: Vec<Principal>,
+    pub constrained_principals: Vec<Principal>,
+    pub outcome: DecisionOutcome,
+    pub evidence: Vec<DecisionEvidence>,
+}
+
+pub fn structure_decision_evidence(
+    context: &VerifiedDecisionContext,
+    set: &DecisionSet,
+    decision: &Decision,
+) -> StructuredDecisionEvidence {
+    StructuredDecisionEvidence {
+        identity: context.identity.clone(),
+        generations: context.authority.generations,
+        operation_id: set.operation_id.clone(),
+        stage: set.context.stage,
+        actor: set.context.actor.clone(),
+        effect_owners: set
+            .effects
+            .iter()
+            .map(|effect| effect.effect_owner.clone())
+            .collect(),
+        constrained_principals: set.context.constrained_principals.clone(),
+        outcome: decision.outcome,
+        evidence: decision.evidence.clone(),
+    }
+}
+
 #[derive(Clone, Debug)]
 struct PendingPrincipal {
     effect_index: usize,
@@ -401,23 +441,21 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
             ));
         }
         for principal in &occurrence.constrained_principals {
-            if first_matching_authority(
+            if let Some(denial) = first_matching_authority(
                 &context.authority.protected_resources,
                 occurrence,
                 principal,
                 &context.identity.armed_snapshot_digest,
                 AuthorityPolarity::Denial,
                 classifier,
-            )?
-            .is_some()
-            {
+            )? {
                 return Ok(hard_decision(
                     DecisionOutcome::Deny,
                     DecisionStratumId::ProtectedResourceGuards,
                     effect_index,
                     Some(principal.clone()),
                     DecisionReason::ProtectedResource,
-                    None,
+                    Some(denial.source_id.as_str().to_owned()),
                 ));
             }
         }
@@ -454,23 +492,21 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
                 .get(principal)
                 .map(|policy| policy.denials.as_slice())
                 .unwrap_or_default();
-            if first_matching_authority(
+            if let Some(denial) = first_matching_authority(
                 denials,
                 occurrence,
                 principal,
                 &context.identity.armed_snapshot_digest,
                 AuthorityPolarity::Denial,
                 classifier,
-            )?
-            .is_some()
-            {
+            )? {
                 return Ok(hard_decision(
                     DecisionOutcome::Deny,
                     DecisionStratumId::PrincipalDenial,
                     effect_index,
                     Some(principal.clone()),
                     DecisionReason::PrincipalDenial,
-                    None,
+                    Some(denial.source_id.as_str().to_owned()),
                 ));
             }
         }
@@ -1298,9 +1334,11 @@ mod tests {
                 ..PrincipalPolicy::default()
             },
         );
+        let context = arm(state).unwrap();
+        let set = set_from(&occurrence);
         let decision = evaluate_decision_set(
-            &arm(state).unwrap(),
-            &set_from(&occurrence),
+            &context,
+            &set,
             &[gate()],
             Workflow::ProductionEnforce,
             &classifier,
@@ -1308,6 +1346,16 @@ mod tests {
         .unwrap();
         assert_eq!(decision.outcome, DecisionOutcome::Deny);
         assert_eq!(decision.evidence[0].reason, DecisionReason::PrincipalDenial);
+        let structured = structure_decision_evidence(&context, &set, &decision);
+        assert_eq!(structured.identity, *context.identity());
+        assert_eq!(structured.stage, occurrence.stage);
+        assert_eq!(structured.actor, occurrence.actor);
+        assert_eq!(structured.effect_owners, vec![occurrence.effect_owner]);
+        assert_eq!(
+            structured.constrained_principals,
+            occurrence.constrained_principals
+        );
+        assert_eq!(structured.evidence[0].source_id.as_deref(), Some("deny"));
     }
 
     #[test]
