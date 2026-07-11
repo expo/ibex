@@ -866,8 +866,9 @@ bool runtimeIsAlive(ExactHermesRuntime* runtime) {
 
 extern "C" void ex_hermes_notify_callback();
 
-bool pushRuntimeCallback(ExactHermesRuntime* runtime,
-                          std::function<void(facebook::jsi::Runtime&)> fn) {
+void pushRuntimeCallback(ExactHermesRuntime* runtime,
+                         std::function<void(facebook::jsi::Runtime&)> fn,
+                         bool* accepted) {
     {
         // ENG-22925: pin the runtime across the liveness check AND the enqueue.
         // ex_hermes_destroy holds g_runtimeRegistryMutex across the delete, so
@@ -895,7 +896,8 @@ bool pushRuntimeCallback(ExactHermesRuntime* runtime,
             // either. The leak is bounded by the async work in flight at
             // teardown; the runtime is being torn down regardless.
             (void)new std::function<void(facebook::jsi::Runtime&)>(std::move(fn));
-            return false;
+            if (accepted) *accepted = false;
+            return;
         }
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(std::move(fn));
@@ -905,7 +907,7 @@ bool pushRuntimeCallback(ExactHermesRuntime* runtime,
     // ex_hermes_callback_backlog (which takes callbackMutex) — notifying under
     // either mutex inverts that order and deadlocks the two threads (19a3412).
     ex_hermes_notify_callback();
-    return true;
+    if (accepted) *accepted = true;
 }
 
 namespace {

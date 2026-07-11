@@ -748,7 +748,8 @@ static facebook::jsi::Value startFsAsync(
               auto resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
-              bool delivered = pushRuntimeCallback(
+              bool delivered = false;
+              pushRuntimeCallback(
                   handle,
                   [handle, principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
@@ -785,7 +786,7 @@ static facebook::jsi::Value startFsAsync(
                       }
                     } catch (...) {
                     }
-                  });
+                  }, &delivered);
               if (!delivered && resultPtr->ok && resultPtr->registerOpenedFd) {
                 ::close(static_cast<int>(resultPtr->number));
                 if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;

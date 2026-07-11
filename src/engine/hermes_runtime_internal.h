@@ -803,8 +803,9 @@ void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger);
 #endif
 
-bool pushRuntimeCallback(ExactHermesRuntime* runtime,
-                         std::function<void(facebook::jsi::Runtime&)> fn);
+void pushRuntimeCallback(ExactHermesRuntime* runtime,
+                         std::function<void(facebook::jsi::Runtime&)> fn,
+                         bool* accepted = nullptr);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
