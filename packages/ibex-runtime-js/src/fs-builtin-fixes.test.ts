@@ -85,7 +85,7 @@ function writeAllToFd(fd: number, bytes: Uint8Array): void {
     off += nodeFs.writeSync(fd, bytes, off, bytes.length - off, null);
   }
 }
-const asyncNativeCalls = { readv: 0, writev: 0, fd: [] as string[], open: 0, close: 0 };
+const asyncNativeCalls = { readv: 0, writev: 0, fd: [] as string[], open: 0, close: 0, stat: 0 };
 const pathAsyncCalls: Record<string, number> = {};
 function bufferLikeLength(value: any): number {
   return typeof value?.byteLength === 'number' ? value.byteLength : (value?.length ?? 0);
@@ -241,6 +241,13 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
       case 'utime':
         nodeFs.utimesSync(a, x ?? Date.now() / 1000, y ?? Date.now() / 1000);
         return Promise.resolve(undefined);
+      case 'lutime':
+        nodeFs.lutimesSync(a, x ?? Date.now() / 1000, y ?? Date.now() / 1000);
+        return Promise.resolve(undefined);
+      case 'lchmod':
+        if (typeof (nodeFs as any).lchmodSync !== 'function') throw Object.assign(new Error('ENOSYS'), { code: 'ENOSYS' });
+        (nodeFs as any).lchmodSync(a, x ?? 0o666);
+        return Promise.resolve(undefined);
       case 'statfs':
         return Promise.resolve(JSON.stringify({ type: 0, bsize: 4096, blocks: 1, bfree: 1, bavail: 1, files: 1, ffree: 1 }));
       default:
@@ -251,6 +258,7 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
   }
 };
 g.__exactFsStatAsync = (target: string | number, kind: string) => {
+  asyncNativeCalls.stat += 1;
   try {
     if (kind === 'fstat') return Promise.resolve(statJson(nodeFs.fstatSync(target as number)));
     if (kind === 'lstat') return Promise.resolve(statJson(nodeFs.lstatSync(target as string)));
@@ -658,5 +666,38 @@ describe('descriptor async fs native (ENG-23541)', () => {
     await fh.close();
     expect(asyncNativeCalls.open).toBe(2);
     expect(asyncNativeCalls.close).toBe(2);
+  });
+});
+
+describe('async traversal fs APIs (ENG-23541)', () => {
+  test('cp, glob, and rm compose worker-backed primitives', async () => {
+    const src = nodePath.join(dir, 'traverse-src');
+    const dst = nodePath.join(dir, 'traverse-dst');
+    nodeFs.mkdirSync(nodePath.join(src, 'sub'), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(src, 'sub', 'leaf.txt'), 'leaf');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+    asyncNativeCalls.stat = 0;
+    await fs.promises.cp(src, dst, { recursive: true });
+    const found: string[] = [];
+    for await (const item of fs.promises.glob('**/*.txt', { cwd: dst })) found.push(item);
+    expect(found).toEqual(['sub/leaf.txt']);
+    await fs.promises.rm(dst, { recursive: true, force: true });
+    expect(nodeFs.existsSync(dst)).toBe(false);
+    expect(pathAsyncCalls.readdir).toBeGreaterThanOrEqual(3);
+    expect(pathAsyncCalls.copyfile).toBeGreaterThanOrEqual(1);
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(3);
+  });
+
+  test('watchFile polling uses async stat native', async () => {
+    const p = nodePath.join(dir, 'watch-async.txt');
+    nodeFs.writeFileSync(p, 'a'); asyncNativeCalls.stat = 0;
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => { fs.unwatchFile(p); reject(new Error('watch timeout')); }, 1000);
+      fs.watchFile(p, { interval: 10 }, () => {
+        clearTimeout(timeout); fs.unwatchFile(p); resolve();
+      });
+      setTimeout(() => nodeFs.writeFileSync(p, 'bb'), 30);
+    });
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
   });
 });

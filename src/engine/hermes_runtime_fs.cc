@@ -1212,11 +1212,24 @@ static FsAsyncResult fsPathOpWork(
     }
     return fsAsyncOk();
   }
+  if (op == "lchmod") {
+#if defined(__APPLE__)
+    if (::lchmod(a.c_str(), static_cast<mode_t>(x)) != 0) return fsAsyncError(errno, "lchmod", a);
+    return fsAsyncOk();
+#else
+    return fsAsyncError(ENOSYS, "lchmod", a);
+#endif
+  }
   if (op == "utime") {
     struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
     if (::utimes(a.c_str(), times) != 0) {
       return fsAsyncError(errno, "utime", a);
     }
+    return fsAsyncOk();
+  }
+  if (op == "lutime") {
+    struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
+    if (::lutimes(a.c_str(), times) != 0) return fsAsyncError(errno, "lutimes", a);
     return fsAsyncOk();
   }
   if (op == "statfs") {
@@ -3183,7 +3196,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           if (!checkCapability("fs:write:" + a)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
-        } else if (op == "lchown") {
+        } else if (op == "lchown" || op == "lchmod" || op == "lutime") {
           if (!checkCapabilityNoFollowFinal("fs:write:" + a)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }

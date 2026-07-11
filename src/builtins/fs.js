@@ -2682,7 +2682,50 @@ function cpSync(src, dest, options) {
 function cp(src, dest, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   _validateCallback(cb);
-  wrapCallback(function() { cpSync(src, dest, options); }, cb, 'copyfile', _pathToString(src));
+  _deferFsPromiseCallback(_asyncCp(src, dest, options || {}), cb);
+}
+
+function _asyncCp(src, dest, options) {
+  _validatePath(src, 'src'); _validatePath(dest, 'dest');
+  var source = _pathToString(src), destination = _pathToString(dest);
+  var filter = options.filter;
+  if (filter !== undefined && typeof filter !== 'function') throw _fsInvalidArgType('filter', 'function', filter);
+  function allowed(s, d) { return filter ? Promise.resolve(filter(s, d)).then(function(v) { return v !== false; }) : Promise.resolve(true); }
+  function copyOne(s, d) {
+    return allowed(s, d).then(function(ok) {
+      if (!ok) return;
+      return promises.lstat(s).then(function(st) {
+        if (st.isSymbolicLink()) {
+          if (options.dereference) return promises.realpath(s).then(function(real) { return copyOne(real, d); });
+          return promises.readlink(s).then(function(target) { return promises.symlink(target, d); });
+        }
+        if (st.isDirectory()) {
+          if (!options.recursive) {
+            var e = new Error("EISDIR: illegal operation on a directory, copyfile '" + s + "' -> '" + d + "'"); e.code = 'EISDIR'; throw e;
+          }
+          return promises.mkdir(d, { recursive: true }).then(function() {
+            return promises.readdir(s).then(function(names) {
+              return names.reduce(function(chain, name) {
+                return chain.then(function() { return copyOne(pathJoin(s, name), pathJoin(d, name)); });
+              }, Promise.resolve());
+            });
+          });
+        }
+        return promises.stat(d).then(function() { return true; }, function() { return false; }).then(function(exists) {
+          if (exists && options.force === false) {
+            if (options.errorOnExist) { var e = new Error('EEXIST: file already exists'); e.code = 'EEXIST'; throw e; }
+            return;
+          }
+          return promises.copyFile(s, d, options.mode).then(function() {
+            return promises.chmod(d, st.mode & 0o7777).then(function() {
+              return options.preserveTimestamps ? promises.utimes(d, st.atime, st.mtime) : undefined;
+            });
+          });
+        });
+      });
+    });
+  }
+  return copyOne(source, destination);
 }
 
 function statfsSync(path, options) {
@@ -2857,7 +2900,33 @@ function glob(pattern, options, callback) {
   if (typeof options === 'string') {
     options = { pattern: options };
   }
-  wrapCallback(function() { return globSync(pattern, options); }, callback, 'glob', _pathToString(cwd));
+  _deferFsPromiseCallback(_asyncGlob(pattern, options || {}), callback);
+}
+
+function _asyncGlob(pattern, options) {
+  var cwd = options.cwd || _currentProcessCwd();
+  _validatePath(cwd, 'cwd'); _validatePath(pattern, 'pattern'); _validateEncodingOption(options);
+  var regex = _patternToRegex(pattern), out = [];
+  function walk(root, prefix) {
+    return promises.readdir(root, { withFileTypes: true }).then(function(entries) {
+      return entries.reduce(function(chain, entry) {
+        return chain.then(function() {
+          var candidate = prefix ? prefix + '/' + entry.name : String(entry.name);
+          var value = options.withFileTypes ? entry : candidate;
+          var excluded = options.exclude && (Array.isArray(options.exclude)
+            ? options.exclude.indexOf(candidate) !== -1 : options.exclude(value) === true);
+          if (excluded) return;
+          if (regex.test(candidate)) out.push(value);
+          return entry.isDirectory() ? walk(pathJoin(root, entry.name), candidate) : undefined;
+        });
+      }, Promise.resolve());
+    });
+  }
+  return walk(_pathToString(cwd), '').then(function() {
+    if (!options.withFileTypes) out.sort();
+    if (options.encoding === 'buffer') return out.map(function(v) { return Buffer.from(v); });
+    return out;
+  });
 }
 
 function mkdirSync(path, options) {
@@ -3465,6 +3534,16 @@ function mkdtempDisposable(prefix, optOrCb, cb) {
 }
 function exists(path, cb) {
   _validateCallback(cb);
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  if (native) {
+    try {
+      _validatePath(path); var p = _pathToString(path);
+      _asyncFsPathOp(native, 'access', [p, null, 0], 'access', p).then(
+        function() { _deferFsCallback(function() { cb(true); }); },
+        function() { _deferFsCallback(function() { cb(false); }); });
+    } catch (_) { _deferFsCallback(function() { cb(false); }); }
+    return;
+  }
   _deferFsCallback(function() { try { cb(existsSync(path)); } catch(e) {} });
 }
 
@@ -5491,36 +5570,36 @@ function watchFile(filename, options, listener) {
     watcher._statOptions = statOptions;
     watcher._prevExists = false;
     watcher._prev = makeZeroStats(watcher._statOptions.bigint);
-    try {
-      // statSync already honors {bigint} — re-wrapping its Stats result with
-      // _makeBigIntStats read absent raw fields (safe.is_file etc.), so every
-      // isFile()/isDirectory() on curr/prev became false (ENG-23480 #15).
-      watcher._prev = statSync(resolvedFilename, watcher._statOptions);
-      watcher._prevExists = true;
-      watcher._hadInitialStat = true;
-    } catch(e) {
-      watcher._prevExists = false;
+    watcher._polling = false;
+    var statNative = _fsAsyncNative('__exactFsStatAsync');
+    function asyncWatchStat() {
+      return statNative
+        ? _asyncStatImpl(statNative, resolvedFilename, 'stat', _extractStatOptions(watcher._statOptions))
+        : Promise.resolve().then(function() { return statSync(resolvedFilename, watcher._statOptions); });
     }
+    asyncWatchStat().then(function(initial) {
+      watcher._prev = initial; watcher._prevExists = true; watcher._hadInitialStat = true;
+    }, function() {
+      watcher._prevExists = false;
+      if (!watcher._closed) watcher.emit('change', watcher._prev, watcher._prev);
+    });
     var watchFileInterval = options.interval || 5007;
     watcher._poll = function() {
       if (watcher._closed || watcher._stopped) return;
-      var curr;
-      var currExists = false;
-      try {
-        curr = statSync(resolvedFilename, watcher._statOptions);
-        currExists = true;
-      } catch(e) {
-        curr = makeZeroStats(watcher._statOptions.bigint);
-        currExists = false;
+      if (watcher._polling) return;
+      watcher._polling = true;
+      asyncWatchStat().then(function(curr) {
+        finish(curr, true);
+      }, function() { finish(makeZeroStats(watcher._statOptions.bigint), false); });
+      function finish(curr, currExists) {
+        watcher._polling = false;
+        if (watcher._closed || watcher._stopped) return;
+        if (!watcher._initialized) watcher._initialized = true;
+        if (watcher._prevExists !== currExists ||
+            (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
+            (curr.size || 0) !== (watcher._prev.size || 0)) watcher.emit('change', curr, watcher._prev);
+        watcher._prev = curr; watcher._prevExists = currExists;
       }
-      if (!watcher._initialized) watcher._initialized = true;
-      if (watcher._prevExists !== currExists ||
-          (curr.mtimeMs || 0) !== (watcher._prev.mtimeMs || 0) ||
-          (curr.size || 0) !== (watcher._prev.size || 0)) {
-        watcher.emit('change', curr, watcher._prev);
-      }
-      watcher._prev = curr;
-      watcher._prevExists = currExists;
     };
     watcher._pollInterval = watchFileInterval;
     watcher._start = function() {
@@ -5539,13 +5618,6 @@ function watchFile(filename, options, listener) {
     watcher._start();
     if (options.persistent === false) watcher.unref();
     _watchedFiles[resolvedFilename] = watcher;
-    if (!watcher._prevExists) {
-      _deferFsCallback(function() {
-        if (!watcher._closed) {
-          watcher.emit('change', watcher._prev, watcher._prev);
-        }
-      });
-    }
   }
 
   if (listener) {
@@ -5885,7 +5957,27 @@ function rm(path, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   _validateCallback(cb);
   _validatePath(path, 'path');
-  wrapCallback(function() { rmSync(path, options); }, cb, 'rm', _pathToString(path));
+  _deferFsPromiseCallback(_asyncRm(path, options || {}), cb);
+}
+
+function _asyncRm(path, options) {
+  _validatePath(path, 'path');
+  var p = _pathToString(path), force = options.force === true, recursive = options.recursive === true;
+  function removeOne(target) {
+    return promises.lstat(target).then(function(st) {
+      if (!st.isDirectory() || st.isSymbolicLink()) return promises.unlink(target);
+      if (!recursive) return promises.rmdir(target);
+      return promises.readdir(target).then(function(names) {
+        return names.reduce(function(chain, name) {
+          return chain.then(function() { return removeOne(pathJoin(target, name)); });
+        }, Promise.resolve());
+      }).then(function() { return promises.rmdir(target); });
+    }, function(err) {
+      if (force && err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return;
+      throw err;
+    });
+  }
+  return removeOne(p);
 }
 
 function _resolveAsync(value) {
@@ -6123,6 +6215,14 @@ function _makeAsyncIteratorFromArray(values) {
     [Symbol.asyncIterator]: function() { return this; }
   };
 }
+function _makeAsyncIteratorFromPromise(valuesPromise) {
+  var iteratorPromise = Promise.resolve(valuesPromise).then(_makeAsyncIteratorFromArray);
+  return {
+    next: function() { return iteratorPromise.then(function(it) { return it.next(); }); },
+    return: function() { return iteratorPromise.then(function(it) { return it.return(); }); },
+    [Symbol.asyncIterator]: function() { return this; }
+  };
+}
 function _extend(target, source) {
   if (!source) return target;
   var keys = Object.keys(source);
@@ -6307,10 +6407,10 @@ var promises = {
       return mkdtempSync(p, o);
     })();
   },
-  rm: function(p, o) { return _resolveAsync(function() { rmSync(p, o); })(); },
-  cp: function(s, d, o) { return _resolveAsync(function() { cpSync(s, d, o); })(); },
+  rm: function(p, o) { return _resolveAsync(function() { return _asyncRm(p, o || {}); })(); },
+  cp: function(s, d, o) { return _resolveAsync(function() { return _asyncCp(s, d, o || {}); })(); },
   glob: function(pattern, o) {
-    return _makeAsyncIteratorFromArray(globSync(pattern, o));
+    return _makeAsyncIteratorFromPromise(_asyncGlob(pattern, o || {}));
   },
   statfs: function(path, o) {
     return _resolveAsync(function() {
@@ -6461,8 +6561,14 @@ var promises = {
       utimesSync(p, a, m);
     })();
   },
-  lutimes: function(p, a, m) { return _resolveAsync(function() { lutimesSync(p, a, m); })(); },
-  lchmod: function(p, m) { return _resolveAsync(function() { lchmodSync(p, m); })(); },
+  lutimes: function(p, a, m) { return _resolveAsync(function() {
+    _validatePath(p); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    return native ? _asyncFsPathOp(native, 'lutime', [pathString, null, _toUnixTimestamp(a), _toUnixTimestamp(m)], 'lutimes', pathString) : lutimesSync(p, a, m);
+  })(); },
+  lchmod: function(p, m) { return _resolveAsync(function() {
+    _validatePath(p); m = _coerceMode(m); _validateUint32('mode', m); var native = _fsAsyncNative('__exactFsPathAsync'); var pathString = _pathToString(p);
+    return native ? _asyncFsPathOp(native, 'lchmod', [pathString, null, m], 'lchmod', pathString) : lchmodSync(p, m);
+  })(); },
   opendir: function(p, o) { return _resolveAsync(function() {
     _validatePath(p);
     var native = _fsAsyncNative('__exactFsPathAsync');
@@ -6906,7 +7012,10 @@ function lchmod(path, mode, callback) {
   mode = _coerceMode(mode);
   _validateUint32('mode', mode);
   _validateCallback(callback);
-  return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', _pathToString(path));
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  var p = _pathToString(path);
+  if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lchmod', [p, null, mode], 'lchmod', p), callback);
+  return wrapCallback(function() { lchmodSync(path, mode); }, callback, 'lchmod', p);
 }
 function lchmodSync(path, mode) {
   _validatePath(path);
@@ -6956,7 +7065,10 @@ function lchown(path, uid, gid, callback) {
 function lutimes(path, atime, mtime, callback) {
   _validatePath(path);
   _validateCallback(callback);
-  wrapCallback(function() { lutimesSync(path, atime, mtime); }, callback, 'lutimes', _pathToString(path));
+  var native = _fsAsyncNative('__exactFsPathAsync');
+  var p = _pathToString(path), at = _toUnixTimestamp(atime), mt = _toUnixTimestamp(mtime);
+  if (native) return _deferFsPromiseCallback(_asyncFsPathOp(native, 'lutime', [p, null, at, mt], 'lutimes', p), callback);
+  wrapCallback(function() { lutimesSync(path, atime, mtime); }, callback, 'lutimes', p);
 }
 function lutimesSync(path, atime, mtime) {
   _validatePath(path);
