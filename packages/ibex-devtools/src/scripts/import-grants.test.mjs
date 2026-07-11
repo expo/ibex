@@ -162,6 +162,47 @@ test('parses grants, endow, builtins, and also from import attributes', () => {
   expect(site.also.other).toEqual(['network:fetch']);
 });
 
+test('parses typed authorities as authored JSON and strips the authoring attribute', () => {
+  const selector = {
+    cap: 'fs:read',
+    resource: {
+      kind: 'path-tree',
+      path: { root: 'project', components: [{ encoding: 'utf8', value: 'images' }] },
+    },
+  };
+  const encoded = JSON.stringify([selector]).replaceAll('"', '\\"');
+  const source = `import lib from "image-lib" with { authorities: "${encoded}" };`;
+  const parsed = parseImportGrants(source, 'app.mjs');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.sites[0].authorities).toEqual([selector]);
+  expect(stripGrantAttributes(source)).toBe('import lib from "image-lib";');
+});
+
+test('typed authority authoring fails closed on malformed JSON', () => {
+  const { sites, errors } = parseImportGrants(
+    `import lib from "image-lib" with { authorities: "not-json" };`,
+    'app.mjs',
+  );
+  expect(sites[0].authorities).toEqual([]);
+  expect(errors[0].message).toContain('malformed authorities JSON');
+});
+
+test('CommonJS require supports typed authority authoring and strips before execution', () => {
+  const source = `const lib = require("image-lib", {"authorities":[{"cap":"fs:read","resource":{"kind":"path-tree","path":{"root":"project","components":[]}}}]});`;
+  const parsed = parseImportGrants(source, 'app.cjs');
+  expect(parsed.errors).toEqual([]);
+  expect(parsed.sites[0].package).toBe('image-lib');
+  expect(parsed.sites[0].authorities[0].cap).toBe('fs:read');
+  expect(stripGrantAttributes(source)).toBe('const lib = require("image-lib");');
+});
+
+test('CommonJS authority authoring rejects extra keys', () => {
+  const source = `require("image-lib", {"authorities":[],"grants":["fs:read"]});`;
+  const parsed = parseImportGrants(source, 'app.cjs');
+  expect(parsed.sites).toEqual([]);
+  expect(parsed.errors[0].message).toContain('second require argument');
+});
+
 test('imports without grant keys produce no sites', () => {
   const { sites, errors } = parseImportGrants(
     `import a from "a";\nimport data from "./x.json" with { type: "json" };`,

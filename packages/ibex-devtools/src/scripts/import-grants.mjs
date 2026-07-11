@@ -10,10 +10,11 @@
 // @ref LLP 0007#summary — import-site grant parsing rides the Rolldown/Oxc
 // toolchain through the shared parser helpers.
 import { runtimeGatedNodeBuiltins } from './builtin-manifest.mjs';
-import { parseModule, parseModuleOrScript } from './parse-js.mjs';
+import { parseModuleOrScript } from './parse-js.mjs';
 
 /** Attribute keys this layer owns. Anything else (e.g. `type`) passes through. */
 export const GRANT_ATTRIBUTE_KEYS = Object.freeze([
+  'authorities',
   'grants',
   'endow',
   'builtins',
@@ -227,6 +228,23 @@ function parseCapabilityList(raw, errors, file, line) {
   return caps;
 }
 
+function parseAuthorityList(raw, errors, file, line) {
+  try {
+    const value = JSON.parse(raw);
+    if (!Array.isArray(value) || value.some((entry) => !entry || typeof entry !== 'object' || Array.isArray(entry))) {
+      throw new TypeError('expected a JSON array of typed authority selector objects');
+    }
+    return value;
+  } catch (error) {
+    errors.push({
+      message: `malformed authorities JSON (${error?.message || error})`,
+      file,
+      line,
+    });
+    return [];
+  }
+}
+
 /**
  * `also` grammar: `pkg => cap, cap; pkg2 => cap`.
  * @ref LLP 0014#transitive-grants-and-co-located-exceptions
@@ -266,8 +284,8 @@ function parseAlsoList(raw, errors, file, line) {
  */
 export function parseImportGrants(source, filePath = '<module>') {
   const result = { sites: [], errors: [] };
-  if (!source || source.indexOf('with') === -1) return result;
-  const ast = parseModule(source, { locations: true });
+  if (!source || (!source.includes('with') && !source.includes('authorities'))) return result;
+  const ast = parseModuleOrScript(source, { locations: true });
   if (!ast) return result;
 
   for (const node of ast.body) {
@@ -279,6 +297,7 @@ export function parseImportGrants(source, filePath = '<module>') {
       specifier: node.source.value,
       line,
       capabilities: [],
+      authorities: [],
       endow: [],
       builtins: [],
       also: Object.create(null),
@@ -293,7 +312,9 @@ export function parseImportGrants(source, filePath = '<module>') {
         result.errors.push({ message: `attribute "${key}" must be a string literal`, file: filePath, line });
         continue;
       }
-      if (key === 'grants') {
+      if (key === 'authorities') {
+        site.authorities.push(...parseAuthorityList(raw, result.errors, filePath, line));
+      } else if (key === 'grants') {
         site.capabilities.push(...parseCapabilityList(raw, result.errors, filePath, line));
       } else if (key === 'endow') {
         site.endow.push(...parseNameList(raw));
@@ -319,6 +340,50 @@ export function parseImportGrants(source, filePath = '<module>') {
     site.package = pkg;
     result.sites.push(site);
   }
+
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (
+      node.type === 'CallExpression' &&
+      node.callee?.type === 'Identifier' &&
+      node.callee.name === 'require' &&
+      node.arguments?.length === 2 &&
+      node.arguments[0]?.type === 'Literal' &&
+      typeof node.arguments[0].value === 'string'
+    ) {
+      const specifier = node.arguments[0].value;
+      const line = node.loc?.start.line || 0;
+      const packageName = packageNameOfSpecifier(specifier);
+      try {
+        const authored = JSON.parse(source.slice(node.arguments[1].start, node.arguments[1].end));
+        if (!authored || Object.keys(authored).some((key) => key !== 'authorities')) {
+          throw new TypeError('second require argument must be {"authorities":[...]}');
+        }
+        if (!packageName) throw new TypeError('typed authorities attach to package selectors only');
+        if (!Array.isArray(authored.authorities)) throw new TypeError('authorities must be an array');
+        result.sites.push({
+          package: packageName,
+          specifier,
+          line,
+          capabilities: [],
+          authorities: authored.authorities,
+          endow: [],
+          builtins: [],
+          also: Object.create(null),
+        });
+      } catch (error) {
+        result.errors.push({ message: `malformed CommonJS authority authoring (${error.message})`, file: filePath, line });
+      }
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (!['loc', 'start', 'end', 'range'].includes(key) && value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(ast.body);
   return result;
 }
 
@@ -329,8 +394,8 @@ export function parseImportGrants(source, filePath = '<module>') {
  * @ref LLP 0014#parse-and-strip
  */
 export function stripGrantAttributes(source) {
-  if (!source || source.indexOf('with') === -1) return source;
-  const ast = parseModule(source);
+  if (!source || (!source.includes('with') && !source.includes('authorities'))) return source;
+  const ast = parseModuleOrScript(source);
   if (!ast) return source;
 
   const replacements = [];
@@ -348,6 +413,28 @@ export function stripGrantAttributes(source) {
       : '';
     replacements.push({ start: node.source.end, end: braceEnd + 1, text });
   }
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child);
+      return;
+    }
+    if (
+      node.type === 'CallExpression' && node.callee?.type === 'Identifier' &&
+      node.callee.name === 'require' && node.arguments?.length === 2
+    ) {
+      try {
+        const authored = JSON.parse(source.slice(node.arguments[1].start, node.arguments[1].end));
+        if (authored && Object.keys(authored).length === 1 && Array.isArray(authored.authorities)) {
+          replacements.push({ start: node.arguments[0].end, end: node.arguments[1].end, text: '' });
+        }
+      } catch {}
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (!['loc', 'start', 'end', 'range'].includes(key) && value && typeof value === 'object') visit(value);
+    }
+  };
+  visit(ast.body);
   return applyReplacements(source, replacements);
 }
 
@@ -542,7 +629,7 @@ export function createImportGrantsPlugin({ name = 'import-grants', collect } = {
   return {
     name,
     transform(code, id) {
-      if (!code || code.indexOf('with') === -1) return null;
+      if (!code || (!code.includes('with') && !code.includes('authorities'))) return null;
       if (collect) {
         const parsed = parseImportGrants(code, id);
         if (parsed.sites.length || parsed.errors.length) collect(id, parsed);

@@ -1,36 +1,60 @@
 {
-  "generated": {
-    "version": 1,
-    "tool": "generate-policy.mjs",
-    "entry": "app.mjs"
-  },
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256--VzaIGqtgGV8zqukl3hK1bIsHbbxPxnES9BGnxF2jZA",
+  "policyDigest": "sha256-pRYUiAFeds_KGl7YX2POf3T52GoTztQzuyEFAADpw1c",
+  "purpose": "production",
   "mode": "enforce",
-  "packages": {
-    "env-reader": {
-      "capabilities": [
-        "process:env"
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "evil-pkg",
+        "integrity": "sha256-8ttIaKI4PYsnmLCerm5pqkbsnYXvvaFaeWOp2b9HeEY",
+        "locator": "evil-pkg@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    },
+    {
+      "principal": {
+        "kind": "package",
+        "name": "env-reader",
+        "integrity": "sha256-oyYF7Mh7bJ4-tXtPfhhhKhabuUMUI9vEMeVF-3gDcIc",
+        "locator": "env-reader@1.0.0"
+      },
+      "floor": [
+        {
+          "authority": {
+            "cap": "env:read",
+            "resource": {
+              "kind": "environment-name",
+              "target": "principal-overlay",
+              "name": "SECRET_TOKEN"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "import-site",
+              "source": "app.mjs:5"
+            }
+          ]
+        }
       ],
-      "endow": [
-        "process"
-      ],
-      "builtins": []
-    },
-    "env-reader@1.0.0": {
-      "builtins": []
-    },
-    "evil-pkg": {
-      "builtins": []
-    },
-    "evil-pkg@1.0.0": {
-      "builtins": []
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
     }
-  },
-  "provenance": {
-    "env-reader": [
-      {
-        "capability": "process:env",
-        "site": "app.mjs:5"
-      }
-    ]
-  }
+  ]
 }
