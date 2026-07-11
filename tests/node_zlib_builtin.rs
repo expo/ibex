@@ -145,3 +145,112 @@ async fn node_zlib_streams_roundtrip_incrementally_across_flush_and_split_input(
         "zlib streams must round-trip split inputs and emit data before final end: {result}"
     );
 }
+
+#[tokio::test]
+async fn node_gunzip_concatenated_members_survive_every_chunk_split() {
+    let js = r#"(async function(){
+        var z = require('zlib');
+        var first = z.gzipSync(Buffer.from('first member: alpha'));
+        var second = z.gzipSync(Buffer.from('second member: omega'));
+        var compressed = Buffer.concat([first, second]);
+        var expected = 'first member: alphasecond member: omega';
+
+        function decodeAt(split) {
+          return new Promise(function(resolve) {
+            var gunzip = z.createGunzip();
+            var out = [];
+            gunzip.on('data', function(chunk) { out.push(Buffer.from(chunk)); });
+            gunzip.on('error', function(err) { resolve('error:' + err.message); });
+            gunzip.on('end', function() { resolve(Buffer.concat(out).toString()); });
+            // Three writes exercise both an arbitrary payload split and a
+            // one-byte split immediately after it. In particular, the split
+            // at first.length leaves one byte of the next gzip magic in the
+            // second write.
+            gunzip.write(compressed.subarray(0, split));
+            gunzip.write(compressed.subarray(split, split + 1));
+            gunzip.end(compressed.subarray(split + 1));
+          });
+        }
+
+        var failures = [];
+        for (var split = 1; split < compressed.length; split++) {
+          var decoded = await decodeAt(split);
+          if (decoded !== expected) failures.push([split, decoded]);
+        }
+
+        var truncated = await new Promise(function(resolve) {
+          var gunzip = z.createGunzip();
+          var joined = Buffer.concat([first, second.subarray(0, second.length - 4)]);
+          gunzip.on('error', function(err) { resolve(err.code || err.message); });
+          gunzip.on('end', function() { resolve('unexpected-end'); });
+          gunzip.write(joined.subarray(0, first.length + 1));
+          gunzip.end(joined.subarray(first.length + 1));
+        });
+
+        return JSON.stringify({ failures: failures, truncated: truncated });
+      })()"#;
+    let result = eval(js).await;
+    assert_eq!(
+        result, r#"{"failures":[],"truncated":"Z_DATA_ERROR"}"#,
+        "concatenated gzip must tolerate every chunk split and reject a truncated later member: {result}"
+    );
+}
+
+#[tokio::test]
+async fn node_gunzip_large_multichunk_input_emits_before_final_and_preserves_order() {
+    let js = r#"(async function(){
+        var z = require('zlib');
+        var input = Buffer.alloc(4 * 1024 * 1024);
+        var state = 0x12345678;
+        for (var i = 0; i < input.length; i++) {
+          state ^= state << 13;
+          state ^= state >>> 17;
+          state ^= state << 5;
+          input[i] = state & 255;
+        }
+        var compressed = z.gzipSync(input);
+        var chunkSize = 64 * 1024;
+
+        var result = await new Promise(function(resolve, reject) {
+          var gunzip = z.createGunzip();
+          var out = [];
+          var bytesBeforeEnd = 0;
+          gunzip.on('data', function(chunk) { out.push(Buffer.from(chunk)); });
+          gunzip.on('error', reject);
+          gunzip.on('end', function() {
+            resolve({
+              decoded: Buffer.concat(out),
+              bytesBeforeEnd: bytesBeforeEnd
+            });
+          });
+          var offset = 0;
+          while (offset + chunkSize < compressed.length) {
+            gunzip.write(compressed.subarray(offset, offset + chunkSize));
+            offset += chunkSize;
+          }
+          for (var j = 0; j < out.length; j++) bytesBeforeEnd += out[j].length;
+          gunzip.end(compressed.subarray(offset));
+        });
+
+        return JSON.stringify({
+          compressedChunks: Math.ceil(compressed.length / chunkSize),
+          emittedBeforeEnd: result.bytesBeforeEnd > 0,
+          roundtrip: result.decoded.equals(input)
+        });
+      })()"#;
+    let result = eval(js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result)
+        .unwrap_or_else(|err| panic!("invalid result {result:?}: {err}"));
+    assert_eq!(
+        parsed["emittedBeforeEnd"], true,
+        "decoder must emit before end: {result}"
+    );
+    assert_eq!(
+        parsed["roundtrip"], true,
+        "decoder output ordering changed: {result}"
+    );
+    assert!(
+        parsed["compressedChunks"].as_u64().unwrap_or(0) >= 32,
+        "test input must exercise many native writes: {result}"
+    );
+}

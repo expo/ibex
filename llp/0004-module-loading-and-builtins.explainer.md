@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -149,6 +149,10 @@ without the stateful native host functions `[observed]`.
 The native state lives in `src/engine/hermes_runtime_zlib_streams.h`, registered
 from both the non-Windows and Windows crypto host-function roots so zlib stream
 parity follows the same platform availability as the existing zlib sync hooks
+`[observed]`. Stream IDs are bound to the `ExactHermesRuntime` that created
+them, and runtime destruction removes streams that JS did not explicitly
+close. The incremental inflater also retains a partial gzip magic byte across
+writes so concatenated members remain valid at every input-chunk boundary
 `[observed]`.
 
 ### The tls builtin

@@ -18,12 +18,17 @@ namespace ibex_zlib_streams {
 // native-side so JS does not concatenate whole streaming payloads.
 struct ZlibStreamState {
   z_stream stream{};
+  ExactHermesRuntime* owner = nullptr;
   bool deflater = false;
   int mode = 0;
   int window_bits = 15;
   bool initialized = false;
   bool finished = false;
   std::vector<uint8_t> dictionary;
+  // A gzip member can end with only the first byte of the next member's
+  // two-byte magic still available. Retain that byte until the next write;
+  // dropping it silently truncates valid concatenated gzip streams.
+  std::vector<uint8_t> pending_gzip_header;
 
   ~ZlibStreamState() {
     if (!initialized) {
@@ -172,9 +177,41 @@ inline std::vector<uint8_t> inflateStreamWrite(
     int flush,
     bool final,
     bool lenient) {
+  std::vector<uint8_t> combined_input;
+  const std::vector<uint8_t>* current_input = &input;
   if (state.finished) {
-    if (state.mode == 1 && !input.empty() && looksLikeGzipHeader(input.data(), static_cast<uInt>(input.size()))) {
-      resetInflateForNextGzipMember(runtime, state, input.data(), static_cast<uInt>(input.size()));
+    if (state.mode != 1) {
+      return {};
+    }
+
+    if (!state.pending_gzip_header.empty()) {
+      combined_input.reserve(state.pending_gzip_header.size() + input.size());
+      combined_input.insert(
+          combined_input.end(),
+          state.pending_gzip_header.begin(),
+          state.pending_gzip_header.end());
+      combined_input.insert(combined_input.end(), input.begin(), input.end());
+      state.pending_gzip_header.clear();
+      current_input = &combined_input;
+    }
+
+    if (current_input->empty()) {
+      return {};
+    }
+    if (current_input->size() == 1 && (*current_input)[0] == 0x1f) {
+      state.pending_gzip_header.assign(current_input->begin(), current_input->end());
+      if (final && !lenient) {
+        throw facebook::jsi::JSError(runtime, "inflate failed: unexpected end of file");
+      }
+      return {};
+    }
+    if (looksLikeGzipHeader(
+            current_input->data(), static_cast<uInt>(current_input->size()))) {
+      resetInflateForNextGzipMember(
+          runtime,
+          state,
+          current_input->data(),
+          static_cast<uInt>(current_input->size()));
     } else {
       return {};
     }
@@ -230,6 +267,9 @@ inline std::vector<uint8_t> inflateStreamWrite(
           ret = Z_OK;
           continue;
         }
+        if (remaining == 1 && next_in[0] == 0x1f) {
+          state.pending_gzip_header.assign(next_in, next_in + remaining);
+        }
       }
       state.finished = true;
       break;
@@ -242,7 +282,7 @@ inline std::vector<uint8_t> inflateStreamWrite(
     }
   } while (state.stream.avail_in > 0 || state.stream.avail_out == 0);
 
-  if (final && !state.finished && !lenient) {
+  if (final && (!state.finished || !state.pending_gzip_header.empty()) && !lenient) {
     throw facebook::jsi::JSError(runtime, "inflate failed: unexpected end of file");
   }
 
@@ -308,7 +348,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactZlibCreate"),
       5,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -317,6 +357,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         }
 
         auto state = std::make_unique<ZlibStreamState>();
+        state->owner = handle;
         state->deflater = static_cast<int>(args[0].asNumber()) == 0;
         state->mode = static_cast<int>(args[1].asNumber());
         int level = Z_DEFAULT_COMPRESSION;
@@ -368,7 +409,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactZlibWrite"),
       5,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -389,6 +430,9 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         if (it == zlibStreams().end()) {
           throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
         }
+        if (it->second->owner != handle) {
+          throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
+        }
         auto& state = *it->second;
         auto output = state.deflater
             ? deflateStreamWrite(runtime, state, input, final ? Z_FINISH : flush)
@@ -401,7 +445,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactZlibParams"),
       3,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -417,6 +461,9 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         if (it == zlibStreams().end()) {
           throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
         }
+        if (it->second->owner != handle) {
+          throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
+        }
         auto output = deflateStreamParams(runtime, *it->second, level, strategy);
         return makeUint8Array(runtime, std::move(output));
       });
@@ -426,7 +473,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactZlibClose"),
       1,
-      [](facebook::jsi::Runtime& runtime,
+      [handle](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
@@ -435,10 +482,25 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         }
         uint32_t id = readZlibStreamId(runtime, args[0]);
         std::lock_guard<std::mutex> lock(zlibStreamMutex());
-        zlibStreams().erase(id);
+        auto it = zlibStreams().find(id);
+        if (it != zlibStreams().end() && it->second->owner == handle) {
+          zlibStreams().erase(it);
+        }
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactZlibClose", std::move(closeFn));
+}
+
+inline void cleanupZlibStreams(ExactHermesRuntime* owner) {
+  std::lock_guard<std::mutex> lock(zlibStreamMutex());
+  auto& streams = zlibStreams();
+  for (auto it = streams.begin(); it != streams.end();) {
+    if (it->second->owner == owner) {
+      it = streams.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }
 
 } // namespace ibex_zlib_streams

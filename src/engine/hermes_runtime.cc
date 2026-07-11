@@ -172,6 +172,7 @@ extern "C" char **environ;
 #endif
 
 #include "hermes_runtime_internal.h"
+#include "hermes_runtime_zlib_streams.h"
 
 // PATH_MAX / realpath live in <limits.h> on Linux; macOS pulls them in
 // transitively. Spell it out so the realpath() path-resolution helpers build
@@ -2667,6 +2668,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     return;
   }
   unregisterAndroidHostFunctions(runtime);
+  ibex_zlib_streams::cleanupZlibStreams(runtime);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // Clear this thread's cached vm::Runtime pointer before freeing the runtime so
   // a later attribution walk on the same thread (e.g. a reused libtest worker or
