@@ -10,6 +10,52 @@ struct RulesProfiles {
     normalization_profiles: Vec<NormalizationProfile>,
 }
 
+#[test]
+fn escape_and_shared_process_surfaces_remain_deny_only_with_closed_channels() {
+    let definitions: CapabilityDefinitionsDocument = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../capsec/registry/capability-definitions.json"
+    )))
+    .unwrap();
+    let expected = BTreeSet::from([
+        "env:process-write",
+        "ffi:load",
+        "inspector:activate",
+        "ipc:channel",
+        "process:cwd",
+        "process:identity",
+        "process:limit",
+        "process:priority",
+        "process:signal",
+        "process:umask",
+        "runtime:inspect",
+        "storage:persist",
+        "storage:read",
+        "storage:write",
+        "vm:evaluate",
+        "wasi:instantiate",
+        "worker:create",
+    ]);
+    let actual = definitions
+        .definitions
+        .iter()
+        .filter(|definition| {
+            definition.lifecycle == capsec_semantics::registry::Lifecycle::DenyOnly
+        })
+        .map(|definition| definition.id.as_str())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(actual, expected);
+    for definition in definitions
+        .definitions
+        .iter()
+        .filter(|definition| expected.contains(definition.id.as_str()))
+    {
+        assert!(!definition.channels.dynamic);
+        assert!(!definition.channels.handle);
+        assert!(!definition.channels.synthesis);
+    }
+}
+
 #[derive(Deserialize)]
 struct NormalizationProfile {
     id: String,
