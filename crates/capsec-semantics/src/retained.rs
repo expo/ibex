@@ -7,7 +7,7 @@
 //! @ref LLP 0021#wp6--convert-network-effects-and-protected-peers
 
 use crate::cache::GenerationSet;
-use crate::model::{Digest, NonEmptyString, ObjectIdentity, Principal};
+use crate::model::{Digest, NonEmptyString, ObjectIdentity, PeerClass, Principal, VerifiedPeer};
 use crate::{Error, Result};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -17,6 +17,43 @@ pub struct RetainedObjectAuthority {
     pub armed_snapshot_digest: Digest,
     pub generations: GenerationSet,
     pub object: ObjectIdentity,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProtectedPeerAuthority {
+    pub owner: Principal,
+    pub authority_source: NonEmptyString,
+    pub armed_snapshot_digest: Digest,
+    pub generations: GenerationSet,
+    pub peer: VerifiedPeer,
+    pub peer_class: PeerClass,
+    pub connection_id: NonEmptyString,
+}
+
+impl ProtectedPeerAuthority {
+    pub fn verify_use(
+        &self,
+        actor: &Principal,
+        armed_snapshot_digest: &Digest,
+        generations: GenerationSet,
+        actual_peer: &VerifiedPeer,
+    ) -> Result<()> {
+        if matches!(
+            self.peer_class,
+            PeerClass::Metadata | PeerClass::Unspecified
+        ) {
+            return refused("protected peer class is always denied");
+        }
+        if actor != &self.owner
+            || armed_snapshot_digest != &self.armed_snapshot_digest
+            || generations.negative != self.generations.negative
+            || generations.handle != self.generations.handle
+            || actual_peer != &self.peer
+        {
+            return refused("connection use differs from the checked protected peer");
+        }
+        Ok(())
+    }
 }
 
 impl RetainedObjectAuthority {
@@ -112,6 +149,32 @@ mod tests {
                 generations(),
                 &object("ino:8"),
             )
+            .is_err());
+    }
+
+    #[test]
+    fn verified_peer_is_retained_and_metadata_is_always_denied() {
+        use crate::model::{IpAddress, Port, VerifiedPeer};
+        use std::net::{IpAddr, Ipv4Addr};
+        let peer = VerifiedPeer {
+            address: IpAddress::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7))),
+            port: Port::new(443).unwrap(),
+        };
+        let mut record = ProtectedPeerAuthority {
+            owner: principal("package-a"),
+            authority_source: NonEmptyString::new("policy.floor.1").unwrap(),
+            armed_snapshot_digest: digest('A'),
+            generations: generations(),
+            peer: peer.clone(),
+            peer_class: PeerClass::Public,
+            connection_id: NonEmptyString::new("connection-1").unwrap(),
+        };
+        assert!(record
+            .verify_use(&principal("package-a"), &digest('A'), generations(), &peer)
+            .is_ok());
+        record.peer_class = PeerClass::Metadata;
+        assert!(record
+            .verify_use(&principal("package-a"), &digest('A'), generations(), &peer)
             .is_err());
     }
 }
