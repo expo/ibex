@@ -1235,6 +1235,50 @@ static FsAsyncResult fsFstatWork(int fd) {
   return result;
 }
 
+// Run descriptor metadata/durability operations on a duplicate descriptor.
+// dup() is intentionally performed on the JS thread before dispatch: it pins
+// the open file description while a concurrent close() removes the public fd,
+// without changing shared cursor semantics. The worker always owns/ closes it.
+static FsAsyncResult fsFdOpWork(
+    const std::string& op, int workerFd, double x, double y) {
+  int rc = -1;
+  const char* syscall = op.c_str();
+  if (op == "fchmod") {
+    rc = ::fchmod(workerFd, static_cast<mode_t>(x));
+  } else if (op == "fchown") {
+    rc = ::fchown(workerFd, static_cast<uid_t>(x), static_cast<gid_t>(y));
+  } else if (op == "ftruncate") {
+    rc = ::ftruncate(workerFd, static_cast<off_t>(x));
+  } else if (op == "futimes") {
+    struct timeval times[2] = {fsTimevalFromDouble(x), fsTimevalFromDouble(y)};
+#if defined(EXACT_PLATFORM_ANDROID)
+    struct timespec ts[2] = {
+        {times[0].tv_sec, static_cast<long>(times[0].tv_usec) * 1000},
+        {times[1].tv_sec, static_cast<long>(times[1].tv_usec) * 1000},
+    };
+    syscall = "futimens";
+    rc = ::futimens(workerFd, ts);
+#else
+    rc = ::futimes(workerFd, times);
+#endif
+  } else if (op == "fsync") {
+    rc = ::fsync(workerFd);
+  } else if (op == "fdatasync") {
+#if defined(__APPLE__)
+    rc = ::fsync(workerFd);
+#else
+    rc = ::fdatasync(workerFd);
+#endif
+  } else {
+    int saved = EINVAL;
+    ::close(workerFd);
+    return fsAsyncError(saved, op.c_str());
+  }
+  int saved = errno;
+  ::close(workerFd);
+  return rc == 0 ? fsAsyncOk() : fsAsyncError(saved, syscall);
+}
+
 void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
@@ -3142,6 +3186,43 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             });
       });
   rt.global().setProperty(rt, "__exactFsPathAsync", std::move(fsPathAsyncFn));
+
+  // __exactFsFdAsync(op, fd, x, y) -> Promise<void>. Capability/ownership
+  // validation and dup() happen before dispatch; only the blocking syscall is
+  // performed by the worker. @ref LLP 0003#blocking-work-worker-pools
+  auto fsFdAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsFdAsync"), 4,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString() || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: op and fd required");
+        }
+        auto op = args[0].toString(runtime).utf8(runtime);
+        int fd = static_cast<int>(args[1].asNumber());
+        double x = count > 2 && args[2].isNumber() ? args[2].asNumber() : 0;
+        double y = count > 3 && args[3].isNumber() ? args[3].asNumber() : 0;
+        if (op == "fchmod" || op == "fchown" || op == "ftruncate" || op == "futimes") {
+          requireFdMetadataWrite(runtime, fd, op.c_str());
+        } else if (op == "fsync" || op == "fdatasync") {
+          if (!isAllowAll()) {
+            auto entry = requireOwnedFd(runtime, fd, op.c_str());
+            auto cap = std::string(entry.canWrite ? "fs:write:" : "fs:read:") + entry.path;
+            if (!checkCapability(cap)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          }
+        } else {
+          throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: unsupported op");
+        }
+        int workerFd = ::dup(fd);
+        if (workerFd < 0) {
+          throwFsError(runtime, op.c_str(), "");
+        }
+        return startFsAsync(handle, runtime, [op, workerFd, x, y]() -> FsAsyncResult {
+          return fsFdOpWork(op, workerFd, x, y);
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsFdAsync", std::move(fsFdAsyncFn));
 
   // __exactFsStatAsync(pathOrFd, kind) -> Promise<JSON string>
   // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is

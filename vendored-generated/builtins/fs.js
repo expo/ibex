@@ -698,6 +698,11 @@ function _asyncFsError(err, syscall, path, dest) {
 	if (err && err.code === "ERR_FS_FILE_TOO_LARGE") return _makeFileTooLargeError(err.size);
 	return _makeFsError(err, err && typeof err.syscall === "string" ? err.syscall : syscall, path, dest);
 }
+function _asyncFdOp(native, op, fd, x, y) {
+	return native(op, fd, x, y).then(void 0, function(err) {
+		throw _asyncFsError(err, op === "futimes" ? "futime" : op);
+	});
+}
 function _wrapOwnedBytesAsBuffer(bytes) {
 	if (typeof Buffer !== "undefined" && Buffer.from && bytes && !Buffer.isBuffer(bytes) && bytes.buffer && typeof bytes.byteOffset === "number" && typeof bytes.length === "number") try {
 		return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length);
@@ -838,10 +843,46 @@ function _readdirEntriesFromNativePayload(payload, options) {
 }
 function _asyncReaddirSimple(native, path, options) {
 	var opts = typeof options === "string" ? { encoding: options } : options || {};
-	if (opts.withFileTypes || opts.recursive) return null;
 	var p = _pathToString(path);
+	if (opts.withFileTypes || opts.recursive) return _asyncBuildDirEntries(native, p, opts).then(function(entries) {
+		if (opts.withFileTypes) return entries;
+		return entries.map(function(entry) {
+			return (entry.path === p ? "" : entry.path.slice(p.length + 1) + "/") + entry.name;
+		});
+	});
 	return _asyncFsPathOp(native, "readdir", [p], "scandir", p).then(function(payload) {
 		return _readdirEntriesFromNativePayload(payload, opts);
+	});
+}
+function _asyncBuildDirEntries(native, path, options) {
+	var statNative = _fsAsyncNative("__exactFsStatAsync");
+	return _asyncFsPathOp(native, "readdir", [path], "scandir", path).then(function(payload) {
+		var names = _readdirEntriesFromNativePayload(payload, options);
+		return Promise.all(names.map(function(name) {
+			var fullPath = pathJoin(path, name);
+			return (statNative ? _asyncStatImpl(statNative, fullPath, "lstat", {}) : Promise.resolve().then(function() {
+				try {
+					return lstatSync(fullPath);
+				} catch (_) {
+					return null;
+				}
+			})).then(function(stat) {
+				var entry = new Dirent(_normalizeDirEntryName(name, options && options.encoding), path, stat);
+				entry.path = path;
+				if (options && options.recursive && stat && stat.isDirectory()) return _asyncBuildDirEntries(native, fullPath, options).then(function(nested) {
+					return [entry].concat(nested);
+				});
+				return [entry];
+			}, function() {
+				var entry = new Dirent(_normalizeDirEntryName(name, options && options.encoding), path, null);
+				entry.path = path;
+				return [entry];
+			});
+		})).then(function(groups) {
+			var result = [];
+			for (var i = 0; i < groups.length; i++) result = result.concat(groups[i]);
+			return result;
+		});
 	});
 }
 function _asyncMkdirSimple(native, path, options) {
@@ -1236,7 +1277,7 @@ function readFileSync(path, options) {
 			if (sizeErr && sizeErr.code === "ERR_FS_FILE_TOO_LARGE") throw sizeErr;
 		}
 		var chunks = [];
-		var buf = new Uint8Array(65536);
+		var buf = /* @__PURE__ */ new Uint8Array(65536);
 		var bytesRead;
 		do {
 			bytesRead = readSync(path, buf, 0, buf.length, -1);
@@ -1266,7 +1307,7 @@ function readFileSync(path, options) {
 	try {
 		_throwIfReadFileTooLarge(fstatSync(fd));
 		var chunks = [];
-		var fileBuffer = new Uint8Array(65536);
+		var fileBuffer = /* @__PURE__ */ new Uint8Array(65536);
 		var fileBytesRead;
 		do {
 			fileBytesRead = readSync(fd, fileBuffer, 0, fileBuffer.length, -1);
@@ -1658,6 +1699,17 @@ function Dir(path, options) {
 	this._asyncReads = 0;
 	this._closeCallbacks = [];
 }
+function _dirFromEntries(path, entries) {
+	var dir = Object.create(Dir.prototype);
+	dir._path = path;
+	dir._entries = entries;
+	dir._index = 0;
+	dir._closed = false;
+	dir._closing = false;
+	dir._asyncReads = 0;
+	dir._closeCallbacks = [];
+	return dir;
+}
 Object.defineProperty(Dir.prototype, "path", {
 	get: function() {
 		if (!(this instanceof Dir)) throw _makeFsThisError("path");
@@ -1827,6 +1879,10 @@ function opendir(path, options, cb) {
 	}
 	_validateCallback(callback);
 	_validatePath(path);
+	var native = _fsAsyncNative("__exactFsPathAsync");
+	if (native) return _deferFsPromiseCallback(_asyncBuildDirEntries(native, _pathToString(path), opts || {}).then(function(entries) {
+		return _dirFromEntries(path, entries);
+	}), callback);
 	wrapCallback(function() {
 		return opendirSync(path, opts);
 	}, callback, "opendir", _pathToString(path));
@@ -5160,30 +5216,38 @@ FileHandlePromise.prototype.truncate = function(len) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		ftruncateSync(handle.fd, len);
+		len = _normalizeTruncateLen(len);
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "ftruncate", handle.fd, len) : ftruncateSync(handle.fd, len);
 	})();
 };
 FileHandlePromise.prototype.sync = function() {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		_callFsyncSync(handle.fd);
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "fsync", handle.fd) : _callFsyncSync(handle.fd);
 	})();
 };
 FileHandlePromise.prototype.datasync = function() {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		fdatasyncSync(handle.fd);
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "fdatasync", handle.fd) : fdatasyncSync(handle.fd);
 	})();
 };
 FileHandlePromise.prototype.readLines = function() {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		var lines = readFileSync(handle.fd, "utf8").split("\n");
-		if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-		return _makeAsyncIteratorFromArray(lines);
+		var native = _fsAsyncNative("__exactFsReadFileAsync");
+		var contents = native ? _asyncReadFileImpl(native, handle.fd, { encoding: "utf8" }) : readFileSync(handle.fd, "utf8");
+		return Promise.resolve(contents).then(function(text) {
+			var lines = text.split("\n");
+			if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+			return _makeAsyncIteratorFromArray(lines);
+		});
 	})();
 };
 FileHandlePromise.prototype.stat = function(options) {
@@ -5202,21 +5266,29 @@ FileHandlePromise.prototype.chmod = function(mode) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		fchmodSync(handle.fd, mode);
+		mode = _coerceMode(mode);
+		_validateUint32("mode", mode);
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "fchmod", handle.fd, mode) : fchmodSync(handle.fd, mode);
 	})();
 };
 FileHandlePromise.prototype.chown = function(uid, gid) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		fchownSync(handle.fd, uid, gid);
+		_validateUidOrGid("uid", uid);
+		_validateUidOrGid("gid", gid);
+		if (uid === -1 && gid === -1) return;
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "fchown", handle.fd, uid, gid) : fchownSync(handle.fd, uid, gid);
 	})();
 };
 FileHandlePromise.prototype.utimes = function(atime, mtime) {
 	var handle = this;
 	return _resolveAsync(function() {
 		handle._ensureOpen();
-		futimesSync(handle.fd, atime, mtime);
+		var native = _fsAsyncNative("__exactFsFdAsync");
+		return native ? _asyncFdOp(native, "futimes", handle.fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)) : futimesSync(handle.fd, atime, mtime);
 	})();
 };
 function _makeAsyncIteratorFromArray(values) {
@@ -5476,12 +5548,16 @@ var promises = {
 	},
 	fdatasync: function(fd) {
 		return _resolveAsync(function() {
-			fdatasyncSync(fd);
+			_validateFd(fd);
+			var native = _fsAsyncNative("__exactFsFdAsync");
+			return native ? _asyncFdOp(native, "fdatasync", fd) : fdatasyncSync(fd);
 		})();
 	},
 	fsync: function(fd) {
 		return _resolveAsync(function() {
-			fsyncSync(fd);
+			_validateFd(fd);
+			var native = _fsAsyncNative("__exactFsFdAsync");
+			return native ? _asyncFdOp(native, "fsync", fd) : fsyncSync(fd);
 		})();
 	},
 	fstat: function(fd) {
@@ -5626,7 +5702,12 @@ var promises = {
 	},
 	opendir: function(p, o) {
 		return _resolveAsync(function() {
-			return opendirSync(p, o);
+			_validatePath(p);
+			var native = _fsAsyncNative("__exactFsPathAsync");
+			var pathString = _pathToString(p);
+			return native ? _asyncBuildDirEntries(native, pathString, o || {}).then(function(entries) {
+				return _dirFromEntries(p, entries);
+			}) : opendirSync(p, o);
 		})();
 	},
 	close: function(fd) {
@@ -5678,17 +5759,29 @@ var promises = {
 	},
 	fchmod: function(fd, m) {
 		return _resolveAsync(function() {
-			fchmodSync(fd, m);
+			_validateFdNonNegative(fd);
+			m = _coerceMode(m);
+			_validateUint32("mode", m);
+			var native = _fsAsyncNative("__exactFsFdAsync");
+			return native ? _asyncFdOp(native, "fchmod", fd, m) : fchmodSync(fd, m);
 		})();
 	},
 	fchown: function(fd, u, g) {
 		return _resolveAsync(function() {
-			fchownSync(fd, u, g);
+			_validateFdNonNegative(fd);
+			_validateUidOrGid("uid", u);
+			_validateUidOrGid("gid", g);
+			if (u === -1 && g === -1) return;
+			var native = _fsAsyncNative("__exactFsFdAsync");
+			return native ? _asyncFdOp(native, "fchown", fd, u, g) : fchownSync(fd, u, g);
 		})();
 	},
 	ftruncate: function(fd, l) {
 		return _resolveAsync(function() {
-			ftruncateSync(fd, l);
+			_validateFd(fd);
+			l = _normalizeTruncateLen(l);
+			var native = _fsAsyncNative("__exactFsFdAsync");
+			return native ? _asyncFdOp(native, "ftruncate", fd, l) : ftruncateSync(fd, l);
 		})();
 	},
 	FileHandle: FileHandlePromise,
@@ -5776,6 +5869,8 @@ function fchmod(fd, mode, callback) {
 	if (callback !== void 0 && typeof callback !== "function") _validateCallback(callback);
 	ensureExactFs();
 	if (typeof callback === "function") {
+		var asyncNative = _fsAsyncNative("__exactFsFdAsync");
+		if (asyncNative) return _deferFsPromiseCallback(_asyncFdOp(asyncNative, "fchmod", fd, mode), callback);
 		if (typeof g.__exactFsFchmod === "function") g.__exactFsFchmod(fd, mode, function(err) {
 			_deferFsCallback(function() {
 				if (err) callback(_makeFsError(err, "fchmod"));
@@ -5820,6 +5915,8 @@ function fchown(fd, uid, gid, callback) {
 	}
 	ensureExactFs();
 	if (typeof callback === "function") {
+		var asyncNative = _fsAsyncNative("__exactFsFdAsync");
+		if (asyncNative) return _deferFsPromiseCallback(_asyncFdOp(asyncNative, "fchown", fd, uid, gid), callback);
 		if (typeof g.__exactFsFchown === "function") g.__exactFsFchown(fd, uid, gid, function(err) {
 			_deferFsCallback(function() {
 				if (err) callback(_makeFsError(err, "fchown"));
@@ -5867,6 +5964,8 @@ function ftruncate(fd, len, callback) {
 	len = _normalizeTruncateLen(len);
 	_validateCallback(callback);
 	ensureExactFs();
+	var native = _fsAsyncNative("__exactFsFdAsync");
+	if (native) return _deferFsPromiseCallback(_asyncFdOp(native, "ftruncate", fd, len), callback);
 	try {
 		ftruncateSync(fd, len);
 		_deferFsCallback(function() {
@@ -5894,6 +5993,8 @@ function fdatasync(fd, callback) {
 	_validateFd(fd);
 	_validateCallback(callback);
 	ensureExactFs();
+	var native = _fsAsyncNative("__exactFsFdAsync");
+	if (native) return _deferFsPromiseCallback(_asyncFdOp(native, "fdatasync", fd), callback);
 	try {
 		fdatasyncSync(fd);
 		_deferFsCallback(function() {
@@ -5920,6 +6021,8 @@ function fsync(fd, callback) {
 	_validateFd(fd);
 	_validateCallback(callback);
 	ensureExactFs();
+	var native = _fsAsyncNative("__exactFsFdAsync");
+	if (native) return _deferFsPromiseCallback(_asyncFdOp(native, "fsync", fd), callback);
 	try {
 		fsyncSync(fd);
 		_deferFsCallback(function() {
@@ -6000,6 +6103,8 @@ function futimes(fd, atime, mtime, callback) {
 	_validateFdNonNegative(fd);
 	_validateCallback(callback);
 	ensureExactFs();
+	var native = _fsAsyncNative("__exactFsFdAsync");
+	if (native) return _deferFsPromiseCallback(_asyncFdOp(native, "futimes", fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)), callback);
 	try {
 		futimesSync(fd, atime, mtime);
 		_deferFsCallback(function() {
