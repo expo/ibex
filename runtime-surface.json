@@ -23,7 +23,9 @@
     "agent",
     "mcp",
     "doctor",
-    "lint"
+    "lint",
+    "export",
+    "start"
   ],
   "llp": "0010"
 }

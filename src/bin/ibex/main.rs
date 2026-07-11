@@ -24,7 +24,7 @@ use cli::{Cli, Commands, DebugCommands};
 /// Project commands owned by the Exact project CLI, not the Ibex runtime.
 /// @ref LLP 0010#runtime-command-surface — `ibex` is runtime-only here.
 const EXACT_PROJECT_COMMANDS: &[&str] = &[
-    "new", "create", "init", "verify", "facet", "agent", "mcp", "doctor", "lint",
+    "new", "create", "init", "verify", "facet", "agent", "mcp", "doctor", "lint", "export", "start",
 ];
 
 /// Runtime-namespace names reserved for future features:
