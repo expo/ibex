@@ -368,8 +368,9 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
   fs.writeFileSync('payload.txt', 'alive');
   var fd = fs.openSync('payload.txt', 'r');
   var before = fs.readdirSync('/dev/fd').length;
-  var rejected = await Promise.all(Array.from({length: 100}, function() {
-    return fs.promises.fstat(fd).then(function() { return false; }, function() { return true; });
+  var rejected = await Promise.all(Array.from({length: 100}, function(_, i) {
+    var op = i % 2 ? fs.promises.fstat(fd) : fs.promises.fchmod(fd, 0o600);
+    return op.then(function() { return false; }, function() { return true; });
   }));
   var closeRejected = await fs.promises.close(fd).then(function() { return false; }, function() { return true; });
   var byte = Buffer.alloc(1); fs.readSync(fd, byte, 0, 1, 0);

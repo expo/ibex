@@ -3401,10 +3401,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         } else {
           throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: unsupported op");
         }
-        int workerFd = ::dup(fd);
-        if (workerFd < 0) {
-          throwFsError(runtime, op.c_str(), "");
-        }
+        auto workerFd = duplicateFdForAsync(runtime, fd, op.c_str());
         return startFsAsync(handle, runtime, [op, workerFd, x, y]() -> FsAsyncResult {
           return fsRunOwnedFd(workerFd, [op, x, y](int owned) { return fsFdOpWork(op, owned, x, y); });
         });
