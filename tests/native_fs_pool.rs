@@ -322,3 +322,37 @@ fn async_readfile_errors_keep_node_shape() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// Every fd-form async native duplicates the descriptor before dispatch. A
+// close issued immediately afterwards may revoke/close the public descriptor,
+// but must not redirect the in-flight operation onto a reused fd number.
+#[test]
+fn inflight_fd_read_is_pinned_across_async_close() {
+    let dir = unique_dir("fs-fd-close-race");
+    let script = dir.join("race.js");
+    std::fs::write(
+        &script,
+        r#"var fs = require('fs');
+var fd = fs.openSync('payload.txt', 'r');
+var buf = Buffer.alloc(6);
+fs.read(fd, buf, 0, 6, 0, function(err, n) {
+  console.log('fd-close-race: ' + (err ? err.code : n + ':' + buf.toString()));
+});
+fs.close(fd, function(err) { if (err) console.log('close-error:' + err.code); });
+"#,
+    )
+    .expect("write race script");
+    std::fs::write(dir.join("payload.txt"), "pinned").expect("write payload");
+    let out = Command::new(IBEX)
+        .args(["run", "race.js"])
+        .current_dir(&dir)
+        .output()
+        .expect("run close race");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("fd-close-race: 6:pinned"),
+        "in-flight read must retain its open file description:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
