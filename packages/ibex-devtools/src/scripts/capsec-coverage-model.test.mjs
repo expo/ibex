@@ -3215,7 +3215,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         row.metadata?.surfaceType === "global-api" &&
         row.metadata?.surfaceTypes?.includes("private-native-operation"),
     );
-    expect(liveDualRoleOperations).toHaveLength(278);
+    expect(liveDualRoleOperations).toHaveLength(281);
     expect(
       liveDualRoleOperations.every(
         (row) =>
@@ -3231,6 +3231,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       )
       .map((row) => row.name)
       .sort();
+    expect(liveCallbackProducers).toContain(
+      "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
+    );
     expect(reviewedCallbackProducerNames()).toEqual(liveCallbackProducers);
     const liveGlobalApiRows = inventory.surfaces.filter(
       (row) => row.metadata?.surfaceType === "global-api",

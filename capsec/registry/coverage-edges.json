@@ -66468,6 +66468,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
       "classification": "non-capability",
       "surface": {
@@ -72107,6 +72117,66 @@
       }
     },
     {
+      "id": "surface.host.abi.ex.host.fs.fstat.1di7udv",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_fstat"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "descriptor-owner",
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "descriptor-owner",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.fstat.1di7udv.decision",
+      "lifetimeContract": "file-handle",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.fs.last.error.1bspifg",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_last_error"
+      },
+      "rationaleId": "internal-data-transform",
+      "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.fs.lstat.0wkeomh",
       "classification": "effects",
       "surface": {
@@ -72833,6 +72903,55 @@
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.host.abi.ex.host.fs.stat.17ncwgv.decision",
       "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.fs.sync.011h89u",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_sync"
+      },
+      "effects": [
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "descriptor-owner",
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "descriptor-owner",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.sync.011h89u.decision",
+      "lifetimeContract": "file-handle",
       "barriers": {
         "authorizeBefore": [
           "path-discovery",
@@ -92498,6 +92617,16 @@
       "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
     },
     {
+      "id": "surface.native.op.exactfscloseasync.117uwo2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactFsCloseAsync"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
       "id": "surface.native.op.exactfsfchmod.1fo8s7x",
       "classification": "effects",
       "surface": {
@@ -92677,6 +92806,73 @@
       "gate": "reclassifies",
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.native.op.exactfsfchownsync.1o61nfi.decision",
+      "lifetimeContract": "file-handle",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.native.op.exactfsfdasync.1iinzl8",
+      "classification": "effects",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactFsFdAsync"
+      },
+      "effects": [
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "descriptor-owner",
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "descriptor-owner",
+      "gate": "reclassifies",
+      "effectMode": "conditional-unrefined",
+      "refinementOwner": "WP5",
+      "rationale": "The generic async descriptor dispatcher selects metadata or durability behavior from its operation tag.",
+      "atomicityGroup": "surface.native.op.exactfsfdasync.1iinzl8.decision",
       "lifetimeContract": "file-handle",
       "barriers": {
         "authorizeBefore": [
@@ -93005,6 +93201,88 @@
       "refinementOwner": "WP5",
       "rationale": "Filesystem open selects read, write, create, and truncate effects from validated flags; WP5 must emit the exact conjunctive branch.",
       "atomicityGroup": "surface.native.op.exactfsopen.05ao6wa.decision",
+      "lifetimeContract": "file-handle",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.native.op.exactfsopenasync.1jie13i",
+      "classification": "effects",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactFsOpenAsync"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conditional-unrefined",
+      "refinementOwner": "WP5",
+      "rationale": "Filesystem open selects read, write, create, and truncate effects from validated flags; WP5 must emit the exact conjunctive branch.",
+      "atomicityGroup": "surface.native.op.exactfsopenasync.1jie13i.decision",
       "lifetimeContract": "file-handle",
       "barriers": {
         "authorizeBefore": [
@@ -138566,6 +138844,16 @@
       }
     },
     {
+      "id": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5",
       "classification": "non-capability",
       "surface": {
@@ -139849,6 +140137,16 @@
       "surface": {
         "kind": "startup",
         "name": "install-route:installDnsHostFunctions:installUnsupportedGlobal"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "install-route:installFsHostFunctions:installSync"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

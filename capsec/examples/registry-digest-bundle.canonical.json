@@ -66476,6 +66476,16 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
+            "id": "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "callback",
+              "name": "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
             "classification": "non-capability",
             "surface": {
@@ -72115,6 +72125,66 @@
             }
           },
           {
+            "id": "surface.host.abi.ex.host.fs.fstat.1di7udv",
+            "classification": "effects",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_fs_fstat"
+            },
+            "effects": [
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "descriptor-owner",
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "descriptor-owner",
+            "gate": "reclassifies",
+            "effectMode": "conjunctive",
+            "atomicityGroup": "surface.host.abi.ex.host.fs.fstat.1di7udv.decision",
+            "lifetimeContract": "file-handle",
+            "barriers": {
+              "authorizeBefore": [
+                "path-discovery",
+                "object-open",
+                "first-use"
+              ],
+              "recheckAt": [
+                "object-use"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.host.abi.ex.host.fs.last.error.1bspifg",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_fs_last_error"
+            },
+            "rationaleId": "internal-data-transform",
+            "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.fs.lstat.0wkeomh",
             "classification": "effects",
             "surface": {
@@ -72841,6 +72911,55 @@
             "effectMode": "conjunctive",
             "atomicityGroup": "surface.host.abi.ex.host.fs.stat.17ncwgv.decision",
             "lifetimeContract": "operation",
+            "barriers": {
+              "authorizeBefore": [
+                "path-discovery",
+                "object-open",
+                "first-use"
+              ],
+              "recheckAt": [
+                "object-use"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.host.abi.ex.host.fs.sync.011h89u",
+            "classification": "effects",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_fs_sync"
+            },
+            "effects": [
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "descriptor-owner",
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "descriptor-owner",
+            "gate": "reclassifies",
+            "effectMode": "conjunctive",
+            "atomicityGroup": "surface.host.abi.ex.host.fs.sync.011h89u.decision",
+            "lifetimeContract": "file-handle",
             "barriers": {
               "authorizeBefore": [
                 "path-discovery",
@@ -92506,6 +92625,16 @@
             "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
           },
           {
+            "id": "surface.native.op.exactfscloseasync.117uwo2",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactFsCloseAsync"
+            },
+            "rationaleId": "authority-release",
+            "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+          },
+          {
             "id": "surface.native.op.exactfsfchmod.1fo8s7x",
             "classification": "effects",
             "surface": {
@@ -92685,6 +92814,73 @@
             "gate": "reclassifies",
             "effectMode": "conjunctive",
             "atomicityGroup": "surface.native.op.exactfsfchownsync.1o61nfi.decision",
+            "lifetimeContract": "file-handle",
+            "barriers": {
+              "authorizeBefore": [
+                "path-discovery",
+                "object-open",
+                "first-use"
+              ],
+              "recheckAt": [
+                "object-use"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.native.op.exactfsfdasync.1iinzl8",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactFsFdAsync"
+            },
+            "effects": [
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "descriptor-owner",
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "descriptor-owner",
+            "gate": "reclassifies",
+            "effectMode": "conditional-unrefined",
+            "refinementOwner": "WP5",
+            "rationale": "The generic async descriptor dispatcher selects metadata or durability behavior from its operation tag.",
+            "atomicityGroup": "surface.native.op.exactfsfdasync.1iinzl8.decision",
             "lifetimeContract": "file-handle",
             "barriers": {
               "authorizeBefore": [
@@ -93013,6 +93209,88 @@
             "refinementOwner": "WP5",
             "rationale": "Filesystem open selects read, write, create, and truncate effects from validated flags; WP5 must emit the exact conjunctive branch.",
             "atomicityGroup": "surface.native.op.exactfsopen.05ao6wa.decision",
+            "lifetimeContract": "file-handle",
+            "barriers": {
+              "authorizeBefore": [
+                "path-discovery",
+                "object-open",
+                "first-use"
+              ],
+              "recheckAt": [
+                "object-use"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            }
+          },
+          {
+            "id": "surface.native.op.exactfsopenasync.1jie13i",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactFsOpenAsync"
+            },
+            "effects": [
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "innermost-nontransparent-frame",
+            "gate": "reclassifies",
+            "effectMode": "conditional-unrefined",
+            "refinementOwner": "WP5",
+            "rationale": "Filesystem open selects read, write, create, and truncate effects from validated flags; WP5 must emit the exact conjunctive branch.",
+            "atomicityGroup": "surface.native.op.exactfsopenasync.1jie13i.decision",
             "lifetimeContract": "file-handle",
             "barriers": {
               "authorizeBefore": [
@@ -138574,6 +138852,16 @@
             }
           },
           {
+            "id": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "env:IBEX_TEST_FS_WORKER_MAX_QUEUE"
+            },
+            "rationaleId": "runtime-bootstrap-state",
+            "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+          },
+          {
             "id": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5",
             "classification": "non-capability",
             "surface": {
@@ -139857,6 +140145,16 @@
             "surface": {
               "kind": "startup",
               "name": "install-route:installDnsHostFunctions:installUnsupportedGlobal"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "startup",
+              "name": "install-route:installFsHostFunctions:installSync"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -193293,6 +193591,27 @@
             ]
           },
           {
+            "edgeId": "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv",
+            "observedKey": "callback:producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
+            "branchId": "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main",
+            "branchKind": "single",
+            "targetVariant": "all",
+            "targetApplicability": {
+              "kind": "all"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#startFsAsync:pushRuntimeCallback"
+            ],
+            "implementationOwner": "WP8",
+            "fixtureObligations": [
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main.attribution-missing-deny",
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main.generation-recheck",
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main.non-capability",
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main.principal-restore",
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main.snapshot-mismatch-deny"
+            ]
+          },
+          {
             "edgeId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
             "observedKey": "callback:producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
             "branchId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol.main",
@@ -202874,6 +203193,46 @@
             ]
           },
           {
+            "edgeId": "surface.host.abi.ex.host.fs.fstat.1di7udv",
+            "observedKey": "host-abi:ex_host_fs_fstat",
+            "branchId": "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "stubDisposition": "not-structurally-proven",
+            "sourceRefs": [
+              "src/host/abi.rs#ex_host_fs_fstat"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh.allow",
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh.deny",
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh.malformed",
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh.missing-attribution",
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.host.abi.ex.host.fs.last.error.1bspifg",
+            "observedKey": "host-abi:ex_host_fs_last_error",
+            "branchId": "surface.host.abi.ex.host.fs.last.error.1bspifg.default.1rinpzi",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "stubDisposition": "not-structurally-proven",
+            "sourceRefs": [
+              "src/host/abi.rs#ex_host_fs_last_error"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.host.abi.ex.host.fs.last.error.1bspifg.default.1rinpzi.non-capability"
+            ]
+          },
+          {
             "edgeId": "surface.host.abi.ex.host.fs.lstat.0wkeomh",
             "observedKey": "host-abi:ex_host_fs_lstat",
             "branchId": "surface.host.abi.ex.host.fs.lstat.0wkeomh.default.1upe1xf",
@@ -203178,6 +203537,28 @@
               "surface.host.abi.ex.host.fs.stat.17ncwgv.default.103zbhp.malformed",
               "surface.host.abi.ex.host.fs.stat.17ncwgv.default.103zbhp.missing-attribution",
               "surface.host.abi.ex.host.fs.stat.17ncwgv.default.103zbhp.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.host.abi.ex.host.fs.sync.011h89u",
+            "observedKey": "host-abi:ex_host_fs_sync",
+            "branchId": "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "stubDisposition": "not-structurally-proven",
+            "sourceRefs": [
+              "src/host/abi.rs#ex_host_fs_sync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao.allow",
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao.deny",
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao.malformed",
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao.missing-attribution",
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao.wrong-principal"
             ]
           },
           {
@@ -215920,6 +216301,24 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfscloseasync.117uwo2",
+            "observedKey": "native-op:__exactFsCloseAsync",
+            "branchId": "surface.native.op.exactfscloseasync.117uwo2.default.1e8d2te",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs.cc#__exactFsCloseAsync",
+              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsCloseAsync"
+            ],
+            "implementationOwner": "WP8",
+            "fixtureObligations": [
+              "surface.native.op.exactfscloseasync.117uwo2.default.1e8d2te.non-capability"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfsfchmod.1fo8s7x",
             "observedKey": "native-op:__exactFsFchmod",
             "branchId": "surface.native.op.exactfsfchmod.1fo8s7x.default.0ao1wig",
@@ -216008,9 +216407,32 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
+            "observedKey": "native-op:__exactFsFdAsync",
+            "branchId": "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs.cc#__exactFsFdAsync",
+              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFdAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.allow",
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.conditional-refinement",
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.deny",
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.malformed",
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.missing-attribution",
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.wrong-principal"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfsfdatasyncsync.1p6q71s",
             "observedKey": "native-op:__exactFsFdatasyncSync",
-            "branchId": "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa",
+            "branchId": "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq",
             "branchKind": "single",
             "targetVariant": "default",
             "targetApplicability": {
@@ -216018,15 +216440,16 @@
             },
             "sourceRefs": [
               "src/engine/hermes_runtime_fs.cc#__exactFsFdatasyncSync",
-              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFdatasyncSync"
+              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFdatasyncSync",
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsFdatasyncSync"
             ],
             "implementationOwner": "WP5",
             "fixtureObligations": [
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa.allow",
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa.deny",
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa.malformed",
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa.missing-attribution",
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa.wrong-principal"
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq.allow",
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq.deny",
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq.malformed",
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq.missing-attribution",
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq.wrong-principal"
             ]
           },
           {
@@ -216077,7 +216500,7 @@
           {
             "edgeId": "surface.native.op.exactfsfsyncsync.02nw7ns",
             "observedKey": "native-op:__exactFsFsyncSync",
-            "branchId": "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i",
+            "branchId": "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42",
             "branchKind": "single",
             "targetVariant": "default",
             "targetApplicability": {
@@ -216085,15 +216508,16 @@
             },
             "sourceRefs": [
               "src/engine/hermes_runtime_fs.cc#__exactFsFsyncSync",
-              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFsyncSync"
+              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsFsyncSync",
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsFsyncSync"
             ],
             "implementationOwner": "WP5",
             "fixtureObligations": [
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i.allow",
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i.deny",
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i.malformed",
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i.missing-attribution",
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i.wrong-principal"
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42.allow",
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42.deny",
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42.malformed",
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42.missing-attribution",
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42.wrong-principal"
             ]
           },
           {
@@ -216188,10 +216612,33 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfsopenasync.1jie13i",
+            "observedKey": "native-op:__exactFsOpenAsync",
+            "branchId": "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi",
+            "branchKind": "single",
+            "targetVariant": "default",
+            "targetApplicability": {
+              "kind": "fallback"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs.cc#__exactFsOpenAsync",
+              "src/engine/hermes_runtime_fs.cc#jsi-global:__exactFsOpenAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.allow",
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.conditional-refinement",
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.deny",
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.malformed",
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.missing-attribution",
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.wrong-principal"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfspathasync.10cb78b",
             "observedKey": "native-op:__exactFsPathAsync",
             "branchId": "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216208,6 +216655,30 @@
               "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.malformed",
               "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.missing-attribution",
               "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.native.op.exactfspathasync.10cb78b",
+            "observedKey": "native-op:__exactFsPathAsync",
+            "branchId": "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsPathAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsPathAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.allow",
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.conditional-refinement",
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.deny",
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.malformed",
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.missing-attribution",
+              "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.wrong-principal"
             ]
           },
           {
@@ -216259,7 +216730,7 @@
             "edgeId": "surface.native.op.exactfsreadasync.0l952a6",
             "observedKey": "native-op:__exactFsReadAsync",
             "branchId": "surface.native.op.exactfsreadasync.0l952a6.default.0bmrwca",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216278,10 +216749,33 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfsreadasync.0l952a6",
+            "observedKey": "native-op:__exactFsReadAsync",
+            "branchId": "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe.allow",
+              "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe.deny",
+              "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe.malformed",
+              "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe.missing-attribution",
+              "surface.native.op.exactfsreadasync.0l952a6.windows.0hqg8pe.wrong-principal"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfsreadfileasync.0fw3fo0",
             "observedKey": "native-op:__exactFsReadFileAsync",
             "branchId": "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216298,6 +216792,30 @@
               "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.malformed",
               "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.missing-attribution",
               "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.native.op.exactfsreadfileasync.0fw3fo0",
+            "observedKey": "native-op:__exactFsReadFileAsync",
+            "branchId": "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadFileAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadFileAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.allow",
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.conditional-refinement",
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.deny",
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.malformed",
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.missing-attribution",
+              "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.wrong-principal"
             ]
           },
           {
@@ -216326,7 +216844,7 @@
             "edgeId": "surface.native.op.exactfsreadvasync.0bn4x60",
             "observedKey": "native-op:__exactFsReadvAsync",
             "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.default.070q1qi",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216345,10 +216863,33 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfsreadvasync.0bn4x60",
+            "observedKey": "native-op:__exactFsReadvAsync",
+            "branchId": "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsReadvAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsReadvAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm.allow",
+              "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm.deny",
+              "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm.malformed",
+              "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm.missing-attribution",
+              "surface.native.op.exactfsreadvasync.0bn4x60.windows.0nysclm.wrong-principal"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
             "observedKey": "native-op:__exactFsStatAsync",
             "branchId": "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216365,6 +216906,30 @@
               "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.malformed",
               "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.missing-attribution",
               "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.native.op.exactfsstatasync.0b0hr8s",
+            "observedKey": "native-op:__exactFsStatAsync",
+            "branchId": "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsStatAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsStatAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.allow",
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.conditional-refinement",
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.deny",
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.malformed",
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.missing-attribution",
+              "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.wrong-principal"
             ]
           },
           {
@@ -216416,7 +216981,7 @@
             "edgeId": "surface.native.op.exactfswriteasync.0f1ap1j",
             "observedKey": "native-op:__exactFsWriteAsync",
             "branchId": "surface.native.op.exactfswriteasync.0f1ap1j.default.0i7sceo",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216435,10 +217000,33 @@
             ]
           },
           {
+            "edgeId": "surface.native.op.exactfswriteasync.0f1ap1j",
+            "observedKey": "native-op:__exactFsWriteAsync",
+            "branchId": "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsWriteAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsWriteAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s.allow",
+              "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s.deny",
+              "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s.malformed",
+              "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s.missing-attribution",
+              "surface.native.op.exactfswriteasync.0f1ap1j.windows.1y8f86s.wrong-principal"
+            ]
+          },
+          {
             "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
             "observedKey": "native-op:__exactFsWriteFileAsync",
             "branchId": "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216455,6 +217043,30 @@
               "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.malformed",
               "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.missing-attribution",
               "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.native.op.exactfswritefileasync.0fv6zp9",
+            "observedKey": "native-op:__exactFsWriteFileAsync",
+            "branchId": "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsWriteFileAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsWriteFileAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.allow",
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.conditional-refinement",
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.deny",
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.malformed",
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.missing-attribution",
+              "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.wrong-principal"
             ]
           },
           {
@@ -216483,7 +217095,7 @@
             "edgeId": "surface.native.op.exactfswritevasync.0l050fv",
             "observedKey": "native-op:__exactFsWritevAsync",
             "branchId": "surface.native.op.exactfswritevasync.0l050fv.default.1rrwinq",
-            "branchKind": "single",
+            "branchKind": "alternative",
             "targetVariant": "default",
             "targetApplicability": {
               "kind": "fallback"
@@ -216499,6 +217111,29 @@
               "surface.native.op.exactfswritevasync.0l050fv.default.1rrwinq.malformed",
               "surface.native.op.exactfswritevasync.0l050fv.default.1rrwinq.missing-attribution",
               "surface.native.op.exactfswritevasync.0l050fv.default.1rrwinq.wrong-principal"
+            ]
+          },
+          {
+            "edgeId": "surface.native.op.exactfswritevasync.0l050fv",
+            "observedKey": "native-op:__exactFsWritevAsync",
+            "branchId": "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6",
+            "branchKind": "alternative",
+            "targetVariant": "windows",
+            "targetApplicability": {
+              "kind": "operating-system",
+              "value": "windows"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#__exactFsWritevAsync",
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactFsWritevAsync"
+            ],
+            "implementationOwner": "WP5",
+            "fixtureObligations": [
+              "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6.allow",
+              "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6.deny",
+              "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6.malformed",
+              "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6.missing-attribution",
+              "surface.native.op.exactfswritevasync.0l050fv.windows.0u6aiv6.wrong-principal"
             ]
           },
           {
@@ -232224,7 +232859,7 @@
           {
             "edgeId": "surface.native.op.global.dynamic.table.native.global.name.0p79adi",
             "observedKey": "native-op:global:[[dynamic-table:native-global-name]]",
-            "branchId": "surface.native.op.global.dynamic.table.native.global.name.0p79adi.windows.0kit4kj",
+            "branchId": "surface.native.op.global.dynamic.table.native.global.name.0p79adi.windows.1402fxe",
             "branchKind": "alternative",
             "targetVariant": "windows",
             "targetApplicability": {
@@ -232232,11 +232867,12 @@
               "value": "windows"
             },
             "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#jsi-global:[[dynamic-table:native-global-name]]",
               "src/engine/hermes_runtime_platform_windows.cc#jsi-global:[[dynamic-table:native-global-name]]"
             ],
             "implementationOwner": "WP7",
             "fixtureObligations": [
-              "surface.native.op.global.dynamic.table.native.global.name.0p79adi.windows.0kit4kj.closed"
+              "surface.native.op.global.dynamic.table.native.global.name.0p79adi.windows.1402fxe.closed"
             ]
           },
           {
@@ -271730,6 +272366,23 @@
             ]
           },
           {
+            "edgeId": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
+            "observedKey": "startup:env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
+            "branchId": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2.main",
+            "branchKind": "single",
+            "targetVariant": "all",
+            "targetApplicability": {
+              "kind": "all"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_MAX_QUEUE:read"
+            ],
+            "implementationOwner": "WP9",
+            "fixtureObligations": [
+              "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2.main.non-capability"
+            ]
+          },
+          {
             "edgeId": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5",
             "observedKey": "startup:env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
             "branchId": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5.main",
@@ -272698,6 +273351,25 @@
               "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main.cannot-widen-authority",
               "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main.non-capability",
               "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main.post-lockdown-invariant"
+            ]
+          },
+          {
+            "edgeId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
+            "observedKey": "startup:install-route:installFsHostFunctions:installSync",
+            "branchId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main",
+            "branchKind": "single",
+            "targetVariant": "all",
+            "targetApplicability": {
+              "kind": "all"
+            },
+            "sourceRefs": [
+              "src/engine/hermes_runtime_fs_windows.cc#installFsHostFunctions:installSync"
+            ],
+            "implementationOwner": "WP4",
+            "fixtureObligations": [
+              "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main.cannot-widen-authority",
+              "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main.non-capability",
+              "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main.post-lockdown-invariant"
             ]
           },
           {
@@ -274700,6 +275372,7 @@
               "surface.host.abi.ex.host.fs.access.07ymnn7",
               "surface.host.abi.ex.host.fs.append.1uj49nd",
               "surface.host.abi.ex.host.fs.chmod.1fztam2",
+              "surface.host.abi.ex.host.fs.fstat.1di7udv",
               "surface.host.abi.ex.host.fs.lstat.0wkeomh",
               "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
               "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
@@ -274850,6 +275523,7 @@
               "surface.native.op.exactexecsync.041glur",
               "surface.native.op.exactfsfstatsync.1md7g19",
               "surface.native.op.exactfsopen.05ao6wa",
+              "surface.native.op.exactfsopenasync.1jie13i",
               "surface.native.op.exactfspathasync.10cb78b",
               "surface.native.op.exactfsstatasync.0b0hr8s",
               "surface.native.op.exactlchmod.0aw9lfk",
@@ -274917,7 +275591,7 @@
               "surface.startup.env.node.extra.ca.certs.0brff6f",
               "surface.startup.env.path.1sio6bc"
             ],
-            "rationale": "Covered by 304 observed effect edges."
+            "rationale": "Covered by 306 observed effect edges."
           },
           {
             "definitionId": "fs:read",
@@ -275095,7 +275769,9 @@
               "surface.loader.route.transform.rust.transpile.module.01i36em",
               "surface.loader.route.transform.rust.transpile.tooling.hash.054rbyd",
               "surface.native.op.exactcopyfile.0rn0zb2",
+              "surface.native.op.exactfsfdasync.1iinzl8",
               "surface.native.op.exactfsopen.05ao6wa",
+              "surface.native.op.exactfsopenasync.1jie13i",
               "surface.native.op.exactfspathasync.10cb78b",
               "surface.native.op.exactfsread.1ixlwve",
               "surface.native.op.exactfsreadasync.0l952a6",
@@ -275133,7 +275809,7 @@
               "surface.startup.env.ibex.repo.root.0qhf2d7",
               "surface.startup.env.node.extra.ca.certs.0brff6f"
             ],
-            "rationale": "Covered by 209 observed effect edges."
+            "rationale": "Covered by 211 observed effect edges."
           },
           {
             "definitionId": "fs:watch",
@@ -275285,6 +275961,7 @@
               "surface.host.abi.ex.host.fs.pwrite.198hf1m",
               "surface.host.abi.ex.host.fs.rename.0xyp2mz",
               "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
+              "surface.host.abi.ex.host.fs.sync.011h89u",
               "surface.host.abi.ex.host.fs.unlink.05xgwei",
               "surface.host.abi.ex.host.fs.write.083p7no",
               "surface.host.abi.ex.host.sqlite.exec.059u1vx",
@@ -275365,11 +276042,13 @@
               "surface.native.op.exactfsfchmodsync.0cry376",
               "surface.native.op.exactfsfchown.1wlogwx",
               "surface.native.op.exactfsfchownsync.1o61nfi",
+              "surface.native.op.exactfsfdasync.1iinzl8",
               "surface.native.op.exactfsfdatasyncsync.1p6q71s",
               "surface.native.op.exactfsfsyncsync.02nw7ns",
               "surface.native.op.exactfsftruncatesync.0un4ty5",
               "surface.native.op.exactfsfutimessync.0hnqdt0",
               "surface.native.op.exactfsopen.05ao6wa",
+              "surface.native.op.exactfsopenasync.1jie13i",
               "surface.native.op.exactfspathasync.10cb78b",
               "surface.native.op.exactfswrite.1locgj1",
               "surface.native.op.exactfswriteasync.0f1ap1j",
@@ -275404,7 +276083,7 @@
               "surface.startup.env.exact.android.cache.dir.1yr2vkb",
               "surface.startup.env.exact.android.files.dir.0c1x0ei"
             ],
-            "rationale": "Covered by 244 observed effect edges."
+            "rationale": "Covered by 247 observed effect edges."
           },
           {
             "definitionId": "inspector:activate",
@@ -278150,54 +278829,54 @@
           {
             "kind": "json-schema",
             "path": "capsec/generated/capsec-registry-ids.schema.json",
-            "rawContentDigest": "sha256-Y42eo3S0EB5IuBy03oEImBx9bXOaazckO4Nj7WUKDoU"
+            "rawContentDigest": "sha256-PaUslxcam2x_RA1wMf98RLveEy1-pqQXN16j6mWnCCw"
           },
           {
             "kind": "markdown",
             "path": "capsec/generated/surface-inventory.md",
-            "rawContentDigest": "sha256-TKNWqaICtgFmCO0OKFWY0wNVWfZOfThqEyJ4w6ESUD8"
+            "rawContentDigest": "sha256-ysQcxT0j3T1oZA8w3Z_w1cI76gXtzjetB_OaM1QvvGU"
           },
           {
             "kind": "markdown",
             "path": "capsec/generated/target-matrix.md",
-            "rawContentDigest": "sha256-A2khJMMYlsy0nju-ed3w6iplBwrrnanUVokYq1bo7hQ"
+            "rawContentDigest": "sha256-ZpWsVCLyFK3gMbuJCfANBH5p_v912WQWznfHZj6BE2Y"
           },
           {
             "kind": "registry",
             "path": "capsec/registry/coverage-edges.json",
-            "rawContentDigest": "sha256-Uw4he97-jQkvTByuUlwSj8ngmf9CoYpgKADUkwHJ5Oo"
+            "rawContentDigest": "sha256-U8Hs_PdB0UAunQP7wBTfatW2hhsLuVUMK4WXaFZdDXE"
           },
           {
             "kind": "registry",
             "path": "capsec/registry/target-cells.json",
-            "rawContentDigest": "sha256-UoAFNczXq_-2E0tMFeXNxOeMx69nlFDTSBMZkGcKefQ"
+            "rawContentDigest": "sha256-JVEsbFdUtjcnOAa81fP485MCnZ1Lqo5CsUr63mpP95M"
           },
           {
             "kind": "typescript",
             "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-            "rawContentDigest": "sha256-sOr0WrDQLrfLRHUBJg7K9HKUpUd3iCl4PzW7Fi3ljmY"
+            "rawContentDigest": "sha256-ZZMaSytGvF7VNSWJqdS7gLtGI0hfD-jaKIMaq8Fr-vs"
           },
           {
             "kind": "javascript",
             "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-            "rawContentDigest": "sha256-gFM1G9uxAkq1NYGeBtlv8-NWnVzK2Tlhr-SEa_BkFBI"
+            "rawContentDigest": "sha256-QhJJzHeWGx4t3-VXCQuSrTmSzn1HO_zb9jLbDS4-XJw"
           },
           {
             "kind": "rust",
             "path": "src/capsec_registry_generated.rs",
-            "rawContentDigest": "sha256-NmNXKGGFScD-ei2mBhENTqpNh7FPgm77EcI7mlgELuk"
+            "rawContentDigest": "sha256-I6PMhJ1x9MdNir2NfkL_yZsmRSVLK1htCL0b770CxWE"
           },
           {
             "kind": "cxx",
             "path": "src/engine/capsec_registry_generated.h",
-            "rawContentDigest": "sha256--xGidv1YsK0ePQxQbXUGNGmwtQqSaTDG6-l-xH9NTi0"
+            "rawContentDigest": "sha256-4jQFpPMtsDabOCN8fL9Qh0ucdGc0jkoMPyegh7Xj7xE"
           }
         ],
         "counts": {
-          "observedReferences": 11048,
-          "logicalSurfaces": 6804,
-          "coverageEdges": 6804,
-          "targetCells": 6804
+          "observedReferences": 11079,
+          "logicalSurfaces": 6813,
+          "coverageEdges": 6813,
+          "targetCells": 6813
         }
       }
     },
@@ -328343,6 +329022,23 @@
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
           },
           {
+            "edgeId": "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.callback.producer.src.engine.hermes.runtime.fs.windows.cc.startfsasync.pushruntim.195w0dv.main"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
             "edgeId": "surface.callback.producer.src.engine.hermes.runtime.http.cc.waitworkerpool.spawnworkerifn.0nu01ol",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -337455,6 +338151,40 @@
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
           },
           {
+            "edgeId": "surface.host.abi.ex.host.fs.fstat.1di7udv",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
+            "edgeId": "surface.host.abi.ex.host.fs.last.error.1bspifg",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.host.abi.ex.host.fs.last.error.1bspifg.default.1rinpzi"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
             "edgeId": "surface.host.abi.ex.host.fs.lstat.0wkeomh",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -337688,6 +338418,23 @@
             "disposition": "unsupported",
             "implementationBranchIds": [
               "surface.host.abi.ex.host.fs.stat.17ncwgv.default.103zbhp"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
+            "edgeId": "surface.host.abi.ex.host.fs.sync.011h89u",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao"
             ],
             "fixtures": [],
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -347550,6 +348297,23 @@
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
           },
           {
+            "edgeId": "surface.native.op.exactfscloseasync.117uwo2",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.native.op.exactfscloseasync.117uwo2.default.1e8d2te"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
             "edgeId": "surface.native.op.exactfsfchmod.1fo8s7x",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -347618,6 +348382,23 @@
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
           },
           {
+            "edgeId": "surface.native.op.exactfsfdasync.1iinzl8",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
             "edgeId": "surface.native.op.exactfsfdatasyncsync.1p6q71s",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -347629,7 +348410,7 @@
             },
             "disposition": "unsupported",
             "implementationBranchIds": [
-              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.12h9npa"
+              "surface.native.op.exactfsfdatasyncsync.1p6q71s.default.1ta9swq"
             ],
             "fixtures": [],
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -347663,7 +348444,7 @@
             },
             "disposition": "unsupported",
             "implementationBranchIds": [
-              "surface.native.op.exactfsfsyncsync.02nw7ns.default.1avxq1i"
+              "surface.native.op.exactfsfsyncsync.02nw7ns.default.126sl42"
             ],
             "fixtures": [],
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -347715,6 +348496,23 @@
             "disposition": "unsupported",
             "implementationBranchIds": [
               "surface.native.op.exactfsopen.05ao6wa.default.0zav10a"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
+            "edgeId": "surface.native.op.exactfsopenasync.1jie13i",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi"
             ],
             "fixtures": [],
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -393087,6 +393885,23 @@
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
           },
           {
+            "edgeId": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2.main"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
             "edgeId": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5",
             "target": {
               "triple": "aarch64-apple-darwin",
@@ -393932,6 +394747,23 @@
             "disposition": "unsupported",
             "implementationBranchIds": [
               "surface.startup.install.route.installdnshostfunctions.installunsupportedglobal.02ggrsb.main"
+            ],
+            "fixtures": [],
+            "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+          },
+          {
+            "edgeId": "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution",
+                "native-compartments",
+                "native-lockdown"
+              ]
+            },
+            "disposition": "unsupported",
+            "implementationBranchIds": [
+              "surface.startup.install.route.installfshostfunctions.installsync.12xcrqm.main"
             ],
             "fixtures": [],
             "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -395405,7 +396237,7 @@
       "logicalName": "vocab-digest",
       "document": {
         "domain": "ibex:capsec:vocab:1",
-        "digest": "sha256-JDQ2KJhZ036OvOdWw4Mc2WK5QWgbtQiUi3jCcpw_TH8"
+        "digest": "sha256--VzaIGqtgGV8zqukl3hK1bIsHbbxPxnES9BGnxF2jZA"
       }
     }
   ]

@@ -2,8 +2,8 @@
 <!-- @ref LLP 0021#default-and-target-claim — exact-target claims remain disabled until conformance -->
 # Generated capsec target matrix
 
-The registry contains 6804 semantic coverage edges, including 760 conditional-unrefined edges. WP1 advertises no executable target.
+The registry contains 6813 semantic coverage edges, including 762 conditional-unrefined edges. WP1 advertises no executable target.
 
 | Exact target | Structural features | Selected implementation branches | Branchless cells | Enforced | Closed | Non-capability | Absent | Unsupported |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
-| aarch64-apple-darwin | hermes-frame-attribution, native-compartments, native-lockdown | 6700 | 109 | 0 | 0 | 0 | 0 | 6804 |
+| aarch64-apple-darwin | hermes-frame-attribution, native-compartments, native-lockdown | 6709 | 109 | 0 | 0 | 0 | 0 | 6813 |

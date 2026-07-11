@@ -100,16 +100,19 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactExportKeySpki",
   "__exactFdPollHup",
   "__exactFsClose",
+  "__exactFsCloseAsync",
   "__exactFsFchmod",
   "__exactFsFchmodSync",
   "__exactFsFchown",
   "__exactFsFchownSync",
+  "__exactFsFdAsync",
   "__exactFsFdatasyncSync",
   "__exactFsFstatSync",
   "__exactFsFsyncSync",
   "__exactFsFtruncateSync",
   "__exactFsFutimesSync",
   "__exactFsOpen",
+  "__exactFsOpenAsync",
   "__exactFsPathAsync",
   "__exactFsRead",
   "__exactFsReadAsync",
@@ -346,6 +349,7 @@ const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime_dns.cc:startDnsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fetch.cc:installFetchGlobals:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_fs.cc:startFsAsync:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime_fs_windows.cc:startFsAsync:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WaitWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_http.cc:WritableWorkerPool::spawnWorkerIfNeededLocked:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_websocket.cc:installWebSocketGlobals:pushRuntimeCallback",
@@ -5082,6 +5086,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_fs_chmod",
     "ex_host_fs_close",
     "ex_host_fs_copy",
+    "ex_host_fs_fstat",
+    "ex_host_fs_last_error",
     "ex_host_fs_lstat",
     "ex_host_fs_mkdir",
     "ex_host_fs_mkdtemp",
@@ -5096,6 +5102,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_fs_rmdir",
     "ex_host_fs_seek",
     "ex_host_fs_stat",
+    "ex_host_fs_sync",
     "ex_host_fs_unlink",
     "ex_host_fs_write",
     "ex_host_grant_capability",
@@ -6217,6 +6224,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_SEAL_SELF_GRANT",
     "env:IBEX_STARTUP_TRACE",
     "env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+    "env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
     "env:LINES",
     "env:NODE_CHANNEL_FD",
@@ -6268,6 +6276,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:installCryptoHostFunctions:installDnsHostFunctions",
     "install-route:installCryptoHostFunctions:installZlibHostFunctions",
     "install-route:installDnsHostFunctions:installUnsupportedGlobal",
+    "install-route:installFsHostFunctions:installSync",
     "install-route:installGlobals:installAndroidHostFunctions",
     "install-route:installGlobals:installConsoleGlobals",
     "install-route:installGlobals:installTimerGlobals",
@@ -8215,7 +8224,7 @@ function callbackClassification(surface) {
   }
 
   const producerMatch =
-    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
+    /^producer:src\/engine\/hermes_runtime(?:_(?:android|crypto|dns|fetch|fs|fs_windows|http|websocket))?\.cc:(.+):pushruntimecallback$/u.exec(
       name,
     );
   if (
@@ -8726,6 +8735,7 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_TEST_MODULE",
   "EXACT_TEST_SECTION",
   "EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
+  "IBEX_TEST_FS_WORKER_MAX_QUEUE",
 ]);
 
 const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
@@ -10899,7 +10909,7 @@ function hostAbiClassification(name) {
   }
 
   if (/^exhostfs/u.test(name)) {
-    const descriptorOptions = /(?:pread|pwrite|fsread$|fswrite$)/u.test(name)
+    const descriptorOptions = /(?:fstat|fssync|pread|pwrite|fsread$|fswrite$)/u.test(name)
       ? {
           effectOwnerSource: "descriptor-owner",
           principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
@@ -10908,6 +10918,9 @@ function hostAbiClassification(name) {
       : {};
     if (/^exhostfsclose$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP5");
+    }
+    if (/^exhostfslasterror$/u.test(name)) {
+      return nonCapabilitySpec("internal-data-transform", "WP5");
     }
     if (/^exhostfsseek$/u.test(name)) {
       return nonCapabilitySpec("authority-control-plane", "WP5");
@@ -10924,14 +10937,14 @@ function hostAbiClassification(name) {
     if (/^exhostfscopy$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
-    if (/^exhostfs(?:access|lstat|readdir|realpath|stat)$/u.test(name)) {
+    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat)$/u.test(name)) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
     if (/^exhostfs(?:pread|read)$/u.test(name)) {
       return effectSpec(["fs:read"], "filesystem", "WP5", descriptorOptions);
     }
     if (
-      /^exhostfs(?:append|chmod|mkdir|mkdtemp|pwrite|rename|rmdir|unlink|write)$/u.test(
+      /^exhostfs(?:append|chmod|mkdir|mkdtemp|pwrite|rename|rmdir|sync|unlink|write)$/u.test(
         name,
       )
     ) {
@@ -11778,6 +11791,15 @@ function classifyConcreteSurface(surface) {
         "filesystem",
         "WP5",
         "The generic async path dispatcher selects list/read/write/copy/link behavior from its operation tag; WP5 must emit exact logical branches.",
+        descriptorOptions,
+      );
+    }
+    if (/^exactfsfdasync$/u.test(name)) {
+      return conditionalEffectSpec(
+        ["fs:read", "fs:write"],
+        "filesystem",
+        "WP5",
+        "The generic async descriptor dispatcher selects metadata or durability behavior from its operation tag.",
         descriptorOptions,
       );
     }
