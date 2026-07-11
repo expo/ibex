@@ -356,3 +356,75 @@ fs.close(fd, function(err) { if (err) console.log('close-error:' + err.code); })
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
+    let dir = unique_dir("fs-queue-reject");
+    let script = dir.join("reject.js");
+    std::fs::write(
+        &script,
+        r#"var fs = require('fs');
+(async function() {
+  fs.writeFileSync('payload.txt', 'alive');
+  var fd = fs.openSync('payload.txt', 'r');
+  var before = fs.readdirSync('/dev/fd').length;
+  var rejected = await Promise.all(Array.from({length: 100}, function() {
+    return fs.promises.fstat(fd).then(function() { return false; }, function() { return true; });
+  }));
+  var closeRejected = await fs.promises.close(fd).then(function() { return false; }, function() { return true; });
+  var byte = Buffer.alloc(1); fs.readSync(fd, byte, 0, 1, 0);
+  var openRejected = await fs.promises.open('must-not-exist.txt', 'w').then(function() { return false; }, function() { return true; });
+  var after = fs.readdirSync('/dev/fd').length;
+  fs.closeSync(fd);
+  console.log('fs-queue-reject: rejected=' + rejected.filter(Boolean).length +
+    ' close=' + closeRejected + ' open=' + openRejected + ' byte=' + byte.toString() +
+    ' created=' + fs.existsSync('must-not-exist.txt') + ' fdDelta=' + (after - before));
+})().catch(function(e) { console.log('fs-queue-reject: error=' + (e.stack || e)); process.exitCode = 1; });
+"#,
+    )
+    .expect("write rejection script");
+    let out = Command::new(IBEX)
+        .args(["run", "reject.js"])
+        .env("IBEX_TEST_FS_WORKER_MAX_QUEUE", "0")
+        .current_dir(&dir)
+        .output()
+        .expect("run queue rejection test");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("rejected=100 close=true open=true byte=a created=false fdDelta=0"),
+        "queue rejection must release duplicates and restore close authority:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn large_typed_readdir_stays_within_worker_queue_bound() {
+    let dir = unique_dir("fs-large-readdir");
+    let entries = dir.join("entries");
+    std::fs::create_dir(&entries).expect("create entries dir");
+    for i in 0..1500 {
+        std::fs::write(entries.join(format!("entry-{i}")), "").expect("write entry");
+    }
+    std::fs::write(
+        dir.join("large-readdir.js"),
+        r#"var fs = require('fs');
+fs.promises.readdir('entries', {withFileTypes:true}).then(function(items) {
+  console.log('large-readdir: count=' + items.length + ' files=' + items.filter(function(x) { return x.isFile(); }).length);
+}, function(err) { console.log('large-readdir: error=' + (err.code || err)); process.exitCode = 1; });
+"#,
+    )
+    .expect("write large readdir script");
+    let out = Command::new(IBEX)
+        .args(["run", "large-readdir.js"])
+        .current_dir(&dir)
+        .output()
+        .expect("run large readdir");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("large-readdir: count=1500 files=1500"),
+        "bounded traversal must not overflow the 1024-job queue:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

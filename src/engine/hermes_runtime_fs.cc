@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <dirent.h>
@@ -118,6 +119,12 @@ static void unregisterFd(int fd) {
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry.erase(fd);
   g_transferable_fds.erase(fd);
+}
+
+static void restoreFdEntry(int fd, const std::optional<FdEntry>& entry) {
+  if (!entry) return;
+  std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
+  g_fd_registry[fd] = *entry;
 }
 
 static std::optional<FdEntry> lookupFdEntry(int fd) {
@@ -603,7 +610,7 @@ class FsWorkerPool {
   bool enqueue(std::function<void()> job, std::string& error) {
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (queue_.size() >= kMaxQueue) {
+      if (queue_.size() >= maxQueue()) {
         // Fail loudly rather than growing without bound.
         // @ref LLP 0006#degrade-diagnostics-never-the-caller
         error = "FS worker queue full";
@@ -624,6 +631,16 @@ class FsWorkerPool {
   std::deque<std::function<void()>> queue_;
   size_t idle_ = 0;
   size_t total_ = 0;
+
+  static size_t maxQueue() {
+    // Deterministic failure injection for native resource-safety tests. The
+    // production default remains bounded at 1024.
+    const char* value = std::getenv("IBEX_TEST_FS_WORKER_MAX_QUEUE");
+    if (!value || !*value) return kMaxQueue;
+    char* end = nullptr;
+    auto parsed = std::strtoull(value, &end, 10);
+    return end && *end == '\0' ? static_cast<size_t>(parsed) : kMaxQueue;
+  }
 
   void spawnWorkerIfNeededLocked() {
     if (idle_ > 0 || total_ >= kMaxWorkers) {
@@ -693,7 +710,8 @@ static facebook::jsi::Value makeFsAsyncErrorValue(
 static facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
-    std::function<FsAsyncResult()> work) {
+    std::function<FsAsyncResult()> work,
+    std::function<void()> onEnqueueFailure = {}) {
   // Capture the scheduling principal on the JS thread so the resolved
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
@@ -703,7 +721,7 @@ static facebook::jsi::Value startFsAsync(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, workPtr](
+      [handle, principal, workPtr, onEnqueueFailure](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -730,7 +748,7 @@ static facebook::jsi::Value startFsAsync(
               auto resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
-              pushRuntimeCallback(
+              bool delivered = pushRuntimeCallback(
                   handle,
                   [handle, principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
@@ -767,10 +785,14 @@ static facebook::jsi::Value startFsAsync(
                     } catch (...) {
                     }
                   });
+              if (!delivered && resultPtr->ok && resultPtr->registerOpenedFd) {
+                ::close(static_cast<int>(resultPtr->number));
+              }
             },
             enqueueError);
         if (!queued) {
           handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+          if (onEnqueueFailure) onEnqueueFailure();
           reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
         }
         return facebook::jsi::Value::undefined();
@@ -1339,12 +1361,9 @@ static FsAsyncResult fsFdOpWork(
     rc = ::fdatasync(workerFd);
 #endif
   } else {
-    int saved = EINVAL;
-    ::close(workerFd);
-    return fsAsyncError(saved, op.c_str());
+    return fsAsyncError(EINVAL, op.c_str());
   }
   int saved = errno;
-  ::close(workerFd);
   return rc == 0 ? fsAsyncOk() : fsAsyncError(saved, syscall);
 }
 
@@ -1366,17 +1385,28 @@ static FsAsyncResult fsCloseWork(int fd) {
   return fsAsyncOk();
 }
 
-static int duplicateFdForAsync(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+class OwnedFd {
+ public:
+  explicit OwnedFd(int fd) : fd_(fd) {}
+  ~OwnedFd() { if (fd_ >= 0) ::close(fd_); }
+  OwnedFd(const OwnedFd&) = delete;
+  OwnedFd& operator=(const OwnedFd&) = delete;
+  int get() const { return fd_; }
+ private:
+  int fd_;
+};
+
+static std::shared_ptr<OwnedFd> duplicateFdForAsync(
+    facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
   int workerFd = ::dup(fd);
   if (workerFd < 0) throwFsError(runtime, syscall, "");
-  return workerFd;
+  return std::make_shared<OwnedFd>(workerFd);
 }
 
 static FsAsyncResult fsRunOwnedFd(
-    int workerFd, const std::function<FsAsyncResult(int)>& work) {
-  auto result = work(workerFd);
-  ::close(workerFd);
-  return result;
+    const std::shared_ptr<OwnedFd>& workerFd,
+    const std::function<FsAsyncResult(int)>& work) {
+  return work(workerFd->get());
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
@@ -3032,11 +3062,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsCloseAsync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) (void)requireOwnedFd(runtime, fd, "close");
+        std::optional<FdEntry> entry;
+        if (!isAllowAll()) {
+          (void)requireOwnedFd(runtime, fd, "close");
+          entry = lookupFdEntry(fd);
+        }
         // Revoke authority before dispatch so no later JS operation can race
         // the close or acquire authority through integer fd reuse.
         unregisterFd(fd);
-        return startFsAsync(handle, runtime, [fd]() { return fsCloseWork(fd); });
+        return startFsAsync(
+            handle, runtime, [fd, entry]() {
+              auto result = fsCloseWork(fd);
+              if (!result.ok) restoreFdEntry(fd, entry);
+              return result;
+            },
+            [fd, entry]() { restoreFdEntry(fd, entry); });
       });
   rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
 
@@ -3051,7 +3091,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdRead(runtime, fd, "read");
-          int workerFd = duplicateFdForAsync(runtime, fd, "read");
+          auto workerFd = duplicateFdForAsync(runtime, fd, "read");
           return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
             return fsRunOwnedFd(workerFd, [](int owned) { return fsReadWholeFdWork(owned, false, ""); });
           });
@@ -3091,7 +3131,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdWrite(runtime, fd, "write");
-          int workerFd = duplicateFdForAsync(runtime, fd, "write");
+          auto workerFd = duplicateFdForAsync(runtime, fd, "write");
           return startFsAsync(handle, runtime, [workerFd, dataBytes, flush]() -> FsAsyncResult {
             return fsRunOwnedFd(workerFd, [dataBytes, flush](int owned) { return fsWriteAllFdWork(owned, *dataBytes, flush, false, ""); });
           });
@@ -3129,7 +3169,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         size_t length = static_cast<size_t>(args[1].asNumber());
         requireFdRead(runtime, fd, "read");
-        int workerFd = duplicateFdForAsync(runtime, fd, "read");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "read");
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         return startFsAsync(
@@ -3151,7 +3191,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "write");
-        int workerFd = duplicateFdForAsync(runtime, fd, "write");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "write");
         auto dataBytes = std::make_shared<std::vector<uint8_t>>(
             extractBytes(runtime, args[1]));
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
@@ -3178,7 +3218,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdRead(runtime, fd, "readv");
-        int workerFd = duplicateFdForAsync(runtime, fd, "readv");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "readv");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -3208,7 +3248,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "writev");
-        int workerFd = duplicateFdForAsync(runtime, fd, "writev");
+        auto workerFd = duplicateFdForAsync(runtime, fd, "writev");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -3359,7 +3399,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throwFsError(runtime, op.c_str(), "");
         }
         return startFsAsync(handle, runtime, [op, workerFd, x, y]() -> FsAsyncResult {
-          return fsFdOpWork(op, workerFd, x, y);
+          return fsRunOwnedFd(workerFd, [op, x, y](int owned) { return fsFdOpWork(op, owned, x, y); });
         });
       });
   rt.global().setProperty(rt, "__exactFsFdAsync", std::move(fsFdAsyncFn));
@@ -3382,7 +3422,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
           int fd = static_cast<int>(args[0].asNumber());
           requireFdRead(runtime, fd, "fstat");
-          int workerFd = duplicateFdForAsync(runtime, fd, "fstat");
+          auto workerFd = duplicateFdForAsync(runtime, fd, "fstat");
           return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
             return fsRunOwnedFd(workerFd, [](int owned) { return fsFstatWork(owned); });
           });

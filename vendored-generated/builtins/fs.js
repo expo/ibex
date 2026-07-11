@@ -869,13 +869,50 @@ function _asyncReaddirSimple(native, path, options) {
 		return _readdirEntriesFromNativePayload(payload, opts);
 	});
 }
-function _asyncBuildDirEntries(native, path, options) {
+function _withTraversalSlot(limiter, work) {
+	return new Promise(function(resolve, reject) {
+		function start() {
+			limiter.active += 1;
+			Promise.resolve().then(work).then(resolve, reject).finally(function() {
+				limiter.active -= 1;
+				if (limiter.queue.length) limiter.queue.shift()();
+			});
+		}
+		if (limiter.active < limiter.limit) start();
+		else limiter.queue.push(start);
+	});
+}
+function _boundedAsyncMap(items, limit, mapper) {
+	var results = new Array(items.length), next = 0;
+	function worker() {
+		var index = next++;
+		if (index >= items.length) return Promise.resolve();
+		return Promise.resolve(mapper(items[index], index)).then(function(value) {
+			results[index] = value;
+			return worker();
+		});
+	}
+	var workers = [];
+	for (var i = 0; i < Math.min(limit, items.length); i++) workers.push(worker());
+	return Promise.all(workers).then(function() {
+		return results;
+	});
+}
+function _asyncBuildDirEntries(native, path, options, limiter) {
+	limiter = limiter || {
+		active: 0,
+		limit: 32,
+		queue: []
+	};
 	var statNative = _fsAsyncNative("__exactFsStatAsync");
-	return _asyncFsPathOp(native, "readdir", [path], "scandir", path).then(function(payload) {
-		var names = _readdirEntriesFromNativePayload(payload, options);
-		return Promise.all(names.map(function(name) {
+	return _withTraversalSlot(limiter, function() {
+		return _asyncFsPathOp(native, "readdir", [path], "scandir", path);
+	}).then(function(payload) {
+		return _boundedAsyncMap(_readdirEntriesFromNativePayload(payload, options), 32, function(name) {
 			var fullPath = pathJoin(path, name);
-			return (statNative ? _asyncStatImpl(statNative, fullPath, "lstat", {}) : Promise.resolve().then(function() {
+			return (statNative ? _withTraversalSlot(limiter, function() {
+				return _asyncStatImpl(statNative, fullPath, "lstat", {});
+			}) : Promise.resolve().then(function() {
 				try {
 					return lstatSync(fullPath);
 				} catch (_) {
@@ -884,7 +921,7 @@ function _asyncBuildDirEntries(native, path, options) {
 			})).then(function(stat) {
 				var entry = new Dirent(_normalizeDirEntryName(name, options && options.encoding), path, stat);
 				entry.path = path;
-				if (options && options.recursive && stat && stat.isDirectory()) return _asyncBuildDirEntries(native, fullPath, options).then(function(nested) {
+				if (options && options.recursive && stat && stat.isDirectory()) return _asyncBuildDirEntries(native, fullPath, options, limiter).then(function(nested) {
 					return [entry].concat(nested);
 				});
 				return [entry];
@@ -893,7 +930,7 @@ function _asyncBuildDirEntries(native, path, options) {
 				entry.path = path;
 				return [entry];
 			});
-		})).then(function(groups) {
+		}).then(function(groups) {
 			var result = [];
 			for (var i = 0; i < groups.length; i++) result = result.concat(groups[i]);
 			return result;
@@ -932,9 +969,7 @@ function _asyncMkdtempResult(native, prefix, options) {
 	_validatePath(prefix, "prefix");
 	_validateEncodingOption(options);
 	var prefixPath = _pathToString(prefix);
-	var parent = _dirnamePath(prefixPath);
 	var rawPrefix = typeof prefix === "string" ? prefix : typeof Buffer !== "undefined" && Buffer.isBuffer(prefix) ? prefix.toString() : null;
-	if (!existsSync(parent)) throw _makeFsError(/* @__PURE__ */ new Error("ENOENT: no such file or directory, mkdtemp '" + prefix + "'"), "mkdtemp", prefix);
 	return _asyncFsPathOp(native, "mkdtemp", [prefixPath], "mkdtemp", prefix).then(function(createdPath) {
 		return {
 			actualPath: createdPath,
