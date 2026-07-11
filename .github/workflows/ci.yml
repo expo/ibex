@@ -39,6 +39,15 @@ jobs:
       - name: Validate Cargo metadata
         run: cargo metadata --no-deps --format-version 1 > /tmp/ibex-cargo-metadata.json
 
+      # The product-neutral semantic core has no Hermes dependency, so its
+      # security contract can and should run in hermetic preflight CI.
+      # @ref LLP 0021#wp2--implement-the-typed-policy-and-decision-core
+      - name: Test CapSec semantic core
+        run: cargo test -p capsec-semantics
+
+      - name: Lint CapSec semantic core
+        run: cargo clippy -p capsec-semantics --all-targets -- -D warnings
+
       # Hermes-gated cases inside the suite skip themselves when no hermes
       # binary is present (transforms.test.mjs probes IBEX_HERMES_BIN and the
       # exact-monorepo tools/hermes layout).

@@ -193,11 +193,7 @@ impl CapabilityManager {
     /// resolved-to-resolved; host entries are normalized like `network:*`
     /// resources. Takes `&mut self`: called once from `Host::new` before the
     /// manager is shared. (ENG-23876)
-    pub fn set_host_boundary(
-        &mut self,
-        root_dir: Option<&Path>,
-        allowed_hosts: Option<&[String]>,
-    ) {
+    pub fn set_host_boundary(&mut self, root_dir: Option<&Path>, allowed_hosts: Option<&[String]>) {
         self.fs_root = root_dir.map(|root| {
             normalize_fs_resource(
                 &root.to_string_lossy(),
@@ -205,8 +201,12 @@ impl CapabilityManager {
                 FsResourceKind::Value,
             )
         });
-        self.allowed_hosts = allowed_hosts
-            .map(|hosts| hosts.iter().map(|h| normalize_network_resource(h)).collect());
+        self.allowed_hosts = allowed_hosts.map(|hosts| {
+            hosts
+                .iter()
+                .map(|h| normalize_network_resource(h))
+                .collect()
+        });
     }
 
     /// Apply policy file allow/deny rules
@@ -479,8 +479,9 @@ impl CapabilityManager {
                 // ANY path, which necessarily exceeds the fence: deny. Checked
                 // values are symlink-resolved by normalization, and the root
                 // was resolved the same way, so prefix containment is sound.
-                let inside = resource
-                    .is_some_and(|path| path == root || path_prefix_match(&format!("{root}/**"), path));
+                let inside = resource.is_some_and(|path| {
+                    path == root || path_prefix_match(&format!("{root}/**"), path)
+                });
                 (!inside).then_some("root_dir")
             }
             "network" => {
@@ -1524,7 +1525,10 @@ mod tests {
         let entry = log.last().expect("fence denial must be recorded");
         assert_eq!(entry.constraint.as_deref(), Some("host-boundary:root_dir"));
         assert!(!entry.decision);
-        assert!(!entry.allowed, "audit mode must not let the fence fail open");
+        assert!(
+            !entry.allowed,
+            "audit mode must not let the fence fail open"
+        );
     }
 
     #[test]

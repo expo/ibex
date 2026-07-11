@@ -6,6 +6,10 @@ description = "Ibex runtime - Hermes JS engine, module loader, and host ABI"
 authors = ["Ibex Runtime Team"]
 license = "MIT"
 
+[workspace]
+members = ["crates/capsec-semantics"]
+resolver = "2"
+
 [lib]
 name = "ibex_runtime"
 crate-type = ["staticlib", "rlib"]

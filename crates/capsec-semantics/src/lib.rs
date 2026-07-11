@@ -1,0 +1,17 @@
+//! Product-neutral CapSec policy and effect semantics.
+//!
+//! The crate accepts only typed, normalized actions and resources. Product
+//! vocabularies, registry rows, and runtime adapters stay outside this crate.
+//! @ref LLP 0021#ownership-and-profile-identity — neutral semantics boundary
+
+pub mod cache;
+pub mod canonical;
+pub mod containment;
+pub mod decision;
+pub mod digest;
+pub mod error;
+pub mod model;
+pub mod registry;
+pub mod strict_json;
+
+pub use error::{Error, Result};

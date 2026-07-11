@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145)
+**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -581,6 +581,16 @@ Acceptance:
 - Unknown/malformed definitions fail in every mode.
 - Adding a future vocabulary action cannot widen an existing positive policy.
 - The decision core consumes normalized typed effects, never authored strings.
+
+Implementation: ENG-24146 adds the product-neutral `crates/capsec-semantics`
+workspace member. It strictly ingests the frozen WP0 definitions/rules, uses
+RFC 8785 canonical bytes and domain-bound digests, validates typed selector and
+occurrence semantics, evaluates every deny stratum before positive authority,
+intersects constrained principals, conjoins effects, rejects speculative stage
+facts, binds revocation/dynamic/handle generations, and keys decisions by the
+complete frozen semantic identity. Rust golden and property tests consume the
+same WP0 fixtures as the JavaScript/schema validator; CI runs the focused Rust
+test and clippy gates without requiring a Hermes build.
 
 ### WP3 — Rebuild policy generation and import-site authoring
 
