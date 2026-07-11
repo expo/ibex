@@ -442,8 +442,7 @@ facebook::jsi::Value startFsAsync(
 
         std::string enqueueError;
         bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve = std::move(resolve),
-             reject = std::move(reject)]() mutable {
+            [handle, principal, workPtr, resolve, reject]() mutable {
               std::shared_ptr<FsAsyncResult> resultPtr;
               try {
                 resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());

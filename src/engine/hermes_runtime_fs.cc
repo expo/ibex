@@ -741,8 +741,7 @@ static facebook::jsi::Value startFsAsync(
 
         std::string enqueueError;
         bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve = std::move(resolve),
-             reject = std::move(reject)]() mutable {
+            [handle, principal, workPtr, resolve, reject]() mutable {
               // shared_ptr wrapper: std::function requires a copyable callable,
               // and a readFile result can be hundreds of MB — share it instead
               // of copying, and move the bytes into the JS heap at delivery.

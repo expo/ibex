@@ -393,6 +393,11 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
+        out.status.success(),
+        "queue rejection process must exit normally, got {:?}:\nstdout:\n{stdout}\nstderr:\n{stderr}",
+        out.status.code()
+    );
+    assert!(
         stdout.contains("rejected=100 close=true open=true byte=a created=false fdDelta=0"),
         "queue rejection must release duplicates and restore close authority:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
