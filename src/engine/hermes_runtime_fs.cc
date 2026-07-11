@@ -795,6 +795,10 @@ static facebook::jsi::Value startFsAsync(
         if (!queued) {
           handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
           if (onEnqueueFailure) onEnqueueFailure();
+          // The Promise may retain its executor (and therefore workPtr) after
+          // synchronous rejection. No worker owns this callable because
+          // enqueue failed, so clear it now to release RAII fd captures.
+          *workPtr = {};
           reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
         }
         return facebook::jsi::Value::undefined();

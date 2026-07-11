@@ -490,6 +490,9 @@ facebook::jsi::Value startFsAsync(
             enqueueError);
         if (!queued) {
           handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+          // A rejected Promise can retain its executor. Clear the unqueued
+          // callable so any owned native resources are released immediately.
+          *workPtr = {};
           reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
         }
         return facebook::jsi::Value::undefined();
