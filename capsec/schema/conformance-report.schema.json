@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/conformance-report.schema.json",
+  "title": "Ibex capsec exact-target conformance report",
+  "type": "object",
+  "required": [
+    "conformanceSchema",
+    "profile",
+    "status",
+    "bindings",
+    "summary",
+    "executions",
+    "cells",
+    "conformanceDigest"
+  ],
+  "properties": {
+    "conformanceSchema": { "const": "ibex/capsec-conformance/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "status": { "enum": ["conformant", "incomplete"] },
+    "bindings": {
+      "type": "object",
+      "required": [
+        "sourceRevision",
+        "sourceTreeDigest",
+        "engine",
+        "target",
+        "vocabularyDigest",
+        "registryDigest",
+        "implementationManifestDigest",
+        "fixtureCatalogDigest"
+      ],
+      "properties": {
+        "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sourceTreeDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "engine": {
+          "type": "object",
+          "required": ["kind", "binaryDigest"],
+          "properties": {
+            "kind": { "const": "patched-hermes" },
+            "binaryDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            }
+          },
+          "additionalProperties": false
+        },
+        "target": { "$ref": "#/$defs/target" },
+        "vocabularyDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "registryDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "implementationManifestDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "fixtureCatalogDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        }
+      },
+      "additionalProperties": false
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "cells",
+        "conformantCells",
+        "incompleteCells",
+        "requiredFixtures",
+        "passedFixtures",
+        "missingFixtures",
+        "failedFixtures"
+      ],
+      "properties": {
+        "cells": { "type": "integer", "minimum": 1 },
+        "conformantCells": { "type": "integer", "minimum": 0 },
+        "incompleteCells": { "type": "integer", "minimum": 0 },
+        "requiredFixtures": { "type": "integer", "minimum": 1 },
+        "passedFixtures": { "type": "integer", "minimum": 0 },
+        "missingFixtures": { "type": "integer", "minimum": 0 },
+        "failedFixtures": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "executions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "fixtureId",
+          "outcome",
+          "executor",
+          "artifactDigest",
+          "bindingDigest"
+        ],
+        "properties": {
+          "fixtureId": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          },
+          "outcome": { "enum": ["passed", "failed"] },
+          "executor": { "type": "string", "minLength": 1 },
+          "artifactDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "bindingDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cells": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "edgeId",
+          "implementationBranchIds",
+          "status",
+          "requiredFixtures",
+          "passedFixtures",
+          "missingFixtures",
+          "failedFixtures"
+        ],
+        "properties": {
+          "edgeId": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          },
+          "implementationBranchIds": { "$ref": "#/$defs/idSet" },
+          "status": { "enum": ["conformant", "incomplete"] },
+          "requiredFixtures": { "$ref": "#/$defs/idSet" },
+          "passedFixtures": { "$ref": "#/$defs/idSet" },
+          "missingFixtures": { "$ref": "#/$defs/idSet" },
+          "failedFixtures": { "$ref": "#/$defs/idSet" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "conformanceDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "features": { "$ref": "#/$defs/idSet" }
+      },
+      "additionalProperties": false
+    },
+    "idSet": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+      }
+    }
+  }
+}

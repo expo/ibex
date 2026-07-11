@@ -11,6 +11,7 @@
     "generate:capability-bits": "bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs",
     "generate:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --write",
     "generate:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --write",
+    "generate:capsec-conformance": "bun packages/ibex-devtools/src/scripts/generate-capsec-conformance.mjs",
     "generate:identity": "bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts",
     "generate:modules": "bun packages/ibex-devtools/src/scripts/generate-module-manifest.ts --rust-out-dir vendored-generated",
     "generate:vendored-fingerprint": "bun packages/ibex-devtools/src/scripts/generate-vendored-source-fingerprint.mjs",

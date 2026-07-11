@@ -69,7 +69,7 @@ describe("LLP 0021 capsec contract", () => {
     const counts = runContractCheck();
     expect(counts.capabilityDefinitions).toBe(38);
     expect(counts.legacyCapabilities).toBe(57);
-    expect(counts.schemas).toBe(16);
+    expect(counts.schemas).toBe(17);
     expect(counts.selectorExamples).toBe(16);
     expect(counts.occurrenceExamples).toBe(15);
     expect(counts.decisionSets).toBe(1);

@@ -141065,6 +141065,7 @@
             "schema/canonical-policy.schema.json",
             "schema/capability-definitions.schema.json",
             "schema/common.schema.json",
+            "schema/conformance-report.schema.json",
             "schema/contract-manifest.schema.json",
             "schema/coverage-edge.schema.json",
             "schema/digest-bundle.schema.json",
@@ -396376,7 +396377,7 @@
       "logicalName": "vocab-digest",
       "document": {
         "domain": "ibex:capsec:vocab:1",
-        "digest": "sha256-8zA3ZAVN8MSOprmwO814tmTrTYccExWfJYp-dY4Y8Uo"
+        "digest": "sha256-zjlJAcDB-gGNt31nS74X31OzNxueAoODUuSgDkEOakk"
       }
     }
   ]

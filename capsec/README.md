@@ -26,8 +26,9 @@ registry semantics rather than by borrowing another product's version number.
 - `schema/` defines common identities and resources; capability definitions;
   authority selectors and normalized occurrences; conjunctive effect sets;
   authority containment vectors; coverage edges and target cells; policy
-  rules, canonical review policy, and armed snapshots; digest bundles and
-  vectors; the file and observed-source manifests; and legacy reconciliation.
+  rules, canonical review policy, armed snapshots, and exact-target
+  conformance reports; digest bundles and vectors; the file and
+  observed-source manifests; and legacy reconciliation.
 - `registry/` contains the four semantic datasets: capability definitions,
   generated coverage edges, generated exact target cells, and policy/classifier
   rules. It also retains the explicit build-time disposition of every legacy
@@ -65,7 +66,24 @@ bun test packages/ibex-devtools/src/scripts/capsec-target-branches.test.mjs
 bun test packages/ibex-devtools/src/scripts/generated-output-io.test.mjs
 bun test packages/ibex-devtools/src/scripts/generate-capsec-registry.test.mjs
 bun test packages/ibex-devtools/src/scripts/capsec-contract.test.mjs
+bun test packages/ibex-devtools/src/scripts/capsec-conformance.test.mjs
 ```
+
+Generate a local report for the candidate target and installed patched-Hermes
+binary with:
+
+```sh
+bun run generate:capsec-conformance
+```
+
+The report is written under `target/` and is intentionally incomplete unless
+an independently produced `--executions` artifact supplies one unique,
+passing, artifact-digested result for every exact fixture obligation. Each
+execution must carry the binding digest for the report's source revision,
+source tree, engine binary, target, vocabulary, registry, implementation
+manifest, and fixture catalog. `--require-conformant` makes any missing or
+failed result fatal. Inventory rows and a green sample suite never synthesize
+execution results.
 
 Regenerate the source-derived registry and bindings first, then the exact
 digest bundles, policy/armed self- and cross-digests, digest-vector
@@ -112,7 +130,9 @@ invalid fixture bodies in the closed manifest. Digest-bearing
 payloads and the fixed vector oracle are explicitly excluded where raw inclusion
 would be cyclic and are checked independently. The production registry is
 available, but every WP1 target cell remains unsupported and conformance
-remains unavailable until WP10. Canonical policy and armed examples carry
+remains unavailable until WP10 completes its executed evidence. The WP10
+report format and fail-closed generator now exist; the candidate remains
+unadvertised while its report is incomplete. Canonical policy and armed examples carry
 recomputed self-digests and exact cross-links.
 
 Durable policy is enforce-only. Audit is the ephemeral, separately named
