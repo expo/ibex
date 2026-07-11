@@ -1114,10 +1114,27 @@ static FsAsyncResult fsPathOpWork(
     return fsAsyncString(std::move(out));
   }
   if (op == "mkdir") {
+    std::string firstMissing;
+    if (x != 0) {
+      std::string prefix = !a.empty() && a[0] == '/' ? "/" : "";
+      size_t start = prefix.empty() ? 0 : 1;
+      while (start <= a.size()) {
+        size_t slash = a.find('/', start);
+        std::string part = a.substr(start, slash == std::string::npos ? std::string::npos : slash - start);
+        if (!part.empty()) {
+          if (!prefix.empty() && prefix.back() != '/') prefix += '/';
+          prefix += part;
+          struct stat sb = {};
+          if (::lstat(prefix.c_str(), &sb) != 0 && errno == ENOENT) { firstMissing = prefix; break; }
+        }
+        if (slash == std::string::npos) break;
+        start = slash + 1;
+      }
+    }
     if (ex_host_fs_mkdir(a.c_str(), x != 0 ? 1 : 0) != 0) {
       return fsAsyncError(errno, "mkdir", a);
     }
-    return fsAsyncOk();
+    return x != 0 ? fsAsyncString(std::move(firstMissing)) : fsAsyncOk();
   }
   if (op == "rmdir") {
     if (ex_host_fs_rmdir(a.c_str()) != 0) {
@@ -1141,6 +1158,34 @@ static FsAsyncResult fsPathOpWork(
     if (ex_host_fs_copy(a.c_str(), b.c_str()) != 0) {
       return fsAsyncError(errno, "copyfile", a);
     }
+    return fsAsyncOk();
+  }
+  if (op == "copyfile_excl") {
+    int source = ::open(a.c_str(), O_RDONLY);
+    if (source < 0) return fsAsyncError(errno, "copyfile", a);
+    struct stat st = {};
+    if (::fstat(source, &st) != 0) { int e = errno; ::close(source); return fsAsyncError(e, "copyfile", a); }
+    int dest = ::open(b.c_str(), O_WRONLY | O_CREAT | O_EXCL, st.st_mode & 07777);
+    if (dest < 0) { int e = errno; ::close(source); return fsAsyncError(e, "copyfile", b); }
+    std::vector<uint8_t> buffer(64 * 1024);
+    bool failed = false; int saved = 0;
+    for (;;) {
+      ssize_t n = ::read(source, buffer.data(), buffer.size());
+      if (n < 0 && errno == EINTR) continue;
+      if (n < 0) { failed = true; saved = errno; break; }
+      if (n == 0) break;
+      ssize_t off = 0;
+      while (off < n) {
+        ssize_t written = ::write(dest, buffer.data() + off, static_cast<size_t>(n - off));
+        if (written < 0 && errno == EINTR) continue;
+        if (written <= 0) { failed = true; saved = written < 0 ? errno : EIO; break; }
+        off += written;
+      }
+      if (failed) break;
+    }
+    ::close(source);
+    if (::close(dest) != 0 && !failed) { failed = true; saved = errno; }
+    if (failed) { ::unlink(b.c_str()); return fsAsyncError(saved, "copyfile", a); }
     return fsAsyncOk();
   }
   if (op == "realpath") {
@@ -1319,6 +1364,19 @@ static FsAsyncResult fsOpenWork(
 static FsAsyncResult fsCloseWork(int fd) {
   if (::close(fd) != 0) return fsAsyncError(errno, "close");
   return fsAsyncOk();
+}
+
+static int duplicateFdForAsync(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  int workerFd = ::dup(fd);
+  if (workerFd < 0) throwFsError(runtime, syscall, "");
+  return workerFd;
+}
+
+static FsAsyncResult fsRunOwnedFd(
+    int workerFd, const std::function<FsAsyncResult(int)>& work) {
+  auto result = work(workerFd);
+  ::close(workerFd);
+  return result;
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
@@ -2956,7 +3014,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsOpenAsync: path and flags required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        int flags = parseOpenFlags(runtime, args, count, 1);
+        int flags = parseOpenFlagsArg(runtime, args, count, 1);
         int mode = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 0666;
         bool canRead = false, canWrite = false;
         requireOpenCapability(runtime, path, flags, canRead, canWrite);
@@ -2993,8 +3051,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdRead(runtime, fd, "read");
-          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
-            return fsReadWholeFdWork(fd, false, "");
+          int workerFd = duplicateFdForAsync(runtime, fd, "read");
+          return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [](int owned) { return fsReadWholeFdWork(owned, false, ""); });
           });
         }
         auto path = args[0].toString(runtime).utf8(runtime);
@@ -3032,8 +3091,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (args[0].isNumber()) {
           int fd = static_cast<int>(args[0].asNumber());
           requireFdWrite(runtime, fd, "write");
-          return startFsAsync(handle, runtime, [fd, dataBytes, flush]() -> FsAsyncResult {
-            return fsWriteAllFdWork(fd, *dataBytes, flush, false, "");
+          int workerFd = duplicateFdForAsync(runtime, fd, "write");
+          return startFsAsync(handle, runtime, [workerFd, dataBytes, flush]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [dataBytes, flush](int owned) { return fsWriteAllFdWork(owned, *dataBytes, flush, false, ""); });
           });
         }
         auto path = args[0].toString(runtime).utf8(runtime);
@@ -3069,11 +3129,12 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = static_cast<int>(args[0].asNumber());
         size_t length = static_cast<size_t>(args[1].asNumber());
         requireFdRead(runtime, fd, "read");
+        int workerFd = duplicateFdForAsync(runtime, fd, "read");
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         return startFsAsync(
-            handle, runtime, [fd, length, positioned, position]() -> FsAsyncResult {
-              return fsReadChunkWork(fd, length, positioned, position);
+            handle, runtime, [workerFd, length, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [length, positioned, position](int owned) { return fsReadChunkWork(owned, length, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsReadAsync", std::move(fsReadAsyncFn));
@@ -3090,13 +3151,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "write");
+        int workerFd = duplicateFdForAsync(runtime, fd, "write");
         auto dataBytes = std::make_shared<std::vector<uint8_t>>(
             extractBytes(runtime, args[1]));
         bool positioned = count > 2 && args[2].isNumber() && args[2].asNumber() >= 0;
         int64_t position = positioned ? static_cast<int64_t>(args[2].asNumber()) : -1;
         return startFsAsync(
-            handle, runtime, [fd, dataBytes, positioned, position]() -> FsAsyncResult {
-              return fsWriteChunkWork(fd, *dataBytes, positioned, position);
+            handle, runtime, [workerFd, dataBytes, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [dataBytes, positioned, position](int owned) { return fsWriteChunkWork(owned, *dataBytes, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsWriteAsync", std::move(fsWriteAsyncFn));
@@ -3116,6 +3178,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdRead(runtime, fd, "readv");
+        int workerFd = duplicateFdForAsync(runtime, fd, "readv");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -3127,8 +3190,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
         return startFsAsync(
-            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
-              return fsReadvWork(fd, *buffersPtr, positioned, position);
+            handle, runtime, [workerFd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [buffersPtr, positioned, position](int owned) { return fsReadvWork(owned, *buffersPtr, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsReadvAsync", std::move(fsReadvAsyncFn));
@@ -3145,6 +3208,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         requireFdWrite(runtime, fd, "writev");
+        int workerFd = duplicateFdForAsync(runtime, fd, "writev");
         std::vector<std::vector<uint8_t>> buffers;
         std::vector<struct iovec> iovecs;
         if (!parseIoVecArguments(runtime, args[1], buffers, iovecs, nullptr)) {
@@ -3156,8 +3220,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto buffersPtr = std::make_shared<std::vector<std::vector<uint8_t>>>(
             std::move(buffers));
         return startFsAsync(
-            handle, runtime, [fd, buffersPtr, positioned, position]() -> FsAsyncResult {
-              return fsWritevWork(fd, *buffersPtr, positioned, position);
+            handle, runtime, [workerFd, buffersPtr, positioned, position]() -> FsAsyncResult {
+              return fsRunOwnedFd(workerFd, [buffersPtr, positioned, position](int owned) { return fsWritevWork(owned, *buffersPtr, positioned, position); });
             });
       });
   rt.global().setProperty(rt, "__exactFsWritevAsync", std::move(fsWritevAsyncFn));
@@ -3216,7 +3280,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           if (!checkCapability("fs:write:" + a) || !checkCapability("fs:write:" + b)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
-        } else if (op == "copyfile") {
+        } else if (op == "copyfile" || op == "copyfile_excl") {
           if (b.empty()) {
             throw facebook::jsi::JSError(
                 runtime, "__exactFsPathAsync: copy destination required");
@@ -3318,8 +3382,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
           int fd = static_cast<int>(args[0].asNumber());
           requireFdRead(runtime, fd, "fstat");
-          return startFsAsync(handle, runtime, [fd]() -> FsAsyncResult {
-            return fsFstatWork(fd);
+          int workerFd = duplicateFdForAsync(runtime, fd, "fstat");
+          return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
+            return fsRunOwnedFd(workerFd, [](int owned) { return fsFstatWork(owned); });
           });
         }
         if (!args[0].isString() || (kind != "stat" && kind != "lstat")) {

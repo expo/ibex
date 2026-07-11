@@ -209,8 +209,13 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
       case 'readdir':
         return Promise.resolve(JSON.stringify(nodeFs.readdirSync(a)));
       case 'mkdir':
+        const firstMissing = x !== 0 ? (() => {
+          let cursor = a; const missing: string[] = [];
+          while (!nodeFs.existsSync(cursor)) { missing.push(cursor); const parent = nodePath.dirname(cursor); if (parent === cursor) break; cursor = parent; }
+          return missing.length ? missing[missing.length - 1] : '';
+        })() : undefined;
         nodeFs.mkdirSync(a, { recursive: x !== 0 });
-        return Promise.resolve(undefined);
+        return Promise.resolve(firstMissing);
       case 'rmdir':
         nodeFs.rmdirSync(a);
         return Promise.resolve(undefined);
@@ -222,6 +227,9 @@ g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?
         return Promise.resolve(undefined);
       case 'copyfile':
         nodeFs.copyFileSync(a, b as string);
+        return Promise.resolve(undefined);
+      case 'copyfile_excl':
+        nodeFs.copyFileSync(a, b as string, nodeFs.constants.COPYFILE_EXCL);
         return Promise.resolve(undefined);
       case 'realpath':
         return Promise.resolve(nodeFs.realpathSync(a));
@@ -686,6 +694,18 @@ describe('async traversal fs APIs (ENG-23541)', () => {
     expect(pathAsyncCalls.readdir).toBeGreaterThanOrEqual(3);
     expect(pathAsyncCalls.copyfile).toBeGreaterThanOrEqual(1);
     expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(3);
+  });
+
+  test('recursive mkdir result and COPYFILE_EXCL stay on path worker', async () => {
+    const root = nodePath.join(dir, 'mkdir-worker');
+    for (const key of Object.keys(pathAsyncCalls)) delete pathAsyncCalls[key];
+    const first = await fs.promises.mkdir(nodePath.join(root, 'a', 'b'), { recursive: true });
+    expect(first).toBe(root);
+    const src = nodePath.join(root, 'src'), dst = nodePath.join(root, 'dst');
+    nodeFs.writeFileSync(src, 'new'); nodeFs.writeFileSync(dst, 'old');
+    await expect(fs.promises.copyFile(src, dst, fs.constants.COPYFILE_EXCL)).rejects.toMatchObject({ code: 'EEXIST' });
+    expect(nodeFs.readFileSync(dst, 'utf8')).toBe('old');
+    expect(pathAsyncCalls.copyfile_excl).toBe(1);
   });
 
   test('watchFile polling uses async stat native', async () => {

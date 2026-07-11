@@ -904,25 +904,18 @@ function _asyncMkdirSimple(native, path, options) {
 	var p = _pathToString(path);
 	var recursive = false;
 	var mode;
-	var firstCreatedPath;
 	if (typeof options === "object" && options !== null) {
 		_validateMkdirRecursiveOption(options);
 		recursive = options.recursive === true;
 		mode = options.mode;
 	} else if (typeof options === "string" || typeof options === "number") mode = options;
 	if (mode !== void 0) mode = _coerceMode(mode) & 511;
-	if (recursive) firstCreatedPath = _getFirstMissingPath(p);
-	if (typeof path === "string" && path.charAt(0) !== "/") try {
-		statSync(_currentProcessCwd());
-	} catch (cwdErr) {
-		if (cwdErr && cwdErr.code === "ENOENT") throw cwdErr;
-	}
-	var result = recursive ? firstCreatedPath : void 0;
 	return _asyncFsPathOp(native, "mkdir", [
 		_nativeMkdirPath(p),
 		null,
 		recursive ? 1 : 0
-	], "mkdir", p).then(function() {
+	], "mkdir", p).then(function(createdPath) {
+		var result = recursive && createdPath ? createdPath : void 0;
 		if (mode === void 0) return result;
 		return _asyncFsPathOp(native, "chmod", [
 			p,
@@ -2882,7 +2875,7 @@ function copyFile(s, d, modeOrCb, cb) {
 	if (native) {
 		var sp = _pathToString(s);
 		var dp = _pathToString(d);
-		if ((mode & 1) !== 1) return _deferFsPromiseCallback(_asyncFsPathOp(native, "copyfile", [sp, dp], "copyfile", sp, dp), callback);
+		return _deferFsPromiseCallback(_asyncFsPathOp(native, (mode & constants.COPYFILE_EXCL) === constants.COPYFILE_EXCL ? "copyfile_excl" : "copyfile", [sp, dp], "copyfile", sp, dp), callback);
 	}
 	wrapCallback(function() {
 		copyFileSync(s, d, mode);
@@ -5184,7 +5177,14 @@ function rm(path, options, cb) {
 }
 function _asyncRm(path, options) {
 	_validatePath(path, "path");
+	if (typeof options === "boolean") options = {
+		recursive: true,
+		force: true
+	};
+	options = options || {};
 	var p = _pathToString(path), force = options.force === true, recursive = options.recursive === true;
+	var maxRetries = typeof options.maxRetries === "number" && options.maxRetries > 0 ? Math.floor(options.maxRetries) : 0;
+	var retryDelay = typeof options.retryDelay === "number" && options.retryDelay >= 0 ? options.retryDelay : 100;
 	function removeOne(target) {
 		return promises.lstat(target).then(function(st) {
 			if (!st.isDirectory() || st.isSymbolicLink()) return promises.unlink(target);
@@ -5203,7 +5203,18 @@ function _asyncRm(path, options) {
 			throw err;
 		});
 	}
-	return removeOne(p);
+	function attempt(n) {
+		return removeOne(p).catch(function(err) {
+			if (force && err && (err.code === "ENOENT" || err.code === "ENOTDIR")) return;
+			if (!(err && (err.code === "EBUSY" || err.code === "EMFILE" || err.code === "ENFILE" || err.code === "ENOTEMPTY" || err.code === "EPERM")) || n >= maxRetries) throw _normalizeRmError(err, p, recursive);
+			return new Promise(function(resolve) {
+				setTimeout(resolve, retryDelay * (n + 1));
+			}).then(function() {
+				return attempt(n + 1);
+			});
+		});
+	}
+	return attempt(0);
 }
 function _resolveAsync(value) {
 	return function() {
@@ -5604,10 +5615,10 @@ var promises = {
 			_validatePath(d, "dest");
 			if (m !== void 0 && m !== null) _validateCopyFileMode(m);
 			var native = _fsAsyncNative("__exactFsPathAsync");
-			if (native && (m & 1) !== 1) {
+			if (native) {
 				var sp = _pathToString(s);
 				var dp = _pathToString(d);
-				return _asyncFsPathOp(native, "copyfile", [sp, dp], "copyfile", sp, dp);
+				return _asyncFsPathOp(native, (m & constants.COPYFILE_EXCL) === constants.COPYFILE_EXCL ? "copyfile_excl" : "copyfile", [sp, dp], "copyfile", sp, dp);
 			}
 			copyFileSync(s, d, m);
 		})();
