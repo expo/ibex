@@ -1,0 +1,576 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/policy-rules.schema.json",
+  "title": "Ibex capsec policy and classifier rules",
+  "type": "object",
+  "required": [
+    "rulesSchema",
+    "profile",
+    "semanticCore",
+    "coreOwnership",
+    "execution",
+    "digestContract",
+    "decisionPrecedence",
+    "decisionStrata",
+    "principalSemantics",
+    "effectSemantics",
+    "normalizationProfiles",
+    "handles",
+    "dynamicAuthority",
+    "cacheKeyFields",
+    "resourceRules",
+    "classifierRules",
+    "initialProfile"
+  ],
+  "properties": {
+    "rulesSchema": { "const": "ibex/capsec-rules/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "semanticCore": { "const": "capsec/semantics/1" },
+    "coreOwnership": {
+      "type": "object",
+      "required": ["repository", "contractPath", "rustCratePath", "secondConsumerRule"],
+      "properties": {
+        "repository": { "const": "ccheever/ibex" },
+        "contractPath": { "const": "capsec" },
+        "rustCratePath": { "const": "crates/capsec-semantics" },
+        "secondConsumerRule": {
+          "const": "consume-this-source-or-explicitly-move-ownership-never-copy"
+        }
+      },
+      "additionalProperties": false
+    },
+    "execution": {
+      "type": "object",
+      "required": ["durableMode", "auditWorkflow", "contractFixtureWorkflow", "publicPermissive", "publicOff", "missingPolicy", "incompleteTarget", "deputyIntersection", "processAuthorityCeiling"],
+      "properties": {
+        "durableMode": { "const": "enforce" },
+        "auditWorkflow": { "const": "ibex capsec audit" },
+        "contractFixtureWorkflow": { "const": "schema-only-never-executable" },
+        "publicPermissive": { "const": false },
+        "publicOff": { "const": false },
+        "missingPolicy": { "const": "canonical-empty-enforce" },
+        "incompleteTarget": { "const": "refuse-before-code" },
+        "deputyIntersection": { "const": "all-actions-structural" },
+        "processAuthorityCeiling": { "const": "unbounded-allows-bounded-requires-containment-empty-bounded-denies-all" }
+      },
+      "additionalProperties": false
+    },
+    "digestContract": { "$ref": "#/$defs/digestContract" },
+    "decisionPrecedence": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/decisionId" }
+    },
+    "decisionStrata": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/decisionStratum" }
+    },
+    "principalSemantics": {
+      "type": "object",
+      "required": ["transparentFramePrincipal", "transparentRule", "nonTransparentKinds", "noUser", "missingOrAmbiguous", "scheduleTime", "constrainedSet", "combination"],
+      "properties": {
+        "transparentFramePrincipal": {
+          "type": "object",
+          "required": ["kind", "identity"],
+          "properties": {
+            "kind": { "const": "runtime" },
+            "identity": { "const": "ibex-runtime-internal" }
+          },
+          "additionalProperties": false
+        },
+        "transparentRule": { "type": "string", "minLength": 1 },
+        "nonTransparentKinds": { "$ref": "#/$defs/nonEmptyStringSet" },
+        "noUser": { "type": "string", "minLength": 1 },
+        "missingOrAmbiguous": { "const": "deny" },
+        "scheduleTime": { "type": "string", "minLength": 1 },
+        "constrainedSet": { "type": "string", "minLength": 1 },
+        "combination": { "const": "deduplicated-JCS-sorted-intersection" }
+      },
+      "additionalProperties": false
+    },
+    "effectSemantics": {
+      "type": "object",
+      "required": ["principalCombination", "decisionSet", "decisionContext", "lateDiscovery", "missingFacts", "stageAtomicity", "speculation", "stageFacts"],
+      "properties": {
+        "principalCombination": { "const": "intersection" },
+        "decisionSet": { "const": "conjunction" },
+        "decisionContext": { "type": "string", "minLength": 1 },
+        "lateDiscovery": { "const": "reauthorize-before-next-effect" },
+        "missingFacts": { "const": "deny" },
+        "stageAtomicity": { "const": "authorize-complete-known-set-before-commit" },
+        "speculation": { "const": "forbidden" },
+        "stageFacts": {
+          "type": "object",
+          "required": ["pathObjects", "networkCandidate", "listener", "dns", "executable", "device"],
+          "properties": {
+            "pathObjects": { "type": "string", "minLength": 1 },
+            "networkCandidate": { "type": "string", "minLength": 1 },
+            "listener": { "type": "string", "minLength": 1 },
+            "dns": { "type": "string", "minLength": 1 },
+            "executable": { "type": "string", "minLength": 1 },
+            "device": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "normalizationProfiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/normalizationProfile" }
+    },
+    "handles": {
+      "type": "object",
+      "required": ["model", "transfer", "positiveSourceScope", "negativeRecheck", "attenuation", "containmentContext", "containmentVectors", "revocation", "operationLease", "evidence", "odenDivergence"],
+      "properties": {
+        "model": { "const": "unforgeable-bearer" },
+        "transfer": { "const": "ordinary-object-possession" },
+        "positiveSourceScope": { "const": "explicit-handle-mediated-operation" },
+        "negativeRecheck": { "const": "every-use-and-stage" },
+        "attenuation": { "const": "same-action-strict-resource-subset" },
+        "containmentContext": { "const": "same-armed-snapshot-and-same-logical-root-binding-owner" },
+        "containmentVectors": { "const": "capsec/examples/authority-containment.canonical.json" },
+        "revocation": { "const": "ancestor-cascade-with-generation" },
+        "operationLease": { "const": "unforgeable-nontransferable-operation-bound" },
+        "evidence": { "type": "string", "minLength": 1 },
+        "odenDivergence": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "dynamicAuthority": {
+      "type": "object",
+      "required": ["resources", "ceiling", "forbiddenLifecycles", "modeFallbackMayGrant", "revocation"],
+      "properties": {
+        "resources": { "type": "string", "minLength": 1 },
+        "ceiling": { "const": "canonical-static-escalation-ceiling" },
+        "forbiddenLifecycles": { "$ref": "#/$defs/nonEmptyStringSet" },
+        "modeFallbackMayGrant": { "const": false },
+        "revocation": { "const": "negative-generation-before-positive" }
+      },
+      "additionalProperties": false
+    },
+    "cacheKeyFields": { "$ref": "#/$defs/nonEmptyStringSet" },
+    "resourceRules": { "$ref": "#/$defs/resourceRules" },
+    "classifierRules": { "$ref": "#/$defs/classifierRules" },
+    "initialProfile": {
+      "type": "object",
+      "required": ["advertisedTargets", "targetRule", "deviceActions", "defaultFlipGate"],
+      "properties": {
+        "advertisedTargets": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["triple", "features"],
+            "properties": {
+              "triple": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+              "features": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "targetRule": { "const": "claim-only-exact-targets-with-complete-generated-report" },
+        "deviceActions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["clipboard:read", "clipboard:write", "device:camera", "device:location", "device:microphone"]
+          }
+        },
+        "defaultFlipGate": {
+          "const": "flip-after-one-advertised-target-is-complete-and-refuse-on-every-incomplete-target"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyStringSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "decisionId": {
+      "enum": [
+        "arm-validity",
+        "attribution",
+        "lifecycle-and-target-closure",
+        "protected-resource-guards",
+        "process-ceiling",
+        "principal-denial",
+        "revocation-negative-generation",
+        "quarantine-deny",
+        "definition-and-edge-positive-predicates",
+        "static-floor",
+        "bearer-handle",
+        "dynamic-session",
+        "implicit-package-self",
+        "ambient-root",
+        "missing-authority-mode"
+      ]
+    },
+    "decisionOutcome": {
+      "enum": [
+        "continue",
+        "refuse-arming",
+        "deny",
+        "allow-principal",
+        "allow-principal-with-would-deny-evidence"
+      ]
+    },
+    "decisionStratum": {
+      "type": "object",
+      "required": ["id", "scope", "cases", "defaultOutcome"],
+      "properties": {
+        "id": { "$ref": "#/$defs/decisionId" },
+        "scope": { "enum": ["arming", "effect", "principal"] },
+        "cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["when", "outcome"],
+            "properties": {
+              "when": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "outcome": { "$ref": "#/$defs/decisionOutcome" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "defaultOutcome": { "$ref": "#/$defs/decisionOutcome" }
+      },
+      "additionalProperties": false
+    },
+    "projection": {
+      "type": "object",
+      "required": ["status", "inputSchema", "memberOrder", "members", "omitFields"],
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "contract-fixture",
+            "contract-fixture-until-wp1",
+            "unavailable-until-wp10"
+          ]
+        },
+        "inputSchema": { "type": "string", "minLength": 1 },
+        "memberOrder": { "enum": ["logical-name-lexical", "not-applicable"] },
+        "members": { "$ref": "#/$defs/nonEmptyStringSet" },
+        "omitFields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "keyedSet": {
+      "type": "object",
+      "required": ["schema", "path", "orderBy"],
+      "properties": {
+        "schema": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "path": { "type": "string", "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$" },
+        "orderBy": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "digestContract": {
+      "type": "object",
+      "required": ["serialization", "duplicateKeys", "unicode", "safeIntegers", "sets", "framing", "separatorByte", "textEncoding", "outputEncoding", "bundleSchema", "setKeys", "keyedSets", "domains", "projections"],
+      "properties": {
+        "serialization": { "const": "RFC8785-JCS-over-I-JSON" },
+        "duplicateKeys": { "const": "reject-before-canonicalization" },
+        "unicode": { "const": "valid-UTF8-and-Unicode-scalars-only" },
+        "safeIntegers": { "const": "I-JSON-safe-range-or-tagged-string" },
+        "sets": { "const": "schema-declared-sets-canonical-key-sorted-and-deduplicated" },
+        "framing": { "const": "utf8-domain-nul-payload" },
+        "separatorByte": { "const": 0 },
+        "textEncoding": { "const": "utf8" },
+        "outputEncoding": { "const": "sha256-lowercase-tag-unpadded-base64url" },
+        "bundleSchema": { "const": "ibex/capsec-digest-bundle/1" },
+        "setKeys": { "$ref": "#/$defs/nonEmptyStringSet" },
+        "keyedSets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/keyedSet" }
+        },
+        "domains": {
+          "type": "object",
+          "required": ["vocabulary", "registry", "policy", "armedSnapshot", "conformance"],
+          "properties": {
+            "vocabulary": { "const": "ibex:capsec:vocab:1" },
+            "registry": { "const": "ibex:capsec:registry:1" },
+            "policy": { "const": "ibex:capsec:policy:1" },
+            "armedSnapshot": { "const": "ibex:capsec:armed:1" },
+            "conformance": { "const": "ibex:capsec:conformance:1" }
+          },
+          "additionalProperties": false
+        },
+        "projections": {
+          "type": "object",
+          "required": ["vocabulary", "registry", "policy", "armedSnapshot", "conformance"],
+          "properties": {
+            "vocabulary": { "$ref": "#/$defs/projection" },
+            "registry": { "$ref": "#/$defs/projection" },
+            "policy": { "$ref": "#/$defs/projection" },
+            "armedSnapshot": { "$ref": "#/$defs/projection" },
+            "conformance": { "$ref": "#/$defs/projection" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "normalizationProfile": {
+      "type": "object",
+      "required": ["id", "selector", "occurrence", "matcher", "subset"],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "selector": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "occurrence": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "matcher": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "subset": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "pathMatching": {
+      "type": "object",
+      "required": ["root", "processCeilingPackageRoot", "components", "canonicalEncoding", "exact", "tree", "forbiddenComponents", "targetAliases", "targetAdapters", "objectBinding"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 },
+        "processCeilingPackageRoot": { "type": "string", "minLength": 1 },
+        "components": { "type": "string", "minLength": 1 },
+        "canonicalEncoding": { "type": "string", "minLength": 1 },
+        "exact": { "type": "string", "minLength": 1 },
+        "tree": { "type": "string", "minLength": 1 },
+        "forbiddenComponents": { "type": "string", "minLength": 1 },
+        "targetAliases": { "type": "string", "minLength": 1 },
+        "targetAdapters": {
+          "type": "object",
+          "required": ["unixAndroid", "windows", "apple"],
+          "properties": {
+            "unixAndroid": { "type": "string", "minLength": 1 },
+            "windows": { "type": "string", "minLength": 1 },
+            "apple": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "objectBinding": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "endpointMatching": {
+      "type": "object",
+      "required": ["dns", "ip", "cidr", "ports", "occurrence", "peer", "mappedIpv6"],
+      "properties": {
+        "dns": { "type": "string", "minLength": 1 },
+        "ip": { "type": "string", "minLength": 1 },
+        "cidr": { "type": "string", "minLength": 1 },
+        "ports": { "type": "string", "minLength": 1 },
+        "occurrence": { "type": "string", "minLength": 1 },
+        "peer": { "type": "string", "minLength": 1 },
+        "mappedIpv6": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "resourceRules": {
+      "type": "object",
+      "required": ["positiveActions", "pathMatching", "endpointMatching", "routes", "environment", "executables", "processSpawn", "stdio", "storage", "closedSurfaces", "policyProvenance", "authorityDerivation"],
+      "properties": {
+        "positiveActions": { "const": "explicit-no-wildcards" },
+        "pathMatching": { "$ref": "#/$defs/pathMatching" },
+        "endpointMatching": { "$ref": "#/$defs/endpointMatching" },
+        "routes": {
+          "type": "object",
+          "required": ["authorable", "nonDirect", "future"],
+          "properties": {
+            "authorable": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "const": "direct" }
+            },
+            "nonDirect": { "type": "string", "minLength": 1 },
+            "future": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "environment": { "type": "string", "minLength": 1 },
+        "executables": { "type": "string", "minLength": 1 },
+        "processSpawn": {
+          "type": "object",
+          "required": ["composition", "closedStdio", "anonymousPipeCreation"],
+          "properties": {
+            "composition": { "type": "string", "minLength": 1 },
+            "closedStdio": { "type": "string", "minLength": 1 },
+            "anonymousPipeCreation": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "stdio": { "type": "string", "minLength": 1 },
+        "storage": { "type": "string", "minLength": 1 },
+        "closedSurfaces": { "type": "string", "minLength": 1 },
+        "policyProvenance": { "type": "string", "minLength": 1 },
+        "authorityDerivation": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "networkClass": {
+      "type": "object",
+      "required": ["class", "cidrs"],
+      "properties": {
+        "class": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/peerClass"
+        },
+        "cidrs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 3 }
+        }
+      },
+      "additionalProperties": false
+    },
+    "classifierRules": {
+      "type": "object",
+      "required": ["network", "protectedObjects", "specialFiles", "sensitiveEnvironment", "riskPromotions", "nonCapabilityRationales", "implicitAuthorityRules"],
+      "properties": {
+        "network": {
+          "type": "object",
+          "required": ["input", "ipv4MappedIpv6", "sourceDatasets", "publicRule", "activatedPublicRule", "activationGate", "precedence", "classes", "alwaysDenied", "explicitOnly", "fallback"],
+          "properties": {
+            "input": { "type": "string", "minLength": 1 },
+            "ipv4MappedIpv6": { "type": "string", "minLength": 1 },
+            "sourceDatasets": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "publicRule": { "const": "closed-until-pinned-IANA-snapshot-is-in-registry" },
+            "activatedPublicRule": { "const": "only-pinned-IANA-globally-reachable-true" },
+            "activationGate": { "const": "required-before-any-target-is-advertised" },
+            "precedence": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "classes": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "$ref": "#/$defs/networkClass" }
+            },
+            "alwaysDenied": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "explicitOnly": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "fallback": { "const": "reserved" }
+          },
+          "additionalProperties": false
+        },
+        "protectedObjects": {
+          "type": "object",
+          "required": ["roles", "deniedActions", "binding"],
+          "properties": {
+            "roles": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "deniedActions": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "binding": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "specialFiles": {
+          "type": "object",
+          "required": ["fileClasses", "default"],
+          "properties": {
+            "fileClasses": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "default": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "sensitiveEnvironment": {
+          "type": "object",
+          "required": ["exactNames", "prefixes", "promotion"],
+          "properties": {
+            "exactNames": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "prefixes": { "$ref": "#/$defs/nonEmptyStringSet" },
+            "promotion": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "riskPromotions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "predicate", "minimumTier"],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "predicate": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "minimumTier": { "type": "integer", "minimum": 0, "maximum": 4 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "nonCapabilityRationales": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "predicate", "rationale"],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "predicate": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "rationale": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "implicitAuthorityRules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "principal", "actions", "resource", "mutable"],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "principal": { "type": "string", "minLength": 1 },
+              "actions": { "$ref": "#/$defs/nonEmptyStringSet" },
+              "resource": { "type": "string", "minLength": 1 },
+              "mutable": { "const": false }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

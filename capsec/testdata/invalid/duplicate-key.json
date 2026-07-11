@@ -1,0 +1,11 @@
+{
+  "cap": "fs:read",
+  "cap": "fs:write",
+  "resource": {
+    "kind": "path-exact",
+    "path": {
+      "root": "project",
+      "components": []
+    }
+  }
+}

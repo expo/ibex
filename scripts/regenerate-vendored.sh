@@ -6,8 +6,9 @@
 #
 # This is the opt-in, bun-mediated regeneration path. Per LLP 0005/0006 it is
 # NOT part of the hermetic `cargo build`; the full build.rs-mediated refresh is
-# still `bun run refresh:vendored`. `bun run check:drift` enforces that this
-# command and refresh:vendored produce the same bytes.
+# still `bun run refresh:vendored`. Capability-contract review artifacts are
+# Bun-only and are refreshed here as part of the same human-facing command;
+# `bun run check:drift` verifies both them and the vendored build outputs.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,6 +23,7 @@ fi
 # runtime bundles compile against. Flags live only in package.json (one source
 # of truth, shared with check:drift).
 bun run generate:capability-bits
+bun run generate:capsec-contract
 bun run generate:identity
 bun run generate:modules
 # Postcondition: the module generator writes both the JS runtime manifest and
@@ -32,4 +34,4 @@ bun run build:builtins
 bun run build:runtime
 bun run generate:vendored-fingerprint
 
-echo "Regenerated vendored artifacts. Review with: git status vendored-generated/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2
+echo "Regenerated vendored artifacts. Review with: git status capsec/ vendored-generated/ src/builtins/helpers/runtime-module-manifest.cjs src/identity_generated.rs packages/ibex-runtime-js/src" >&2

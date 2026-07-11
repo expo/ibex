@@ -1,0 +1,51 @@
+{
+  "vectorSchema": "ibex/capsec-digest-vectors/1",
+  "profile": "ibex/capsec/1",
+  "vectors": [
+    {
+      "id": "armed",
+      "domain": "ibex:capsec:armed:1",
+      "payloadRef": "examples/armed-snapshot.canonical.json",
+      "omitFields": [
+        "armedSnapshotDigest"
+      ],
+      "expectedDigest": "sha256-uv-SG2b2PNxQbxYwBZiCEqoFg_znk4_kaqwEORIs4ww"
+    },
+    {
+      "id": "conformance",
+      "domain": "ibex:capsec:conformance:1",
+      "payload": {
+        "conformanceDigest": "omitted",
+        "passed": true,
+        "target": "aarch64-apple-darwin"
+      },
+      "omitFields": [
+        "conformanceDigest"
+      ],
+      "expectedDigest": "sha256-5le3thh7vQr1D2TX4ZWwqe_gMaC4DIRzdcFgXVdOhUM"
+    },
+    {
+      "id": "policy",
+      "domain": "ibex:capsec:policy:1",
+      "payloadRef": "examples/canonical-policy.canonical.json",
+      "omitFields": [
+        "policyDigest"
+      ],
+      "expectedDigest": "sha256-va2tdlah5RfGGBaiErvGLibvmBqUjltdRj59UgTN2rc"
+    },
+    {
+      "id": "registry",
+      "domain": "ibex:capsec:registry:1",
+      "payloadRef": "examples/registry-digest-bundle.canonical.json",
+      "omitFields": [],
+      "expectedDigest": "sha256-GxHiXNbEXicVYuYnPIQFUozUCcCzt5DZqHp123CNwA4"
+    },
+    {
+      "id": "vocabulary",
+      "domain": "ibex:capsec:vocab:1",
+      "payloadRef": "examples/digest-bundle.canonical.json",
+      "omitFields": [],
+      "expectedDigest": "sha256-7yjvl8MVwTEO1IduHVvtJawVFnyeos7T7KzbgHckT2k"
+    }
+  ]
+}

@@ -12,6 +12,7 @@
 **Revised:** 2026-07-04 (ENG-22759: close the async deputy-class laundering hole through the HOST callback queues — `setTimeout`/`setInterval`/`setImmediate`/`process.nextTick`/the non-JSI `queueMicrotask` fallback. ENG-22761 already captures the scheduling principal for these queues but only consults it on a no-user-frame re-entry; a detached deputy *method* runs with its own frame live, so `checkCapabilityWithFsMode` now also appends that captured scheduler to the deputy-class stack, matching patch 0008's Promise-queue append. Also repairs corrupt `@@` hunk headers in patch 0008 that blocked `apply-hermes-patches.sh`.)
 **Revised:** 2026-07-05 (ENG-22903..ENG-22909 native hardening: DNS resolution is a `network:resolve` capability, raw WebSocket ids and async callbacks carry owner/principal metadata, host allow-all is queried live after host replacement, child-process `fd:N` stdio redirects validate fd ownership before fork, native ArrayBuffer-view consumers share bounds checks, HTTP waits are worker-bounded, and fetch raw headers are validated at the C++ boundary.)
 **Revised:** 2026-07-07 (document drift cleanup: canonical SecurityMode is `Permissive | Audit | Enforce`; historical `Capability`/`Strict` aliases collapse to Enforce)
+**Revised:** 2026-07-10 (ENG-24144 factual drift repair: manifest count is 57 after `network:resolve`; package-selector precedence and enforced host fences recorded; typed successor contract is LLP 0021)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
@@ -128,14 +129,16 @@ exists yet (this section serves as the interim record):
   `[observed]` (`src/host/mod.rs:37-45`); `CapabilityManager` normalizes
   (`net:`→`network:`, lowercasing, fs path canonicalization), matches base
   grants against parameterized values plus `*` wildcards, applies
-  module-then-global deny-before-allow, defaults deny outside Permissive, logs
+  module, package-selector (locator then name), and global
+  deny-before-allow tiers, defaults deny outside Permissive, logs
   would-deny decisions while proceeding in Audit, blocks them in Enforce, and
   keeps a bounded 1024-entry audit log `[observed]`
   (`src/host/capability.rs:46-129, 296-346`). `crypto:random` and `time:now`
   are always allowed `[observed]` (`src/host/capability.rs:46`).
-- **Canonical manifest**: 56 capabilities with stable bits in a u64
-  `[observed]` (`src/host/capability_bits.rs:13-70`), generated to TS via
-  `packages/ibex-devtools/src/scripts/generate-capability-bits.mjs`.
+- **Canonical manifest**: 57 capabilities with stable bits in a u64
+  `[observed]` (`src/host/capability_bits.rs:16-74`), generated to TS via
+  `packages/ibex-devtools/src/scripts/generate-capability-bits.mjs`. LLP 0021's
+  WP0 reconciliation records the typed destination of every legacy bit.
 - **Enforcement points**: C++ `checkCapability()` gates fs, fetch, and
   process surfaces `[observed]` (`src/engine/hermes_runtime_fs.cc`;
   `src/engine/hermes_runtime_fetch.cc:66,364`;
@@ -150,14 +153,15 @@ exists yet (this section serves as the interim record):
   (`packages/ibex-runtime-js/src/bootstrap.ts:768-780`;
   `Capabilities.ts:405-434`).
 - **Defaults are permissive on every real entry point**: CLI `--capsec`
-  defaults `permissive` `[observed]` (`src/bin/ibex/cli.rs:61-63`); the C ABI
-  installs a permissive legacy host `[observed]` (`src/host/abi.rs:657-659`;
+  defaults through `Auto` to the policy mode or permissive `[observed]`
+  (`src/bin/ibex/cli.rs:369-386`); the C ABI installs a permissive legacy host
+  `[observed]` (`src/host/abi.rs:782-791`;
   LLP 0006 §"Capability-gated host").
-- **Known defects** (tracked here; some are fixed by this RFC's phases,
-  none require it): the historical `SecurityMode::Capability`/`Strict` split
-  has been collapsed into canonical `Enforce` (the old strings remain aliases);
-  `HostConfig.root_dir`/`allowed_hosts` are declared but never enforced
-  `[observed]` (`src/host/mod.rs:51-53`).
+- **Boundary fences**: the historical `SecurityMode::Capability`/`Strict`
+  split has been collapsed into canonical `Enforce` (the old strings remain
+  aliases). `HostConfig.root_dir` and `allowed_hosts` are now hard host-boundary
+  fences in every mode and cannot be widened by policy
+  `[observed]` (`src/host/capability.rs`).
 
 ## Threat model
 

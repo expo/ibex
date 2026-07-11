@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/digest-bundle.schema.json",
+  "title": "Ibex canonical aggregate digest bundle",
+  "type": "object",
+  "required": ["bundleSchema", "profile", "projection", "status", "members"],
+  "properties": {
+    "bundleSchema": { "const": "ibex/capsec-digest-bundle/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "projection": { "enum": ["vocabulary", "registry"] },
+    "status": { "enum": ["available", "contract-fixture"] },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["logicalName", "document"],
+        "properties": {
+          "logicalName": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          },
+          "document": {}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

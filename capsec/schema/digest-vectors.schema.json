@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/digest-vectors.schema.json",
+  "title": "Ibex capsec digest golden vectors",
+  "type": "object",
+  "required": ["vectorSchema", "profile", "vectors"],
+  "properties": {
+    "vectorSchema": { "const": "ibex/capsec-digest-vectors/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "vectors": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "domain", "omitFields", "expectedDigest"],
+        "oneOf": [
+          { "required": ["payload"], "properties": { "payload": {} } },
+          { "required": ["payloadRef"], "properties": { "payloadRef": {} } }
+        ],
+        "properties": {
+          "id": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          },
+          "domain": {
+            "enum": [
+              "ibex:capsec:vocab:1",
+              "ibex:capsec:registry:1",
+              "ibex:capsec:policy:1",
+              "ibex:capsec:armed:1",
+              "ibex:capsec:conformance:1"
+            ]
+          },
+          "payload": { "type": "object" },
+          "payloadRef": {
+            "enum": [
+              "examples/armed-snapshot.canonical.json",
+              "examples/canonical-policy.canonical.json",
+              "examples/digest-bundle.canonical.json",
+              "examples/registry-digest-bundle.canonical.json"
+            ]
+          },
+          "omitFields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "expectedDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

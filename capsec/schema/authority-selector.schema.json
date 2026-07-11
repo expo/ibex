@@ -1,0 +1,409 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/authority-selector.schema.json",
+  "title": "Ibex typed authority selector",
+  "type": "object",
+  "required": ["cap", "resource"],
+  "properties": {
+    "cap": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+    },
+    "resource": {
+      "oneOf": [
+        { "$ref": "#/$defs/pathResource" },
+        { "$ref": "#/$defs/fetchEndpoint" },
+        { "$ref": "#/$defs/connectEndpoint" },
+        { "$ref": "#/$defs/connectUnix" },
+        { "$ref": "#/$defs/listenInet" },
+        { "$ref": "#/$defs/listenUnix" },
+        { "$ref": "#/$defs/dnsQuery" },
+        { "$ref": "#/$defs/environmentName" },
+        { "$ref": "#/$defs/executable" },
+        { "$ref": "#/$defs/stdio" },
+        { "$ref": "#/$defs/systemInfo" },
+        { "$ref": "#/$defs/deviceLocation" },
+        { "$ref": "#/$defs/camera" },
+        { "$ref": "#/$defs/microphone" },
+        { "$ref": "#/$defs/clipboard" },
+        { "$ref": "#/$defs/storageNamespace" },
+        { "$ref": "#/$defs/closedSurface" }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "pathResource": {
+      "type": "object",
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": { "enum": ["path-exact", "path-tree"] },
+        "path": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+        }
+      },
+      "additionalProperties": false
+    },
+    "fetchEndpoint": {
+      "type": "object",
+      "required": ["kind", "schemes", "host", "port", "peerClasses", "route"],
+      "properties": {
+        "kind": { "const": "fetch-endpoint" },
+        "schemes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["http", "https"] }
+        },
+        "host": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/host"
+        },
+        "port": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/remotePort"
+        },
+        "peerClasses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/peerClass"
+          }
+        },
+        "route": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/route"
+        }
+      },
+      "additionalProperties": false
+    },
+    "connectEndpoint": {
+      "type": "object",
+      "required": ["kind", "transport", "host", "port", "peerClasses", "route"],
+      "properties": {
+        "kind": { "const": "connect-endpoint" },
+        "transport": { "enum": ["tcp", "tls", "udp", "ws", "wss", "webtransport"] },
+        "host": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/host"
+        },
+        "port": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/remotePort"
+        },
+        "peerClasses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/peerClass"
+          }
+        },
+        "route": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/route"
+        }
+      },
+      "additionalProperties": false
+    },
+    "unixAddress": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "path" },
+            "path": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "abstract" },
+            "name": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "connectUnix": {
+      "type": "object",
+      "required": ["kind", "socketType", "address"],
+      "properties": {
+        "kind": { "const": "connect-unix" },
+        "socketType": { "enum": ["datagram", "seqpacket", "stream"] },
+        "address": { "$ref": "#/$defs/unixAddress" }
+      },
+      "additionalProperties": false
+    },
+    "listenInet": {
+      "type": "object",
+      "required": ["kind", "transport", "bind", "port", "dualStack", "peerClasses"],
+      "properties": {
+        "kind": { "const": "listen-inet" },
+        "transport": { "enum": ["tcp", "udp"] },
+        "bind": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["loopback", "all-interfaces"] }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "address"],
+              "properties": {
+                "kind": { "const": "address" },
+                "address": { "type": "string", "minLength": 2 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "name"],
+              "properties": {
+                "kind": { "const": "interface" },
+                "name": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "port": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/listenPort"
+        },
+        "dualStack": { "type": "boolean" },
+        "peerClasses": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/peerClass"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "listenUnix": {
+      "type": "object",
+      "required": ["kind", "socketType", "address"],
+      "properties": {
+        "kind": { "const": "listen-unix" },
+        "socketType": { "enum": ["datagram", "seqpacket", "stream"] },
+        "address": { "$ref": "#/$defs/unixAddress" }
+      },
+      "additionalProperties": false
+    },
+    "dnsQuery": {
+      "type": "object",
+      "required": ["kind", "name", "absolute", "recordTypes", "resolver"],
+      "properties": {
+        "kind": { "const": "dns-query" },
+        "name": {
+          "type": "string",
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
+        },
+        "absolute": { "const": true },
+        "recordTypes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["A", "AAAA", "CAA", "CNAME", "MX", "NAPTR", "NS", "PTR", "SOA", "SRV", "TXT"]
+          }
+        },
+        "resolver": { "const": "system" }
+      },
+      "additionalProperties": false
+    },
+    "environmentName": {
+      "type": "object",
+      "required": ["kind", "target", "name"],
+      "properties": {
+        "kind": { "const": "environment-name" },
+        "target": {
+          "enum": ["broker-base", "principal-overlay", "child-launch"]
+        },
+        "name": { "type": "string", "pattern": "^[A-Z_][A-Z0-9_]*$" }
+      },
+      "additionalProperties": false
+    },
+    "executable": {
+      "type": "object",
+      "required": ["kind", "logicalName", "path", "contentDigest"],
+      "properties": {
+        "kind": { "const": "executable" },
+        "logicalName": { "type": "string", "minLength": 1 },
+        "path": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+        },
+        "contentDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "interpreter": {
+          "type": "object",
+          "required": ["path", "contentDigest"],
+          "properties": {
+            "path": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+            },
+            "contentDigest": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "stdio": {
+      "type": "object",
+      "required": ["kind", "stream", "source"],
+      "properties": {
+        "kind": { "const": "stdio" },
+        "stream": { "enum": ["stdin", "stdout", "stderr"] },
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "identity"],
+              "properties": {
+                "kind": { "enum": ["pipe", "broker"] },
+                "identity": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "identity"],
+              "properties": {
+                "kind": { "const": "terminal" },
+                "identity": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "systemInfo": {
+      "type": "object",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "const": "system-info" },
+        "name": {
+          "enum": ["architecture", "cpus", "hostname", "memory", "network-interfaces", "os-release", "platform", "uptime", "user"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "deviceLocation": {
+      "type": "object",
+      "required": ["kind", "usage", "precision"],
+      "properties": {
+        "kind": { "const": "device-location" },
+        "usage": { "enum": ["foreground", "background"] },
+        "precision": { "enum": ["coarse", "precise"] }
+      },
+      "additionalProperties": false
+    },
+    "camera": {
+      "type": "object",
+      "required": ["kind", "facing", "media"],
+      "properties": {
+        "kind": { "const": "camera" },
+        "facing": { "enum": ["front", "back", "external", "any"] },
+        "media": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["photo", "video"] }
+        },
+        "deviceId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "microphone": {
+      "type": "object",
+      "required": ["kind", "media"],
+      "properties": {
+        "kind": { "const": "microphone" },
+        "media": { "enum": ["audio"] },
+        "deviceId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "clipboard": {
+      "type": "object",
+      "required": ["kind", "selection", "formats"],
+      "properties": {
+        "kind": { "const": "clipboard" },
+        "selection": { "const": "system" },
+        "formats": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["html", "image", "text"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "storageNamespace": {
+      "type": "object",
+      "required": ["kind", "store", "namespace"],
+      "properties": {
+        "kind": { "const": "storage-namespace" },
+        "store": { "enum": ["local", "session", "persistent"] },
+        "namespace": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "properties": { "kind": { "const": "principal" } },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["kind", "name"],
+              "properties": {
+                "kind": { "const": "shared" },
+                "name": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "closedSurface": {
+      "type": "object",
+      "required": ["kind", "surfaceClass"],
+      "properties": {
+        "kind": { "const": "closed-surface" },
+        "surfaceClass": {
+          "enum": [
+            "ffi",
+            "inspector",
+            "ipc",
+            "process-cwd",
+            "process-environment",
+            "process-identity",
+            "process-limit",
+            "process-priority",
+            "process-signal",
+            "process-umask",
+            "runtime-inspection",
+            "storage",
+            "vm",
+            "wasi",
+            "worker"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

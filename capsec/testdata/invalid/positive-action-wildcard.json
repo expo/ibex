@@ -1,0 +1,11 @@
+{
+  "cap": "network:*",
+  "resource": {
+    "kind": "fetch-endpoint",
+    "schemes": ["https"],
+    "host": { "kind": "dns-name", "name": "api.example.com" },
+    "port": { "kind": "exact", "value": 443 },
+    "peerClasses": ["public"],
+    "route": { "kind": "direct" }
+  }
+}

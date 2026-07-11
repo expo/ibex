@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/legacy-reconciliation.schema.json",
+  "title": "Ibex legacy capability reconciliation",
+  "type": "object",
+  "required": ["reconciliationSchema", "profile", "source", "entries"],
+  "properties": {
+    "reconciliationSchema": { "const": "ibex/capsec-legacy-reconciliation/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "source": { "const": "src/host/capability_bits.rs" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["legacyCapability", "destinationDisposition", "migrationKind", "replacementActions", "currentStatus", "resourceSemantics", "rationale"],
+      "properties": {
+        "legacyCapability": { "type": "string", "minLength": 3 },
+        "destinationDisposition": {
+          "enum": ["authorable", "closed", "absent", "unsupported", "non-capability"]
+        },
+        "migrationKind": { "enum": ["alias", "close", "decompose", "direct", "retire"] },
+        "replacementActions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+          }
+        },
+        "currentStatus": {
+          "enum": ["always-allowed", "enforced", "folded", "manifest-only", "partial", "ungated"]
+        },
+        "resourceSemantics": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "destinationDisposition": { "enum": ["authorable", "closed"] }
+            },
+            "required": ["destinationDisposition"]
+          },
+          "then": {
+            "properties": { "replacementActions": { "type": "array", "minItems": 1 } }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

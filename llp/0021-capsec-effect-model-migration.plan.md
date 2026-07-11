@@ -5,6 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
+**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -180,12 +181,13 @@ Policy has three forms:
    graph, root identity, and immutable runtime generations. It is the only form
    the decision engine consumes.
 
-The exact profile name and digest encoding are settled in the semantic-spec
-work item. The design must distinguish at least vocabulary semantics, complete
-registry/conformance provenance, canonical policy, and armed snapshot. A stale
-or mismatched digest refuses arming. Duplicate keys, unknown positive actions,
-unresolved selectors, aliases, macros, and machine-specific unbound paths may
-not reach the armed snapshot.
+The profile is `ibex/capsec/1`; this is Ibex's first public contract. Oden's
+`/2` suffix belongs to Oden's own profile lineage, while the shared ancestry is
+expressed by the effect/registry semantics and `capsec/semantics/1` core
+contract. Digest encoding and domains are frozen below. A stale or mismatched
+digest refuses arming. Duplicate keys, unknown positive actions, unresolved
+selectors, aliases, macros, and machine-specific unbound paths may not reach
+the armed snapshot.
 
 ### Default execution contract
 
@@ -195,12 +197,274 @@ weaker mode. Lockdown, per-package attribution, compartment globals, and full
 deputy intersection are required structural posture rather than independently
 disableable policy preferences.
 
-Audit remains a purpose-specific foreground diagnostic workflow. Permissive
-behavior may exist in isolated tests or a separately named developer harness,
-but it is not a mode of ordinary `ibex run`. Embedders must select an explicit
-supported profile and successfully arm it; the legacy host constructor must not
-silently create a production runtime that claims package security while running
-permissively.
+Audit is the separately named, ephemeral `ibex capsec audit` foreground
+workflow. Permissive behavior exists only inside isolated tests. The
+`contract-fixture` armed workflow is schema-only, must use the synthetic
+`capsec-contract-fixture` target, and is never executable. None of these is a
+mode of ordinary `ibex run`. Embedders must select an explicit supported profile
+and successfully arm it; the legacy host constructor must not silently create a
+production runtime that claims package security while running permissively.
+
+## WP0 semantic contract
+
+ENG-24144 freezes the following contract for WP1–WP11. The machine-readable
+authority is under `capsec/`; this section records the design decisions that
+those artifacts implement.
+
+### Ownership and profile identity
+
+Ibex owns the initial canonical contract under `capsec/`. WP2 places the
+runtime-neutral Rust implementation behind the neutral crate boundary
+`crates/capsec-semantics` in this repository. A second runtime consumes that
+exact source or makes an explicit ownership move; it must not copy the schemas,
+canonicalizer, precedence implementation, or matcher into a second authority.
+Product capability definitions, coverage edges, principal attribution adapters,
+and target cells remain Ibex-local.
+
+The product profile is `ibex/capsec/1`; the neutral semantic-core contract is
+`capsec/semantics/1`. Profile suffixes are product-local compatibility versions,
+not cross-runtime marketing generations.
+
+### Typed resources and initial vocabulary
+
+Canonical positive rows contain one explicit two-part action and one typed
+resource object. No `*`, bare family, family prefix, alias, comma list, or
+colon-delimited resource can survive source ingestion. Authoring macros may
+expand only against the pinned vocabulary and their expansions appear as
+explicit canonical rows.
+
+Initial authorable resource kinds are:
+
+- logical-root `path-exact` and `path-tree`. Exact matches the entire decoded
+  component sequence; tree is a component-boundary prefix including its base.
+  Package roots additionally require the same package-root binding owner.
+  Valid UTF-8 uses UTF-8 form and other byte components use canonical unpadded
+  base64url. Target-neutral identity rejects only empty, dot, dot-dot, NUL, and
+  slash components; a backslash or Windows-reserved name remains representable
+  for Unix. At arming, Unix/Android accepts all remaining byte names, Windows
+  additionally requires valid UTF-8 and rejects controls, forbidden characters,
+  trailing dot/space, DOS device names, and adapter-reported aliases, while an
+  Apple bound-volume adapter supplies its actual case/normalization alias key.
+  Alias collisions are compared only within the same bound-root/volume
+  namespace; two packages' separate package-root bindings do not alias.
+  Absolute paths are explicitly host-bound, and execution still requires a
+  retained or verified platform object identity;
+- separate fetch, raw/bidirectional connect, Unix connect, internet/Unix
+  listen, and standalone DNS-query resources. Fetch never implies connect.
+  Network selectors bind the exact scheme or transport, canonical DNS/IP/CIDR,
+  remote or listen port, direct route, and peer classes. Runtime occurrences
+  additionally materialize the concrete port, selected candidate, verified
+  peer, and connection/listener identity applicable at each stage; those facts
+  never become reusable authored selectors. Non-direct routes are discovered
+  and refused before DNS, connect, or request bytes in this profile; typed
+  proxies require a future profile;
+- exact environment names: `env:read` accepts broker-base and
+  principal-overlay, while `env:write` accepts principal-overlay and one
+  child-launch. Read and write never imply one another;
+- executable identity binding logical name, path, content, platform object,
+  and, when present, interpreter path/content/platform object. Spawn composes
+  `process:spawn`, child working-directory, child environment, and inherited
+  stdio effects into one conjunctive decision set; closed stdio and unexported
+  anonymous-pipe creation carry no external authority, while every exported
+  endpoint has an exact owner-bound identity;
+- independent stdio resources with stream and exact source identity:
+  `stdio:query` accepts stdin/stdout/stderr, `stdio:read` only stdin,
+  `stdio:write` only stdout/stderr, and `stdio:raw` only terminal-backed stdin;
+  plus explicit system-information kinds, typed location/camera/microphone
+  acquisition, and native system clipboard formats.
+
+`fs:list`, `fs:read`, `fs:write`, and `fs:watch` are independent. A matcher
+never derives one action from another. SQLite file operations decompose into
+the corresponding filesystem effects for the main database, parent, and
+journal/WAL/SHM objects; `sqlite:*` is not canonical authority. Unix sockets
+decompose `network:local` into connect or listen plus the applicable filesystem
+effects. Ordinary randomness, pure in-memory cryptography, ordinary/high-
+resolution clocks, and status-only attenuations are reasoned non-capabilities.
+
+Location, camera, microphone, and clipboard are authorable target-specific
+definitions. Their cells remain unsupported until native gates and broker/
+lifetime fixtures prove them (`device:microphone` is known ungated today).
+Storage remains deny-only until principal/shared namespace and native isolation
+are proven. Shared process mutation, ambient IPC, inspector/runtime inspection,
+VM, workers, WASI, and FFI remain deny-only or absent. The generated
+reconciliation table joins every one of the 57 current bit names to its exact
+destination disposition across 38 typed action definitions; the Rust bit source
+remains the sole bit-number authority.
+
+A package principal is the exact package locator plus integrity digest (with
+its review name), not a package name alone. Root-only sources author positive
+grants. Canonical provenance may merge several non-authorizing source records,
+while definition lifecycle and channel restrictions still determine whether a
+row may become static, dynamic, handle-mediated, or terminal authority.
+
+### Decision, staging, and principal semantics
+
+For one normalized effect and one constrained principal, precedence is:
+
+1. arm validity and authenticated profile/digest agreement;
+2. attribution (`NoUser`, missing, or ambiguous denies);
+3. definition lifecycle and exact target-cell closure;
+4. built-in protected-resource guards;
+5. process-wide ceiling;
+6. principal-specific denial;
+7. revocation and negative generation;
+8. quarantine denial;
+9. definition/edge positive predicates;
+10. static floor;
+11. an explicit unforgeable bearer handle;
+12. a typed dynamic session grant within the static ceiling;
+13. generated implicit package-self access;
+14. ambient root for the root dimension only; and
+15. the effective mode's missing-authority result.
+
+Every deny stratum precedes every positive authority source. The direct cutover
+has no runtime legacy-oracle or compatibility-mask stratum; the 57-bit table is
+build-time reconciliation evidence only. An unbounded process ceiling
+continues; a bounded ceiling requires containment, and an empty bounded ceiling
+denies everything.
+Package-root ceiling selectors evaluate separately against each constrained
+package principal's own binding. No later source, including ambient root, can
+override an earlier ceiling or denial.
+
+The exact reserved `runtime/ibex-runtime-internal` frame stamp is transparent;
+other runtime identities are not, and the reserved identity is never an
+attribution fallback. `NoUser`, missing, or ambiguous attribution denies. Live
+user frames plus authenticated schedule-time and owner/deputy identities form
+a deduplicated constrained set. Each non-transparent dimension must allow;
+dimensions intersect and never union. All effects known at a stage are
+conjunctive and authorize before that stage's first visible or irreversible
+action. Later object, DNS candidate, redirect, route, accepted-peer, or resource
+discovery re-enters the same precedence before the next effect. Missing facts
+deny, speculative effects are forbidden, and a late denial releases provisional
+resources without pretending earlier discovery was reversible.
+
+An armed snapshot has exactly one authority row matching `rootIdentity`. Every
+package-graph node has a unique locator-and-integrity principal, an exact
+authority row, and its own package-root binding; package authority rows may not
+exist outside the graph. Import allowlists exactly equal authenticated graph
+edges, and every logical path resolves through a root binding. The protected
+object set is exactly armed policy, engine binary, package graph, and registry,
+with `fs:write` denied. Network posture binds direct-only routing and always
+denies metadata and unspecified peers.
+
+### Handles, dynamic authority, and generations
+
+Ibex deliberately retains LLP 0013's possession-based delegation within one
+authenticated runtime. A handle is an unforgeable bearer object whose exact
+action/resource grant, source owner, ancestry, and snapshot identity are fixed
+at mint. Passing the object is voluntary delegation; frame/schedule attribution
+still records the holder and actor chain. Handle use re-enters every negative
+stratum at every effect stage, can attenuate only to the same action and a
+strict resource subset, and is invalidated by ancestor revocation. A temporary
+operation lease is native, operation-bound, non-transferable, and cannot turn
+mode fallback into reusable authority. This is an explicit Ibex adaptation of
+the Oden model, not an accidental omission of delegatee identity.
+
+Authority containment is meaningful only within the same armed snapshot. Any
+authority containing a package logical root also requires the same package-root
+binding owner. Different actions are always incomparable even when their
+resource shapes coincide.
+
+Dynamic grants use typed resources and cannot cross the canonical static
+escalation ceiling. Deny-only, planned, terminal, and static-only definitions
+cannot enter the dynamic overlay. Mode fallback can never mint a grant or
+handle. Revocation advances a negative generation before any later positive
+decision.
+
+Decision caches key at least action, canonical resource bytes, constrained
+principal set, effect owner, stage, vocabulary/registry/policy/armed-snapshot
+digests, and negative/dynamic/handle generations. Repeated and live operations
+must still obey their coverage edge's lifetime recheck contract.
+
+### Canonicalization and digest domains
+
+All digest inputs are valid UTF-8 containing only Unicode scalar values and are
+strict I-JSON serialized with RFC 8785 JCS. Duplicate keys are rejected before
+canonicalization, and integers outside the I-JSON safe range use a tagged
+canonical string. Arrays named by `digestContract.setKeys` are semantic sets
+sorted and deduplicated by canonical JCS bytes. Composite-row sets use the exact
+`(schema, path, orderBy)` declarations in `digestContract.keyedSets`; other
+arrays retain sequence meaning. The hash frame is:
+
+```text
+SHA-256(UTF8(domain) || 0x00 || canonical-payload)
+```
+
+Digest text is lowercase `sha256-` followed by unpadded base64url. Domains are:
+
+- `ibex:capsec:vocab:1` — definitions, selector/occurrence schemas,
+  decision-affecting coverage/classifier rules, and non-capability rationales;
+- `ibex:capsec:registry:1` — the complete generated registry, implementation
+  references, fixtures, and target cells;
+- `ibex:capsec:policy:1` — canonical review policy with its own digest omitted;
+- `ibex:capsec:armed:1` — policy/registry identities plus resolved host objects,
+  engine target, routes, graph, ceilings, generations, run nonce, and channel
+  epoch; and
+- `ibex:capsec:conformance:1` — one observed result for every target cell and
+  the exact engine/fixture/report provenance.
+
+Vocabulary and registry aggregates use `ibex/capsec-digest-bundle/1`, with
+members ordered lexically by logical name and exact member lists frozen in
+`digestContract.projections`. Policy, armed-snapshot, and conformance
+projections omit only their own digest fields. The checked vocabulary bundle is
+assembled from the exact WP0 definition/rule/schema files plus normative
+coverage and containment vectors. The registry fixture content-addresses every
+semantic and invalid fixture body as well as its closed file inventory; digest
+payloads and the fixed digest-vector oracle are explicitly excluded where
+including their raw bytes would create a cycle, and are checked independently.
+The registry bundle and armed snapshot are explicitly `contract-fixture`
+artifacts until WP1 provides a generated production registry; conformance
+remains unavailable until WP10. Canonical policy and armed examples carry
+recomputed self-digests and exact cross-digests. One checked golden vector
+freezes each of the five domains, and the domain-to-payload mapping is fixed.
+
+Audit, handle, dynamic-permission, and denial evidence carry all four loaded
+vocabulary, registry, policy, and armed-snapshot digests from the immutable
+engine decision context rather than expected wrapper values.
+
+### Default and target claim
+
+Durable canonical policy accepts only enforce. Audit is a separately named,
+ephemeral foreground workflow; production permissive/off are not profile
+members. Missing policy canonicalizes to enforce with empty dependency floors
+and empty escalation ceilings. Full deputy intersection, lockdown, frame
+attribution, native compartments, and immutable arming are structural.
+
+WP0 advertises no targets. An executable production or diagnostic-audit
+snapshot may arm only when its exact target triple and canonical feature set
+are advertised and every coverage edge has a matching `enforced`, `closed`, or
+`absent` cell; a missing or `unsupported` cell refuses before project code.
+Public-address classification remains closed until pinned IANA IPv4 and IPv6
+special-purpose snapshots enter the registry. IPv4-mapped IPv6 is classified
+through its embedded IPv4 address, unmatched addresses fall back to `reserved`,
+and classifier activation gates the first target advertisement.
+
+WP9 flips the ordinary command once at least one exact advertised target has a
+complete generated conformance report. The repository does not wait for every
+conceivable build triple, but a build on any incomplete target refuses before
+project code rather than degrading or selecting the legacy plane. Public claims
+remain exact-target claims. Internal unit/integration fixtures are sufficient
+for permissive compatibility investigation; the production CLI gains no raw
+developer harness.
+
+### WP0 artifacts and gate
+
+The schemas, registry inputs, examples, invalid goldens, and generated legacy
+table live under `capsec/`. `contract-files.json` is a closed inventory of every
+schema, registry, example, invalid fixture, and generated artifact; an unlisted
+or missing file fails validation, and every registered invalid fixture must be
+executed and rejected.
+
+`capsec-contract.mjs` rejects duplicate keys, validates Draft 2020-12 schemas,
+checks cross-file action/resource references, requires selector and occurrence
+examples for every authorable resource kind, requires containment vectors for
+every handle/dynamic resource kind, and joins definitions to normalizers and
+coverage edges exactly. It also checks all five digest vectors, keyed canonical
+sets, target cells, armed graph/root/binding/protected-object invariants, and an
+exact one-to-one reconciliation with live rows inside
+`CAPABILITY_BIT_DEFINITIONS`; commented or outside-constant Rust lookalikes are
+not authority. `--check` is non-writing and participates in the repository's
+single generated-drift gate.
 
 ## Implementation plan
 
@@ -230,6 +494,10 @@ Acceptance:
 - Positive action wildcards and untyped canonical strings are impossible.
 - Decision precedence, principal intersection, staged effects, handles,
   revocation, caching generations, and digest domains are specified.
+
+Implementation: frozen by ENG-24144 in `capsec/`; validation is
+`bun run check:capsec-contract` plus
+`bun test packages/ibex-devtools/src/scripts/capsec-contract.test.mjs`.
 
 ### WP1 — Generate the registry and completeness inventory
 
@@ -503,21 +771,17 @@ This plan is complete when:
 7. Every advertised target has a passing generated conformance report.
 8. Legacy policy code, docs, demos, and stale LLP claims are removed or revised.
 
-## Open questions
+## Resolved WP0 questions
 
-1. Should the runtime-neutral semantic core live in Ibex, Oden, or a small
-   shared repository/crate? WP0 must choose one owner before both projects add
-   generated consumers.
-2. Should the profile be named `ibex/capsec/1`, reflecting Ibex's first public
-   contract, or `ibex/capsec/2`, reflecting semantic kinship with Oden Rev2?
-   The number has no compatibility burden, but cross-project diagnostics benefit
-   from an obvious family relationship.
-3. Which device capabilities are in the initial complete server/desktop profile,
-   and which remain target-specific or closed until embedder broker semantics are
-   specified?
-4. Does the standalone Ibex CLI need a separately named raw developer harness,
-   or are unit/integration fixtures sufficient for permissive compatibility
-   investigation?
-5. Which target subset must be complete before WP9 flips the repository default:
-   macOS development only, or every currently buildable production target? The
-   final public claim remains per-target regardless.
+1. Ibex owns the canonical contract and neutral crate boundary initially;
+   another consumer reuses it or explicitly moves ownership, never copies it.
+2. The profile is `ibex/capsec/1`; the neutral core is
+   `capsec/semantics/1`.
+3. Location, camera, microphone, and clipboard are target-specific authorable
+   definitions; storage and unproved device families stay closed, absent, or
+   unsupported exactly as the generated reconciliation records.
+4. Production gets no raw/permissive developer harness; isolated fixtures and
+   the explicit ephemeral audit workflow cover compatibility work.
+5. WP9 may flip after one exact target is complete, but every incomplete build
+   target refuses before project code. No target silently inherits another
+   target's conformance or falls back to the legacy plane.

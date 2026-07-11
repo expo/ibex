@@ -1,0 +1,2531 @@
+/**
+ * Validate the LLP 0021 WP0 capability-security contract and render its one
+ * generated review artifact. Nothing here is loaded by the production runtime;
+ * WP1 owns production bindings and surface inventory generation.
+ *
+ * @ref LLP 0021#wp0-semantic-contract — schemas, typed resources, legacy
+ * reconciliation, and deterministic drift checks are the WP0 completion gate.
+ */
+
+import fs from 'node:fs';
+import crypto from 'node:crypto';
+import net from 'node:net';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js';
+import {
+  capabilityBitSourcePath,
+  parseCapabilityBitDefinitions,
+} from './generate-capability-bits.mjs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+export const repoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+export const capsecRoot = path.join(repoRoot, 'capsec');
+export const generatedReconciliationPath = path.join(
+  capsecRoot,
+  'generated',
+  'legacy-capability-reconciliation.md',
+);
+
+const SCHEMA_IDS = {
+  selector: 'https://ibex.dev/capsec/schema/authority-selector.schema.json',
+  occurrence: 'https://ibex.dev/capsec/schema/effect-occurrence.schema.json',
+  effect: 'https://ibex.dev/capsec/schema/effect.schema.json',
+  containment: 'https://ibex.dev/capsec/schema/authority-containment.schema.json',
+  digestBundle: 'https://ibex.dev/capsec/schema/digest-bundle.schema.json',
+  digestVectors: 'https://ibex.dev/capsec/schema/digest-vectors.schema.json',
+  manifest: 'https://ibex.dev/capsec/schema/contract-manifest.schema.json',
+  definitions: 'https://ibex.dev/capsec/schema/capability-definitions.schema.json',
+  coverage: 'https://ibex.dev/capsec/schema/coverage-edge.schema.json',
+  targetCells: 'https://ibex.dev/capsec/schema/target-cell.schema.json',
+  rules: 'https://ibex.dev/capsec/schema/policy-rules.schema.json',
+  policy: 'https://ibex.dev/capsec/schema/canonical-policy.schema.json',
+  armed: 'https://ibex.dev/capsec/schema/armed-snapshot.schema.json',
+  reconciliation: 'https://ibex.dev/capsec/schema/legacy-reconciliation.schema.json',
+};
+
+const fatalUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+function assertUnicodeScalarString(value, label) {
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) {
+        throw new Error(`${label}: lone high surrogate at UTF-16 offset ${index}`);
+      }
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      throw new Error(`${label}: lone low surrogate at UTF-16 offset ${index}`);
+    }
+  }
+}
+
+export function assertIJson(value, label = '$') {
+  if (typeof value === 'string') {
+    assertUnicodeScalarString(value, label);
+    return;
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`${label}: non-finite JSON number`);
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      throw new Error(`${label}: integer is outside the I-JSON safe range`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertIJson(item, `${label}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    assertUnicodeScalarString(key, `${label} object key`);
+    assertIJson(child, `${label}.${key}`);
+  }
+}
+
+/** RFC 8785 uses ECMAScript number/string serialization and UTF-16 key order. */
+export function canonicalJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
+  return `{${Object.keys(value)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+    .join(',')}}`;
+}
+
+export function computeDomainDigest(domain, payload, omitFields = []) {
+  const projected = JSON.parse(canonicalJson(payload));
+  for (const field of omitFields) delete projected[field];
+  const hash = crypto.createHash('sha256');
+  hash.update(Buffer.from(domain, 'utf8'));
+  hash.update(Buffer.from([0]));
+  hash.update(Buffer.from(canonicalJson(projected), 'utf8'));
+  return `sha256-${hash.digest('base64url')}`;
+}
+
+function decodeBase64UrlCanonical(value, label) {
+  if (!/^[A-Za-z0-9_-]+$/u.test(value) || value.length % 4 === 1) {
+    throw new Error(`${label}: invalid unpadded base64url`);
+  }
+  const bytes = Buffer.from(value, 'base64url');
+  if (bytes.toString('base64url') !== value) {
+    throw new Error(`${label}: non-canonical base64url encoding`);
+  }
+  return bytes;
+}
+
+function assertDigest(value, label) {
+  if (!/^sha256-[A-Za-z0-9_-]{43}$/u.test(value)) return;
+  const bytes = decodeBase64UrlCanonical(value.slice('sha256-'.length), label);
+  if (bytes.length !== 32) throw new Error(`${label}: SHA-256 digest must decode to 32 bytes`);
+}
+
+function assertCanonicalBinaryEncodings(value, label = '$') {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertCanonicalBinaryEncodings(item, `${label}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === 'string') {
+      assertDigest(child, `${label}.${key}`);
+      if (key === 'runNonce') decodeBase64UrlCanonical(child, `${label}.${key}`);
+    }
+    if (key === 'encoding' && child === 'base64url') {
+      decodeBase64UrlCanonical(value.value, `${label}.value`);
+    }
+    assertCanonicalBinaryEncodings(child, `${label}.${key}`);
+  }
+}
+
+function skipWhitespace(state) {
+  while (/\s/u.test(state.text[state.index] ?? '')) state.index += 1;
+}
+
+function parseJsonStringToken(state) {
+  const start = state.index;
+  if (state.text[state.index] !== '"') throw new Error('expected JSON string');
+  state.index += 1;
+  while (state.index < state.text.length) {
+    const char = state.text[state.index];
+    if (char === '"') {
+      state.index += 1;
+      return JSON.parse(state.text.slice(start, state.index));
+    }
+    if (char === '\\') {
+      state.index += 2;
+      continue;
+    }
+    if (char.charCodeAt(0) < 0x20) throw new Error('control character in JSON string');
+    state.index += 1;
+  }
+  throw new Error('unterminated JSON string');
+}
+
+function parseJsonValueForDuplicateKeys(state) {
+  skipWhitespace(state);
+  const char = state.text[state.index];
+  if (char === '{') return parseJsonObjectForDuplicateKeys(state);
+  if (char === '[') return parseJsonArrayForDuplicateKeys(state);
+  if (char === '"') {
+    parseJsonStringToken(state);
+    return;
+  }
+
+  const tail = state.text.slice(state.index);
+  const token = tail.match(
+    /^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/u,
+  );
+  if (!token) throw new Error(`invalid JSON token at byte ${state.index}`);
+  state.index += token[0].length;
+}
+
+function parseJsonObjectForDuplicateKeys(state) {
+  state.index += 1;
+  skipWhitespace(state);
+  const keys = new Set();
+  if (state.text[state.index] === '}') {
+    state.index += 1;
+    return;
+  }
+  while (state.index < state.text.length) {
+    skipWhitespace(state);
+    const key = parseJsonStringToken(state);
+    if (keys.has(key)) {
+      throw new Error(`duplicate JSON object key ${JSON.stringify(key)}`);
+    }
+    keys.add(key);
+    skipWhitespace(state);
+    if (state.text[state.index] !== ':') throw new Error('expected colon after JSON key');
+    state.index += 1;
+    parseJsonValueForDuplicateKeys(state);
+    skipWhitespace(state);
+    if (state.text[state.index] === '}') {
+      state.index += 1;
+      return;
+    }
+    if (state.text[state.index] !== ',') throw new Error('expected comma in JSON object');
+    state.index += 1;
+  }
+  throw new Error('unterminated JSON object');
+}
+
+function parseJsonArrayForDuplicateKeys(state) {
+  state.index += 1;
+  skipWhitespace(state);
+  if (state.text[state.index] === ']') {
+    state.index += 1;
+    return;
+  }
+  while (state.index < state.text.length) {
+    parseJsonValueForDuplicateKeys(state);
+    skipWhitespace(state);
+    if (state.text[state.index] === ']') {
+      state.index += 1;
+      return;
+    }
+    if (state.text[state.index] !== ',') throw new Error('expected comma in JSON array');
+    state.index += 1;
+  }
+  throw new Error('unterminated JSON array');
+}
+
+export function assertNoDuplicateJsonKeys(text, label = '<json>') {
+  const state = { text, index: 0 };
+  try {
+    parseJsonValueForDuplicateKeys(state);
+    skipWhitespace(state);
+    if (state.index !== text.length) {
+      throw new Error(`unexpected trailing content at byte ${state.index}`);
+    }
+  } catch (error) {
+    throw new Error(`${label}: ${error.message}`);
+  }
+}
+
+export function readJsonStrict(filePath) {
+  const label = path.relative(repoRoot, filePath);
+  let text;
+  try {
+    text = fatalUtf8Decoder.decode(fs.readFileSync(filePath));
+  } catch (error) {
+    throw new Error(`${label}: invalid UTF-8: ${error.message}`);
+  }
+  assertNoDuplicateJsonKeys(text, label);
+  const value = JSON.parse(text);
+  assertIJson(value, label);
+  assertCanonicalBinaryEncodings(value, label);
+  return value;
+}
+
+const VOCABULARY_MEMBER_PATHS = {
+  'coverage-edges': 'examples/coverage-edges.canonical.json',
+  'examples/authority-containment': 'examples/authority-containment.canonical.json',
+  'registry/capability-definitions': 'registry/capability-definitions.json',
+  'registry/policy-rules': 'registry/policy-rules.json',
+  'schema/armed-snapshot': 'schema/armed-snapshot.schema.json',
+  'schema/authority-containment': 'schema/authority-containment.schema.json',
+  'schema/authority-selector': 'schema/authority-selector.schema.json',
+  'schema/canonical-policy': 'schema/canonical-policy.schema.json',
+  'schema/capability-definitions': 'schema/capability-definitions.schema.json',
+  'schema/common': 'schema/common.schema.json',
+  'schema/coverage-edge': 'schema/coverage-edge.schema.json',
+  'schema/digest-bundle': 'schema/digest-bundle.schema.json',
+  'schema/digest-vectors': 'schema/digest-vectors.schema.json',
+  'schema/effect': 'schema/effect.schema.json',
+  'schema/effect-occurrence': 'schema/effect-occurrence.schema.json',
+  'schema/policy-rules': 'schema/policy-rules.schema.json',
+};
+
+const EXPECTED_DIGEST_PROJECTIONS = {
+  vocabulary: {
+    status: 'available',
+    inputSchema: 'ibex/capsec-digest-bundle/1',
+    memberOrder: 'logical-name-lexical',
+    members: [
+      'coverage-edges',
+      'examples/authority-containment',
+      'registry/capability-definitions',
+      'registry/policy-rules',
+      'schema/armed-snapshot',
+      'schema/authority-containment',
+      'schema/authority-selector',
+      'schema/canonical-policy',
+      'schema/capability-definitions',
+      'schema/common',
+      'schema/coverage-edge',
+      'schema/digest-bundle',
+      'schema/digest-vectors',
+      'schema/effect',
+      'schema/effect-occurrence',
+      'schema/policy-rules',
+    ],
+    omitFields: [],
+  },
+  registry: {
+    status: 'contract-fixture-until-wp1',
+    inputSchema: 'ibex/capsec-digest-bundle/1',
+    memberOrder: 'logical-name-lexical',
+    members: [
+      'coverage-edges',
+      'fixture-manifest',
+      'implementation-manifest',
+      'legacy-reconciliation',
+      'network-classifier-snapshot',
+      'schema/contract-manifest',
+      'schema/coverage-edge',
+      'schema/legacy-reconciliation',
+      'schema/target-cell',
+      'target-cells',
+      'vocab-digest',
+    ],
+    omitFields: [],
+  },
+  policy: {
+    status: 'available',
+    inputSchema: 'ibex/capsec-policy/1',
+    memberOrder: 'not-applicable',
+    members: ['canonical-policy-object'],
+    omitFields: ['policyDigest'],
+  },
+  armedSnapshot: {
+    status: 'contract-fixture',
+    inputSchema: 'ibex/capsec-armed/1',
+    memberOrder: 'not-applicable',
+    members: ['armed-snapshot-object'],
+    omitFields: ['armedSnapshotDigest'],
+  },
+  conformance: {
+    status: 'unavailable-until-wp10',
+    inputSchema: 'ibex/capsec-conformance/1',
+    memberOrder: 'not-applicable',
+    members: ['conformance-report-object'],
+    omitFields: ['conformanceDigest'],
+  },
+};
+
+const EXPECTED_DIGEST_VECTOR_BINDINGS = {
+  armed: {
+    domain: 'ibex:capsec:armed:1',
+    payloadRef: 'examples/armed-snapshot.canonical.json',
+  },
+  conformance: {
+    domain: 'ibex:capsec:conformance:1',
+    payloadRef: null,
+  },
+  policy: {
+    domain: 'ibex:capsec:policy:1',
+    payloadRef: 'examples/canonical-policy.canonical.json',
+  },
+  registry: {
+    domain: 'ibex:capsec:registry:1',
+    payloadRef: 'examples/registry-digest-bundle.canonical.json',
+  },
+  vocabulary: {
+    domain: 'ibex:capsec:vocab:1',
+    payloadRef: 'examples/digest-bundle.canonical.json',
+  },
+};
+
+export function assertDigestProjectionContract(rules) {
+  if (
+    canonicalJson(rules.digestContract.projections) !==
+    canonicalJson(EXPECTED_DIGEST_PROJECTIONS)
+  ) {
+    throw new Error('digest projections differ from the frozen ibex/capsec/1 contract');
+  }
+}
+
+export function assertDigestVectorBindings(digestVectors) {
+  const digestVectorIds = digestVectors.vectors.map((vector) => vector.id);
+  assertUnique(digestVectorIds, 'digest vectors');
+  assertSorted(digestVectorIds, 'digest vectors');
+  if (
+    canonicalJson(digestVectorIds) !==
+    canonicalJson(Object.keys(EXPECTED_DIGEST_VECTOR_BINDINGS))
+  ) {
+    throw new Error('digest vectors differ from the frozen five-domain catalog');
+  }
+  digestVectors.vectors.forEach((vector) => {
+    const expected = EXPECTED_DIGEST_VECTOR_BINDINGS[vector.id];
+    if (
+      vector.domain !== expected.domain ||
+      (expected.payloadRef === null
+        ? vector.payloadRef !== undefined || vector.payload === undefined
+        : vector.payloadRef !== expected.payloadRef || vector.payload !== undefined)
+    ) {
+      throw new Error(`digest vector ${vector.id}: domain/payload binding is not canonical`);
+    }
+  });
+}
+
+function assembleDigestBundle(projection, projectionName, status, documents) {
+  const documentNames = [...documents.keys()].sort();
+  if (canonicalJson(documentNames) !== canonicalJson(projection.members)) {
+    throw new Error(`${projectionName} digest projection has no exact source mapping`);
+  }
+  return {
+    bundleSchema: 'ibex/capsec-digest-bundle/1',
+    profile: 'ibex/capsec/1',
+    projection: projectionName,
+    status,
+    members: projection.members.map((logicalName) => ({
+      logicalName,
+      document: documents.get(logicalName),
+    })),
+  };
+}
+
+function assembleVocabularyDigestBundle(rules) {
+  const documents = new Map(
+    Object.entries(VOCABULARY_MEMBER_PATHS).map(([logicalName, relativePath]) => [
+      logicalName,
+      readJsonStrict(path.join(capsecRoot, relativePath)),
+    ]),
+  );
+  return assembleDigestBundle(
+    rules.digestContract.projections.vocabulary,
+    'vocabulary',
+    'available',
+    documents,
+  );
+}
+
+function rawFileDigest(relativePath) {
+  return `sha256-${crypto
+    .createHash('sha256')
+    .update(fs.readFileSync(path.join(capsecRoot, relativePath)))
+    .digest('base64url')}`;
+}
+
+function assembleRegistryFixtureDigestBundle(rules, vocabDigest) {
+  const contractFiles = readJsonStrict(path.join(capsecRoot, 'contract-files.json'));
+  const semanticFixturePaths = [
+    'examples/authority-containment.canonical.json',
+    'examples/authority-selectors.canonical.json',
+    'examples/coverage-edges.canonical.json',
+    'examples/effect-occurrences.canonical.json',
+    'examples/effect-set.canonical.json',
+    'examples/target-cells.canonical.json',
+    ...contractFiles.invalidFixtures.map((fixture) => fixture.path),
+  ];
+  assertUnique(semanticFixturePaths, 'registry fixture digest paths');
+  assertSorted(semanticFixturePaths, 'registry fixture digest paths');
+  const fixtureManifest = {
+    fixtureDigestSchema: 'ibex/capsec-fixture-digests/1',
+    contractFiles,
+    files: semanticFixturePaths.map((fixturePath) => ({
+      path: fixturePath,
+      rawContentDigest: rawFileDigest(fixturePath),
+    })),
+    contentDigestExclusions: [
+      {
+        path: 'examples/armed-snapshot.canonical.json',
+        reason: 'authenticated-self-and-cross-digest',
+      },
+      {
+        path: 'examples/canonical-policy.canonical.json',
+        reason: 'authenticated-self-and-vocabulary-digest',
+      },
+      {
+        path: 'examples/digest-bundle.canonical.json',
+        reason: 'aggregate-payload-would-self-reference',
+      },
+      {
+        path: 'examples/digest-vectors.canonical.json',
+        reason: 'fixed-known-answer-and-payload-binding-oracle',
+      },
+      {
+        path: 'examples/registry-digest-bundle.canonical.json',
+        reason: 'aggregate-payload-would-self-reference',
+      },
+    ],
+  };
+  const documents = new Map([
+    [
+      'coverage-edges',
+      readJsonStrict(path.join(capsecRoot, 'examples/coverage-edges.canonical.json')),
+    ],
+    ['fixture-manifest', fixtureManifest],
+    [
+      'implementation-manifest',
+      {
+        manifestSchema: 'ibex/capsec-implementation-fixture/1',
+        status: 'unavailable-until-wp1',
+        advertisedTargets: [],
+      },
+    ],
+    [
+      'legacy-reconciliation',
+      readJsonStrict(path.join(capsecRoot, 'registry/legacy-capability-reconciliation.json')),
+    ],
+    [
+      'network-classifier-snapshot',
+      {
+        profile: 'ibex/capsec/1',
+        network: rules.classifierRules.network,
+      },
+    ],
+    [
+      'schema/contract-manifest',
+      readJsonStrict(path.join(capsecRoot, 'schema/contract-manifest.schema.json')),
+    ],
+    [
+      'schema/coverage-edge',
+      readJsonStrict(path.join(capsecRoot, 'schema/coverage-edge.schema.json')),
+    ],
+    [
+      'schema/legacy-reconciliation',
+      readJsonStrict(path.join(capsecRoot, 'schema/legacy-reconciliation.schema.json')),
+    ],
+    [
+      'schema/target-cell',
+      readJsonStrict(path.join(capsecRoot, 'schema/target-cell.schema.json')),
+    ],
+    [
+      'target-cells',
+      readJsonStrict(path.join(capsecRoot, 'examples/target-cells.canonical.json')),
+    ],
+    [
+      'vocab-digest',
+      { domain: rules.digestContract.domains.vocabulary, digest: vocabDigest },
+    ],
+  ]);
+  return assembleDigestBundle(
+    rules.digestContract.projections.registry,
+    'registry',
+    'contract-fixture',
+    documents,
+  );
+}
+
+function writePrettyJson(filePath, value) {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function refreshDigestExamples() {
+  const rules = readJsonStrict(path.join(capsecRoot, 'registry/policy-rules.json'));
+  const vocabularyBundle = assembleVocabularyDigestBundle(rules);
+  const vocabDigest = computeDomainDigest(
+    rules.digestContract.domains.vocabulary,
+    vocabularyBundle,
+    rules.digestContract.projections.vocabulary.omitFields,
+  );
+  const registryBundle = assembleRegistryFixtureDigestBundle(rules, vocabDigest);
+  const registryDigest = computeDomainDigest(
+    rules.digestContract.domains.registry,
+    registryBundle,
+    rules.digestContract.projections.registry.omitFields,
+  );
+
+  const policyPath = path.join(capsecRoot, 'examples/canonical-policy.canonical.json');
+  const policy = readJsonStrict(policyPath);
+  policy.vocabDigest = vocabDigest;
+  policy.policyDigest = computeDomainDigest(
+    rules.digestContract.domains.policy,
+    policy,
+    rules.digestContract.projections.policy.omitFields,
+  );
+
+  const armedPath = path.join(capsecRoot, 'examples/armed-snapshot.canonical.json');
+  const armed = readJsonStrict(armedPath);
+  armed.vocabDigest = vocabDigest;
+  armed.registryDigest = registryDigest;
+  armed.policyDigest = policy.policyDigest;
+  armed.armedSnapshotDigest = computeDomainDigest(
+    rules.digestContract.domains.armedSnapshot,
+    armed,
+    rules.digestContract.projections.armedSnapshot.omitFields,
+  );
+
+  const vocabularyBundlePath = path.join(
+    capsecRoot,
+    'examples/digest-bundle.canonical.json',
+  );
+  const registryBundlePath = path.join(
+    capsecRoot,
+    'examples/registry-digest-bundle.canonical.json',
+  );
+  writePrettyJson(vocabularyBundlePath, vocabularyBundle);
+  writePrettyJson(registryBundlePath, registryBundle);
+  writePrettyJson(policyPath, policy);
+  writePrettyJson(armedPath, armed);
+
+  const vectorsPath = path.join(capsecRoot, 'examples/digest-vectors.canonical.json');
+  const digestVectors = readJsonStrict(vectorsPath);
+  const payloads = new Map([
+    ['examples/armed-snapshot.canonical.json', armed],
+    ['examples/canonical-policy.canonical.json', policy],
+    ['examples/digest-bundle.canonical.json', vocabularyBundle],
+    ['examples/registry-digest-bundle.canonical.json', registryBundle],
+  ]);
+  const projectionByDomain = new Map(
+    Object.entries(rules.digestContract.domains).map(([name, domain]) => [
+      domain,
+      rules.digestContract.projections[name],
+    ]),
+  );
+  digestVectors.vectors.forEach((vector) => {
+    // Inline vectors are fixed independent known answers; generation may only
+    // refresh vectors whose payload is an explicitly generated artifact.
+    if (!vector.payloadRef) return;
+    const payload = payloads.get(vector.payloadRef);
+    vector.expectedDigest = computeDomainDigest(
+      vector.domain,
+      payload,
+      projectionByDomain.get(vector.domain).omitFields,
+    );
+  });
+  writePrettyJson(vectorsPath, digestVectors);
+}
+
+function listJsonFiles(dir) {
+  return fs
+    .readdirSync(dir)
+    .filter((name) => name.endsWith('.json'))
+    .sort()
+    .map((name) => path.join(dir, name));
+}
+
+function relativeFiles(dir, predicate = () => true) {
+  return fs
+    .readdirSync(path.join(capsecRoot, dir))
+    .filter(predicate)
+    .sort()
+    .map((name) => `${dir}/${name}`);
+}
+
+function assertExactFileList(expected, actual, label) {
+  assertUnique(expected, label);
+  assertSorted(expected, label);
+  if (canonicalJson(expected) !== canonicalJson(actual)) {
+    const missing = actual.filter((name) => !expected.includes(name));
+    const stale = expected.filter((name) => !actual.includes(name));
+    throw new Error(
+      `${label}: manifest mismatch; unlisted=${missing.join(',') || '-'} missing=${stale.join(',') || '-'}`,
+    );
+  }
+}
+
+function buildValidator() {
+  const ajv = new Ajv2020({
+    allErrors: true,
+    strict: true,
+    validateSchema: true,
+  });
+  for (const filePath of listJsonFiles(path.join(capsecRoot, 'schema'))) {
+    ajv.addSchema(readJsonStrict(filePath));
+  }
+  return ajv;
+}
+
+function formatAjvErrors(errors) {
+  return (errors ?? [])
+    .map((error) => `${error.instancePath || '/'} ${error.message}`)
+    .join('; ');
+}
+
+function validateWith(ajv, schemaId, value, label) {
+  const validate = ajv.getSchema(schemaId);
+  if (!validate) throw new Error(`${label}: schema not loaded: ${schemaId}`);
+  if (!validate(value)) {
+    throw new Error(`${label}: ${formatAjvErrors(validate.errors)}`);
+  }
+}
+
+function assertUnique(values, label) {
+  const seen = new Set();
+  for (const value of values) {
+    if (seen.has(value)) throw new Error(`${label}: duplicate ${JSON.stringify(value)}`);
+    seen.add(value);
+  }
+}
+
+function compareUtf8Text(left, right) {
+  return Buffer.compare(Buffer.from(left, 'utf8'), Buffer.from(right, 'utf8'));
+}
+
+export function canonicalSetOrder(values) {
+  return [...values].sort(compareUtf8Text);
+}
+
+function assertSorted(values, label) {
+  const sorted = canonicalSetOrder(values);
+  if (JSON.stringify(values) !== JSON.stringify(sorted)) {
+    throw new Error(`${label}: expected canonical lexical order`);
+  }
+}
+
+export function assertCanonicalSets(value, setLikeKeys, label = '$') {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) =>
+      assertCanonicalSets(item, setLikeKeys, `${label}[${index}]`),
+    );
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    if (setLikeKeys.has(key) && Array.isArray(child)) {
+      const encodings = child.map((item) => canonicalJson(item));
+      assertUnique(encodings, `${label}.${key}`);
+      assertSorted(encodings, `${label}.${key}`);
+    }
+    assertCanonicalSets(child, setLikeKeys, `${label}.${key}`);
+  }
+}
+
+function jsonPointerValue(value, pointer, label) {
+  if (!pointer.startsWith('/')) throw new Error(`${label}: invalid JSON pointer ${pointer}`);
+  let current = value;
+  for (const encodedToken of pointer.slice(1).split('/')) {
+    const token = encodedToken.replaceAll('~1', '/').replaceAll('~0', '~');
+    if (
+      current === null ||
+      typeof current !== 'object' ||
+      !Object.prototype.hasOwnProperty.call(current, token)
+    ) {
+      throw new Error(`${label}: JSON pointer ${pointer} does not resolve`);
+    }
+    current = current[token];
+  }
+  return current;
+}
+
+export function assertCanonicalKeyedSets(documentsBySchema, keyedSets) {
+  const specificationKeys = keyedSets.map((specification) =>
+    canonicalJson([specification.schema, specification.path]),
+  );
+  assertUnique(specificationKeys, 'digestContract.keyedSets');
+  assertSorted(specificationKeys, 'digestContract.keyedSets');
+
+  for (const specification of keyedSets) {
+    const document = documentsBySchema.get(specification.schema);
+    if (!document) {
+      throw new Error(
+        `digestContract.keyedSets: unknown schema ${specification.schema}`,
+      );
+    }
+    const label = `${specification.schema}${specification.path}`;
+    const rows = jsonPointerValue(document, specification.path, label);
+    if (!Array.isArray(rows)) throw new Error(`${label}: keyed set is not an array`);
+    const rowKeys = rows.map((row, index) =>
+      canonicalJson(
+        specification.orderBy.map((pointer) =>
+          jsonPointerValue(row, pointer, `${label}[${index}]`),
+        ),
+      ),
+    );
+    assertUnique(rowKeys, label);
+    assertSorted(rowKeys, label);
+  }
+}
+
+function resourceKindOf(selector) {
+  return selector?.resource?.kind;
+}
+
+function resourceKindsOfOccurrence(occurrence) {
+  switch (occurrence?.resource?.kind) {
+    case 'path-occurrence':
+      return ['path-exact', 'path-tree'];
+    case 'network-occurrence':
+    case 'unix-connect-occurrence':
+    case 'listen-occurrence':
+    case 'dns-occurrence':
+    case 'environment-occurrence':
+    case 'executable-occurrence':
+    case 'stdio-occurrence':
+    case 'system-info-occurrence':
+    case 'device-occurrence':
+    case 'storage-occurrence':
+    case 'closed-occurrence':
+      return [occurrence.resource.requested?.kind];
+    default:
+      return [];
+  }
+}
+
+function decodedPathComponent(component, label) {
+  if (component.encoding === 'utf8') return Buffer.from(component.value, 'utf8');
+  const bytes = decodeBase64UrlCanonical(component.value, `${label}.value`);
+  try {
+    fatalUtf8Decoder.decode(bytes);
+    throw new Error(`${label}: valid UTF-8 bytes must use the utf8 component encoding`);
+  } catch (error) {
+    if (!String(error.message).includes('valid UTF-8 bytes must use')) {
+      // Invalid UTF-8 is exactly why the binary representation exists.
+    } else {
+      throw error;
+    }
+  }
+  return bytes;
+}
+
+function validateLogicalPath(logicalPath, label) {
+  logicalPath.components.forEach((component, index) => {
+    const bytes = decodedPathComponent(component, `${label}.components[${index}]`);
+    if (
+      bytes.length === 0 ||
+      bytes.includes(0x00) ||
+      bytes.includes(0x2f) ||
+      bytes.equals(Buffer.from('.')) ||
+      bytes.equals(Buffer.from('..'))
+    ) {
+      throw new Error(`${label}.components[${index}]: forbidden path component bytes`);
+    }
+  });
+}
+
+function targetPathFamily(target) {
+  if (target.includes('windows')) return 'windows';
+  if (/(?:apple|darwin|ios|macos)/u.test(target)) return 'apple';
+  if (/(?:linux|android|freebsd|netbsd|openbsd|dragonfly|solaris|illumos)/u.test(target)) {
+    return 'unix-android';
+  }
+  throw new Error(`no path adapter family is frozen for target ${target}`);
+}
+
+function validateWindowsPathComponent(component, label) {
+  if (component.encoding !== 'utf8') {
+    throw new Error(`${label}: Windows cannot arm an invalid-UTF-8 path component`);
+  }
+  const value = component.value;
+  if (
+    /[<>:"/\\|?*\u0000-\u001F]/u.test(value) ||
+    /[. ]$/u.test(value) ||
+    /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu.test(value)
+  ) {
+    throw new Error(`${label}: Windows-invalid or reserved path component`);
+  }
+}
+
+export function validateTargetLogicalPaths(
+  logicalPathEntries,
+  target,
+  label = '$',
+  pathAdapter,
+) {
+  const family = targetPathFamily(target);
+  const uniquePaths = new Map(
+    logicalPathEntries.map((entry) => {
+      const logicalPath = entry.logicalPath ?? entry;
+      const namespace = entry.logicalPath ? entry.namespace : `root:${logicalPath.root}`;
+      return [canonicalJson([namespace, logicalPath]), { logicalPath, namespace }];
+    }),
+  );
+  for (const [pathIndex, { logicalPath }] of [...uniquePaths.values()].entries()) {
+    validateLogicalPath(logicalPath, `${label}[${pathIndex}]`);
+    if (family === 'windows') {
+      logicalPath.components.forEach((component, componentIndex) =>
+        validateWindowsPathComponent(
+          component,
+          `${label}[${pathIndex}].components[${componentIndex}]`,
+        ),
+      );
+    }
+  }
+  if (family === 'unix-android') return;
+  if (typeof pathAdapter?.aliasKey !== 'function') {
+    throw new Error(`${label}: ${family} target requires a bound-volume alias adapter`);
+  }
+  const aliases = new Map();
+  for (const [pathIndex, { logicalPath, namespace }] of [...uniquePaths.values()].entries()) {
+    const aliasKey = pathAdapter.aliasKey(logicalPath, { namespace });
+    if (typeof aliasKey !== 'string' || aliasKey.length === 0) {
+      throw new Error(`${label}[${pathIndex}]: target alias adapter returned no key`);
+    }
+    const namespacedAlias = canonicalJson([namespace, aliasKey]);
+    const previous = aliases.get(namespacedAlias);
+    if (previous && previous !== canonicalJson(logicalPath)) {
+      throw new Error(`${label}[${pathIndex}]: target path alias collision`);
+    }
+    aliases.set(namespacedAlias, canonicalJson(logicalPath));
+  }
+}
+
+function walkLogicalPaths(value, label = '$') {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => walkLogicalPaths(item, `${label}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  if (
+    ['project', 'package', 'home', 'tmp', 'absolute'].includes(value.root) &&
+    Array.isArray(value.components)
+  ) {
+    validateLogicalPath(value, label);
+  }
+  for (const [key, child] of Object.entries(value)) {
+    walkLogicalPaths(child, `${label}.${key}`);
+  }
+}
+
+function canonicalDnsName(value, label) {
+  if (value.length > 253) throw new Error(`${label}: DNS name exceeds 253 bytes`);
+  const labels = value.split('.');
+  if (
+    labels.some(
+      (part) =>
+        part.length < 1 ||
+        part.length > 63 ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(part),
+    )
+  ) {
+    throw new Error(`${label}: DNS name is not canonical lowercase A-label form`);
+  }
+  try {
+    const parsedHost = new URL(`http://${value}/`).hostname;
+    if (net.isIP(parsedHost)) {
+      throw new Error(`${label}: numeric IP aliases must use host kind ip`);
+    }
+  } catch (error) {
+    if (String(error.message).includes('numeric IP aliases')) throw error;
+    throw new Error(`${label}: DNS name is not an unambiguous endpoint host`);
+  }
+  return value;
+}
+
+function canonicalIpAddress(value, label) {
+  const family = net.isIP(value);
+  if (!family) throw new Error(`${label}: invalid IP address ${JSON.stringify(value)}`);
+  let canonical;
+  if (family === 4) {
+    canonical = value
+      .split('.')
+      .map((part) => String(Number(part)))
+      .join('.');
+  } else {
+    canonical = new URL(`http://[${value}]/`).hostname.slice(1, -1);
+  }
+  if (value !== canonical) {
+    throw new Error(`${label}: non-canonical IP address; expected ${canonical}`);
+  }
+  return family;
+}
+
+function ipToInteger(value, label) {
+  const family = canonicalIpAddress(value, label);
+  if (family === 4) {
+    return {
+      bits: 32,
+      value: value
+        .split('.')
+        .reduce((result, part) => (result << 8n) | BigInt(Number(part)), 0n),
+    };
+  }
+  const [leftText, rightText = ''] = value.split('::');
+  const left = leftText ? leftText.split(':') : [];
+  const right = rightText ? rightText.split(':') : [];
+  const groups = value.includes('::')
+    ? [...left, ...Array(8 - left.length - right.length).fill('0'), ...right]
+    : left;
+  if (groups.length !== 8) throw new Error(`${label}: invalid IPv6 group count`);
+  return {
+    bits: 128,
+    value: groups.reduce((result, group) => (result << 16n) | BigInt(`0x${group}`), 0n),
+  };
+}
+
+function validateCidr(network, prefix, label) {
+  const parsed = ipToInteger(network, `${label}.network`);
+  if (prefix < 0 || prefix > parsed.bits) {
+    throw new Error(`${label}.prefix: invalid prefix for IPv${parsed.bits === 32 ? 4 : 6}`);
+  }
+  const hostBits = BigInt(parsed.bits - prefix);
+  const hostMask = hostBits === 0n ? 0n : (1n << hostBits) - 1n;
+  if ((parsed.value & hostMask) !== 0n) {
+    throw new Error(`${label}: CIDR network has non-zero host bits`);
+  }
+}
+
+function cidrContains(network, prefix, address, label) {
+  const base = ipToInteger(network, `${label}.network`);
+  const candidate = ipToInteger(address, `${label}.address`);
+  if (base.bits !== candidate.bits || prefix > base.bits) return false;
+  const shift = BigInt(base.bits - prefix);
+  return (base.value >> shift) === (candidate.value >> shift);
+}
+
+function classifyIpAddress(address, rules, label) {
+  canonicalIpAddress(address, label);
+  let classificationAddress = address;
+  if (address.startsWith('::ffff:')) {
+    const low = Number(ipToInteger(address, label).value & 0xffffffffn);
+    classificationAddress = [24, 16, 8, 0]
+      .map((shift) => String((low >>> shift) & 0xff))
+      .join('.');
+  }
+  for (const row of rules.classifierRules.network.classes) {
+    if (row.class === 'public') continue;
+    if (
+      row.cidrs.some((cidr) => {
+        const slash = cidr.lastIndexOf('/');
+        return cidrContains(
+          cidr.slice(0, slash),
+          Number(cidr.slice(slash + 1)),
+          classificationAddress,
+          label,
+        );
+      })
+    ) {
+      return row.class;
+    }
+  }
+  return rules.classifierRules.network.fallback;
+}
+
+function validateHost(host, label) {
+  switch (host.kind) {
+    case 'dns-name':
+      canonicalDnsName(host.name, `${label}.name`);
+      break;
+    case 'dns-subtree':
+      canonicalDnsName(host.apex, `${label}.apex`);
+      break;
+    case 'ip':
+      canonicalIpAddress(host.address, `${label}.address`);
+      break;
+    case 'cidr':
+      validateCidr(host.network, host.prefix, label);
+      break;
+    default:
+      throw new Error(`${label}: unknown host kind ${host.kind}`);
+  }
+}
+
+function validatePort(port, label) {
+  if (port.kind === 'range' && port.start > port.end) {
+    throw new Error(`${label}: port range start exceeds end`);
+  }
+}
+
+function validateResourceCanonical(resource, label) {
+  switch (resource.kind) {
+    case 'path-exact':
+    case 'path-tree':
+      validateLogicalPath(resource.path, `${label}.path`);
+      break;
+    case 'fetch-endpoint':
+    case 'connect-endpoint':
+      validateHost(resource.host, `${label}.host`);
+      validatePort(resource.port, `${label}.port`);
+      break;
+    case 'connect-unix':
+    case 'listen-unix':
+      if (resource.address.kind === 'path') {
+        validateLogicalPath(resource.address.path, `${label}.address.path`);
+      } else if (/\u0000/u.test(resource.address.name)) {
+        throw new Error(`${label}.address.name: abstract socket name contains NUL`);
+      }
+      break;
+    case 'listen-inet':
+      validatePort(resource.port, `${label}.port`);
+      if (resource.bind.kind === 'address') {
+        canonicalIpAddress(resource.bind.address, `${label}.bind.address`);
+      }
+      break;
+    case 'dns-query':
+      canonicalDnsName(resource.name, `${label}.name`);
+      break;
+    case 'executable':
+      validateLogicalPath(resource.path, `${label}.path`);
+      if (resource.interpreter) {
+        validateLogicalPath(resource.interpreter.path, `${label}.interpreter.path`);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+function validateActionConstraints(definition, resource, label) {
+  const constraints = definition.selectorConstraints ?? {};
+  const checks = [
+    ['closedSurfaceClasses', resource.surfaceClass],
+    ['environmentTargets', resource.target],
+    ['stdioStreams', resource.stream],
+    ['stdioSourceKinds', resource.source?.kind],
+    ['storageStores', resource.store],
+  ];
+  for (const [field, actual] of checks) {
+    if (constraints[field] && !constraints[field].includes(actual)) {
+      throw new Error(
+        `${label}: ${definition.id} rejects ${field} value ${JSON.stringify(actual)}`,
+      );
+    }
+  }
+}
+
+function setContains(parent, child) {
+  const parentValues = new Set(parent.map((item) => canonicalJson(item)));
+  return child.every((item) => parentValues.has(canonicalJson(item)));
+}
+
+function pathComponentKeys(logicalPath) {
+  return logicalPath.components.map((component, index) =>
+    decodedPathComponent(component, `path.components[${index}]`).toString('base64url'),
+  );
+}
+
+function pathContains(parent, child) {
+  if (parent.path.root !== child.path.root) return false;
+  const parentComponents = pathComponentKeys(parent.path);
+  const childComponents = pathComponentKeys(child.path);
+  if (parent.kind === 'path-exact') {
+    return (
+      child.kind === 'path-exact' && canonicalJson(parentComponents) === canonicalJson(childComponents)
+    );
+  }
+  if (parent.kind !== 'path-tree' || !['path-exact', 'path-tree'].includes(child.kind)) {
+    return false;
+  }
+  return parentComponents.every((component, index) => childComponents[index] === component);
+}
+
+function hostContains(parent, child) {
+  if (canonicalJson(parent) === canonicalJson(child)) return true;
+  if (parent.kind === 'dns-subtree') {
+    const childName = child.kind === 'dns-name' ? child.name : child.kind === 'dns-subtree' ? child.apex : null;
+    if (!childName) return false;
+    if (childName === parent.apex) {
+      if (child.kind === 'dns-name') return parent.includeApex;
+      return parent.includeApex || !child.includeApex;
+    }
+    return childName.endsWith(`.${parent.apex}`);
+  }
+  if (parent.kind === 'cidr') {
+    if (child.kind === 'ip') {
+      return cidrContains(parent.network, parent.prefix, child.address, 'authority containment');
+    }
+    if (child.kind === 'cidr') {
+      const parentIp = ipToInteger(parent.network, 'authority containment parent');
+      const childIp = ipToInteger(child.network, 'authority containment child');
+      return (
+        parentIp.bits === childIp.bits &&
+        child.prefix >= parent.prefix &&
+        cidrContains(parent.network, parent.prefix, child.network, 'authority containment')
+      );
+    }
+  }
+  return false;
+}
+
+function portContains(parent, child) {
+  if (canonicalJson(parent) === canonicalJson(child)) return true;
+  if (parent.kind !== 'range') return false;
+  if (child.kind === 'exact') return child.value >= parent.start && child.value <= parent.end;
+  if (child.kind === 'range') return child.start >= parent.start && child.end <= parent.end;
+  return false;
+}
+
+function bindContains(parent, child) {
+  if (canonicalJson(parent) === canonicalJson(child)) return true;
+  if (parent.kind === 'all-interfaces') return true;
+  if (parent.kind === 'loopback' && child.kind === 'address') {
+    const family = net.isIP(child.address);
+    return (
+      !!family &&
+      cidrContains(
+        family === 4 ? '127.0.0.0' : '::1',
+        family === 4 ? 8 : 128,
+        child.address,
+        'listen bind containment',
+      )
+    );
+  }
+  return false;
+}
+
+function resourceContains(parent, child) {
+  if (canonicalJson(parent) === canonicalJson(child)) return true;
+  if (['path-exact', 'path-tree'].includes(parent.kind)) return pathContains(parent, child);
+  if (parent.kind !== child.kind) return false;
+  switch (parent.kind) {
+    case 'fetch-endpoint':
+      return (
+        setContains(parent.schemes, child.schemes) &&
+        hostContains(parent.host, child.host) &&
+        portContains(parent.port, child.port) &&
+        setContains(parent.peerClasses, child.peerClasses) &&
+        canonicalJson(parent.route) === canonicalJson(child.route)
+      );
+    case 'connect-endpoint':
+      return (
+        parent.transport === child.transport &&
+        hostContains(parent.host, child.host) &&
+        portContains(parent.port, child.port) &&
+        setContains(parent.peerClasses, child.peerClasses) &&
+        canonicalJson(parent.route) === canonicalJson(child.route)
+      );
+    case 'listen-inet':
+      return (
+        parent.transport === child.transport &&
+        bindContains(parent.bind, child.bind) &&
+        portContains(parent.port, child.port) &&
+        (parent.dualStack || !child.dualStack) &&
+        setContains(parent.peerClasses, child.peerClasses)
+      );
+    case 'dns-query':
+      return (
+        parent.name === child.name &&
+        parent.absolute === child.absolute &&
+        parent.resolver === child.resolver &&
+        setContains(parent.recordTypes, child.recordTypes)
+      );
+    case 'camera':
+      return (
+        (parent.facing === 'any' || parent.facing === child.facing) &&
+        setContains(parent.media, child.media) &&
+        (!parent.deviceId || parent.deviceId === child.deviceId)
+      );
+    case 'device-location':
+      return (
+        (parent.usage === 'background' || parent.usage === child.usage) &&
+        (parent.precision === 'precise' || parent.precision === child.precision)
+      );
+    case 'microphone':
+      return parent.media === child.media && (!parent.deviceId || parent.deviceId === child.deviceId);
+    case 'clipboard':
+      return parent.selection === child.selection && setContains(parent.formats, child.formats);
+    default:
+      return false;
+  }
+}
+
+export function compareAuthorityContainment(parent, child, context) {
+  if (context?.sameSnapshot !== true) return 'incomparable';
+  if (
+    [...collectLogicalPaths(parent.resource), ...collectLogicalPaths(child.resource)].some(
+      (logicalPath) => logicalPath.root === 'package',
+    ) &&
+    context.samePackageRootOwner !== true
+  ) {
+    return 'incomparable';
+  }
+  if (parent.cap !== child.cap) return 'incomparable';
+  if (canonicalJson(parent.resource) === canonicalJson(child.resource)) return 'equal';
+  return resourceContains(parent.resource, child.resource) ? 'strict-subset' : 'incomparable';
+}
+
+function occurrenceFactPresent(value) {
+  return Array.isArray(value) ? value.length > 0 : value !== undefined;
+}
+
+function assertOccurrenceFactStages(
+  occurrence,
+  field,
+  allowedStages,
+  requiredStages,
+  label,
+) {
+  const present = occurrenceFactPresent(occurrence.resource[field]);
+  if (present && !allowedStages.includes(occurrence.stage)) {
+    throw new Error(`${label}: speculative ${field} fact at ${occurrence.stage} stage`);
+  }
+  if (!present && requiredStages.includes(occurrence.stage)) {
+    throw new Error(`${label}: ${occurrence.stage} stage lacks ${field} fact`);
+  }
+}
+
+function validateOccurrenceFacts(occurrence, label, rules) {
+  const resource = occurrence.resource;
+  switch (resource.kind) {
+    case 'path-occurrence':
+      for (const field of ['parentObject', 'finalObject']) {
+        const required =
+          (field === 'finalObject' && resource.objectState === 'existing') ||
+          (field === 'parentObject' && resource.objectState === 'absent-create');
+        assertOccurrenceFactStages(
+          occurrence,
+          field,
+          ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup'],
+          required
+            ? ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup']
+            : [],
+          label,
+        );
+      }
+      assertOccurrenceFactStages(
+        occurrence,
+        'retainedHandle',
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        label,
+      );
+      if (
+        resource.objectState === 'absent-create' &&
+        !['fs:list', 'fs:write'].includes(occurrence.cap)
+      ) {
+        throw new Error(`${label}: ${occurrence.cap} cannot target an absent-create path`);
+      }
+      break;
+    case 'network-occurrence': {
+      validateHost(resource.requested.host, `${label}.resource.requested.host`);
+      if (
+        occurrence.stage === 'requested' &&
+        resource.requested.host.kind === 'dns-name' &&
+        resource.candidates.length > 0
+      ) {
+        throw new Error(`${label}: requested DNS effect contains speculative candidates`);
+      }
+      assertOccurrenceFactStages(
+        occurrence,
+        'selectedCandidate',
+        ['candidate', 'commit', 'delivery', 'repeat', 'cleanup'],
+        ['candidate', 'commit', 'delivery', 'repeat', 'cleanup'],
+        label,
+      );
+      for (const field of ['verifiedPeer', 'connectionId']) {
+        assertOccurrenceFactStages(
+          occurrence,
+          field,
+          ['commit', 'delivery', 'repeat', 'cleanup'],
+          ['commit', 'delivery', 'repeat', 'cleanup'],
+          label,
+        );
+      }
+      resource.candidates.forEach((address, index) =>
+        canonicalIpAddress(address, `${label}.resource.candidates[${index}]`),
+      );
+      if (
+        resource.requested.host.kind === 'ip' &&
+        canonicalJson(resource.candidates) !==
+          canonicalJson([resource.requested.host.address])
+      ) {
+        throw new Error(`${label}: literal-IP request has a different candidate set`);
+      }
+      if (
+        resource.selectedCandidate &&
+        !resource.candidates.includes(resource.selectedCandidate)
+      ) {
+        throw new Error(`${label}: selected network candidate is not in candidates`);
+      }
+      if (resource.verifiedPeer) {
+        canonicalIpAddress(resource.verifiedPeer.address, `${label}.resource.verifiedPeer.address`);
+        if (resource.verifiedPeer.address !== resource.selectedCandidate) {
+          throw new Error(`${label}: verified peer differs from selected candidate`);
+        }
+        if (resource.verifiedPeer.port !== resource.requested.port) {
+          throw new Error(`${label}: verified peer port differs from requested port`);
+        }
+      }
+      break;
+    }
+    case 'listen-occurrence':
+      for (const field of ['boundEndpoints', 'boundUnixObject', 'listenerId']) {
+        const relevant =
+          field === 'boundEndpoints'
+            ? resource.requested.kind === 'listen-inet'
+            : field === 'boundUnixObject'
+              ? resource.requested.kind === 'listen-unix' && resource.requested.address.kind === 'path'
+              : true;
+        assertOccurrenceFactStages(
+          occurrence,
+          field,
+          ['commit', 'delivery', 'repeat', 'cleanup'],
+          relevant ? ['commit', 'delivery', 'repeat', 'cleanup'] : [],
+          label,
+        );
+      }
+      for (const field of ['acceptedPeer', 'acceptedUnixPeer']) {
+        const relevant =
+          (field === 'acceptedPeer' && resource.requested.kind === 'listen-inet') ||
+          (field === 'acceptedUnixPeer' && resource.requested.kind === 'listen-unix');
+        assertOccurrenceFactStages(
+          occurrence,
+          field,
+          ['delivery', 'repeat'],
+          relevant ? ['delivery', 'repeat'] : [],
+          label,
+        );
+      }
+      if (resource.requested.kind === 'listen-inet') {
+        if (resource.requested.bind.kind === 'address') {
+          canonicalIpAddress(
+            resource.requested.bind.address,
+            `${label}.resource.requested.bind.address`,
+          );
+        }
+        for (const [index, endpoint] of (resource.boundEndpoints ?? []).entries()) {
+          const endpointLabel = `${label}.resource.boundEndpoints[${index}]`;
+          const family = canonicalIpAddress(endpoint.address, `${endpointLabel}.address`);
+          const requestedPort = resource.requested.port;
+          if (
+            (requestedPort.kind === 'exact' && endpoint.port !== requestedPort.value) ||
+            (requestedPort.kind === 'range' &&
+              (endpoint.port < requestedPort.start || endpoint.port > requestedPort.end))
+          ) {
+            throw new Error(`${endpointLabel}: bound port is outside requested authority`);
+          }
+          const bind = resource.requested.bind;
+          if (bind.kind === 'address' && endpoint.address !== bind.address) {
+            throw new Error(`${endpointLabel}: bound address differs from requested address`);
+          }
+          if (
+            bind.kind === 'loopback' &&
+            !cidrContains(
+              family === 4 ? '127.0.0.0' : '::1',
+              family === 4 ? 8 : 128,
+              endpoint.address,
+              endpointLabel,
+            )
+          ) {
+            throw new Error(`${endpointLabel}: non-loopback address used for loopback bind`);
+          }
+          if (bind.kind === 'interface' && endpoint.interface !== bind.name) {
+            throw new Error(`${endpointLabel}: bound interface differs from requested interface`);
+          }
+        }
+        const families = new Set(
+          (resource.boundEndpoints ?? []).map((endpoint) => net.isIP(endpoint.address)),
+        );
+        if (
+          (resource.requested.dualStack && !(families.has(4) && families.has(6))) ||
+          (!resource.requested.dualStack && families.size > 1)
+        ) {
+          throw new Error(`${label}: bound endpoint families disagree with dualStack`);
+        }
+      } else if (resource.requested.address.kind !== 'path' && resource.boundUnixObject) {
+        throw new Error(`${label}: abstract Unix listener has a pathname object identity`);
+      }
+      if (resource.acceptedPeer) {
+        const peerClass = classifyIpAddress(
+          resource.acceptedPeer.address,
+          rules,
+          `${label}.resource.acceptedPeer.address`,
+        );
+        if (!resource.requested.peerClasses?.includes(peerClass)) {
+          throw new Error(`${label}: accepted peer class is outside requested listener scope`);
+        }
+      }
+      break;
+    case 'unix-connect-occurrence':
+      assertOccurrenceFactStages(
+        occurrence,
+        'socketObject',
+        ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup'],
+        resource.requested.address.kind === 'path'
+          ? ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup']
+          : [],
+        label,
+      );
+      assertOccurrenceFactStages(
+        occurrence,
+        'connectionId',
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        label,
+      );
+      if (
+        resource.requested.address.kind !== 'path' &&
+        resource.socketObject
+      ) {
+        throw new Error(`${label}: abstract Unix connection has a pathname object identity`);
+      }
+      break;
+    case 'dns-occurrence':
+      if (occurrence.stage === 'requested' && resource.answers.length > 0) {
+        throw new Error(`${label}: requested DNS effect contains speculative answers`);
+      }
+      for (const [index, answer] of resource.answers.entries()) {
+        const answerLabel = `${label}.resource.answers[${index}]`;
+        if (!resource.requested.recordTypes.includes(answer.recordType)) {
+          throw new Error(`${answerLabel}: answer type was not requested`);
+        }
+        if (answer.recordType === 'A' || answer.recordType === 'AAAA') {
+          const family = canonicalIpAddress(answer.address, `${answerLabel}.address`);
+          if ((answer.recordType === 'A' && family !== 4) || (answer.recordType === 'AAAA' && family !== 6)) {
+            throw new Error(`${answerLabel}: address family disagrees with record type`);
+          }
+        } else if (['CNAME', 'NS', 'PTR'].includes(answer.recordType)) {
+          canonicalDnsName(answer.name, `${answerLabel}.name`);
+        } else if (answer.recordType === 'MX') {
+          canonicalDnsName(answer.exchange, `${answerLabel}.exchange`);
+        } else if (answer.recordType === 'NAPTR' && answer.replacement !== '.') {
+          canonicalDnsName(answer.replacement, `${answerLabel}.replacement`);
+        } else if (answer.recordType === 'SOA') {
+          canonicalDnsName(answer.name, `${answerLabel}.name`);
+          canonicalDnsName(answer.admin, `${answerLabel}.admin`);
+        } else if (answer.recordType === 'SRV' && answer.target !== '.') {
+          canonicalDnsName(answer.target, `${answerLabel}.target`);
+        }
+      }
+      break;
+    case 'executable-occurrence':
+      for (const field of ['executableObject', 'interpreterObject']) {
+        const required =
+          field === 'executableObject' || resource.requested.interpreter !== undefined;
+        assertOccurrenceFactStages(
+          occurrence,
+          field,
+          ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup'],
+          required
+            ? ['discovery', 'candidate', 'commit', 'delivery', 'repeat', 'cleanup']
+            : [],
+          label,
+        );
+      }
+      if (!resource.requested.interpreter && resource.interpreterObject) {
+        throw new Error(`${label}: executable without interpreter has interpreter object fact`);
+      }
+      break;
+    case 'device-occurrence':
+      assertOccurrenceFactStages(
+        occurrence,
+        'deviceIdentity',
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        ['commit', 'delivery', 'repeat', 'cleanup'],
+        label,
+      );
+      if (
+        resource.requested.deviceId &&
+        resource.deviceIdentity !== resource.requested.deviceId
+      ) {
+        throw new Error(`${label}: broker-resolved device differs from requested deviceId`);
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+export function assertLegacyReconciliationCoverage(bitDefinitions, entries) {
+  const reconciliationNames = entries.map((entry) => entry.legacyCapability);
+  assertUnique(reconciliationNames, 'legacy reconciliation');
+  const bitNames = bitDefinitions.map((definition) => definition.capability);
+  if (JSON.stringify(reconciliationNames) !== JSON.stringify(bitNames)) {
+    const missing = bitNames.filter((name) => !reconciliationNames.includes(name));
+    const extra = reconciliationNames.filter((name) => !bitNames.includes(name));
+    throw new Error(
+      `legacy reconciliation must follow and exactly cover capability_bits.rs; missing=${missing.join(',') || '-'} extra=${extra.join(',') || '-'}`,
+    );
+  }
+}
+
+export function assertLegacyReconciliationDestinations(entries, definitionsById) {
+  entries.forEach((entry, index) => {
+    entry.replacementActions.forEach((action) => {
+      if (!definitionsById.has(action)) {
+        throw new Error(`legacy reconciliation entry ${index} references unknown action ${action}`);
+      }
+    });
+    const requiredLifecycle =
+      entry.destinationDisposition === 'authorable'
+        ? 'authorable'
+        : entry.destinationDisposition === 'closed'
+          ? 'deny-only'
+          : null;
+    if (requiredLifecycle && entry.replacementActions.length === 0) {
+      throw new Error(
+        `legacy reconciliation entry ${index} maps ${entry.destinationDisposition} authority to no definition`,
+      );
+    }
+    if (
+      requiredLifecycle &&
+      entry.replacementActions.some(
+        (action) => definitionsById.get(action).lifecycle !== requiredLifecycle,
+      )
+    ) {
+      throw new Error(
+        `legacy reconciliation entry ${index} maps ${entry.destinationDisposition} authority to a non-${requiredLifecycle} definition`,
+      );
+    }
+  });
+}
+
+function validateSelectorSemantics(selector, definitionsById, label, options = {}) {
+  const definition = definitionsById.get(selector.cap);
+  if (!definition) throw new Error(`${label}: unknown action ${selector.cap}`);
+  if (options.positive && definition.lifecycle !== 'authorable') {
+    throw new Error(`${label}: positive row uses ${definition.lifecycle} action ${selector.cap}`);
+  }
+  if (options.dynamic && (!definition.channels.dynamic || definition.staticOnly)) {
+    throw new Error(`${label}: ${selector.cap} cannot enter a dynamic ceiling`);
+  }
+  const resourceKind = resourceKindOf(selector);
+  if (!definition.resourceKinds.includes(resourceKind)) {
+    throw new Error(
+      `${label}: ${selector.cap} does not accept resource kind ${JSON.stringify(resourceKind)}`,
+    );
+  }
+  validateResourceCanonical(selector.resource, `${label}.resource`);
+  validateActionConstraints(definition, selector.resource, label);
+}
+
+export function assertOccurrencePrincipalContext(occurrence, rules, label = '$') {
+  const transparentKey = canonicalJson(rules.principalSemantics.transparentFramePrincipal);
+  const constrainedKeys = occurrence.constrainedPrincipals.map((principal) =>
+    canonicalJson(principal),
+  );
+  assertUnique(constrainedKeys, `${label}.constrainedPrincipals`);
+  assertSorted(constrainedKeys, `${label}.constrainedPrincipals`);
+  if (constrainedKeys.includes(transparentKey)) {
+    throw new Error(`${label}: transparent runtime frame entered the constrained set`);
+  }
+  const constrainedSet = new Set(constrainedKeys);
+  for (const role of ['actor', 'effectOwner']) {
+    const key = canonicalJson(occurrence[role]);
+    if (key !== transparentKey && !constrainedSet.has(key)) {
+      throw new Error(`${label}.${role}: nontransparent principal is absent from constrained set`);
+    }
+  }
+}
+
+export function validateOccurrenceSemantics(occurrence, definitionsById, rules, label) {
+  assertOccurrencePrincipalContext(occurrence, rules, label);
+  const definition = definitionsById.get(occurrence.cap);
+  if (!definition || definition.lifecycle === 'planned') {
+    throw new Error(`${label}: unknown/planned action ${occurrence.cap}`);
+  }
+  const occurrenceKinds = resourceKindsOfOccurrence(occurrence);
+  if (!occurrenceKinds.some((kind) => definition.resourceKinds.includes(kind))) {
+    throw new Error(
+      `${label}: ${occurrence.cap} is incompatible with ${occurrenceKinds.join('/') || 'unknown resource'}`,
+    );
+  }
+  if (occurrence.resource.requested) {
+    validateResourceCanonical(occurrence.resource.requested, `${label}.resource.requested`);
+    validateActionConstraints(definition, occurrence.resource.requested, label);
+  }
+  validateOccurrenceFacts(occurrence, label, rules);
+}
+
+function walkPolicyRows(policy, definitionsById, prefix) {
+  assertUnique(
+    policy.principals.map((principalPolicy) => JSON.stringify(principalPolicy.principal)),
+    `${prefix}.principals`,
+  );
+  policy.principals.forEach((principalPolicy, principalIndex) => {
+    const base = `${prefix}.principals[${principalIndex}]`;
+    for (const stratum of ['floor', 'denials', 'escalationCeiling']) {
+      assertUnique(
+        principalPolicy[stratum].map((row) => JSON.stringify(row.authority)),
+        `${base}.${stratum}`,
+      );
+    }
+    principalPolicy.floor.forEach((row, rowIndex) =>
+      validateSelectorSemantics(row.authority, definitionsById, `${base}.floor[${rowIndex}]`, {
+        positive: true,
+      }),
+    );
+    principalPolicy.denials.forEach((row, rowIndex) =>
+      validateSelectorSemantics(row.authority, definitionsById, `${base}.denials[${rowIndex}]`),
+    );
+    principalPolicy.escalationCeiling.forEach((row, rowIndex) =>
+      validateSelectorSemantics(
+        row.authority,
+        definitionsById,
+        `${base}.escalationCeiling[${rowIndex}]`,
+        { positive: true, dynamic: true },
+      ),
+    );
+  });
+}
+
+function walkArmedRows(snapshot, definitionsById, prefix) {
+  assertUnique(
+    snapshot.principals.map((principalPolicy) => JSON.stringify(principalPolicy.principal)),
+    `${prefix}.principals`,
+  );
+  snapshot.principals.forEach((principalPolicy, principalIndex) => {
+    const base = `${prefix}.principals[${principalIndex}]`;
+    for (const stratum of ['floor', 'denials', 'escalationCeiling']) {
+      assertUnique(
+        principalPolicy[stratum].map((selector) => JSON.stringify(selector)),
+        `${base}.${stratum}`,
+      );
+    }
+    principalPolicy.floor.forEach((selector, rowIndex) =>
+      validateSelectorSemantics(selector, definitionsById, `${base}.floor[${rowIndex}]`, {
+        positive: true,
+      }),
+    );
+    principalPolicy.denials.forEach((selector, rowIndex) =>
+      validateSelectorSemantics(selector, definitionsById, `${base}.denials[${rowIndex}]`),
+    );
+    principalPolicy.escalationCeiling.forEach((selector, rowIndex) =>
+      validateSelectorSemantics(
+        selector,
+        definitionsById,
+        `${base}.escalationCeiling[${rowIndex}]`,
+        { positive: true, dynamic: true },
+      ),
+    );
+  });
+  if (snapshot.processAuthorityCeiling.kind === 'bounded') {
+    snapshot.processAuthorityCeiling.authorities.forEach((selector, index) =>
+      validateSelectorSemantics(
+        selector,
+        definitionsById,
+        `${prefix}.processAuthorityCeiling.authorities[${index}]`,
+        { positive: true },
+      ),
+    );
+  }
+}
+
+function collectLogicalPaths(value, result = []) {
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectLogicalPaths(item, result));
+    return result;
+  }
+  if (!value || typeof value !== 'object') return result;
+  if (
+    ['project', 'package', 'home', 'tmp', 'absolute'].includes(value.root) &&
+    Array.isArray(value.components)
+  ) {
+    result.push(value);
+  }
+  Object.values(value).forEach((child) => collectLogicalPaths(child, result));
+  return result;
+}
+
+export function armedTargetPathEntries(snapshot) {
+  const entries = [];
+  const addAuthorityPaths = (value, principal) => {
+    for (const logicalPath of collectLogicalPaths(value)) {
+      const namespace =
+        logicalPath.root === 'package'
+          ? `logical:package:${canonicalJson(principal)}`
+          : `logical:${logicalPath.root}`;
+      entries.push({ logicalPath, namespace });
+    }
+  };
+  snapshot.principals.forEach((row) => addAuthorityPaths(row, row.principal));
+  if (snapshot.processAuthorityCeiling.kind === 'bounded') {
+    for (const logicalPath of collectLogicalPaths(snapshot.processAuthorityCeiling.authorities)) {
+      if (logicalPath.root === 'package') {
+        snapshot.packageGraph.nodes.forEach((node) =>
+          entries.push({
+            logicalPath,
+            namespace: `logical:package:${canonicalJson(node.principal)}`,
+          }),
+        );
+      } else {
+        entries.push({ logicalPath, namespace: `logical:${logicalPath.root}` });
+      }
+    }
+  }
+  snapshot.rootBindings.forEach((binding) => {
+    const namespace = `volume:${binding.object.platform}:${binding.object.volume}`;
+    entries.push({ logicalPath: binding.hostPath, namespace });
+    if (binding.logicalPath) entries.push({ logicalPath: binding.logicalPath, namespace });
+  });
+  return entries;
+}
+
+export function validateArmedSnapshotSemantics(snapshot, label, context = {}) {
+  if (snapshot.workflow === 'contract-fixture') {
+    if (snapshot.engine.target !== 'capsec-contract-fixture') {
+      throw new Error(`${label}: contract fixture uses an executable target`);
+    }
+  } else {
+    const { rules, coverage, targetCells } = context;
+    if (!rules || !coverage || !targetCells) {
+      throw new Error(`${label}: executable snapshot validation lacks target registry context`);
+    }
+    const advertised = rules.initialProfile.advertisedTargets.some(
+      (target) =>
+        target.triple === snapshot.engine.target &&
+        canonicalJson(target.features) === canonicalJson(snapshot.engine.features),
+    );
+    if (!advertised) throw new Error(`${label}: engine target/features are not advertised`);
+    for (const edge of coverage.edges) {
+      const cell = targetCells.cells.find(
+        (candidate) =>
+          candidate.edgeId === edge.id &&
+          candidate.target.triple === snapshot.engine.target &&
+          canonicalJson(candidate.target.features) === canonicalJson(snapshot.engine.features),
+      );
+      if (!cell || cell.disposition === 'unsupported') {
+        throw new Error(`${label}: target has no complete cell for coverage edge ${edge.id}`);
+      }
+    }
+    validateTargetLogicalPaths(
+      armedTargetPathEntries(snapshot),
+      snapshot.engine.target,
+      `${label}.targetPaths`,
+      context.pathAdapter,
+    );
+  }
+  const rootKey = canonicalJson(snapshot.rootIdentity);
+  const authorityByPrincipal = new Map();
+  for (const [index, row] of snapshot.principals.entries()) {
+    const key = canonicalJson(row.principal);
+    if (authorityByPrincipal.has(key)) {
+      throw new Error(`${label}.principals[${index}]: duplicate principal authority row`);
+    }
+    authorityByPrincipal.set(key, row);
+  }
+  const rootRows = snapshot.principals.filter((row) => row.principal.kind === 'root');
+  if (rootRows.length !== 1 || canonicalJson(rootRows[0].principal) !== rootKey) {
+    throw new Error(`${label}: requires exactly one authority row for rootIdentity`);
+  }
+
+  const nodesByLocator = new Map();
+  const nodePrincipalKeys = new Set();
+  snapshot.packageGraph.nodes.forEach((node, index) => {
+    const locator = node.principal.locator;
+    const key = canonicalJson(node.principal);
+    if (nodesByLocator.has(locator) || nodePrincipalKeys.has(key)) {
+      throw new Error(`${label}.packageGraph.nodes[${index}]: duplicate package node`);
+    }
+    nodesByLocator.set(locator, node.principal);
+    nodePrincipalKeys.add(key);
+    if (!authorityByPrincipal.has(key)) {
+      throw new Error(`${label}.packageGraph.nodes[${index}]: missing principal authority row`);
+    }
+  });
+  for (const row of snapshot.principals) {
+    if (row.principal.kind === 'package' && !nodePrincipalKeys.has(canonicalJson(row.principal))) {
+      throw new Error(`${label}: package authority row is absent from package graph`);
+    }
+  }
+
+  const bindingKeys = [];
+  const packageBindingPrincipals = new Set();
+  for (const [index, binding] of snapshot.rootBindings.entries()) {
+    const ownerKey = binding.owner ? canonicalJson(binding.owner) : '';
+    const absolutePathKey = binding.logicalPath ? canonicalJson(binding.logicalPath) : '';
+    bindingKeys.push(canonicalJson([binding.logicalRoot, ownerKey, absolutePathKey]));
+    if (binding.logicalRoot === 'package') {
+      if (!nodePrincipalKeys.has(ownerKey)) {
+        throw new Error(`${label}.rootBindings[${index}]: package owner is not a graph node`);
+      }
+      packageBindingPrincipals.add(ownerKey);
+    } else if (
+      binding.logicalRoot === 'absolute' &&
+      canonicalJson(binding.logicalPath) !== canonicalJson(binding.hostPath)
+    ) {
+      throw new Error(`${label}.rootBindings[${index}]: absolute logical and host paths differ`);
+    }
+  }
+  assertUnique(bindingKeys, `${label}.rootBindings`);
+  for (const nodeKey of nodePrincipalKeys) {
+    if (!packageBindingPrincipals.has(nodeKey)) {
+      throw new Error(`${label}: package graph node lacks an exact package-root binding`);
+    }
+  }
+
+  const expectedImports = new Map(
+    snapshot.principals.map((row) => [canonicalJson(row.principal), new Set()]),
+  );
+  snapshot.packageGraph.importEdges.forEach((edge, index) => {
+    const importerKey = canonicalJson(edge.importer);
+    const importedKey = canonicalJson(edge.imported);
+    if (!expectedImports.has(importerKey)) {
+      throw new Error(`${label}.packageGraph.importEdges[${index}]: unknown importer`);
+    }
+    if (!nodePrincipalKeys.has(importedKey)) {
+      throw new Error(`${label}.packageGraph.importEdges[${index}]: unknown imported package`);
+    }
+    expectedImports.get(importerKey).add(edge.imported.locator);
+  });
+  for (const row of snapshot.principals) {
+    const expected = canonicalSetOrder(expectedImports.get(canonicalJson(row.principal)));
+    if (canonicalJson(row.imports.packages) !== canonicalJson(expected)) {
+      throw new Error(`${label}: package import allowlist disagrees with authenticated graph edges`);
+    }
+  }
+
+  const ordinaryBindings = new Set(
+    snapshot.rootBindings
+      .filter(
+        (binding) => binding.logicalRoot !== 'package' && binding.logicalRoot !== 'absolute',
+      )
+      .map((binding) => binding.logicalRoot),
+  );
+  const absoluteBindings = new Set(
+    snapshot.rootBindings
+      .filter((binding) => binding.logicalRoot === 'absolute')
+      .map((binding) => canonicalJson(binding.logicalPath)),
+  );
+  snapshot.principals.forEach((row, rowIndex) => {
+    for (const logicalPath of collectLogicalPaths(row)) {
+      if (logicalPath.root === 'package') {
+        if (
+          row.principal.kind !== 'package' ||
+          !packageBindingPrincipals.has(canonicalJson(row.principal))
+        ) {
+          throw new Error(`${label}.principals[${rowIndex}]: unresolved package logical root`);
+        }
+      } else if (
+        (logicalPath.root === 'absolute' &&
+          !absoluteBindings.has(canonicalJson(logicalPath))) ||
+        (logicalPath.root !== 'absolute' && !ordinaryBindings.has(logicalPath.root))
+      ) {
+        throw new Error(
+          `${label}.principals[${rowIndex}]: unresolved ${logicalPath.root} logical root`,
+        );
+      }
+    }
+  });
+  if (snapshot.processAuthorityCeiling.kind === 'bounded') {
+    for (const logicalPath of collectLogicalPaths(
+      snapshot.processAuthorityCeiling.authorities,
+    )) {
+      if (logicalPath.root === 'package') {
+        if (packageBindingPrincipals.size !== nodePrincipalKeys.size) {
+          throw new Error(`${label}.processAuthorityCeiling: package root is not bound for every package`);
+        }
+      } else if (
+        (logicalPath.root === 'absolute' &&
+          !absoluteBindings.has(canonicalJson(logicalPath))) ||
+        (logicalPath.root !== 'absolute' && !ordinaryBindings.has(logicalPath.root))
+      ) {
+        throw new Error(
+          `${label}.processAuthorityCeiling: unresolved ${logicalPath.root} logical root`,
+        );
+      }
+    }
+  }
+
+  const requiredProtectedRoles = ['armed-policy', 'engine-binary', 'package-graph', 'registry'];
+  const protectedRoles = snapshot.protectedObjects.map((entry) => entry.role);
+  assertUnique(protectedRoles, `${label}.protectedObjects`);
+  if (canonicalJson([...protectedRoles].sort()) !== canonicalJson(requiredProtectedRoles)) {
+    throw new Error(`${label}: protected object roles are incomplete`);
+  }
+  if (
+    canonicalJson(snapshot.networkPosture.alwaysDeniedPeerClasses) !==
+    canonicalJson(['metadata', 'unspecified'])
+  ) {
+    throw new Error(`${label}: network posture must bind both always-denied peer classes`);
+  }
+}
+
+export function loadAndValidateContract() {
+  const ajv = buildValidator();
+  const registryDir = path.join(capsecRoot, 'registry');
+  const examplesDir = path.join(capsecRoot, 'examples');
+
+  const manifest = readJsonStrict(path.join(capsecRoot, 'contract-files.json'));
+  validateWith(ajv, SCHEMA_IDS.manifest, manifest, 'contract file manifest');
+  assertExactFileList(
+    manifest.schemas,
+    relativeFiles('schema', (name) => name.endsWith('.json')),
+    'contract file manifest.schemas',
+  );
+  assertExactFileList(
+    manifest.registries,
+    relativeFiles('registry', (name) => name.endsWith('.json')),
+    'contract file manifest.registries',
+  );
+  assertExactFileList(
+    manifest.examples,
+    relativeFiles('examples', (name) => name.endsWith('.json')),
+    'contract file manifest.examples',
+  );
+  const invalidFixturePaths = manifest.invalidFixtures.map((fixture) => fixture.path);
+  assertExactFileList(
+    invalidFixturePaths,
+    relativeFiles('testdata/invalid', (name) => name.endsWith('.json')),
+    'contract file manifest.invalidFixtures',
+  );
+  assertExactFileList(
+    manifest.generated,
+    relativeFiles('generated'),
+    'contract file manifest.generated',
+  );
+
+  const definitions = readJsonStrict(path.join(registryDir, 'capability-definitions.json'));
+  const rules = readJsonStrict(path.join(registryDir, 'policy-rules.json'));
+  const reconciliation = readJsonStrict(
+    path.join(registryDir, 'legacy-capability-reconciliation.json'),
+  );
+  validateWith(ajv, SCHEMA_IDS.definitions, definitions, 'capability definitions');
+  validateWith(ajv, SCHEMA_IDS.rules, rules, 'policy rules');
+  validateWith(ajv, SCHEMA_IDS.reconciliation, reconciliation, 'legacy reconciliation');
+  assertDigestProjectionContract(rules);
+
+  const definitionIds = definitions.definitions.map((definition) => definition.id);
+  assertUnique(definitionIds, 'capability definitions');
+  assertSorted(definitionIds, 'capability definitions');
+  const definitionsById = new Map(
+    definitions.definitions.map((definition) => [definition.id, definition]),
+  );
+  const normalizationProfileIds = rules.normalizationProfiles.map((profile) => profile.id);
+  assertUnique(normalizationProfileIds, 'normalization profiles');
+  assertSorted(normalizationProfileIds, 'normalization profiles');
+  const normalizationProfilesById = new Map(
+    rules.normalizationProfiles.map((profile) => [profile.id, profile]),
+  );
+  definitions.definitions.forEach((definition) => {
+    if (!normalizationProfilesById.has(definition.normalizationProfile)) {
+      throw new Error(
+        `${definition.id}: unknown normalization profile ${definition.normalizationProfile}`,
+      );
+    }
+  });
+  const stratumIds = rules.decisionStrata.map((stratum) => stratum.id);
+  if (canonicalJson(stratumIds) !== canonicalJson(rules.decisionPrecedence)) {
+    throw new Error('decision strata must exactly follow decisionPrecedence');
+  }
+  Object.entries(rules.digestContract.projections).forEach(([name, projection]) => {
+    assertUnique(projection.members, `digest projection ${name}.members`);
+    assertSorted(projection.members, `digest projection ${name}.members`);
+  });
+  const networkClassIds = rules.classifierRules.network.classes.map((row) => row.class);
+  assertUnique(networkClassIds, 'network classifier classes');
+  if (canonicalJson(networkClassIds) !== canonicalJson(rules.classifierRules.network.precedence)) {
+    throw new Error('network classifier rows must exactly follow classifier precedence');
+  }
+  rules.classifierRules.network.classes.forEach((row, rowIndex) => {
+    row.cidrs.forEach((cidr, cidrIndex) => {
+      const slash = cidr.lastIndexOf('/');
+      if (slash < 1 || !/^(?:0|[1-9][0-9]*)$/u.test(cidr.slice(slash + 1))) {
+        throw new Error(`network classifier row ${rowIndex} cidr ${cidrIndex}: invalid CIDR`);
+      }
+      validateCidr(
+        cidr.slice(0, slash),
+        Number(cidr.slice(slash + 1)),
+        `network classifier row ${rowIndex} cidr ${cidrIndex}`,
+      );
+    });
+  });
+
+  const bitSource = fs.readFileSync(capabilityBitSourcePath, 'utf8');
+  const bitDefinitions = parseCapabilityBitDefinitions(bitSource);
+  bitDefinitions.forEach((definition, index) => {
+    if (definition.bit !== index) {
+      throw new Error(`legacy capability bits are not contiguous at ${definition.capability}`);
+    }
+  });
+
+  assertLegacyReconciliationCoverage(bitDefinitions, reconciliation.entries);
+  assertLegacyReconciliationDestinations(reconciliation.entries, definitionsById);
+
+  if (rules.initialProfile.advertisedTargets.length !== 0) {
+    throw new Error('WP0 cannot advertise a target before WP10 conformance evidence exists');
+  }
+
+  const selectorExamples = readJsonStrict(
+    path.join(examplesDir, 'authority-selectors.canonical.json'),
+  );
+  if (selectorExamples.exampleSchema !== 'ibex/capsec-selector-examples/1') {
+    throw new Error('selector examples have the wrong exampleSchema');
+  }
+  selectorExamples.selectors.forEach((selector, index) => {
+    validateWith(ajv, SCHEMA_IDS.selector, selector, `selector example ${index}`);
+    validateSelectorSemantics(selector, definitionsById, `selector example ${index}`, {
+      positive: true,
+    });
+  });
+  const selectorKeys = selectorExamples.selectors.map(
+    (selector) => `${selector.cap}\u0000${selector.resource.kind}\u0000${canonicalJson(selector.resource)}`,
+  );
+  assertUnique(selectorKeys, 'selector examples');
+  assertSorted(selectorKeys, 'selector examples');
+  const coveredResourceKinds = new Set(
+    selectorExamples.selectors.map((selector) => resourceKindOf(selector)),
+  );
+  const requiredResourceKinds = new Set(
+    definitions.definitions
+      .filter((definition) => definition.lifecycle === 'authorable')
+      .flatMap((definition) => definition.resourceKinds),
+  );
+  const uncoveredResourceKinds = [...requiredResourceKinds].filter(
+    (kind) => !coveredResourceKinds.has(kind),
+  );
+  if (uncoveredResourceKinds.length) {
+    throw new Error(`authorable resource kinds lack selector examples: ${uncoveredResourceKinds.join(', ')}`);
+  }
+
+  const occurrenceExamples = readJsonStrict(
+    path.join(examplesDir, 'effect-occurrences.canonical.json'),
+  );
+  if (occurrenceExamples.exampleSchema !== 'ibex/capsec-occurrence-examples/1') {
+    throw new Error('occurrence examples have the wrong exampleSchema');
+  }
+  occurrenceExamples.occurrences.forEach((occurrence, index) => {
+    validateWith(ajv, SCHEMA_IDS.occurrence, occurrence, `occurrence example ${index}`);
+    validateOccurrenceSemantics(occurrence, definitionsById, rules, `occurrence example ${index}`);
+  });
+  const coveredOccurrenceKinds = new Set(
+    occurrenceExamples.occurrences.flatMap((occurrence) => resourceKindsOfOccurrence(occurrence)),
+  );
+  const uncoveredOccurrenceKinds = [...requiredResourceKinds].filter(
+    (kind) => !coveredOccurrenceKinds.has(kind),
+  );
+  if (uncoveredOccurrenceKinds.length) {
+    throw new Error(
+      `authorable resource kinds lack occurrence examples: ${uncoveredOccurrenceKinds.join(', ')}`,
+    );
+  }
+  const occurrenceKeys = occurrenceExamples.occurrences.map(
+    (occurrence) =>
+      `${occurrence.cap}\u0000${occurrence.resource.kind}\u0000${canonicalJson(occurrence.resource)}`,
+  );
+  assertUnique(occurrenceKeys, 'occurrence examples');
+  assertSorted(occurrenceKeys, 'occurrence examples');
+
+  const effectSet = readJsonStrict(path.join(examplesDir, 'effect-set.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.effect, effectSet, 'effect-set example');
+  effectSet.effects.forEach((effect, index) => {
+    const occurrence = { ...effect, ...effectSet.context };
+    validateWith(ajv, SCHEMA_IDS.occurrence, occurrence, `effect-set example.effects[${index}]`);
+    validateOccurrenceSemantics(
+      occurrence,
+      definitionsById,
+      rules,
+      `effect-set example.effects[${index}]`,
+    );
+  });
+
+  const containment = readJsonStrict(
+    path.join(examplesDir, 'authority-containment.canonical.json'),
+  );
+  validateWith(ajv, SCHEMA_IDS.containment, containment, 'authority containment vectors');
+  const containmentIds = containment.vectors.map((vector) => vector.id);
+  assertUnique(containmentIds, 'authority containment vectors');
+  assertSorted(containmentIds, 'authority containment vectors');
+  const coveredContainmentKinds = new Set();
+  containment.vectors.forEach((vector, index) => {
+    validateSelectorSemantics(
+      vector.parent,
+      definitionsById,
+      `authority containment vector ${index}.parent`,
+      { positive: true },
+    );
+    validateSelectorSemantics(
+      vector.child,
+      definitionsById,
+      `authority containment vector ${index}.child`,
+      { positive: true },
+    );
+    const actual = compareAuthorityContainment(vector.parent, vector.child, vector.context);
+    if (actual !== vector.expected) {
+      throw new Error(
+        `authority containment vector ${vector.id}: expected ${vector.expected}, got ${actual}`,
+      );
+    }
+    coveredContainmentKinds.add(vector.parent.resource.kind);
+    coveredContainmentKinds.add(vector.child.resource.kind);
+  });
+  const requiredContainmentKinds = new Set(
+    definitions.definitions
+      .filter((definition) => definition.channels.handle || definition.channels.dynamic)
+      .flatMap((definition) => definition.resourceKinds),
+  );
+  const missingContainmentKinds = [...requiredContainmentKinds].filter(
+    (kind) => !coveredContainmentKinds.has(kind),
+  );
+  if (missingContainmentKinds.length) {
+    throw new Error(
+      `delegable resource kinds lack containment vectors: ${missingContainmentKinds.join(', ')}`,
+    );
+  }
+
+  const digestBundle = readJsonStrict(path.join(examplesDir, 'digest-bundle.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.digestBundle, digestBundle, 'digest bundle example');
+  const bundleMemberNames = digestBundle.members.map((member) => member.logicalName);
+  assertUnique(bundleMemberNames, 'digest bundle example members');
+  assertSorted(bundleMemberNames, 'digest bundle example members');
+  const expectedVocabularyBundle = assembleVocabularyDigestBundle(rules);
+  if (canonicalJson(digestBundle) !== canonicalJson(expectedVocabularyBundle)) {
+    throw new Error('vocabulary digest bundle is stale; run bun run generate:capsec-contract');
+  }
+  const vocabDigest = computeDomainDigest(
+    rules.digestContract.domains.vocabulary,
+    digestBundle,
+    rules.digestContract.projections.vocabulary.omitFields,
+  );
+
+  const registryDigestBundle = readJsonStrict(
+    path.join(examplesDir, 'registry-digest-bundle.canonical.json'),
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.digestBundle,
+    registryDigestBundle,
+    'registry contract-fixture digest bundle',
+  );
+  const registryBundleMemberNames = registryDigestBundle.members.map(
+    (member) => member.logicalName,
+  );
+  assertUnique(registryBundleMemberNames, 'registry digest bundle members');
+  assertSorted(registryBundleMemberNames, 'registry digest bundle members');
+
+  const digestVectors = readJsonStrict(path.join(examplesDir, 'digest-vectors.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.digestVectors, digestVectors, 'digest vectors');
+  assertDigestVectorBindings(digestVectors);
+
+  const coverage = readJsonStrict(path.join(examplesDir, 'coverage-edges.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.coverage, coverage, 'coverage examples');
+  const edgeIds = coverage.edges.map((edge) => edge.id);
+  assertUnique(edgeIds, 'coverage examples');
+  assertSorted(edgeIds, 'coverage examples');
+  const edgeIdSet = new Set(edgeIds);
+  coverage.edges.forEach((edge, edgeIndex) => {
+    if (edge.classification === 'effects') {
+      edge.effects.forEach((effect, effectIndex) => {
+        const definition = definitionsById.get(effect.cap);
+        if (!definition || definition.lifecycle !== 'authorable') {
+          throw new Error(`coverage edge ${edgeIndex} effect ${effectIndex} uses unknown ${effect.cap}`);
+        }
+        const normalization = normalizationProfilesById.get(definition.normalizationProfile);
+        if (
+          effect.selectorNormalizer !== normalization.selector ||
+          effect.occurrenceNormalizer !== normalization.occurrence
+        ) {
+          throw new Error(
+            `coverage edge ${edge.id} effect ${effect.cap} disagrees with ${definition.normalizationProfile}`,
+          );
+        }
+        const sources = new Set(effect.positiveSources);
+        if (sources.has('handle') && !definition.channels.handle) {
+          throw new Error(`coverage edge ${edge.id} offers handle authority for ${effect.cap}`);
+        }
+        if (sources.has('session') && (!definition.channels.dynamic || definition.staticOnly)) {
+          throw new Error(`coverage edge ${edge.id} offers dynamic authority for ${effect.cap}`);
+        }
+        if (sources.has('implicit-self') && !definition.channels.synthesis) {
+          throw new Error(`coverage edge ${edge.id} offers implicit-self authority for ${effect.cap}`);
+        }
+      });
+    } else if (edge.classification === 'non-capability') {
+      const rationale = rules.classifierRules.nonCapabilityRationales.find(
+        (row) => row.id === edge.rationaleId,
+      );
+      if (!rationale || rationale.rationale !== edge.rationale) {
+        throw new Error(`non-capability edge ${edge.id} has no exact rationale registry row`);
+      }
+    } else if (edge.classification === 'closed') {
+      const definition = definitionsById.get(edge.cap);
+      if (!definition || definition.lifecycle !== 'deny-only') {
+        throw new Error(`closed coverage edge ${edge.id} must name a deny-only definition`);
+      }
+    }
+  });
+
+  const targetCells = readJsonStrict(path.join(examplesDir, 'target-cells.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.targetCells, targetCells, 'target cell examples');
+  const targetCellKeys = targetCells.cells.map(
+    (cell) => canonicalJson([cell.edgeId, cell.target.triple, cell.target.features]),
+  );
+  assertUnique(targetCellKeys, 'target cell examples');
+  assertSorted(targetCellKeys, 'target cell examples');
+  targetCells.cells.forEach((cell, index) => {
+    if (!edgeIdSet.has(cell.edgeId)) {
+      throw new Error(`target cell ${index} references unknown edge ${cell.edgeId}`);
+    }
+  });
+
+  const policy = readJsonStrict(path.join(examplesDir, 'canonical-policy.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.policy, policy, 'canonical policy example');
+  walkPolicyRows(policy, definitionsById, 'canonical policy example');
+
+  const armed = readJsonStrict(path.join(examplesDir, 'armed-snapshot.canonical.json'));
+  validateWith(ajv, SCHEMA_IDS.armed, armed, 'armed snapshot example');
+  walkArmedRows(armed, definitionsById, 'armed snapshot example');
+  validateArmedSnapshotSemantics(armed, 'armed snapshot example', {
+    rules,
+    coverage,
+    targetCells,
+  });
+
+  const expectedRegistryBundle = assembleRegistryFixtureDigestBundle(rules, vocabDigest);
+  if (canonicalJson(registryDigestBundle) !== canonicalJson(expectedRegistryBundle)) {
+    throw new Error(
+      'registry contract-fixture digest bundle is stale; run bun run generate:capsec-contract',
+    );
+  }
+  const registryDigest = computeDomainDigest(
+    rules.digestContract.domains.registry,
+    registryDigestBundle,
+    rules.digestContract.projections.registry.omitFields,
+  );
+  const policyDigest = computeDomainDigest(
+    rules.digestContract.domains.policy,
+    policy,
+    rules.digestContract.projections.policy.omitFields,
+  );
+  if (policy.vocabDigest !== vocabDigest || policy.policyDigest !== policyDigest) {
+    throw new Error('canonical policy digest or vocabulary cross-link is stale');
+  }
+  const armedSnapshotDigest = computeDomainDigest(
+    rules.digestContract.domains.armedSnapshot,
+    armed,
+    rules.digestContract.projections.armedSnapshot.omitFields,
+  );
+  if (
+    armed.vocabDigest !== vocabDigest ||
+    armed.registryDigest !== registryDigest ||
+    armed.policyDigest !== policyDigest ||
+    armed.armedSnapshotDigest !== armedSnapshotDigest
+  ) {
+    throw new Error('armed snapshot self-digest or cross-digest is stale');
+  }
+
+  const projectionByDomain = new Map(
+    Object.entries(rules.digestContract.domains).map(([name, domain]) => [
+      domain,
+      rules.digestContract.projections[name],
+    ]),
+  );
+  const digestPayloads = new Map([
+    ['examples/armed-snapshot.canonical.json', armed],
+    ['examples/canonical-policy.canonical.json', policy],
+    ['examples/digest-bundle.canonical.json', digestBundle],
+    ['examples/registry-digest-bundle.canonical.json', registryDigestBundle],
+  ]);
+  const seenDigestDomains = new Set();
+  digestVectors.vectors.forEach((vector) => {
+    const projection = projectionByDomain.get(vector.domain);
+    if (!projection) throw new Error(`digest vector ${vector.id}: unknown domain`);
+    if (seenDigestDomains.has(vector.domain)) {
+      throw new Error(`digest vector ${vector.id}: duplicate domain`);
+    }
+    if (canonicalJson(vector.omitFields) !== canonicalJson(projection.omitFields)) {
+      throw new Error(`digest vector ${vector.id}: omission projection disagrees with rules`);
+    }
+    const payload = vector.payloadRef ? digestPayloads.get(vector.payloadRef) : vector.payload;
+    if (!payload) throw new Error(`digest vector ${vector.id}: unresolved payload`);
+    const actual = computeDomainDigest(vector.domain, payload, vector.omitFields);
+    if (actual !== vector.expectedDigest) {
+      throw new Error(`digest vector ${vector.id}: expected ${vector.expectedDigest}, got ${actual}`);
+    }
+    seenDigestDomains.add(vector.domain);
+  });
+  if (seenDigestDomains.size !== projectionByDomain.size) {
+    throw new Error('digest vectors must cover every digest domain exactly once');
+  }
+
+  const setLikeKeys = new Set(rules.digestContract.setKeys);
+  for (const [label, value] of [
+    ['capability definitions', definitions],
+    ['contract file manifest', manifest],
+    ['policy rules', rules],
+    ['legacy reconciliation', reconciliation],
+    ['selector examples', selectorExamples],
+    ['occurrence examples', occurrenceExamples],
+    ['effect-set example', effectSet],
+    ['authority containment vectors', containment],
+    ['digest bundle example', digestBundle],
+    ['registry digest bundle example', registryDigestBundle],
+    ['digest vectors', digestVectors],
+    ['coverage examples', coverage],
+    ['target cell examples', targetCells],
+    ['canonical policy example', policy],
+    ['armed snapshot example', armed],
+  ]) {
+    walkLogicalPaths(value, label);
+    assertCanonicalSets(value, setLikeKeys, label);
+  }
+  assertCanonicalKeyedSets(
+    new Map([
+      ['ibex/capsec-containment-vectors/1', containment],
+      ['ibex/capsec-definitions/1', definitions],
+      ['ibex/capsec-digest-bundle/1', digestBundle],
+      ['ibex/capsec-digest-vectors/1', digestVectors],
+      ['ibex/capsec-coverage/1', coverage],
+      ['ibex/capsec-target-cells/1', targetCells],
+    ]),
+    rules.digestContract.keyedSets,
+  );
+  assertCanonicalKeyedSets(
+    new Map([['ibex/capsec-digest-bundle/1', registryDigestBundle]]),
+    rules.digestContract.keyedSets.filter(
+      (specification) => specification.schema === 'ibex/capsec-digest-bundle/1',
+    ),
+  );
+
+  const contract = {
+    ajv,
+    manifest,
+    definitions,
+    definitionsById,
+    rules,
+    reconciliation,
+    bitDefinitions,
+    selectorExamples,
+    occurrenceExamples,
+    effectSet,
+    containment,
+    digestBundle,
+    registryDigestBundle,
+    digestVectors,
+    coverage,
+    targetCells,
+    policy,
+    armed,
+  };
+  for (const entry of manifest.invalidFixtures) {
+    let rejected = false;
+    try {
+      validateInvalidFixtureEntry(entry, contract);
+    } catch {
+      rejected = true;
+    }
+    if (!rejected) throw new Error(`${entry.path}: registered invalid fixture was accepted`);
+  }
+  return contract;
+}
+
+function markdownCell(value) {
+  return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
+}
+
+export function renderLegacyReconciliation(contract = loadAndValidateContract()) {
+  const entriesByName = new Map(
+    contract.reconciliation.entries.map((entry) => [entry.legacyCapability, entry]),
+  );
+  const lines = [
+    '# Legacy capability reconciliation',
+    '',
+    '<!-- @generated by packages/ibex-devtools/src/scripts/capsec-contract.mjs; do not edit -->',
+    '',
+    `This table covers all ${contract.bitDefinitions.length} entries in \`src/host/capability_bits.rs\`.`,
+    'The JSON source intentionally omits bit numbers; the generator joins them from the Rust authority.',
+    '',
+    '| Bit | Legacy capability | Current status | Destination | Typed action(s) | Resource semantics |',
+    '|---:|---|---|---|---|---|',
+  ];
+  for (const bitDefinition of contract.bitDefinitions) {
+    const entry = entriesByName.get(bitDefinition.capability);
+    lines.push(
+      `| ${bitDefinition.bit} | \`${markdownCell(bitDefinition.capability)}\` | ${markdownCell(entry.currentStatus)} | ${markdownCell(entry.destinationDisposition)} | ${entry.replacementActions.length ? entry.replacementActions.map((action) => `\`${markdownCell(action)}\``).join(', ') : '—'} | ${markdownCell(entry.resourceSemantics)} |`,
+    );
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function validateInvalidFixtureEntry(entry, contract) {
+  const filePath = path.join(capsecRoot, entry.path);
+  const label = entry.path;
+  if (entry.validator === 'strict-json') return readJsonStrict(filePath);
+  const value = readJsonStrict(filePath);
+  if (entry.validator === 'selector') {
+    validateWith(contract.ajv, SCHEMA_IDS.selector, value, label);
+    validateSelectorSemantics(value, contract.definitionsById, label, { positive: true });
+    return;
+  }
+  if (entry.validator === 'occurrence') {
+    validateWith(contract.ajv, SCHEMA_IDS.occurrence, value, label);
+    validateOccurrenceSemantics(value, contract.definitionsById, contract.rules, label);
+    return;
+  }
+  if (entry.validator === 'effect-set') {
+    validateWith(contract.ajv, SCHEMA_IDS.effect, value, label);
+    return;
+  }
+  if (entry.validator === 'armed-snapshot') {
+    validateWith(contract.ajv, SCHEMA_IDS.armed, value, label);
+    validateArmedSnapshotSemantics(value, label, {
+      rules: contract.rules,
+      coverage: contract.coverage,
+      targetCells: contract.targetCells,
+    });
+    return;
+  }
+  throw new Error(`${entry.path}: unsupported invalid fixture validator ${entry.validator}`);
+}
+
+export function validateInvalidFixture(name, contract = loadAndValidateContract()) {
+  const entry = contract.manifest.invalidFixtures.find(
+    (fixture) => fixture.path === name || path.basename(fixture.path) === name,
+  );
+  if (!entry) throw new Error(`unknown invalid fixture ${name}`);
+  return validateInvalidFixtureEntry(entry, contract);
+}
+
+export function invalidFixtureNames() {
+  const manifest = readJsonStrict(path.join(capsecRoot, 'contract-files.json'));
+  return manifest.invalidFixtures.map((fixture) => path.basename(fixture.path));
+}
+
+export function runContractCheck({ write = false } = {}) {
+  if (write) refreshDigestExamples();
+  const contract = loadAndValidateContract();
+  const rendered = renderLegacyReconciliation(contract);
+  if (write) {
+    fs.mkdirSync(path.dirname(generatedReconciliationPath), { recursive: true });
+    fs.writeFileSync(generatedReconciliationPath, rendered, 'utf8');
+  } else {
+    if (!fs.existsSync(generatedReconciliationPath)) {
+      throw new Error(
+        `${path.relative(repoRoot, generatedReconciliationPath)} is missing; run bun run generate:capsec-contract`,
+      );
+    }
+    const committed = fs.readFileSync(generatedReconciliationPath, 'utf8');
+    if (committed !== rendered) {
+      throw new Error(
+        `${path.relative(repoRoot, generatedReconciliationPath)} is stale; run bun run generate:capsec-contract`,
+      );
+    }
+  }
+  return {
+    capabilityDefinitions: contract.definitions.definitions.length,
+    legacyCapabilities: contract.bitDefinitions.length,
+    schemas: listJsonFiles(path.join(capsecRoot, 'schema')).length,
+    selectorExamples: contract.selectorExamples.selectors.length,
+    occurrenceExamples: contract.occurrenceExamples.occurrences.length,
+    decisionSets: 1,
+    containmentVectors: contract.containment.vectors.length,
+    digestVectors: contract.digestVectors.vectors.length,
+    invalidFixtures: contract.manifest.invalidFixtures.length,
+    coverageEdges: contract.coverage.edges.length,
+    targetCells: contract.targetCells.cells.length,
+  };
+}
+
+if (path.resolve(process.argv[1] ?? '') === __filename) {
+  const write = process.argv.includes('--write');
+  const check = process.argv.includes('--check');
+  if (write === check) {
+    console.error('usage: capsec-contract.mjs (--write | --check)');
+    process.exit(2);
+  }
+  try {
+    const counts = runContractCheck({ write });
+    const verb = write ? 'Generated and validated' : 'Validated';
+    console.log(
+      `${verb} capsec contract: ${counts.schemas} schemas, ${counts.capabilityDefinitions} definitions, ${counts.legacyCapabilities} legacy rows, ${counts.selectorExamples} selectors, ${counts.occurrenceExamples} occurrences, ${counts.decisionSets} decision set, ${counts.containmentVectors} containment vectors, ${counts.digestVectors} digest vectors, ${counts.invalidFixtures} invalid fixtures, ${counts.coverageEdges} coverage edges, ${counts.targetCells} target cells.`,
+    );
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  }
+}

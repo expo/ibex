@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/authority-containment.schema.json",
+  "title": "Ibex authority containment vectors",
+  "type": "object",
+  "required": ["containmentSchema", "profile", "vectors"],
+  "properties": {
+    "containmentSchema": { "const": "ibex/capsec-containment-vectors/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "vectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/vector" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "vector": {
+      "type": "object",
+      "required": ["id", "parent", "child", "context", "expected"],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "parent": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+        },
+        "child": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+        },
+        "context": {
+          "type": "object",
+          "required": ["sameSnapshot", "samePackageRootOwner"],
+          "properties": {
+            "sameSnapshot": { "type": "boolean" },
+            "samePackageRootOwner": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "expected": { "enum": ["equal", "strict-subset", "incomparable"] }
+      },
+      "additionalProperties": false
+    }
+  }
+}

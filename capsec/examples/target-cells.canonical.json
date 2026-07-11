@@ -1,0 +1,37 @@
+{
+  "targetCellSchema": "ibex/capsec-target-cells/1",
+  "profile": "ibex/capsec/1",
+  "cells": [
+    {
+      "edgeId": "engine.fetch.request",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": ["hermes-frame-attribution"]
+      },
+      "disposition": "unsupported",
+      "fixtures": [],
+      "rationale": "WP0 has not proved selected-peer, redirect, route, and lifetime semantics."
+    },
+    {
+      "edgeId": "engine.fs.open.readwrite",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": ["hermes-frame-attribution"]
+      },
+      "disposition": "unsupported",
+      "fixtures": [],
+      "rationale": "WP0 has not proved retained-object execution and staged multi-effect checks."
+    },
+    {
+      "edgeId": "engine.process.signal",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": ["hermes-frame-attribution"]
+      },
+      "disposition": "closed",
+      "fixtures": ["process.signal.closed"],
+      "implementationRef": "src/engine/hermes_runtime_process_setup.cc",
+      "rationale": "Package-originated signaling is refused for the initial profile."
+    }
+  ]
+}

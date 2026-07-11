@@ -1,0 +1,4 @@
+{
+  "cap": "env:write",
+  "resource": { "kind": "environment-name", "target": "broker-base", "name": "PATH" }
+}

@@ -1,0 +1,176 @@
+{
+  "exampleSchema": "ibex/capsec-selector-examples/1",
+  "selectors": [
+    {
+      "cap": "clipboard:read",
+      "resource": {
+        "kind": "clipboard",
+        "selection": "system",
+        "formats": ["text"]
+      }
+    },
+    {
+      "cap": "device:camera",
+      "resource": {
+        "kind": "camera",
+        "facing": "back",
+        "media": ["photo", "video"]
+      }
+    },
+    {
+      "cap": "device:location",
+      "resource": {
+        "kind": "device-location",
+        "usage": "foreground",
+        "precision": "precise"
+      }
+    },
+    {
+      "cap": "device:microphone",
+      "resource": {
+        "kind": "microphone",
+        "media": "audio"
+      }
+    },
+    {
+      "cap": "env:read",
+      "resource": {
+        "kind": "environment-name",
+        "target": "broker-base",
+        "name": "API_TOKEN"
+      }
+    },
+    {
+      "cap": "fs:read",
+      "resource": {
+        "kind": "path-exact",
+        "path": {
+          "root": "project",
+          "components": [
+            { "encoding": "utf8", "value": "config" },
+            { "encoding": "utf8", "value": "app.json" }
+          ]
+        }
+      }
+    },
+    {
+      "cap": "fs:write",
+      "resource": {
+        "kind": "path-tree",
+        "path": {
+          "root": "project",
+          "components": [
+            { "encoding": "utf8", "value": "out" }
+          ]
+        }
+      }
+    },
+    {
+      "cap": "network:connect",
+      "resource": {
+        "kind": "connect-endpoint",
+        "transport": "wss",
+        "host": { "kind": "dns-name", "name": "events.example.com" },
+        "port": { "kind": "exact", "value": 443 },
+        "peerClasses": ["public"],
+        "route": { "kind": "direct" }
+      }
+    },
+    {
+      "cap": "network:connect",
+      "resource": {
+        "kind": "connect-unix",
+        "socketType": "stream",
+        "address": {
+          "kind": "path",
+          "path": {
+            "root": "tmp",
+            "components": [
+              { "encoding": "utf8", "value": "service.sock" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "cap": "network:fetch",
+      "resource": {
+        "kind": "fetch-endpoint",
+        "schemes": ["https"],
+        "host": { "kind": "dns-name", "name": "api.example.com" },
+        "port": { "kind": "exact", "value": 443 },
+        "peerClasses": ["public"],
+        "route": { "kind": "direct" }
+      }
+    },
+    {
+      "cap": "network:listen",
+      "resource": {
+        "kind": "listen-inet",
+        "transport": "tcp",
+        "bind": { "kind": "loopback" },
+        "port": { "kind": "ephemeral" },
+        "dualStack": false,
+        "peerClasses": ["loopback"]
+      }
+    },
+    {
+      "cap": "network:listen",
+      "resource": {
+        "kind": "listen-unix",
+        "socketType": "stream",
+        "address": {
+          "kind": "path",
+          "path": {
+            "root": "tmp",
+            "components": [
+              { "encoding": "utf8", "value": "ibex.sock" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "cap": "network:resolve",
+      "resource": {
+        "kind": "dns-query",
+        "name": "api.example.com",
+        "absolute": true,
+        "recordTypes": ["A", "AAAA"],
+        "resolver": "system"
+      }
+    },
+    {
+      "cap": "process:spawn",
+      "resource": {
+        "kind": "executable",
+        "logicalName": "git",
+        "path": {
+          "root": "absolute",
+          "components": [
+            { "encoding": "utf8", "value": "usr" },
+            { "encoding": "utf8", "value": "bin" },
+            { "encoding": "utf8", "value": "git" }
+          ],
+          "hostBound": true
+        },
+        "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    {
+      "cap": "stdio:read",
+      "resource": {
+        "kind": "stdio",
+        "stream": "stdin",
+        "source": { "kind": "pipe", "identity": "pipe:stdin:1" }
+      }
+    },
+    {
+      "cap": "sys:read",
+      "resource": {
+        "kind": "system-info",
+        "name": "platform"
+      }
+    }
+  ]
+}

@@ -1,0 +1,322 @@
+{
+  "snapshotSchema": "ibex/capsec-armed/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-7yjvl8MVwTEO1IduHVvtJawVFnyeos7T7KzbgHckT2k",
+  "registryDigest": "sha256-GxHiXNbEXicVYuYnPIQFUozUCcCzt5DZqHp123CNwA4",
+  "policyDigest": "sha256-va2tdlah5RfGGBaiErvGLibvmBqUjltdRj59UgTN2rc",
+  "armedSnapshotDigest": "sha256-uv-SG2b2PNxQbxYwBZiCEqoFg_znk4_kaqwEORIs4ww",
+  "workflow": "contract-fixture",
+  "effectiveMode": "enforce",
+  "engine": {
+    "target": "capsec-contract-fixture",
+    "binaryDigest": "sha256-FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFA",
+    "features": [
+      "hermes-frame-attribution",
+      "native-compartments",
+      "native-lockdown"
+    ]
+  },
+  "runNonce": "AQIDBAUGBwgJCgsMDQ4PEA",
+  "channelEpoch": "1",
+  "rootIdentity": {
+    "kind": "root",
+    "identity": "project-root"
+  },
+  "packageGraph": {
+    "digest": "sha256-GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGA",
+    "nodes": [
+      {
+        "principal": {
+          "kind": "package",
+          "name": "image-lib",
+          "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+          "locator": "image-lib@2.4.1"
+        }
+      }
+    ],
+    "importEdges": [
+      {
+        "importer": {
+          "kind": "root",
+          "identity": "project-root"
+        },
+        "imported": {
+          "kind": "package",
+          "name": "image-lib",
+          "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+          "locator": "image-lib@2.4.1"
+        }
+      }
+    ]
+  },
+  "rootBindings": [
+    {
+      "logicalRoot": "package",
+      "owner": {
+        "kind": "package",
+        "name": "image-lib",
+        "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+        "locator": "image-lib@2.4.1"
+      },
+      "hostPath": {
+        "root": "absolute",
+        "components": [
+          {
+            "encoding": "utf8",
+            "value": "Users"
+          },
+          {
+            "encoding": "utf8",
+            "value": "example"
+          },
+          {
+            "encoding": "utf8",
+            "value": "project"
+          },
+          {
+            "encoding": "utf8",
+            "value": "node_modules"
+          },
+          {
+            "encoding": "utf8",
+            "value": "image-lib"
+          }
+        ],
+        "hostBound": true
+      },
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-200"
+      }
+    },
+    {
+      "logicalRoot": "project",
+      "hostPath": {
+        "root": "absolute",
+        "components": [
+          {
+            "encoding": "utf8",
+            "value": "Users"
+          },
+          {
+            "encoding": "utf8",
+            "value": "example"
+          },
+          {
+            "encoding": "utf8",
+            "value": "project"
+          }
+        ],
+        "hostBound": true
+      },
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-100"
+      }
+    },
+    {
+      "logicalRoot": "absolute",
+      "logicalPath": {
+        "root": "absolute",
+        "components": [
+          {
+            "encoding": "utf8",
+            "value": "usr"
+          },
+          {
+            "encoding": "utf8",
+            "value": "bin"
+          },
+          {
+            "encoding": "utf8",
+            "value": "git"
+          }
+        ],
+        "hostBound": true
+      },
+      "hostPath": {
+        "root": "absolute",
+        "components": [
+          {
+            "encoding": "utf8",
+            "value": "usr"
+          },
+          {
+            "encoding": "utf8",
+            "value": "bin"
+          },
+          {
+            "encoding": "utf8",
+            "value": "git"
+          }
+        ],
+        "hostBound": true
+      },
+      "object": {
+        "platform": "unix",
+        "volume": "dev-1",
+        "file": "inode-42"
+      }
+    }
+  ],
+  "principals": [
+    {
+      "principal": {
+        "kind": "root",
+        "identity": "project-root"
+      },
+      "floor": [
+        {
+          "cap": "process:spawn",
+          "resource": {
+            "kind": "executable",
+            "logicalName": "git",
+            "path": {
+              "root": "absolute",
+              "components": [
+                {
+                  "encoding": "utf8",
+                  "value": "usr"
+                },
+                {
+                  "encoding": "utf8",
+                  "value": "bin"
+                },
+                {
+                  "encoding": "utf8",
+                  "value": "git"
+                }
+              ],
+              "hostBound": true
+            },
+            "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+          }
+        }
+      ],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": [
+          "image-lib@2.4.1"
+        ]
+      },
+      "endowments": []
+    },
+    {
+      "principal": {
+        "kind": "package",
+        "name": "image-lib",
+        "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+        "locator": "image-lib@2.4.1"
+      },
+      "floor": [
+        {
+          "cap": "fs:read",
+          "resource": {
+            "kind": "path-tree",
+            "path": {
+              "root": "project",
+              "components": [
+                {
+                  "encoding": "utf8",
+                  "value": "images"
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "denials": [],
+      "escalationCeiling": [
+        {
+          "cap": "device:location",
+          "resource": {
+            "kind": "device-location",
+            "usage": "foreground",
+            "precision": "coarse"
+          }
+        }
+      ],
+      "imports": {
+        "builtins": [
+          "node:fs"
+        ],
+        "packages": []
+      },
+      "endowments": []
+    }
+  ],
+  "processAuthorityCeiling": {
+    "kind": "unbounded"
+  },
+  "generations": {
+    "policy": 1,
+    "negative": 0,
+    "dynamic": 0,
+    "handle": 0
+  },
+  "protectedObjects": [
+    {
+      "role": "armed-policy",
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-301"
+      },
+      "deniedActions": [
+        "fs:write"
+      ]
+    },
+    {
+      "role": "engine-binary",
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-302"
+      },
+      "deniedActions": [
+        "fs:write"
+      ]
+    },
+    {
+      "role": "package-graph",
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-303"
+      },
+      "deniedActions": [
+        "fs:write"
+      ]
+    },
+    {
+      "role": "registry",
+      "object": {
+        "platform": "apple",
+        "volume": "volume-1",
+        "file": "file-304"
+      },
+      "deniedActions": [
+        "fs:write"
+      ]
+    }
+  ],
+  "networkPosture": {
+    "routePolicy": "direct-only-refuse-nondirect-before-io",
+    "alwaysDeniedPeerClasses": [
+      "metadata",
+      "unspecified"
+    ]
+  },
+  "structuralPosture": {
+    "lockdown": true,
+    "frameAttribution": true,
+    "compartments": true,
+    "fullDeputyIntersection": true,
+    "immutableDecisionContext": true
+  }
+}

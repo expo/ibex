@@ -1,0 +1,11 @@
+{
+  "cap": "network:connect",
+  "resource": {
+    "kind": "connect-endpoint",
+    "transport": "tls",
+    "host": { "kind": "ip", "address": "not-an-ip" },
+    "port": { "kind": "exact", "value": 443 },
+    "peerClasses": ["public"],
+    "route": { "kind": "direct" }
+  }
+}

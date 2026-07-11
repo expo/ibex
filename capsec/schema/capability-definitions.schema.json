@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/capability-definitions.schema.json",
+  "title": "Ibex capability definition dataset",
+  "type": "object",
+  "required": ["definitionsSchema", "profile", "semanticCore", "definitions"],
+  "properties": {
+    "definitionsSchema": { "const": "ibex/capsec-definitions/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "semanticCore": { "const": "capsec/semantics/1" },
+    "definitions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/definition" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "definition": {
+      "type": "object",
+      "required": [
+        "id",
+        "lifecycle",
+        "stability",
+        "globality",
+        "resourceKinds",
+        "selectorSchema",
+        "occurrenceSchema",
+        "normalizationProfile",
+        "channels",
+        "staticOnly",
+        "risk",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+        },
+        "lifecycle": { "enum": ["authorable", "deny-only", "planned"] },
+        "stability": { "enum": ["stable", "provisional"] },
+        "globality": {
+          "enum": ["resource", "shared-process-read", "shared-process-mutation", "terminal"]
+        },
+        "resourceKinds": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "camera",
+              "clipboard",
+              "closed-surface",
+              "connect-endpoint",
+              "connect-unix",
+              "device-location",
+              "dns-query",
+              "environment-name",
+              "executable",
+              "fetch-endpoint",
+              "listen-inet",
+              "listen-unix",
+              "microphone",
+              "path-exact",
+              "path-tree",
+              "stdio",
+              "storage-namespace",
+              "system-info"
+            ]
+          }
+        },
+        "selectorSchema": { "const": "ibex/capsec-selector/1" },
+        "occurrenceSchema": { "const": "ibex/capsec-occurrence/1" },
+        "normalizationProfile": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "channels": {
+          "type": "object",
+          "required": ["dynamic", "handle", "synthesis"],
+          "properties": {
+            "dynamic": { "type": "boolean" },
+            "handle": { "type": "boolean" },
+            "synthesis": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        "staticOnly": { "type": "boolean" },
+        "selectorConstraints": {
+          "type": "object",
+          "properties": {
+            "closedSurfaceClasses": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "environmentTargets": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["broker-base", "principal-overlay", "child-launch"] }
+            },
+            "stdioStreams": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["stdin", "stdout", "stderr"] }
+            },
+            "stdioSourceKinds": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["pipe", "broker", "terminal"] }
+            },
+            "storageStores": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "enum": ["local", "session", "persistent"] }
+            }
+          },
+          "minProperties": 1,
+          "additionalProperties": false
+        },
+        "risk": {
+          "type": "object",
+          "required": ["baseTier", "reasons"],
+          "properties": {
+            "baseTier": { "type": "integer", "minimum": 0, "maximum": 4 },
+            "reasons": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "description": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "lifecycle": { "const": "authorable" } },
+            "required": ["lifecycle"]
+          },
+          "then": { "properties": { "resourceKinds": { "type": "array", "minItems": 1 } } }
+        },
+        {
+          "if": {
+            "properties": { "lifecycle": { "enum": ["deny-only", "planned"] } },
+            "required": ["lifecycle"]
+          },
+          "then": {
+            "properties": {
+              "channels": {
+                "type": "object",
+                "properties": {
+                  "dynamic": { "const": false },
+                  "handle": { "const": false },
+                  "synthesis": { "const": false }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "staticOnly": { "const": true } },
+            "required": ["staticOnly"]
+          },
+          "then": {
+            "properties": {
+              "channels": {
+                "type": "object",
+                "properties": {
+                  "dynamic": { "const": false },
+                  "handle": { "const": false },
+                  "synthesis": { "const": false }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "globality": { "const": "terminal" } },
+            "required": ["globality"]
+          },
+          "then": {
+            "properties": {
+              "staticOnly": { "const": true },
+              "channels": {
+                "type": "object",
+                "properties": {
+                  "dynamic": { "const": false },
+                  "handle": { "const": false },
+                  "synthesis": { "const": false }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

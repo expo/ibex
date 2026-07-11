@@ -1,0 +1,11 @@
+{
+  "cap": "network:teleport",
+  "resource": {
+    "kind": "connect-endpoint",
+    "transport": "tcp",
+    "host": { "kind": "dns-name", "name": "api.example.com" },
+    "port": { "kind": "exact", "value": 443 },
+    "peerClasses": ["public"],
+    "route": { "kind": "direct" }
+  }
+}

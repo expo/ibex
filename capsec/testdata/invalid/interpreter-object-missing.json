@@ -1,0 +1,32 @@
+{
+  "cap": "process:spawn",
+  "stage": "commit",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "executable-occurrence",
+    "requested": {
+      "kind": "executable",
+      "logicalName": "script",
+      "path": {
+        "root": "project",
+        "components": [{ "encoding": "utf8", "value": "script.js" }]
+      },
+      "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "interpreter": {
+        "path": {
+          "root": "absolute",
+          "components": [
+            { "encoding": "utf8", "value": "usr" },
+            { "encoding": "utf8", "value": "bin" },
+            { "encoding": "utf8", "value": "env" }
+          ],
+          "hostBound": true
+        },
+        "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    },
+    "executableObject": { "platform": "unix", "volume": "dev-1", "file": "inode-42" }
+  }
+}

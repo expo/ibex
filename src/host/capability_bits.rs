@@ -2,6 +2,9 @@
 //!
 //! JavaScript and kernel surfaces are generated from this table via
 //! `packages/ibex-devtools/src/scripts/generate-capability-bits.mjs`.
+//!
+//! @ref LLP 0021#wp0-semantic-contract — this legacy bit plane remains the
+//! sole bit-number authority until WP11 removes it; WP0 reconciles every row.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapabilityBitDefinition {

@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/armed-snapshot.schema.json",
+  "title": "Ibex immutable capsec armed snapshot",
+  "type": "object",
+  "required": [
+    "snapshotSchema",
+    "capsVocab",
+    "semanticCore",
+    "vocabDigest",
+    "registryDigest",
+    "policyDigest",
+    "armedSnapshotDigest",
+    "workflow",
+    "effectiveMode",
+    "engine",
+    "runNonce",
+    "channelEpoch",
+    "rootIdentity",
+    "packageGraph",
+    "rootBindings",
+    "principals",
+    "processAuthorityCeiling",
+    "generations",
+    "protectedObjects",
+    "networkPosture",
+    "structuralPosture"
+  ],
+  "properties": {
+    "snapshotSchema": { "const": "ibex/capsec-armed/1" },
+    "capsVocab": { "const": "ibex/capsec/1" },
+    "semanticCore": { "const": "capsec/semantics/1" },
+    "vocabDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "registryDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "policyDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "armedSnapshotDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "workflow": { "enum": ["production", "diagnostic-audit", "contract-fixture"] },
+    "effectiveMode": { "enum": ["enforce", "audit"] },
+    "engine": {
+      "type": "object",
+      "required": ["target", "binaryDigest", "features"],
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+        },
+        "binaryDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "features": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "runNonce": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/base64url"
+    },
+    "channelEpoch": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
+    "rootIdentity": { "$ref": "#/$defs/rootPrincipal" },
+    "packageGraph": { "$ref": "#/$defs/packageGraph" },
+    "rootBindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rootBinding" }
+    },
+    "principals": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/principalAuthority" }
+    },
+    "processAuthorityCeiling": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "const": "unbounded" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "authorities"],
+          "properties": {
+            "kind": { "const": "bounded" },
+            "authorities": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "generations": {
+      "type": "object",
+      "required": ["policy", "negative", "dynamic", "handle"],
+      "properties": {
+        "policy": { "$ref": "#/$defs/generation" },
+        "negative": { "$ref": "#/$defs/generation" },
+        "dynamic": { "$ref": "#/$defs/generation" },
+        "handle": { "$ref": "#/$defs/generation" }
+      },
+      "additionalProperties": false
+    },
+    "protectedObjects": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["role", "object", "deniedActions"],
+        "properties": {
+          "role": {
+            "enum": ["armed-policy", "engine-binary", "package-graph", "registry"]
+          },
+          "object": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+          },
+          "deniedActions": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "enum": ["fs:write"] }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "networkPosture": {
+      "type": "object",
+      "required": ["routePolicy", "alwaysDeniedPeerClasses"],
+      "properties": {
+        "routePolicy": { "const": "direct-only-refuse-nondirect-before-io" },
+        "alwaysDeniedPeerClasses": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["metadata", "unspecified"] }
+        }
+      },
+      "additionalProperties": false
+    },
+    "structuralPosture": {
+      "type": "object",
+      "required": ["lockdown", "frameAttribution", "compartments", "fullDeputyIntersection", "immutableDecisionContext"],
+      "properties": {
+        "lockdown": { "const": true },
+        "frameAttribution": { "const": true },
+        "compartments": { "const": true },
+        "fullDeputyIntersection": { "const": true },
+        "immutableDecisionContext": { "const": true }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "workflow": { "const": "diagnostic-audit" } },
+        "required": ["workflow"]
+      },
+      "then": { "properties": { "effectiveMode": { "const": "audit" } } },
+      "else": { "properties": { "effectiveMode": { "const": "enforce" } } }
+    }
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "generation": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "rootPrincipal": {
+      "type": "object",
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": { "const": "root" },
+        "identity": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "packagePrincipal": {
+      "type": "object",
+      "required": ["kind", "name", "integrity", "locator"],
+      "properties": {
+        "kind": { "const": "package" },
+        "name": { "type": "string", "minLength": 1 },
+        "integrity": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "locator": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
+        }
+      },
+      "additionalProperties": false
+    },
+    "packageGraph": {
+      "type": "object",
+      "required": ["digest", "nodes", "importEdges"],
+      "properties": {
+        "digest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["principal"],
+            "properties": { "principal": { "$ref": "#/$defs/packagePrincipal" } },
+            "additionalProperties": false
+          }
+        },
+        "importEdges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["importer", "imported"],
+            "properties": {
+              "importer": {
+                "oneOf": [
+                  { "$ref": "#/$defs/rootPrincipal" },
+                  { "$ref": "#/$defs/packagePrincipal" }
+                ]
+              },
+              "imported": { "$ref": "#/$defs/packagePrincipal" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "absoluteHostPath": {
+      "allOf": [
+        {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+        },
+        {
+          "type": "object",
+          "required": ["root", "components", "hostBound"],
+          "properties": {
+            "root": { "const": "absolute" },
+            "components": { "type": "array" },
+            "hostBound": { "const": true }
+          }
+        }
+      ]
+    },
+    "rootBinding": {
+      "type": "object",
+      "required": ["logicalRoot", "hostPath", "object"],
+      "properties": {
+        "logicalRoot": {
+          "enum": ["project", "package", "home", "tmp", "absolute"]
+        },
+        "owner": { "$ref": "#/$defs/packagePrincipal" },
+        "logicalPath": { "$ref": "#/$defs/absoluteHostPath" },
+        "hostPath": { "$ref": "#/$defs/absoluteHostPath" },
+        "object": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "logicalRoot": { "const": "package" } },
+            "required": ["logicalRoot"]
+          },
+          "then": {
+            "properties": { "owner": { "$ref": "#/$defs/packagePrincipal" } },
+            "required": ["owner"]
+          },
+          "else": { "not": { "required": ["owner"] } }
+        },
+        {
+          "if": {
+            "properties": { "logicalRoot": { "const": "absolute" } },
+            "required": ["logicalRoot"]
+          },
+          "then": {
+            "properties": { "logicalPath": { "$ref": "#/$defs/absoluteHostPath" } },
+            "required": ["logicalPath"]
+          },
+          "else": { "not": { "required": ["logicalPath"] } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "principalAuthority": {
+      "type": "object",
+      "required": ["principal", "floor", "denials", "escalationCeiling", "imports", "endowments"],
+      "properties": {
+        "principal": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+        },
+        "floor": {
+          "type": "array",
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+          }
+        },
+        "denials": {
+          "type": "array",
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+          }
+        },
+        "escalationCeiling": {
+          "type": "array",
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+          }
+        },
+        "imports": {
+          "type": "object",
+          "required": ["builtins", "packages"],
+          "properties": {
+            "builtins": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "packages": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "endowments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

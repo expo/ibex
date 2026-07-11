@@ -26,15 +26,128 @@ export const tsCapabilityBitOutputPath = path.join(
 const ENTRY_RE =
   /CapabilityBitDefinition\s*\{\s*capability:\s*"([^"]+)",\s*bit:\s*(\d+)\s*\}/g;
 
+function indexOfOutsideStrings(source, needle, start = 0) {
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index += 1) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+    } else if (character === '"') {
+      inString = true;
+    } else if (source.startsWith(needle, index)) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function capabilityTableBody(source) {
+  const declaration = 'pub const CAPABILITY_BIT_DEFINITIONS:';
+  const declarationStart = indexOfOutsideStrings(source, declaration);
+  const equals = indexOfOutsideStrings(source, '=', declarationStart + declaration.length);
+  const arrayStart = indexOfOutsideStrings(source, '&[', equals + 1);
+  if (declarationStart < 0 || equals < 0 || arrayStart < 0) {
+    throw new Error('CAPABILITY_BIT_DEFINITIONS table was not found');
+  }
+  let depth = 1;
+  let inString = false;
+  let escaped = false;
+  for (let index = arrayStart + 2; index < source.length; index += 1) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+    } else if (character === '"') {
+      inString = true;
+    } else if (character === '[') {
+      depth += 1;
+    } else if (character === ']') {
+      depth -= 1;
+      if (depth === 0) return source.slice(arrayStart + 2, index);
+    }
+  }
+  throw new Error('CAPABILITY_BIT_DEFINITIONS table is unterminated');
+}
+
+function stripRustComments(source) {
+  let output = '';
+  let inString = false;
+  let escaped = false;
+  let lineComment = false;
+  let blockDepth = 0;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+    if (lineComment) {
+      if (character === '\n') {
+        lineComment = false;
+        output += character;
+      } else {
+        output += ' ';
+      }
+      continue;
+    }
+    if (blockDepth > 0) {
+      if (character === '/' && next === '*') {
+        blockDepth += 1;
+        output += '  ';
+        index += 1;
+      } else if (character === '*' && next === '/') {
+        blockDepth -= 1;
+        output += '  ';
+        index += 1;
+      } else {
+        output += character === '\n' ? '\n' : ' ';
+      }
+      continue;
+    }
+    if (inString) {
+      output += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      output += character;
+    } else if (character === '/' && next === '/') {
+      lineComment = true;
+      output += '  ';
+      index += 1;
+    } else if (character === '/' && next === '*') {
+      blockDepth = 1;
+      output += '  ';
+      index += 1;
+    } else {
+      output += character;
+    }
+  }
+  if (inString || blockDepth > 0) {
+    throw new Error('unterminated string or block comment in CAPABILITY_BIT_DEFINITIONS');
+  }
+  return output;
+}
+
 export function parseCapabilityBitDefinitions(
   source = fs.readFileSync(capabilityBitSourcePath, 'utf8'),
 ) {
+  const tableBody = capabilityTableBody(stripRustComments(source));
   const entries = [];
-  for (const match of source.matchAll(ENTRY_RE)) {
+  for (const match of tableBody.matchAll(ENTRY_RE)) {
     entries.push({
       capability: match[1],
       bit: Number(match[2]),
     });
+  }
+  const rowCount = [...tableBody.matchAll(/CapabilityBitDefinition\s*\{/g)].length;
+  if (entries.length === 0 || entries.length !== rowCount) {
+    throw new Error('CAPABILITY_BIT_DEFINITIONS contains an unparseable row');
   }
   return entries;
 }

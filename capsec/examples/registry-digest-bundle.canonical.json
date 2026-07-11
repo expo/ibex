@@ -1,0 +1,1910 @@
+{
+  "bundleSchema": "ibex/capsec-digest-bundle/1",
+  "profile": "ibex/capsec/1",
+  "projection": "registry",
+  "status": "contract-fixture",
+  "members": [
+    {
+      "logicalName": "coverage-edges",
+      "document": {
+        "coverageSchema": "ibex/capsec-coverage/1",
+        "profile": "ibex/capsec/1",
+        "edges": [
+          {
+            "id": "engine.crypto.random",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "crypto.getRandomValues",
+              "sourceRef": "src/engine/hermes_runtime_crypto.cc"
+            },
+            "rationaleId": "ordinary-randomness",
+            "rationale": "Random byte generation carries no external authority in the package threat model."
+          },
+          {
+            "id": "engine.fetch.request",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "fetch",
+              "sourceRef": "src/engine/hermes_runtime_fetch.cc"
+            },
+            "effects": [
+              {
+                "cap": "network:fetch",
+                "selectorNormalizer": "network.fetch.selector.v1",
+                "occurrenceNormalizer": "network.fetch.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "candidate",
+                  "commit",
+                  "delivery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "innermost-nontransparent-frame",
+            "gate": "reclassifies",
+            "atomicityGroup": "fetch.request.v1",
+            "lifetimeContract": "socket-stream",
+            "barriers": {
+              "authorizeBefore": [
+                "dns",
+                "connect",
+                "request-bytes",
+                "response-delivery"
+              ],
+              "recheckAt": [
+                "redirect",
+                "reconnect",
+                "response-chunk"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "peer-mismatch"
+              ]
+            },
+            "implementationOwner": "WP6",
+            "fixtures": [
+              "network.fetch.allow",
+              "network.fetch.dns-rebind",
+              "network.fetch.redirect-deny",
+              "network.fetch.wrong-principal"
+            ]
+          },
+          {
+            "id": "engine.fs.open.readwrite",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "fs.open read/write",
+              "sourceRef": "src/engine/hermes_runtime_fs.cc"
+            },
+            "effects": [
+              {
+                "cap": "fs:list",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "discovery"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:read",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "implicit-self",
+                  "session",
+                  "static-floor"
+                ]
+              },
+              {
+                "cap": "fs:write",
+                "selectorNormalizer": "fs.path.selector.v1",
+                "occurrenceNormalizer": "fs.path.occurrence.v1",
+                "stages": [
+                  "commit",
+                  "repeat"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "handle",
+                  "session",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "innermost-nontransparent-frame",
+            "gate": "reclassifies",
+            "atomicityGroup": "fs.open.readwrite.v1",
+            "lifetimeContract": "file-handle",
+            "barriers": {
+              "authorizeBefore": [
+                "open",
+                "truncate",
+                "first-read",
+                "first-write"
+              ],
+              "recheckAt": [
+                "metadata",
+                "read",
+                "write"
+              ],
+              "cancelAt": [
+                "negative-generation-change",
+                "object-identity-mismatch"
+              ]
+            },
+            "implementationOwner": "WP5",
+            "fixtures": [
+              "fs.open.alias-deny",
+              "fs.open.readwrite.allow",
+              "fs.open.wrong-principal"
+            ]
+          },
+          {
+            "id": "engine.process.signal",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "process.kill",
+              "sourceRef": "src/engine/hermes_runtime_process_setup.cc"
+            },
+            "cap": "process:signal",
+            "fixtures": [
+              "process.signal.closed"
+            ],
+            "rationale": "The initial profile has no positive target/signal selector and refuses package signaling."
+          }
+        ]
+      }
+    },
+    {
+      "logicalName": "fixture-manifest",
+      "document": {
+        "fixtureDigestSchema": "ibex/capsec-fixture-digests/1",
+        "contractFiles": {
+          "manifestSchema": "ibex/capsec-contract-files/1",
+          "schemas": [
+            "schema/armed-snapshot.schema.json",
+            "schema/authority-containment.schema.json",
+            "schema/authority-selector.schema.json",
+            "schema/canonical-policy.schema.json",
+            "schema/capability-definitions.schema.json",
+            "schema/common.schema.json",
+            "schema/contract-manifest.schema.json",
+            "schema/coverage-edge.schema.json",
+            "schema/digest-bundle.schema.json",
+            "schema/digest-vectors.schema.json",
+            "schema/effect-occurrence.schema.json",
+            "schema/effect.schema.json",
+            "schema/legacy-reconciliation.schema.json",
+            "schema/policy-rules.schema.json",
+            "schema/target-cell.schema.json"
+          ],
+          "registries": [
+            "registry/capability-definitions.json",
+            "registry/legacy-capability-reconciliation.json",
+            "registry/policy-rules.json"
+          ],
+          "examples": [
+            "examples/armed-snapshot.canonical.json",
+            "examples/authority-containment.canonical.json",
+            "examples/authority-selectors.canonical.json",
+            "examples/canonical-policy.canonical.json",
+            "examples/coverage-edges.canonical.json",
+            "examples/digest-bundle.canonical.json",
+            "examples/digest-vectors.canonical.json",
+            "examples/effect-occurrences.canonical.json",
+            "examples/effect-set.canonical.json",
+            "examples/registry-digest-bundle.canonical.json",
+            "examples/target-cells.canonical.json"
+          ],
+          "invalidFixtures": [
+            {
+              "path": "testdata/invalid/base64-binary-nul.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/base64-binary-separator.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/base64-dot-component.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/base64-utf8-alias.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/candidate-fact-missing.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/device-id-mismatch.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/duplicate-key.json",
+              "validator": "strict-json"
+            },
+            {
+              "path": "testdata/invalid/env-write-broker-base.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/interpreter-object-missing.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/invalid-ip.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/ip-peer-mismatch.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/listen-unix-wrong-family-fact.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/listener-delivery-peer-missing.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/lone-surrogate.json",
+              "validator": "strict-json"
+            },
+            {
+              "path": "testdata/invalid/noncanonical-digest.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/numeric-dns-alias.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/package-principal-missing-locator.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/path-commit-without-object.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/positive-action-wildcard.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/reversed-port-range.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/selected-candidate-missing.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/stdio-raw-pipe.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/unix-connection-id-missing.json",
+              "validator": "occurrence"
+            },
+            {
+              "path": "testdata/invalid/unknown-action.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/unsafe-integer.json",
+              "validator": "strict-json"
+            },
+            {
+              "path": "testdata/invalid/untyped-resource.json",
+              "validator": "selector"
+            },
+            {
+              "path": "testdata/invalid/verified-peer-mismatch.json",
+              "validator": "occurrence"
+            }
+          ],
+          "generated": [
+            "generated/legacy-capability-reconciliation.md"
+          ]
+        },
+        "files": [
+          {
+            "path": "examples/authority-containment.canonical.json",
+            "rawContentDigest": "sha256-Xs9LiBSTSLCRYh-ISzukwz2Jmgzfat4Ewu8PPe2rq3g"
+          },
+          {
+            "path": "examples/authority-selectors.canonical.json",
+            "rawContentDigest": "sha256-uNCgBeBnKE7MdzI3T4d5bILbaHQEBJhxg2XabDv3OeI"
+          },
+          {
+            "path": "examples/coverage-edges.canonical.json",
+            "rawContentDigest": "sha256-mIQJBW6v2eK6cRDK098sD2Rbn_tAlUjiXb8jCVy7KTI"
+          },
+          {
+            "path": "examples/effect-occurrences.canonical.json",
+            "rawContentDigest": "sha256-yArgrd34jlXzgETyi2h7NVgqDH8K2r5_1lIPur3Iq80"
+          },
+          {
+            "path": "examples/effect-set.canonical.json",
+            "rawContentDigest": "sha256-n40dkvUwlgH7ZXylCozjZchYWExGtyLA0wilFd-hTCE"
+          },
+          {
+            "path": "examples/target-cells.canonical.json",
+            "rawContentDigest": "sha256-pvQBFtvMHVIa9Ze9im9TXZSxkWmkc4ukQU-Ut_z95vg"
+          },
+          {
+            "path": "testdata/invalid/base64-binary-nul.json",
+            "rawContentDigest": "sha256-m5NOyrzp8jRd3Z8e11TfS9vpKRCzLW-4fjfICQ4Mq4A"
+          },
+          {
+            "path": "testdata/invalid/base64-binary-separator.json",
+            "rawContentDigest": "sha256-CQuUs6dWML9CwFuTHxvVwgBXgQspKKgadW4bINmOC3E"
+          },
+          {
+            "path": "testdata/invalid/base64-dot-component.json",
+            "rawContentDigest": "sha256-qVyWCbdEbRSYTfnn8QQL2mg2ZYGLsyqmwAXlEmuaUL4"
+          },
+          {
+            "path": "testdata/invalid/base64-utf8-alias.json",
+            "rawContentDigest": "sha256-3TgkNI2GB-QThK4CztenM43LDkORg_qaAMfInCGvEHU"
+          },
+          {
+            "path": "testdata/invalid/candidate-fact-missing.json",
+            "rawContentDigest": "sha256-Rt0nWKIxiiprsGujNlIw3ly6oeTZKPQlsE04VnGPVSw"
+          },
+          {
+            "path": "testdata/invalid/device-id-mismatch.json",
+            "rawContentDigest": "sha256-b1TSdQZA_Y0bFeVxbfY3qVO_43Y20Cfl986FzsbHYnA"
+          },
+          {
+            "path": "testdata/invalid/duplicate-key.json",
+            "rawContentDigest": "sha256-WWfzG1LmFkF-oHdIF_YXqV7IyteLQ-AXo3_iqIYHaO0"
+          },
+          {
+            "path": "testdata/invalid/env-write-broker-base.json",
+            "rawContentDigest": "sha256-20PiW7iKKLGJsV7uC1ErcYzAtLCxNs8VAnGPChbsnb4"
+          },
+          {
+            "path": "testdata/invalid/interpreter-object-missing.json",
+            "rawContentDigest": "sha256-13Z2QAZ-DjW5g2pum1ZUYLkQBCPj9BjPrsS0ls3DsmM"
+          },
+          {
+            "path": "testdata/invalid/invalid-ip.json",
+            "rawContentDigest": "sha256-_lucw-qxO2fnBTIhM4q76xD7pL_fEJE7Rp0N3rupR0w"
+          },
+          {
+            "path": "testdata/invalid/ip-peer-mismatch.json",
+            "rawContentDigest": "sha256-6OzRYhaazVHlqcj7deC75gZjteM0pa3qLluu_CD0Sk4"
+          },
+          {
+            "path": "testdata/invalid/listen-unix-wrong-family-fact.json",
+            "rawContentDigest": "sha256-1gFffwE--wlwkkdSGIPxmOujIwP0vY9HRTO1lbyChbo"
+          },
+          {
+            "path": "testdata/invalid/listener-delivery-peer-missing.json",
+            "rawContentDigest": "sha256-ZZnh0GbN1nevdQU4UCX_PpDqfp0-xUzD9241iJ_eKXc"
+          },
+          {
+            "path": "testdata/invalid/lone-surrogate.json",
+            "rawContentDigest": "sha256-W882J0qhGqPsDB9UuC8LHFxNHaXhsoYOyfrmFvRDLDI"
+          },
+          {
+            "path": "testdata/invalid/noncanonical-digest.json",
+            "rawContentDigest": "sha256-3S3dcZ8mw_J7bCwErCCtuyQfaeQwlA1uatEeK5uzVls"
+          },
+          {
+            "path": "testdata/invalid/numeric-dns-alias.json",
+            "rawContentDigest": "sha256-ZWS4t1fg1BruOBxE6eyQgvyLChYg7h1KXewipLrigJU"
+          },
+          {
+            "path": "testdata/invalid/package-principal-missing-locator.json",
+            "rawContentDigest": "sha256-yhuFPZtJ31C_-kinORRvGVgAzIlBT6XRLI01xEwSmwE"
+          },
+          {
+            "path": "testdata/invalid/path-commit-without-object.json",
+            "rawContentDigest": "sha256-cHqK5HNdOMvuS5OyVS-8D7S9lKsTzxGoNCK7KqTbI6I"
+          },
+          {
+            "path": "testdata/invalid/positive-action-wildcard.json",
+            "rawContentDigest": "sha256-vbswRKk1kdqcIdAD1Cjvwr7cJtmXyNGixTuCnosxskg"
+          },
+          {
+            "path": "testdata/invalid/reversed-port-range.json",
+            "rawContentDigest": "sha256-AAr9C1mZ1aZHkFOQNNTpxUpotUxeBVqH86Lok3922nY"
+          },
+          {
+            "path": "testdata/invalid/selected-candidate-missing.json",
+            "rawContentDigest": "sha256-6bTKCgKnrD1AoV_XAignVXORRbT93CIH2cKtLIq8olc"
+          },
+          {
+            "path": "testdata/invalid/stdio-raw-pipe.json",
+            "rawContentDigest": "sha256-nDnbB_-OFTi-OsKS4DrJk9BqtTz9gNU41hy1AsDbdtQ"
+          },
+          {
+            "path": "testdata/invalid/unix-connection-id-missing.json",
+            "rawContentDigest": "sha256-qXdWAQ7LtD68l4mqyFefoPGH0klD97dlWa1tkrXMKGs"
+          },
+          {
+            "path": "testdata/invalid/unknown-action.json",
+            "rawContentDigest": "sha256-5DebqarMhMkQQOVDdz9d2I8e2Wf_VPZnCWgXDh30Kvg"
+          },
+          {
+            "path": "testdata/invalid/unsafe-integer.json",
+            "rawContentDigest": "sha256-xULE2M0YRqKit4_sfxGbo0Wf55wTg1eey7gfnLM00eA"
+          },
+          {
+            "path": "testdata/invalid/untyped-resource.json",
+            "rawContentDigest": "sha256-8d7AKg0v6epIQASXZvB0zH2kTeOnblXQ7p-pPCpSK2A"
+          },
+          {
+            "path": "testdata/invalid/verified-peer-mismatch.json",
+            "rawContentDigest": "sha256-_bkdWymOgX5PBXL0CUrd9KNstvhTCWXP-LLBOq17fUE"
+          }
+        ],
+        "contentDigestExclusions": [
+          {
+            "path": "examples/armed-snapshot.canonical.json",
+            "reason": "authenticated-self-and-cross-digest"
+          },
+          {
+            "path": "examples/canonical-policy.canonical.json",
+            "reason": "authenticated-self-and-vocabulary-digest"
+          },
+          {
+            "path": "examples/digest-bundle.canonical.json",
+            "reason": "aggregate-payload-would-self-reference"
+          },
+          {
+            "path": "examples/digest-vectors.canonical.json",
+            "reason": "fixed-known-answer-and-payload-binding-oracle"
+          },
+          {
+            "path": "examples/registry-digest-bundle.canonical.json",
+            "reason": "aggregate-payload-would-self-reference"
+          }
+        ]
+      }
+    },
+    {
+      "logicalName": "implementation-manifest",
+      "document": {
+        "manifestSchema": "ibex/capsec-implementation-fixture/1",
+        "status": "unavailable-until-wp1",
+        "advertisedTargets": []
+      }
+    },
+    {
+      "logicalName": "legacy-reconciliation",
+      "document": {
+        "reconciliationSchema": "ibex/capsec-legacy-reconciliation/1",
+        "profile": "ibex/capsec/1",
+        "source": "src/host/capability_bits.rs",
+        "entries": [
+          {
+            "legacyCapability": "network:fetch",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "network:fetch"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed fetch endpoint with scheme, canonical host kind, materialized port, direct route, peer classes, selected candidate, and verified peer.",
+            "rationale": "The current check covers only a lowercased requested hostname; WP6 must add staged peer, redirect, reconnect, and route checks."
+          },
+          {
+            "legacyCapability": "network:connect",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "network:connect"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed raw or bidirectional endpoint with transport, canonical host, exact or bounded port, route, peer classes, and verified peer.",
+            "rationale": "TCP, UDP, WebSocket, and similar transports remain separate from sealed fetch authority."
+          },
+          {
+            "legacyCapability": "network:listen",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "network:listen"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed internet or Unix bind resource with transport, interface/address class, and exact, bounded, or explicit ephemeral port.",
+            "rationale": "The current host:port string does not capture dual-stack, interface, Unix path, accepted-peer, or cleanup semantics."
+          },
+          {
+            "legacyCapability": "network:local",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "decompose",
+            "replacementActions": [
+              "network:connect",
+              "network:listen"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Unix-domain operations emit typed connect or listen plus applicable fs:list and fs:write effects for pathname sockets.",
+            "rationale": "The legacy token conflates outbound and inbound authority and lowercases case-sensitive Unix paths."
+          },
+          {
+            "legacyCapability": "fs:read",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "fs:read"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Logical-root path-exact or path-tree selector; the occurrence binds follow mode and the retained or verified object identity actually read.",
+            "rationale": "The existing symlink normalization is retained only as input to checked-object execution, not as a check-then-reopen guarantee."
+          },
+          {
+            "legacyCapability": "fs:write",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "fs:write"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Logical-root exact/tree path with verified parent and target identities at each mutation stage.",
+            "rationale": "Multi-path and metadata operations must authorize all list/write effects before mutation."
+          },
+          {
+            "legacyCapability": "fs:list",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "fs:list"
+            ],
+            "currentStatus": "folded",
+            "resourceSemantics": "Exact/tree metadata and existence-disclosure authority, independent of byte reads.",
+            "rationale": "The bit is currently inert because stat, readdir, and existence disclosure are folded into fs:read."
+          },
+          {
+            "legacyCapability": "fs:watch",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "fs:watch"
+            ],
+            "currentStatus": "folded",
+            "resourceSemantics": "Exact/tree live observation with owner, source, generation, and delivery rechecks.",
+            "rationale": "The bit is currently inert and polling watch behavior is folded into fs:read."
+          },
+          {
+            "legacyCapability": "env:read",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "env:read"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "One exact environment name and effect-owner namespace; enumeration emits one effect per name.",
+            "rationale": "The canonical format forbids the current positive * name and separates broker base values from principal overlays."
+          },
+          {
+            "legacyCapability": "process:spawn",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "process:spawn"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Terminal static-only executable identity including logical name, retained path/object, content digest, and interpreter; child env, stdio, cwd, and filesystem effects are conjunctive.",
+            "rationale": "The current resource-less grant covers every executable and launch option and cannot survive into canonical policy."
+          },
+          {
+            "legacyCapability": "process:signal",
+            "destinationDisposition": "closed",
+            "migrationKind": "close",
+            "replacementActions": [
+              "process:signal"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Future semantics require an explicit target class and signal set, with inspector activation conjunctively checked where applicable.",
+            "rationale": "Arbitrary signaling is shared-process mutation and remains deny-only in the initial profile."
+          },
+          {
+            "legacyCapability": "process:cwd",
+            "destinationDisposition": "closed",
+            "migrationKind": "close",
+            "replacementActions": [
+              "process:cwd"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Shared process current-directory mutation has no positive selector in the initial profile.",
+            "rationale": "Keep closed unless cwd is virtualized or scoped without changing other principals' resolution."
+          },
+          {
+            "legacyCapability": "device:location",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "device:location"
+            ],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "One typed location action with explicit foreground/background usage and coarse/precise precision.",
+            "rationale": "The broad legacy prefix must not silently imply every present or future location qualifier."
+          },
+          {
+            "legacyCapability": "device:location:whenInUse",
+            "destinationDisposition": "authorable",
+            "migrationKind": "alias",
+            "replacementActions": [
+              "device:location"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed device-location selector with usage foreground and explicit precision.",
+            "rationale": "Android current-location calls already check this legacy spelling; canonical policy uses the typed base action."
+          },
+          {
+            "legacyCapability": "device:location:always",
+            "destinationDisposition": "absent",
+            "migrationKind": "alias",
+            "replacementActions": [
+              "device:location"
+            ],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Reserved typed device-location selector with usage background.",
+            "rationale": "No background-authority surface or enforcing gate exists, so target cells must prove a future implementation before authoring it."
+          },
+          {
+            "legacyCapability": "device:location:precise",
+            "destinationDisposition": "authorable",
+            "migrationKind": "alias",
+            "replacementActions": [
+              "device:location"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed device-location selector with precision precise; Android high-accuracy acquisition also requires foreground usage.",
+            "rationale": "Precision is a resource predicate, not a third colon-delimited action segment."
+          },
+          {
+            "legacyCapability": "device:location:reduced",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [
+              "device:location"
+            ],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Coarse precision is an attenuation/status value on device:location.",
+            "rationale": "Reduced accuracy grants no independent authority and must not become a separate positive action."
+          },
+          {
+            "legacyCapability": "device:camera",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "device:camera"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed facing/device selection and photo/video operation class, with broker generation and resolved device identity in occurrences.",
+            "rationale": "The current Android base gate ignores public front/back/external distinctions; target cells remain unsupported until the native boundary preserves them."
+          },
+          {
+            "legacyCapability": "device:microphone",
+            "destinationDisposition": "unsupported",
+            "migrationKind": "close",
+            "replacementActions": [
+              "device:microphone"
+            ],
+            "currentStatus": "ungated",
+            "resourceSemantics": "Typed audio capture and optional device identity.",
+            "rationale": "Capture APIs exist but no complete Ibex native effect gate protects actual recording yet."
+          },
+          {
+            "legacyCapability": "device:photos",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate positive action; future read and write resources must be explicit.",
+            "rationale": "The legacy base string silently implies read, write, and limited status."
+          },
+          {
+            "legacyCapability": "device:photos:read",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed library or user-selected collection read resource.",
+            "rationale": "No enforced photo-library read surface exists."
+          },
+          {
+            "legacyCapability": "device:photos:write",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed library or album mutation resource.",
+            "rationale": "No enforced photo-library write surface exists."
+          },
+          {
+            "legacyCapability": "device:photos:limited",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "OS selection/status constraint on a future photo resource.",
+            "rationale": "Limited selection is attenuation state, not independent authority."
+          },
+          {
+            "legacyCapability": "device:contacts",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate positive action; future read/write actions require account and contact-set resources.",
+            "rationale": "The broad base token would silently accrue future contact actions."
+          },
+          {
+            "legacyCapability": "device:contacts:read",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed account/contact-set read resource.",
+            "rationale": "No enforced contact read surface exists."
+          },
+          {
+            "legacyCapability": "device:contacts:write",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed account/contact mutation resource.",
+            "rationale": "No enforced contact write surface exists."
+          },
+          {
+            "legacyCapability": "device:sensors",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate sensor authority; future actions require sensor kind and sampling semantics.",
+            "rationale": "No enforced generic sensor surface exists."
+          },
+          {
+            "legacyCapability": "device:motion",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed motion sensor kind, sampling rate, and lifetime resource.",
+            "rationale": "No enforced motion surface exists."
+          },
+          {
+            "legacyCapability": "device:bluetooth",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate Bluetooth positive action; scan, connect, and advertise require different resources.",
+            "rationale": "The broad base token silently implies all Bluetooth sub-actions."
+          },
+          {
+            "legacyCapability": "device:bluetooth:scan",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed scan filter and duration resource.",
+            "rationale": "No enforced Bluetooth scan surface exists."
+          },
+          {
+            "legacyCapability": "device:bluetooth:connect",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed peer, service, and characteristic resource.",
+            "rationale": "No enforced Bluetooth connect surface exists."
+          },
+          {
+            "legacyCapability": "device:bluetooth:advertise",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed service and bounded payload resource.",
+            "rationale": "No enforced Bluetooth advertise surface exists."
+          },
+          {
+            "legacyCapability": "device:biometrics",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future brokered assertion purpose and relying-party resource.",
+            "rationale": "No enforced biometric assertion surface exists."
+          },
+          {
+            "legacyCapability": "device:credentials",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate credential authority; future read and write resources must be explicit.",
+            "rationale": "The base token silently implies credential read and write."
+          },
+          {
+            "legacyCapability": "device:credentials:read",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed credential store, item class, and operation resource.",
+            "rationale": "No enforced credential read surface exists."
+          },
+          {
+            "legacyCapability": "device:credentials:write",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed credential store, item class, and mutation resource.",
+            "rationale": "No enforced credential write surface exists."
+          },
+          {
+            "legacyCapability": "device:notifications",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed channel and delivery operation resource.",
+            "rationale": "Only JS metadata claims this capability; no enforcing notification surface was found."
+          },
+          {
+            "legacyCapability": "device:calendar",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate calendar authority; future read/write resources must be explicit.",
+            "rationale": "The broad base token silently implies calendar read and write."
+          },
+          {
+            "legacyCapability": "device:calendar:read",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed account and calendar read scope.",
+            "rationale": "No enforced calendar read surface exists."
+          },
+          {
+            "legacyCapability": "device:calendar:write",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed account and calendar mutation scope.",
+            "rationale": "No enforced calendar write surface exists."
+          },
+          {
+            "legacyCapability": "device:reminders",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future reminders vocabulary must separate read and write and type its account/list scope.",
+            "rationale": "The current undifferentiated bit has no enforcing surface."
+          },
+          {
+            "legacyCapability": "device:health",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "No aggregate health authority; future read/write resources must be explicit.",
+            "rationale": "The broad base token silently implies health read and write."
+          },
+          {
+            "legacyCapability": "device:health:read",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed data-class and time-range read resource.",
+            "rationale": "No enforced health read surface exists."
+          },
+          {
+            "legacyCapability": "device:health:write",
+            "destinationDisposition": "absent",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future typed data-class mutation resource.",
+            "rationale": "No enforced health write surface exists."
+          },
+          {
+            "legacyCapability": "storage:local",
+            "destinationDisposition": "closed",
+            "migrationKind": "decompose",
+            "replacementActions": [
+              "storage:read",
+              "storage:write"
+            ],
+            "currentStatus": "folded",
+            "resourceSemantics": "Explicit read/write actions over a local principal or named shared namespace.",
+            "rationale": "The current token grants both read and write to an app-wide store and remains closed until native namespace isolation is proven."
+          },
+          {
+            "legacyCapability": "storage:session",
+            "destinationDisposition": "closed",
+            "migrationKind": "decompose",
+            "replacementActions": [
+              "storage:read",
+              "storage:write"
+            ],
+            "currentStatus": "folded",
+            "resourceSemantics": "Explicit read/write actions over a session principal or named shared namespace.",
+            "rationale": "The current token grants both read and write to shared session state and remains closed until isolation is proven."
+          },
+          {
+            "legacyCapability": "storage:persist",
+            "destinationDisposition": "closed",
+            "migrationKind": "close",
+            "replacementActions": [
+              "storage:persist"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed namespace, quota class, and persistence/eviction semantics.",
+            "rationale": "The current hint/boolean does not express the authority or shared storage affected."
+          },
+          {
+            "legacyCapability": "sqlite:read",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "decompose",
+            "replacementActions": [
+              "fs:list",
+              "fs:read"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "File-backed SQLite emits typed fs:list and fs:read for the checked database objects; in-memory SQLite is computation.",
+            "rationale": "SQLite is an API class, not distinct external authority."
+          },
+          {
+            "legacyCapability": "sqlite:write",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "decompose",
+            "replacementActions": [
+              "fs:list",
+              "fs:read",
+              "fs:write"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "File-backed SQLite emits typed list/read/write effects for the main database, parent, journal, WAL, SHM, and other operated objects.",
+            "rationale": "The current API token plus main-path checks omit staged sidecar-object semantics and must be decomposed."
+          },
+          {
+            "legacyCapability": "clipboard:read",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "clipboard:read"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed native system clipboard and explicit format set, with broker generation where the OS prompts.",
+            "rationale": "Android has a native gate; any shared in-memory fallback must be separately classified rather than assumed harmless."
+          },
+          {
+            "legacyCapability": "clipboard:write",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "clipboard:write"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed native system clipboard and explicit format set.",
+            "rationale": "Write is independent from read and must not imply disclosure."
+          },
+          {
+            "legacyCapability": "crypto:random",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "always-allowed",
+            "resourceSemantics": "Ordinary cryptographic randomness is a reasoned non-capability.",
+            "rationale": "The current manager always allows it before policy, so retaining a positive token would be dishonest."
+          },
+          {
+            "legacyCapability": "crypto:subtle",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "partial",
+            "resourceSemantics": "Pure cryptography over caller-provided or in-memory keys is computation; platform keystore access belongs to a future credential effect.",
+            "rationale": "The blanket JS-layer token names an API rather than external authority."
+          },
+          {
+            "legacyCapability": "time:now",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "always-allowed",
+            "resourceSemantics": "Ordinary wall and monotonic clocks are reasoned non-capabilities for this threat model.",
+            "rationale": "The current manager always allows time:now and no enforcing surface uses the bit."
+          },
+          {
+            "legacyCapability": "time:highres",
+            "destinationDisposition": "non-capability",
+            "migrationKind": "retire",
+            "replacementActions": [],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "High-resolution clocks remain a documented non-capability under the package-authority threat model.",
+            "rationale": "No enforcing surface uses the bit; side-channel mitigation belongs to the runtime profile, not positive package authority."
+          },
+          {
+            "legacyCapability": "ipc:channel",
+            "destinationDisposition": "closed",
+            "migrationKind": "close",
+            "replacementActions": [
+              "ipc:channel"
+            ],
+            "currentStatus": "manifest-only",
+            "resourceSemantics": "Future ambient IPC requires an exact channel namespace and peer identity; child IPC is spawn plus owned descriptor possession.",
+            "rationale": "No capability check uses this bit and an unscoped ambient channel cannot be authorable."
+          },
+          {
+            "legacyCapability": "network:resolve",
+            "destinationDisposition": "authorable",
+            "migrationKind": "direct",
+            "replacementActions": [
+              "network:resolve"
+            ],
+            "currentStatus": "partial",
+            "resourceSemantics": "Typed absolute DNS query name, explicit record-type set, and resolver route.",
+            "rationale": "The current helper checks only a lowercased target; internal fetch/connect DNS neither requires nor grants standalone resolve."
+          }
+        ]
+      }
+    },
+    {
+      "logicalName": "network-classifier-snapshot",
+      "document": {
+        "profile": "ibex/capsec/1",
+        "network": {
+          "input": "canonical-IP-literal",
+          "ipv4MappedIpv6": "classify-embedded-IPv4",
+          "sourceDatasets": [
+            "iana-ipv4-special-purpose",
+            "iana-ipv6-special-purpose"
+          ],
+          "publicRule": "closed-until-pinned-IANA-snapshot-is-in-registry",
+          "activatedPublicRule": "only-pinned-IANA-globally-reachable-true",
+          "activationGate": "required-before-any-target-is-advertised",
+          "precedence": [
+            "metadata",
+            "unspecified",
+            "loopback",
+            "link-local",
+            "carrier-grade-nat",
+            "private",
+            "unique-local",
+            "multicast",
+            "reserved",
+            "public"
+          ],
+          "classes": [
+            {
+              "class": "metadata",
+              "cidrs": [
+                "100.100.100.200/32",
+                "169.254.169.254/32",
+                "fd00:ec2::254/128"
+              ]
+            },
+            {
+              "class": "unspecified",
+              "cidrs": [
+                "0.0.0.0/32",
+                "::/128"
+              ]
+            },
+            {
+              "class": "loopback",
+              "cidrs": [
+                "127.0.0.0/8",
+                "::1/128"
+              ]
+            },
+            {
+              "class": "link-local",
+              "cidrs": [
+                "169.254.0.0/16",
+                "fe80::/10"
+              ]
+            },
+            {
+              "class": "carrier-grade-nat",
+              "cidrs": [
+                "100.64.0.0/10"
+              ]
+            },
+            {
+              "class": "private",
+              "cidrs": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16"
+              ]
+            },
+            {
+              "class": "unique-local",
+              "cidrs": [
+                "fc00::/7"
+              ]
+            },
+            {
+              "class": "multicast",
+              "cidrs": [
+                "224.0.0.0/4",
+                "ff00::/8"
+              ]
+            },
+            {
+              "class": "reserved",
+              "cidrs": [
+                "192.0.2.0/24",
+                "198.18.0.0/15",
+                "198.51.100.0/24",
+                "2001:db8::/32",
+                "203.0.113.0/24",
+                "240.0.0.0/4"
+              ]
+            },
+            {
+              "class": "public",
+              "cidrs": []
+            }
+          ],
+          "alwaysDenied": [
+            "metadata",
+            "unspecified"
+          ],
+          "explicitOnly": [
+            "carrier-grade-nat",
+            "link-local",
+            "loopback",
+            "multicast",
+            "private",
+            "reserved",
+            "unique-local"
+          ],
+          "fallback": "reserved"
+        }
+      }
+    },
+    {
+      "logicalName": "schema/contract-manifest",
+      "document": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ibex.dev/capsec/schema/contract-manifest.schema.json",
+        "title": "Ibex capsec checked file manifest",
+        "type": "object",
+        "required": [
+          "manifestSchema",
+          "schemas",
+          "registries",
+          "examples",
+          "invalidFixtures",
+          "generated"
+        ],
+        "properties": {
+          "manifestSchema": {
+            "const": "ibex/capsec-contract-files/1"
+          },
+          "schemas": {
+            "$ref": "#/$defs/pathSet"
+          },
+          "registries": {
+            "$ref": "#/$defs/pathSet"
+          },
+          "examples": {
+            "$ref": "#/$defs/pathSet"
+          },
+          "invalidFixtures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "validator"
+              ],
+              "properties": {
+                "path": {
+                  "$ref": "#/$defs/path"
+                },
+                "validator": {
+                  "enum": [
+                    "strict-json",
+                    "selector",
+                    "occurrence",
+                    "effect-set",
+                    "armed-snapshot"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "generated": {
+            "$ref": "#/$defs/pathSet"
+          }
+        },
+        "additionalProperties": false,
+        "$defs": {
+          "path": {
+            "type": "string",
+            "pattern": "^[a-z0-9._/-]+$"
+          },
+          "pathSet": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "$ref": "#/$defs/path"
+            }
+          }
+        }
+      }
+    },
+    {
+      "logicalName": "schema/coverage-edge",
+      "document": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ibex.dev/capsec/schema/coverage-edge.schema.json",
+        "title": "Ibex capsec coverage-edge dataset",
+        "type": "object",
+        "required": [
+          "coverageSchema",
+          "profile",
+          "edges"
+        ],
+        "properties": {
+          "coverageSchema": {
+            "const": "ibex/capsec-coverage/1"
+          },
+          "profile": {
+            "const": "ibex/capsec/1"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/effectEdge"
+                },
+                {
+                  "$ref": "#/$defs/nonCapabilityEdge"
+                },
+                {
+                  "$ref": "#/$defs/closedEdge"
+                }
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "$defs": {
+          "surface": {
+            "type": "object",
+            "required": [
+              "kind",
+              "name",
+              "sourceRef"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "builtin",
+                  "callback",
+                  "cli",
+                  "host-abi",
+                  "loader",
+                  "native-op",
+                  "startup"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sourceRef": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "effectTemplate": {
+            "type": "object",
+            "required": [
+              "cap",
+              "selectorNormalizer",
+              "occurrenceNormalizer",
+              "stages",
+              "positiveSources"
+            ],
+            "properties": {
+              "cap": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+              },
+              "selectorNormalizer": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "occurrenceNormalizer": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "stages": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "requested",
+                    "discovery",
+                    "candidate",
+                    "commit",
+                    "delivery",
+                    "repeat",
+                    "cleanup"
+                  ]
+                }
+              },
+              "positiveSources": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "ambient-root",
+                    "handle",
+                    "implicit-self",
+                    "session",
+                    "static-floor"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "barriers": {
+            "type": "object",
+            "required": [
+              "authorizeBefore",
+              "recheckAt",
+              "cancelAt"
+            ],
+            "properties": {
+              "authorizeBefore": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "recheckAt": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "cancelAt": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "effectEdge": {
+            "type": "object",
+            "required": [
+              "id",
+              "classification",
+              "surface",
+              "effects",
+              "principalSources",
+              "effectOwnerSource",
+              "gate",
+              "atomicityGroup",
+              "lifetimeContract",
+              "barriers",
+              "implementationOwner",
+              "fixtures"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "classification": {
+                "const": "effects"
+              },
+              "surface": {
+                "$ref": "#/$defs/surface"
+              },
+              "effects": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/effectTemplate"
+                }
+              },
+              "principalSources": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "descriptor-owner",
+                    "frame-set",
+                    "loader-referrer",
+                    "root",
+                    "runtime",
+                    "schedule-time"
+                  ]
+                }
+              },
+              "effectOwnerSource": {
+                "enum": [
+                  "descriptor-owner",
+                  "innermost-nontransparent-frame",
+                  "loader-referrer",
+                  "root",
+                  "runtime"
+                ]
+              },
+              "gate": {
+                "enum": [
+                  "adds-op-gate",
+                  "loader-admission",
+                  "reachability-close",
+                  "reclassifies"
+                ]
+              },
+              "atomicityGroup": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "lifetimeContract": {
+                "enum": [
+                  "child-process",
+                  "file-handle",
+                  "listener",
+                  "none",
+                  "operation",
+                  "socket-stream",
+                  "watch"
+                ]
+              },
+              "barriers": {
+                "$ref": "#/$defs/barriers"
+              },
+              "implementationOwner": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fixtures": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "nonCapabilityEdge": {
+            "type": "object",
+            "required": [
+              "id",
+              "classification",
+              "surface",
+              "rationaleId",
+              "rationale"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "classification": {
+                "const": "non-capability"
+              },
+              "surface": {
+                "$ref": "#/$defs/surface"
+              },
+              "rationaleId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          },
+          "closedEdge": {
+            "type": "object",
+            "required": [
+              "id",
+              "classification",
+              "surface",
+              "cap",
+              "fixtures",
+              "rationale"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "classification": {
+                "const": "closed"
+              },
+              "surface": {
+                "$ref": "#/$defs/surface"
+              },
+              "cap": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+              },
+              "fixtures": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "logicalName": "schema/legacy-reconciliation",
+      "document": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ibex.dev/capsec/schema/legacy-reconciliation.schema.json",
+        "title": "Ibex legacy capability reconciliation",
+        "type": "object",
+        "required": [
+          "reconciliationSchema",
+          "profile",
+          "source",
+          "entries"
+        ],
+        "properties": {
+          "reconciliationSchema": {
+            "const": "ibex/capsec-legacy-reconciliation/1"
+          },
+          "profile": {
+            "const": "ibex/capsec/1"
+          },
+          "source": {
+            "const": "src/host/capability_bits.rs"
+          },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/entry"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "$defs": {
+          "entry": {
+            "type": "object",
+            "required": [
+              "legacyCapability",
+              "destinationDisposition",
+              "migrationKind",
+              "replacementActions",
+              "currentStatus",
+              "resourceSemantics",
+              "rationale"
+            ],
+            "properties": {
+              "legacyCapability": {
+                "type": "string",
+                "minLength": 3
+              },
+              "destinationDisposition": {
+                "enum": [
+                  "authorable",
+                  "closed",
+                  "absent",
+                  "unsupported",
+                  "non-capability"
+                ]
+              },
+              "migrationKind": {
+                "enum": [
+                  "alias",
+                  "close",
+                  "decompose",
+                  "direct",
+                  "retire"
+                ]
+              },
+              "replacementActions": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+                }
+              },
+              "currentStatus": {
+                "enum": [
+                  "always-allowed",
+                  "enforced",
+                  "folded",
+                  "manifest-only",
+                  "partial",
+                  "ungated"
+                ]
+              },
+              "resourceSemantics": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "destinationDisposition": {
+                      "enum": [
+                        "authorable",
+                        "closed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "destinationDisposition"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "replacementActions": {
+                      "type": "array",
+                      "minItems": 1
+                    }
+                  }
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "logicalName": "schema/target-cell",
+      "document": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://ibex.dev/capsec/schema/target-cell.schema.json",
+        "title": "Ibex capsec target conformance cells",
+        "type": "object",
+        "required": [
+          "targetCellSchema",
+          "profile",
+          "cells"
+        ],
+        "properties": {
+          "targetCellSchema": {
+            "const": "ibex/capsec-target-cells/1"
+          },
+          "profile": {
+            "const": "ibex/capsec/1"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/cell"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "$defs": {
+          "cell": {
+            "type": "object",
+            "required": [
+              "edgeId",
+              "target",
+              "disposition",
+              "fixtures",
+              "rationale"
+            ],
+            "properties": {
+              "edgeId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "target": {
+                "type": "object",
+                "required": [
+                  "triple",
+                  "features"
+                ],
+                "properties": {
+                  "triple": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$"
+                  },
+                  "features": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "disposition": {
+                "enum": [
+                  "enforced",
+                  "closed",
+                  "absent",
+                  "unsupported"
+                ]
+              },
+              "fixtures": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                }
+              },
+              "implementationRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "disposition": {
+                      "enum": [
+                        "enforced",
+                        "closed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "disposition"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "fixtures": {
+                      "type": "array",
+                      "minItems": 1
+                    },
+                    "implementationRef": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "implementationRef"
+                  ]
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "logicalName": "target-cells",
+      "document": {
+        "targetCellSchema": "ibex/capsec-target-cells/1",
+        "profile": "ibex/capsec/1",
+        "cells": [
+          {
+            "edgeId": "engine.fetch.request",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution"
+              ]
+            },
+            "disposition": "unsupported",
+            "fixtures": [],
+            "rationale": "WP0 has not proved selected-peer, redirect, route, and lifetime semantics."
+          },
+          {
+            "edgeId": "engine.fs.open.readwrite",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution"
+              ]
+            },
+            "disposition": "unsupported",
+            "fixtures": [],
+            "rationale": "WP0 has not proved retained-object execution and staged multi-effect checks."
+          },
+          {
+            "edgeId": "engine.process.signal",
+            "target": {
+              "triple": "aarch64-apple-darwin",
+              "features": [
+                "hermes-frame-attribution"
+              ]
+            },
+            "disposition": "closed",
+            "fixtures": [
+              "process.signal.closed"
+            ],
+            "implementationRef": "src/engine/hermes_runtime_process_setup.cc",
+            "rationale": "Package-originated signaling is refused for the initial profile."
+          }
+        ]
+      }
+    },
+    {
+      "logicalName": "vocab-digest",
+      "document": {
+        "domain": "ibex:capsec:vocab:1",
+        "digest": "sha256-7yjvl8MVwTEO1IduHVvtJawVFnyeos7T7KzbgHckT2k"
+      }
+    }
+  ]
+}

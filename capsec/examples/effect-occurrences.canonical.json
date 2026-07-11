@@ -1,0 +1,630 @@
+{
+  "exampleSchema": "ibex/capsec-occurrence-examples/1",
+  "occurrences": [
+    {
+      "cap": "clipboard:read",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "editor-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "editor-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "editor-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "editor-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "editor-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "editor-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "device-occurrence",
+        "requested": {
+          "kind": "clipboard",
+          "selection": "system",
+          "formats": [
+            "text"
+          ]
+        },
+        "brokerGeneration": 2,
+        "deviceIdentity": "system-clipboard"
+      }
+    },
+    {
+      "cap": "device:camera",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "camera-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "camera-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "camera-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "camera-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "camera-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "camera-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "device-occurrence",
+        "requested": {
+          "kind": "camera",
+          "facing": "back",
+          "media": [
+            "photo"
+          ]
+        },
+        "brokerGeneration": 2,
+        "deviceIdentity": "camera:back:0"
+      }
+    },
+    {
+      "cap": "device:location",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "maps-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "maps-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "maps-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "maps-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "maps-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "maps-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "device-occurrence",
+        "requested": {
+          "kind": "device-location",
+          "usage": "foreground",
+          "precision": "precise"
+        },
+        "brokerGeneration": 4,
+        "deviceIdentity": "android-location-provider"
+      }
+    },
+    {
+      "cap": "device:microphone",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "audio-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "audio-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "audio-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "audio-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "audio-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "audio-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "device-occurrence",
+        "requested": {
+          "kind": "microphone",
+          "media": "audio"
+        },
+        "brokerGeneration": 2,
+        "deviceIdentity": "microphone:0"
+      }
+    },
+    {
+      "cap": "env:read",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "config-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "config-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "config-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "config-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "config-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "config-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "environment-occurrence",
+        "requested": {
+          "kind": "environment-name",
+          "target": "broker-base",
+          "name": "API_TOKEN"
+        },
+        "valueOrigin": "broker-base"
+      }
+    },
+    {
+      "cap": "fs:read",
+      "stage": "commit",
+      "actor": {
+        "kind": "package",
+        "name": "reader-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "reader-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "reader-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "reader-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "reader-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "reader-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "path-occurrence",
+        "requested": {
+          "root": "project",
+          "components": [
+            {
+              "encoding": "utf8",
+              "value": "config"
+            },
+            {
+              "encoding": "utf8",
+              "value": "app.json"
+            }
+          ]
+        },
+        "followMode": "follow-final",
+        "objectState": "existing",
+        "parentObject": {
+          "platform": "unix",
+          "volume": "dev-1",
+          "file": "inode-10"
+        },
+        "finalObject": {
+          "platform": "unix",
+          "volume": "dev-1",
+          "file": "inode-11"
+        },
+        "retainedHandle": "fd:17"
+      }
+    },
+    {
+      "cap": "network:connect",
+      "stage": "commit",
+      "actor": {
+        "kind": "package",
+        "name": "socket-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "socket-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "socket-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "socket-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "socket-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "socket-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "network-occurrence",
+        "requested": {
+          "kind": "connect-endpoint",
+          "transport": "wss",
+          "host": {
+            "kind": "dns-name",
+            "name": "events.example.com"
+          },
+          "port": 443
+        },
+        "route": {
+          "kind": "direct"
+        },
+        "candidates": [
+          "93.184.216.34"
+        ],
+        "selectedCandidate": "93.184.216.34",
+        "verifiedPeer": {
+          "address": "93.184.216.34",
+          "port": 443
+        },
+        "connectionId": "connection:socket:1"
+      }
+    },
+    {
+      "cap": "network:connect",
+      "stage": "commit",
+      "actor": {
+        "kind": "package",
+        "name": "socket-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "socket-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "socket-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "socket-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "socket-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "socket-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "unix-connect-occurrence",
+        "requested": {
+          "kind": "connect-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "path",
+            "path": {
+              "root": "tmp",
+              "components": [
+                {
+                  "encoding": "utf8",
+                  "value": "service.sock"
+                }
+              ]
+            }
+          }
+        },
+        "socketObject": {
+          "platform": "unix",
+          "volume": "dev-1",
+          "file": "inode-80"
+        },
+        "connectionId": "connection:unix:1"
+      }
+    },
+    {
+      "cap": "network:fetch",
+      "stage": "candidate",
+      "actor": {
+        "kind": "package",
+        "name": "http-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "http-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "http-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "http-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "http-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "http-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "network-occurrence",
+        "requested": {
+          "kind": "fetch-endpoint",
+          "scheme": "https",
+          "host": {
+            "kind": "dns-name",
+            "name": "api.example.com"
+          },
+          "port": 443
+        },
+        "route": {
+          "kind": "direct"
+        },
+        "candidates": [
+          "192.0.2.10",
+          "2001:db8::10"
+        ],
+        "selectedCandidate": "192.0.2.10"
+      }
+    },
+    {
+      "cap": "network:listen",
+      "stage": "commit",
+      "actor": {
+        "kind": "package",
+        "name": "server-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "server-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "server-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "server-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "server-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "server-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "listen-occurrence",
+        "requested": {
+          "kind": "listen-inet",
+          "transport": "tcp",
+          "bind": {
+            "kind": "loopback"
+          },
+          "port": {
+            "kind": "ephemeral"
+          },
+          "dualStack": false,
+          "peerClasses": [
+            "loopback"
+          ]
+        },
+        "boundEndpoints": [
+          {
+            "address": "127.0.0.1",
+            "port": 43127
+          }
+        ],
+        "listenerId": "listener:3"
+      }
+    },
+    {
+      "cap": "network:listen",
+      "stage": "commit",
+      "actor": {
+        "kind": "package",
+        "name": "server-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "server-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "server-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "server-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "server-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "server-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "listen-occurrence",
+        "requested": {
+          "kind": "listen-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "path",
+            "path": {
+              "root": "tmp",
+              "components": [
+                {
+                  "encoding": "utf8",
+                  "value": "server.sock"
+                }
+              ]
+            }
+          }
+        },
+        "boundUnixObject": {
+          "platform": "unix",
+          "volume": "dev-1",
+          "file": "inode-81"
+        },
+        "listenerId": "listener:unix:3"
+      }
+    },
+    {
+      "cap": "network:resolve",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "dns-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "dns-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "dns-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "dns-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "dns-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "dns-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "dns-occurrence",
+        "requested": {
+          "kind": "dns-query",
+          "name": "api.example.com",
+          "absolute": true,
+          "recordTypes": [
+            "A",
+            "AAAA"
+          ],
+          "resolver": "system"
+        },
+        "answers": [
+          {
+            "recordType": "A",
+            "address": "192.0.2.10"
+          },
+          {
+            "recordType": "AAAA",
+            "address": "2001:db8::10"
+          }
+        ]
+      }
+    },
+    {
+      "cap": "process:spawn",
+      "stage": "commit",
+      "actor": {
+        "kind": "root",
+        "identity": "project-root"
+      },
+      "effectOwner": {
+        "kind": "root",
+        "identity": "project-root"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "root",
+          "identity": "project-root"
+        }
+      ],
+      "resource": {
+        "kind": "executable-occurrence",
+        "requested": {
+          "kind": "executable",
+          "logicalName": "git",
+          "path": {
+            "root": "absolute",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "usr"
+              },
+              {
+                "encoding": "utf8",
+                "value": "bin"
+              },
+              {
+                "encoding": "utf8",
+                "value": "git"
+              }
+            ],
+            "hostBound": true
+          },
+          "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "executableObject": {
+          "platform": "unix",
+          "volume": "dev-1",
+          "file": "inode-42"
+        }
+      }
+    },
+    {
+      "cap": "stdio:read",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "prompt-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "prompt-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "prompt-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "prompt-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "prompt-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "prompt-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "stdio-occurrence",
+        "requested": {
+          "kind": "stdio",
+          "stream": "stdin",
+          "source": {
+            "kind": "pipe",
+            "identity": "pipe:stdin:7"
+          }
+        }
+      }
+    },
+    {
+      "cap": "sys:read",
+      "stage": "delivery",
+      "actor": {
+        "kind": "package",
+        "name": "diagnostics-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "diagnostics-lib@1.0.0"
+      },
+      "effectOwner": {
+        "kind": "package",
+        "name": "diagnostics-lib",
+        "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "locator": "diagnostics-lib@1.0.0"
+      },
+      "constrainedPrincipals": [
+        {
+          "kind": "package",
+          "name": "diagnostics-lib",
+          "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "locator": "diagnostics-lib@1.0.0"
+        }
+      ],
+      "resource": {
+        "kind": "system-info-occurrence",
+        "requested": {
+          "kind": "system-info",
+          "name": "platform"
+        }
+      }
+    }
+  ]
+}

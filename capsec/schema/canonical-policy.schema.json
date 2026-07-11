@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/canonical-policy.schema.json",
+  "title": "Ibex canonical capsec review policy",
+  "type": "object",
+  "required": ["policySchema", "capsVocab", "semanticCore", "vocabDigest", "policyDigest", "purpose", "mode", "principals"],
+  "properties": {
+    "policySchema": { "const": "ibex/capsec-policy/1" },
+    "capsVocab": { "const": "ibex/capsec/1" },
+    "semanticCore": { "const": "capsec/semantics/1" },
+    "vocabDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "policyDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "purpose": { "const": "production" },
+    "mode": { "const": "enforce" },
+    "principals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/principalPolicy" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "canonicalRow": {
+      "type": "object",
+      "required": ["authority", "provenance"],
+      "properties": {
+        "authority": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json"
+        },
+        "provenance": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/provenance" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["kind", "source"],
+      "properties": {
+        "kind": { "enum": ["direct", "import-site", "delegation", "macro-expansion"] },
+        "source": { "type": "string", "minLength": 1 },
+        "rule": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        }
+      },
+      "additionalProperties": false
+    },
+    "principalPolicy": {
+      "type": "object",
+      "required": ["principal", "floor", "denials", "escalationCeiling", "imports", "endowments"],
+      "properties": {
+        "principal": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+        },
+        "floor": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canonicalRow" }
+        },
+        "denials": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canonicalRow" }
+        },
+        "escalationCeiling": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/canonicalRow" }
+        },
+        "imports": {
+          "type": "object",
+          "required": ["builtins", "packages"],
+          "properties": {
+            "builtins": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "packages": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/packageLocator"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "endowments": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

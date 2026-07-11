@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/common.schema.json",
+  "title": "Ibex capsec common types",
+  "$defs": {
+    "actionId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$"
+    },
+    "stableId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._/-][a-z0-9]+)*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256-[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"
+    },
+    "base64url": {
+      "type": "string",
+      "pattern": "^(?=.+$)(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-][AQgw]|[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048])?$"
+    },
+    "packageLocator": {
+      "type": "string",
+      "pattern": "^(?:@[a-z0-9._-]+/[a-z0-9._-]+|[a-z0-9._-]+)@[^@\\s]+$"
+    },
+    "pathComponent": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["encoding", "value"],
+          "properties": {
+            "encoding": { "const": "utf8" },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!\\.$|\\.\\.$)[^/\\u0000]+$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["encoding", "value"],
+          "properties": {
+            "encoding": { "const": "base64url" },
+            "value": { "$ref": "#/$defs/base64url" }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "logicalPath": {
+      "type": "object",
+      "required": ["root", "components"],
+      "properties": {
+        "root": {
+          "enum": ["project", "package", "home", "tmp", "absolute"]
+        },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pathComponent" }
+        },
+        "hostBound": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "root": { "const": "absolute" } },
+            "required": ["root"]
+          },
+          "then": {
+            "properties": { "hostBound": { "const": true } },
+            "required": ["hostBound"]
+          },
+          "else": {
+            "not": { "required": ["hostBound"] }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "objectIdentity": {
+      "type": "object",
+      "required": ["platform", "volume", "file"],
+      "properties": {
+        "platform": {
+          "enum": ["unix", "windows", "apple", "android"]
+        },
+        "volume": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "principal": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "name", "integrity", "locator"],
+          "properties": {
+            "kind": { "const": "package" },
+            "name": { "type": "string", "minLength": 1 },
+            "integrity": { "$ref": "#/$defs/digest" },
+            "locator": { "$ref": "#/$defs/packageLocator" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "identity"],
+          "properties": {
+            "kind": {
+              "enum": ["root", "runtime", "module-loader", "quarantine"]
+            },
+            "identity": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "remotePort": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": { "const": "exact" },
+            "value": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "start", "end"],
+          "properties": {
+            "kind": { "const": "range" },
+            "start": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "end": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "listenPort": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/remotePort"
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "const": "ephemeral" } },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "host": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "name"],
+          "properties": {
+            "kind": { "const": "dns-name" },
+            "name": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "apex", "includeApex"],
+          "properties": {
+            "kind": { "const": "dns-subtree" },
+            "apex": {
+              "type": "string",
+              "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
+            },
+            "includeApex": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "address"],
+          "properties": {
+            "kind": { "const": "ip" },
+            "address": { "type": "string", "minLength": 2 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "network", "prefix"],
+          "properties": {
+            "kind": { "const": "cidr" },
+            "network": { "type": "string", "minLength": 2 },
+            "prefix": { "type": "integer", "minimum": 0, "maximum": 128 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": { "kind": { "const": "direct" } },
+      "additionalProperties": false
+    },
+    "peerClass": {
+      "enum": [
+        "public",
+        "private",
+        "loopback",
+        "link-local",
+        "carrier-grade-nat",
+        "unique-local",
+        "unspecified",
+        "multicast",
+        "metadata",
+        "reserved"
+      ]
+    }
+  }
+}

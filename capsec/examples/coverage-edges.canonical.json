@@ -1,0 +1,103 @@
+{
+  "coverageSchema": "ibex/capsec-coverage/1",
+  "profile": "ibex/capsec/1",
+  "edges": [
+    {
+      "id": "engine.crypto.random",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "crypto.getRandomValues",
+        "sourceRef": "src/engine/hermes_runtime_crypto.cc"
+      },
+      "rationaleId": "ordinary-randomness",
+      "rationale": "Random byte generation carries no external authority in the package threat model."
+    },
+    {
+      "id": "engine.fetch.request",
+      "classification": "effects",
+      "surface": {
+        "kind": "native-op",
+        "name": "fetch",
+        "sourceRef": "src/engine/hermes_runtime_fetch.cc"
+      },
+      "effects": [
+        {
+          "cap": "network:fetch",
+          "selectorNormalizer": "network.fetch.selector.v1",
+          "occurrenceNormalizer": "network.fetch.occurrence.v1",
+          "stages": ["requested", "candidate", "commit", "delivery"],
+          "positiveSources": ["ambient-root", "handle", "session", "static-floor"]
+        }
+      ],
+      "principalSources": ["frame-set", "schedule-time"],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "atomicityGroup": "fetch.request.v1",
+      "lifetimeContract": "socket-stream",
+      "barriers": {
+        "authorizeBefore": ["dns", "connect", "request-bytes", "response-delivery"],
+        "recheckAt": ["redirect", "reconnect", "response-chunk"],
+        "cancelAt": ["negative-generation-change", "peer-mismatch"]
+      },
+      "implementationOwner": "WP6",
+      "fixtures": ["network.fetch.allow", "network.fetch.dns-rebind", "network.fetch.redirect-deny", "network.fetch.wrong-principal"]
+    },
+    {
+      "id": "engine.fs.open.readwrite",
+      "classification": "effects",
+      "surface": {
+        "kind": "native-op",
+        "name": "fs.open read/write",
+        "sourceRef": "src/engine/hermes_runtime_fs.cc"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": ["requested", "discovery"],
+          "positiveSources": ["ambient-root", "handle", "implicit-self", "session", "static-floor"]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": ["commit", "repeat"],
+          "positiveSources": ["ambient-root", "handle", "implicit-self", "session", "static-floor"]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": ["commit", "repeat"],
+          "positiveSources": ["ambient-root", "handle", "session", "static-floor"]
+        }
+      ],
+      "principalSources": ["frame-set", "schedule-time"],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "atomicityGroup": "fs.open.readwrite.v1",
+      "lifetimeContract": "file-handle",
+      "barriers": {
+        "authorizeBefore": ["open", "truncate", "first-read", "first-write"],
+        "recheckAt": ["metadata", "read", "write"],
+        "cancelAt": ["negative-generation-change", "object-identity-mismatch"]
+      },
+      "implementationOwner": "WP5",
+      "fixtures": ["fs.open.alias-deny", "fs.open.readwrite.allow", "fs.open.wrong-principal"]
+    },
+    {
+      "id": "engine.process.signal",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "process.kill",
+        "sourceRef": "src/engine/hermes_runtime_process_setup.cc"
+      },
+      "cap": "process:signal",
+      "fixtures": ["process.signal.closed"],
+      "rationale": "The initial profile has no positive target/signal selector and refuses package signaling."
+    }
+  ]
+}

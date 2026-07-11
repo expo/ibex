@@ -1,0 +1,24 @@
+{
+  "cap": "network:listen",
+  "stage": "commit",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "listen-occurrence",
+    "requested": {
+      "kind": "listen-unix",
+      "socketType": "stream",
+      "address": {
+        "kind": "path",
+        "path": {
+          "root": "tmp",
+          "components": [{ "encoding": "utf8", "value": "server.sock" }]
+        }
+      }
+    },
+    "boundUnixObject": { "platform": "unix", "volume": "dev-1", "file": "inode-81" },
+    "boundEndpoints": [{ "address": "127.0.0.1", "port": 43127 }],
+    "listenerId": "listener:unix:3"
+  }
+}

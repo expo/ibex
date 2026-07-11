@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/target-cell.schema.json",
+  "title": "Ibex capsec target conformance cells",
+  "type": "object",
+  "required": ["targetCellSchema", "profile", "cells"],
+  "properties": {
+    "targetCellSchema": { "const": "ibex/capsec-target-cells/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "cells": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cell" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "cell": {
+      "type": "object",
+      "required": ["edgeId", "target", "disposition", "fixtures", "rationale"],
+      "properties": {
+        "edgeId": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        },
+        "target": {
+          "type": "object",
+          "required": ["triple", "features"],
+          "properties": {
+            "triple": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+            "features": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "disposition": {
+          "enum": ["enforced", "closed", "absent", "unsupported"]
+        },
+        "fixtures": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+          }
+        },
+        "implementationRef": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "disposition": { "enum": ["enforced", "closed"] } },
+            "required": ["disposition"]
+          },
+          "then": {
+            "properties": {
+              "fixtures": { "type": "array", "minItems": 1 },
+              "implementationRef": { "type": "string", "minLength": 1 }
+            },
+            "required": ["implementationRef"]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  }
+}

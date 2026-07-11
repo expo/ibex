@@ -1,0 +1,421 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/effect-occurrence.schema.json",
+  "title": "Ibex normalized effect occurrence",
+  "type": "object",
+  "required": ["cap", "stage", "actor", "effectOwner", "constrainedPrincipals", "resource"],
+  "properties": {
+    "cap": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
+    },
+    "stage": {
+      "enum": ["requested", "discovery", "candidate", "commit", "delivery", "repeat", "cleanup"]
+    },
+    "actor": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+    },
+    "effectOwner": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+    },
+    "constrainedPrincipals": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+      }
+    },
+    "resource": {
+      "oneOf": [
+        { "$ref": "#/$defs/pathOccurrence" },
+        { "$ref": "#/$defs/networkOccurrence" },
+        { "$ref": "#/$defs/unixConnectOccurrence" },
+        { "$ref": "#/$defs/listenInetOccurrence" },
+        { "$ref": "#/$defs/listenUnixOccurrence" },
+        { "$ref": "#/$defs/dnsOccurrence" },
+        { "$ref": "#/$defs/environmentOccurrence" },
+        { "$ref": "#/$defs/executableOccurrence" },
+        { "$ref": "#/$defs/stdioOccurrence" },
+        { "$ref": "#/$defs/systemInfoOccurrence" },
+        { "$ref": "#/$defs/deviceOccurrence" },
+        { "$ref": "#/$defs/storageOccurrence" },
+        { "$ref": "#/$defs/closedOccurrence" }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "pathOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "followMode", "objectState"],
+      "properties": {
+        "kind": { "const": "path-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/logicalPath"
+        },
+        "followMode": { "enum": ["follow-final", "no-follow-final"] },
+        "objectState": { "enum": ["existing", "absent-create"] },
+        "parentObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "finalObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "retainedHandle": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "concreteNetworkHost": {
+      "oneOf": [
+        {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/host/oneOf/0"
+        },
+        {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/host/oneOf/2"
+        }
+      ]
+    },
+    "fetchRequest": {
+      "type": "object",
+      "required": ["kind", "scheme", "host", "port"],
+      "properties": {
+        "kind": { "const": "fetch-endpoint" },
+        "scheme": { "enum": ["http", "https"] },
+        "host": { "$ref": "#/$defs/concreteNetworkHost" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "additionalProperties": false
+    },
+    "connectRequest": {
+      "type": "object",
+      "required": ["kind", "transport", "host", "port"],
+      "properties": {
+        "kind": { "const": "connect-endpoint" },
+        "transport": {
+          "enum": ["tcp", "tls", "udp", "ws", "wss", "webtransport"]
+        },
+        "host": { "$ref": "#/$defs/concreteNetworkHost" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      },
+      "additionalProperties": false
+    },
+    "networkOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "route", "candidates"],
+      "properties": {
+        "kind": { "const": "network-occurrence" },
+        "requested": {
+          "oneOf": [
+            { "$ref": "#/$defs/fetchRequest" },
+            { "$ref": "#/$defs/connectRequest" }
+          ]
+        },
+        "route": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/route"
+        },
+        "candidates": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 2 }
+        },
+        "selectedCandidate": { "type": "string", "minLength": 2 },
+        "verifiedPeer": {
+          "type": "object",
+          "required": ["address", "port"],
+          "properties": {
+            "address": { "type": "string", "minLength": 2 },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          },
+          "additionalProperties": false
+        },
+        "redirectIndex": { "type": "integer", "minimum": 0 },
+        "connectionId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "unixConnectOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "unix-connect-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/connectUnix"
+        },
+        "socketObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "connectionId": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "listenInetOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "listen-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/listenInet"
+        },
+        "boundEndpoints": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": ["address", "port"],
+            "properties": {
+              "address": { "type": "string", "minLength": 2 },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "interface": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "listenerId": { "type": "string", "minLength": 1 },
+        "acceptedPeer": {
+          "type": "object",
+          "required": ["address", "port"],
+          "properties": {
+            "address": { "type": "string", "minLength": 2 },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "listenUnixOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "listen-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/listenUnix"
+        },
+        "boundUnixObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "listenerId": { "type": "string", "minLength": 1 },
+        "acceptedUnixPeer": {
+          "type": "object",
+          "required": ["uid", "gid", "pid"],
+          "properties": {
+            "uid": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
+            "gid": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
+            "pid": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "dnsOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "answers"],
+      "properties": {
+        "kind": { "const": "dns-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/dnsQuery"
+        },
+        "answers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/dnsAnswer" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "dnsAnswer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["recordType", "address"],
+          "properties": {
+            "recordType": { "enum": ["A", "AAAA"] },
+            "address": { "type": "string", "minLength": 2 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "name"],
+          "properties": {
+            "recordType": { "enum": ["CNAME", "NS", "PTR"] },
+            "name": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "critical", "tag", "value"],
+          "properties": {
+            "recordType": { "const": "CAA" },
+            "critical": { "type": "boolean" },
+            "tag": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+            "value": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "priority", "exchange"],
+          "properties": {
+            "recordType": { "const": "MX" },
+            "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "exchange": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "order", "preference", "flags", "service", "regexp", "replacement"],
+          "properties": {
+            "recordType": { "const": "NAPTR" },
+            "order": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "preference": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "flags": { "type": "string" },
+            "service": { "type": "string" },
+            "regexp": { "type": "string" },
+            "replacement": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "name", "admin", "serial", "refresh", "retry", "expire", "minimumTtl"],
+          "properties": {
+            "recordType": { "const": "SOA" },
+            "name": { "type": "string", "minLength": 1 },
+            "admin": { "type": "string", "minLength": 1 },
+            "serial": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "refresh": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "retry": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "expire": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+            "minimumTtl": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "priority", "weight", "port", "target"],
+          "properties": {
+            "recordType": { "const": "SRV" },
+            "priority": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "weight": { "type": "integer", "minimum": 0, "maximum": 65535 },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "target": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["recordType", "chunks"],
+          "properties": {
+            "recordType": { "const": "TXT" },
+            "chunks": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "environmentOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "valueOrigin"],
+      "properties": {
+        "kind": { "const": "environment-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/environmentName"
+        },
+        "valueOrigin": { "enum": ["broker-base", "principal-overlay", "literal"] }
+      },
+      "additionalProperties": false
+    },
+    "executableOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "executable-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/executable"
+        },
+        "executableObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        },
+        "interpreterObject": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+        }
+      },
+      "additionalProperties": false
+    },
+    "stdioOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "stdio-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/stdio"
+        }
+      },
+      "additionalProperties": false
+    },
+    "systemInfoOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested"],
+      "properties": {
+        "kind": { "const": "system-info-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/systemInfo"
+        }
+      },
+      "additionalProperties": false
+    },
+    "deviceOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "brokerGeneration"],
+      "properties": {
+        "kind": { "const": "device-occurrence" },
+        "requested": {
+          "oneOf": [
+            { "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/deviceLocation" },
+            { "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/camera" },
+            { "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/microphone" },
+            { "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/clipboard" }
+          ]
+        },
+        "brokerGeneration": { "type": "integer", "minimum": 0 },
+        "deviceIdentity": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "storageOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "namespaceOwner"],
+      "properties": {
+        "kind": { "const": "storage-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/storageNamespace"
+        },
+        "namespaceOwner": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+        }
+      },
+      "additionalProperties": false
+    },
+    "closedOccurrence": {
+      "type": "object",
+      "required": ["kind", "requested", "surface"],
+      "properties": {
+        "kind": { "const": "closed-occurrence" },
+        "requested": {
+          "$ref": "https://ibex.dev/capsec/schema/authority-selector.schema.json#/$defs/closedSurface"
+        },
+        "surface": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

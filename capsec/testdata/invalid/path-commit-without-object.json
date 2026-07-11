@@ -1,0 +1,13 @@
+{
+  "cap": "fs:read",
+  "stage": "commit",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "path-occurrence",
+    "requested": { "root": "project", "components": [{ "encoding": "utf8", "value": "data" }] },
+    "followMode": "follow-final",
+    "objectState": "existing"
+  }
+}

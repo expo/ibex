@@ -1,0 +1,866 @@
+{
+  "containmentSchema": "ibex/capsec-containment-vectors/1",
+  "profile": "ibex/capsec/1",
+  "vectors": [
+    {
+      "id": "camera.device-and-media",
+      "parent": {
+        "cap": "device:camera",
+        "resource": {
+          "kind": "camera",
+          "facing": "any",
+          "media": [
+            "photo",
+            "video"
+          ]
+        }
+      },
+      "child": {
+        "cap": "device:camera",
+        "resource": {
+          "kind": "camera",
+          "facing": "back",
+          "media": [
+            "photo"
+          ],
+          "deviceId": "camera:back:0"
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "clipboard.formats",
+      "parent": {
+        "cap": "clipboard:read",
+        "resource": {
+          "kind": "clipboard",
+          "selection": "system",
+          "formats": [
+            "html",
+            "image",
+            "text"
+          ]
+        }
+      },
+      "child": {
+        "cap": "clipboard:read",
+        "resource": {
+          "kind": "clipboard",
+          "selection": "system",
+          "formats": [
+            "text"
+          ]
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "connect.port-range",
+      "parent": {
+        "cap": "network:connect",
+        "resource": {
+          "kind": "connect-endpoint",
+          "transport": "tls",
+          "host": {
+            "kind": "cidr",
+            "network": "203.0.113.0",
+            "prefix": 24
+          },
+          "port": {
+            "kind": "range",
+            "start": 4000,
+            "end": 5000
+          },
+          "peerClasses": [
+            "reserved"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "child": {
+        "cap": "network:connect",
+        "resource": {
+          "kind": "connect-endpoint",
+          "transport": "tls",
+          "host": {
+            "kind": "ip",
+            "address": "203.0.113.10"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 4430
+          },
+          "peerClasses": [
+            "reserved"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "connect.unix-equal",
+      "parent": {
+        "cap": "network:connect",
+        "resource": {
+          "kind": "connect-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "abstract",
+            "name": "ibex-service"
+          }
+        }
+      },
+      "child": {
+        "cap": "network:connect",
+        "resource": {
+          "kind": "connect-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "abstract",
+            "name": "ibex-service"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "equal"
+    },
+    {
+      "id": "cross-action",
+      "parent": {
+        "cap": "fs:list",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "dns.record-types",
+      "parent": {
+        "cap": "network:resolve",
+        "resource": {
+          "kind": "dns-query",
+          "name": "api.example.com",
+          "absolute": true,
+          "recordTypes": [
+            "A",
+            "AAAA"
+          ],
+          "resolver": "system"
+        }
+      },
+      "child": {
+        "cap": "network:resolve",
+        "resource": {
+          "kind": "dns-query",
+          "name": "api.example.com",
+          "absolute": true,
+          "recordTypes": [
+            "A"
+          ],
+          "resolver": "system"
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "environment.equal",
+      "parent": {
+        "cap": "env:read",
+        "resource": {
+          "kind": "environment-name",
+          "target": "broker-base",
+          "name": "PATH"
+        }
+      },
+      "child": {
+        "cap": "env:read",
+        "resource": {
+          "kind": "environment-name",
+          "target": "broker-base",
+          "name": "PATH"
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "equal"
+    },
+    {
+      "id": "fetch.dns-to-ip",
+      "parent": {
+        "cap": "network:fetch",
+        "resource": {
+          "kind": "fetch-endpoint",
+          "schemes": [
+            "https"
+          ],
+          "host": {
+            "kind": "dns-subtree",
+            "apex": "example.com",
+            "includeApex": true
+          },
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "peerClasses": [
+            "public"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "child": {
+        "cap": "network:fetch",
+        "resource": {
+          "kind": "fetch-endpoint",
+          "schemes": [
+            "https"
+          ],
+          "host": {
+            "kind": "ip",
+            "address": "93.184.216.34"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "peerClasses": [
+            "public"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "fetch.narrow-sets",
+      "parent": {
+        "cap": "network:fetch",
+        "resource": {
+          "kind": "fetch-endpoint",
+          "schemes": [
+            "http",
+            "https"
+          ],
+          "host": {
+            "kind": "dns-subtree",
+            "apex": "example.com",
+            "includeApex": true
+          },
+          "port": {
+            "kind": "range",
+            "start": 80,
+            "end": 443
+          },
+          "peerClasses": [
+            "public",
+            "reserved"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "child": {
+        "cap": "network:fetch",
+        "resource": {
+          "kind": "fetch-endpoint",
+          "schemes": [
+            "https"
+          ],
+          "host": {
+            "kind": "dns-name",
+            "name": "api.example.com"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 443
+          },
+          "peerClasses": [
+            "public"
+          ],
+          "route": {
+            "kind": "direct"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "listen.ephemeral-not-exact",
+      "parent": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-inet",
+          "transport": "tcp",
+          "bind": {
+            "kind": "loopback"
+          },
+          "port": {
+            "kind": "ephemeral"
+          },
+          "dualStack": false,
+          "peerClasses": [
+            "loopback"
+          ]
+        }
+      },
+      "child": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-inet",
+          "transport": "tcp",
+          "bind": {
+            "kind": "loopback"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 43127
+          },
+          "dualStack": false,
+          "peerClasses": [
+            "loopback"
+          ]
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "listen.narrow-bind",
+      "parent": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-inet",
+          "transport": "tcp",
+          "bind": {
+            "kind": "all-interfaces"
+          },
+          "port": {
+            "kind": "range",
+            "start": 8000,
+            "end": 9000
+          },
+          "dualStack": true,
+          "peerClasses": [
+            "loopback",
+            "private",
+            "public"
+          ]
+        }
+      },
+      "child": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-inet",
+          "transport": "tcp",
+          "bind": {
+            "kind": "loopback"
+          },
+          "port": {
+            "kind": "exact",
+            "value": 8080
+          },
+          "dualStack": false,
+          "peerClasses": [
+            "loopback"
+          ]
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "listen.unix-equal",
+      "parent": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "abstract",
+            "name": "ibex-server"
+          }
+        }
+      },
+      "child": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "abstract",
+            "name": "ibex-server"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "equal"
+    },
+    {
+      "id": "listen.unix-package-different-owner",
+      "parent": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "path",
+            "path": {
+              "root": "package",
+              "components": [
+                { "encoding": "utf8", "value": "server.sock" }
+              ]
+            }
+          }
+        }
+      },
+      "child": {
+        "cap": "network:listen",
+        "resource": {
+          "kind": "listen-unix",
+          "socketType": "stream",
+          "address": {
+            "kind": "path",
+            "path": {
+              "root": "package",
+              "components": [
+                { "encoding": "utf8", "value": "server.sock" }
+              ]
+            }
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": false
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "location.precision-and-usage",
+      "parent": {
+        "cap": "device:location",
+        "resource": {
+          "kind": "device-location",
+          "usage": "background",
+          "precision": "precise"
+        }
+      },
+      "child": {
+        "cap": "device:location",
+        "resource": {
+          "kind": "device-location",
+          "usage": "foreground",
+          "precision": "coarse"
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "microphone.device",
+      "parent": {
+        "cap": "device:microphone",
+        "resource": {
+          "kind": "microphone",
+          "media": "audio"
+        }
+      },
+      "child": {
+        "cap": "device:microphone",
+        "resource": {
+          "kind": "microphone",
+          "media": "audio",
+          "deviceId": "microphone:0"
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "path.base-exact",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "path.descendant-tree",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              },
+              {
+                "encoding": "utf8",
+                "value": "images"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "strict-subset"
+    },
+    {
+      "id": "path.different-root",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "home",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "path.equal",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "equal"
+    },
+    {
+      "id": "path.outside-component",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "outside"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "path.package-different-owner",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "package",
+            "components": []
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "package",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "index.js"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": false
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "path.sibling",
+      "parent": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-tree",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              },
+              {
+                "encoding": "utf8",
+                "value": "a"
+              }
+            ]
+          }
+        }
+      },
+      "child": {
+        "cap": "fs:read",
+        "resource": {
+          "kind": "path-exact",
+          "path": {
+            "root": "project",
+            "components": [
+              {
+                "encoding": "utf8",
+                "value": "out"
+              },
+              {
+                "encoding": "utf8",
+                "value": "b"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "incomparable"
+    },
+    {
+      "id": "stdio.equal",
+      "parent": {
+        "cap": "stdio:read",
+        "resource": {
+          "kind": "stdio",
+          "stream": "stdin",
+          "source": {
+            "kind": "pipe",
+            "identity": "pipe:stdin:7"
+          }
+        }
+      },
+      "child": {
+        "cap": "stdio:read",
+        "resource": {
+          "kind": "stdio",
+          "stream": "stdin",
+          "source": {
+            "kind": "pipe",
+            "identity": "pipe:stdin:7"
+          }
+        }
+      },
+      "context": {
+        "sameSnapshot": true,
+        "samePackageRootOwner": true
+      },
+      "expected": "equal"
+    }
+  ]
+}

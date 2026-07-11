@@ -1,0 +1,19 @@
+{
+  "cap": "network:connect",
+  "stage": "candidate",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "network-occurrence",
+    "requested": {
+      "kind": "connect-endpoint",
+      "transport": "tls",
+      "host": { "kind": "dns-name", "name": "api.example.com" },
+      "port": 443
+    },
+    "route": { "kind": "direct" },
+    "candidates": ["93.184.216.34"],
+    "selectedCandidate": "93.184.216.35"
+  }
+}

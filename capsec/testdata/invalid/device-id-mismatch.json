@@ -1,0 +1,13 @@
+{
+  "cap": "device:camera",
+  "stage": "delivery",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "device-occurrence",
+    "requested": { "kind": "camera", "facing": "back", "media": ["photo"], "deviceId": "camera:back:0" },
+    "brokerGeneration": 2,
+    "deviceIdentity": "camera:back:1"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "cap": "network:connect",
+  "resource": {
+    "kind": "connect-endpoint",
+    "transport": "tls",
+    "host": { "kind": "dns-name", "name": "api.example.com" },
+    "port": { "kind": "range", "start": 9000, "end": 8000 },
+    "peerClasses": ["public"],
+    "route": { "kind": "direct" }
+  }
+}

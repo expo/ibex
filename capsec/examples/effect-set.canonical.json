@@ -1,0 +1,95 @@
+{
+  "decisionSetSchema": "ibex/capsec-decision-set/1",
+  "operationId": "spawn:42",
+  "atomicityGroup": "process.spawn.v1",
+  "combination": "conjunction",
+  "context": {
+    "stage": "commit",
+    "actor": { "kind": "root", "identity": "project-root" },
+    "constrainedPrincipals": [
+      { "kind": "root", "identity": "project-root" }
+    ]
+  },
+  "effects": [
+    {
+      "cap": "env:write",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "environment-occurrence",
+        "requested": { "kind": "environment-name", "target": "child-launch", "name": "PATH" },
+        "valueOrigin": "literal"
+      }
+    },
+    {
+      "cap": "fs:list",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "path-occurrence",
+        "requested": { "root": "project", "components": [] },
+        "followMode": "follow-final",
+        "objectState": "existing",
+        "parentObject": { "platform": "unix", "volume": "dev-1", "file": "inode-1" },
+        "finalObject": { "platform": "unix", "volume": "dev-1", "file": "inode-1" },
+        "retainedHandle": "fd:cwd:42"
+      }
+    },
+    {
+      "cap": "process:spawn",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "executable-occurrence",
+        "requested": {
+          "kind": "executable",
+          "logicalName": "git",
+          "path": {
+            "root": "absolute",
+            "components": [
+              { "encoding": "utf8", "value": "usr" },
+              { "encoding": "utf8", "value": "bin" },
+              { "encoding": "utf8", "value": "git" }
+            ],
+            "hostBound": true
+          },
+          "contentDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "executableObject": { "platform": "unix", "volume": "dev-1", "file": "inode-42" }
+      }
+    },
+    {
+      "cap": "stdio:read",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "stdio-occurrence",
+        "requested": {
+          "kind": "stdio",
+          "stream": "stdin",
+          "source": { "kind": "pipe", "identity": "spawn:42:stdin" }
+        }
+      }
+    },
+    {
+      "cap": "stdio:write",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "stdio-occurrence",
+        "requested": {
+          "kind": "stdio",
+          "stream": "stderr",
+          "source": { "kind": "pipe", "identity": "spawn:42:stderr" }
+        }
+      }
+    },
+    {
+      "cap": "stdio:write",
+      "effectOwner": { "kind": "root", "identity": "project-root" },
+      "resource": {
+        "kind": "stdio-occurrence",
+        "requested": {
+          "kind": "stdio",
+          "stream": "stdout",
+          "source": { "kind": "pipe", "identity": "spawn:42:stdout" }
+        }
+      }
+    }
+  ]
+}

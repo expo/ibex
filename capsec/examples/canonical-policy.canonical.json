@@ -1,0 +1,133 @@
+{
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-7yjvl8MVwTEO1IduHVvtJawVFnyeos7T7KzbgHckT2k",
+  "policyDigest": "sha256-va2tdlah5RfGGBaiErvGLibvmBqUjltdRj59UgTN2rc",
+  "purpose": "production",
+  "mode": "enforce",
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "image-lib",
+        "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+        "locator": "image-lib@2.4.1"
+      },
+      "floor": [
+        {
+          "authority": {
+            "cap": "fs:read",
+            "resource": {
+              "kind": "path-tree",
+              "path": {
+                "root": "project",
+                "components": [
+                  {
+                    "encoding": "utf8",
+                    "value": "images"
+                  }
+                ]
+              }
+            }
+          },
+          "provenance": [
+            {
+              "kind": "import-site",
+              "source": "src/app.mjs:4"
+            }
+          ]
+        },
+        {
+          "authority": {
+            "cap": "network:fetch",
+            "resource": {
+              "kind": "fetch-endpoint",
+              "schemes": [
+                "https"
+              ],
+              "host": {
+                "kind": "dns-name",
+                "name": "images.example.com"
+              },
+              "port": {
+                "kind": "exact",
+                "value": 443
+              },
+              "peerClasses": [
+                "public"
+              ],
+              "route": {
+                "kind": "direct"
+              }
+            }
+          },
+          "provenance": [
+            {
+              "kind": "import-site",
+              "source": "src/app.mjs:4"
+            }
+          ]
+        }
+      ],
+      "denials": [
+        {
+          "authority": {
+            "cap": "network:connect",
+            "resource": {
+              "kind": "connect-endpoint",
+              "transport": "wss",
+              "host": {
+                "kind": "dns-name",
+                "name": "images.example.com"
+              },
+              "port": {
+                "kind": "exact",
+                "value": 443
+              },
+              "peerClasses": [
+                "public"
+              ],
+              "route": {
+                "kind": "direct"
+              }
+            }
+          },
+          "provenance": [
+            {
+              "kind": "direct",
+              "source": "capsec/policy.source.json:12"
+            }
+          ]
+        }
+      ],
+      "escalationCeiling": [
+        {
+          "authority": {
+            "cap": "device:location",
+            "resource": {
+              "kind": "device-location",
+              "usage": "foreground",
+              "precision": "coarse"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "import-site",
+              "source": "src/app.mjs:4"
+            }
+          ]
+        }
+      ],
+      "imports": {
+        "builtins": [
+          "node:fs"
+        ],
+        "packages": []
+      },
+      "endowments": [
+        "fetch"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "cap": "stdio:raw",
+  "resource": {
+    "kind": "stdio",
+    "stream": "stdin",
+    "source": { "kind": "pipe", "identity": "pipe:stdin:1" }
+  }
+}

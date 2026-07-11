@@ -1,0 +1,10 @@
+{
+  "cap": "fs:read",
+  "resource": {
+    "kind": "path-exact",
+    "path": {
+      "root": "project",
+      "components": [{ "encoding": "base64url", "value": "_y8" }]
+    }
+  }
+}

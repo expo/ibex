@@ -1,0 +1,20 @@
+{
+  "cap": "network:listen",
+  "stage": "delivery",
+  "actor": { "kind": "root", "identity": "project-root" },
+  "effectOwner": { "kind": "root", "identity": "project-root" },
+  "constrainedPrincipals": [{ "kind": "root", "identity": "project-root" }],
+  "resource": {
+    "kind": "listen-occurrence",
+    "requested": {
+      "kind": "listen-inet",
+      "transport": "tcp",
+      "bind": { "kind": "loopback" },
+      "port": { "kind": "exact", "value": 8080 },
+      "dualStack": false,
+      "peerClasses": ["loopback"]
+    },
+    "boundEndpoints": [{ "address": "127.0.0.1", "port": 8080 }],
+    "listenerId": "listener:1"
+  }
+}

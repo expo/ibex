@@ -1,0 +1,17 @@
+{
+  "cap": "process:spawn",
+  "resource": {
+    "kind": "executable",
+    "logicalName": "git",
+    "path": {
+      "root": "absolute",
+      "components": [
+        { "encoding": "utf8", "value": "usr" },
+        { "encoding": "utf8", "value": "bin" },
+        { "encoding": "utf8", "value": "git" }
+      ],
+      "hostBound": true
+    },
+    "contentDigest": "sha256-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+  }
+}

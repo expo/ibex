@@ -1,0 +1,4 @@
+{
+  "cap": "fs:read",
+  "resource": "$PROJECT/config.json"
+}
