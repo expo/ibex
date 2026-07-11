@@ -973,6 +973,19 @@ function _asyncFdOp(native, op, fd, x, y) {
   });
 }
 
+function _asyncOpen(native, path, flags, mode) {
+  _validatePath(path);
+  var p = _pathToString(path);
+  return native(p, _normalizeOpenFlagsValue(flags), _normalizeOpenModeValue(mode)).then(
+    function(fd) { return fd; },
+    function(err) { throw _asyncFsError(err, 'open', p); });
+}
+
+function _asyncClose(native, fd) {
+  _validateFd(fd);
+  return native(fd).then(undefined, function(err) { throw _asyncFsError(err, 'close'); });
+}
+
 // Wrap bytes we exclusively own (fresh from an async native — no other JS
 // reference exists) as a Buffer without copying: Buffer.from(TypedArray)
 // copies the contents (which for a multi-hundred-MB readFile result would
@@ -3835,11 +3848,15 @@ function open(path, flagsOrCb, modeOrCb, cb) {
       throw _fsInvalidArgType('mode', 'number', mode);
     }
   }
+  var native = _fsAsyncNative('__exactFsOpenAsync');
+  if (native) return _deferFsPromiseCallback(_asyncOpen(native, path, flags, mode), callback);
   wrapCallback(function() { return openSync(path, flags, mode); }, callback, 'open', _pathToString(path));
 }
 
 function close(fd, cb) {
   if (typeof cb === 'function') {
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    if (native) return _deferFsPromiseCallback(_asyncClose(native, fd), cb);
     wrapCallback(function() { closeSync(fd); }, cb, 'close');
   } else if (cb !== undefined) {
     _validateCallback(cb);
@@ -5900,7 +5917,8 @@ FileHandlePromise.prototype.close = function() {
     var fd = handle.fd;
     handle._closed = true;
     handle.fd = null;
-    return closeSync(fd);
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    return native ? _asyncClose(native, fd) : closeSync(fd);
   })();
 };
 
@@ -6379,7 +6397,12 @@ var promises = {
     })();
   },
   open: function(p, f, m) {
-    return _resolveAsync(function() { return new FileHandlePromise(openSync(p, f, m), _pathToString(p), f); })();
+    return _resolveAsync(function() {
+      var native = _fsAsyncNative('__exactFsOpenAsync');
+      return native
+        ? _asyncOpen(native, p, f, m).then(function(fd) { return new FileHandlePromise(fd, _pathToString(p), f); })
+        : new FileHandlePromise(openSync(p, f, m), _pathToString(p), f);
+    })();
   },
   truncate: function(p, l) {
     return _resolveAsync(function() {
@@ -6448,7 +6471,10 @@ var promises = {
       ? _asyncBuildDirEntries(native, pathString, o || {}).then(function(entries) { return _dirFromEntries(p, entries); })
       : opendirSync(p, o);
   })(); },
-  close: function(fd) { return _resolveAsync(function() { closeSync(fd); })(); },
+  close: function(fd) { return _resolveAsync(function() {
+    var native = _fsAsyncNative('__exactFsCloseAsync');
+    return native ? _asyncClose(native, fd) : closeSync(fd);
+  })(); },
   symlink: function(t, p, ty) {
     return _resolveAsync(function() {
       var target = _coercePathFromURL(t, 'target');

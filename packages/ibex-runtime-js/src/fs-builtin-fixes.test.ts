@@ -85,7 +85,7 @@ function writeAllToFd(fd: number, bytes: Uint8Array): void {
     off += nodeFs.writeSync(fd, bytes, off, bytes.length - off, null);
   }
 }
-const asyncNativeCalls = { readv: 0, writev: 0, fd: [] as string[] };
+const asyncNativeCalls = { readv: 0, writev: 0, fd: [] as string[], open: 0, close: 0 };
 const pathAsyncCalls: Record<string, number> = {};
 function bufferLikeLength(value: any): number {
   return typeof value?.byteLength === 'number' ? value.byteLength : (value?.length ?? 0);
@@ -191,6 +191,16 @@ g.__exactFsFdAsync = (op: string, fd: number, x?: number, y?: number) => {
   } catch (e) {
     return Promise.reject(e);
   }
+};
+g.__exactFsOpenAsync = (path: string, flags: number, mode: number) => {
+  asyncNativeCalls.open += 1;
+  try { return Promise.resolve(nodeFs.openSync(path, flags, mode)); }
+  catch (e) { return Promise.reject(e); }
+};
+g.__exactFsCloseAsync = (fd: number) => {
+  asyncNativeCalls.close += 1;
+  try { nodeFs.closeSync(fd); return Promise.resolve(undefined); }
+  catch (e) { return Promise.reject(e); }
 };
 g.__exactFsPathAsync = (op: string, a: string, b?: string | null, x?: number, y?: number) => {
   recordPathAsyncCall(op);
@@ -637,5 +647,16 @@ describe('descriptor async fs native (ENG-23541)', () => {
       'ftruncate', 'futimes', 'fsync', 'fdatasync'
     ]);
     expect(nodeFs.readFileSync(p, 'utf8')).toBe('abc');
+  });
+
+  test('callback and promises open/close route through async natives', async () => {
+    const p = nodePath.join(dir, 'open-close-async.txt');
+    asyncNativeCalls.open = 0; asyncNativeCalls.close = 0;
+    const fd = await new Promise<number>((resolve, reject) => fs.open(p, 'w+', (e: any, value: number) => e ? reject(e) : resolve(value)));
+    await new Promise<void>((resolve, reject) => fs.close(fd, (e: any) => e ? reject(e) : resolve()));
+    const fh = await fs.promises.open(p, 'r');
+    await fh.close();
+    expect(asyncNativeCalls.open).toBe(2);
+    expect(asyncNativeCalls.close).toBe(2);
   });
 });

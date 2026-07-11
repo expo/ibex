@@ -552,6 +552,12 @@ struct FsAsyncResult {
   std::vector<uint8_t> bytes;
   std::string json;
   double number = 0;
+  // Async open publishes ownership metadata on the JS thread before the fd
+  // is resolved to user code. Workers never mutate the capability registry.
+  bool registerOpenedFd = false;
+  std::string openedPath;
+  bool openedCanRead = false;
+  bool openedCanWrite = false;
   int errnoValue = 0;
   std::string syscall;
   std::string path;
@@ -733,6 +739,11 @@ static facebook::jsi::Value startFsAsync(
                     handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
                     try {
                       if (resultPtr->ok) {
+                        if (resultPtr->registerOpenedFd) {
+                          registerFd(
+                              static_cast<int>(resultPtr->number), resultPtr->openedPath,
+                              resultPtr->openedCanRead, resultPtr->openedCanWrite);
+                        }
                         switch (resultPtr->kind) {
                           case FsAsyncResult::Kind::Bytes:
                             resolve->call(
@@ -1277,6 +1288,24 @@ static FsAsyncResult fsFdOpWork(
   int saved = errno;
   ::close(workerFd);
   return rc == 0 ? fsAsyncOk() : fsAsyncError(saved, syscall);
+}
+
+static FsAsyncResult fsOpenWork(
+    const std::string& path, int flags, int mode, bool canRead, bool canWrite) {
+  int fd = ::open(path.c_str(), flags, mode);
+  if (fd < 0) return fsAsyncError(errno, "open", path);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = fd;
+  result.registerOpenedFd = true;
+  result.openedPath = path;
+  result.openedCanRead = canRead;
+  result.openedCanWrite = canWrite;
+  return result;
+}
+
+static FsAsyncResult fsCloseWork(int fd) {
+  if (::close(fd) != 0) return fsAsyncError(errno, "close");
+  return fsAsyncOk();
 }
 
 void installFsHostFunctions(ExactHermesRuntime* handle) {
@@ -2906,6 +2935,40 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // fd form reads from the fd's current position to EOF without closing it
   // (mirroring readFileSync's fd branch); path form opens/reads/closes on the
   // worker thread.
+  auto openAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"), 3,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsOpenAsync: path and flags required");
+        }
+        auto path = args[0].toString(runtime).utf8(runtime);
+        int flags = parseOpenFlags(runtime, args, count, 1);
+        int mode = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 0666;
+        bool canRead = false, canWrite = false;
+        requireOpenCapability(runtime, path, flags, canRead, canWrite);
+        return startFsAsync(handle, runtime, [path, flags, mode, canRead, canWrite]() {
+          return fsOpenWork(path, flags, mode, canRead, canWrite);
+        });
+      });
+  rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));
+
+  auto closeAsyncFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsCloseAsync"), 1,
+      [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+               const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactFsCloseAsync: fd required");
+        }
+        int fd = static_cast<int>(args[0].asNumber());
+        if (!isAllowAll()) (void)requireOwnedFd(runtime, fd, "close");
+        // Revoke authority before dispatch so no later JS operation can race
+        // the close or acquire authority through integer fd reuse.
+        unregisterFd(fd);
+        return startFsAsync(handle, runtime, [fd]() { return fsCloseWork(fd); });
+      });
+  rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
+
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
       rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 3,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
