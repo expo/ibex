@@ -13,6 +13,7 @@ pub mod digest;
 pub mod error;
 pub mod model;
 pub mod registry;
+pub mod retained;
 pub mod strict_json;
 
 pub use error::{Error, Result};
