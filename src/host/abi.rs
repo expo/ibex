@@ -18,6 +18,7 @@ use rusqlite::{
     Connection, OpenFlags, ToSql,
 };
 use serde_json::json;
+use std::cell::Cell;
 use std::collections::HashMap;
 #[cfg(target_os = "android")]
 use std::ffi::c_int;
@@ -29,6 +30,49 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+thread_local! {
+    /// Normalized POSIX-style error code for the most recent host filesystem
+    /// failure on this thread. Windows `raw_os_error()` values are Win32
+    /// status codes, not errno values, so the C++ bridge must not interpret
+    /// them directly. The worker-pool caller consumes this immediately after
+    /// a failed ABI call on the same thread.
+    static LAST_FS_ERROR: Cell<i32> = const { Cell::new(0) };
+}
+
+fn normalized_io_error_code(err: &std::io::Error) -> i32 {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::NotFound => libc::ENOENT,
+        ErrorKind::PermissionDenied => libc::EACCES,
+        ErrorKind::AlreadyExists => libc::EEXIST,
+        ErrorKind::InvalidInput | ErrorKind::InvalidData => libc::EINVAL,
+        ErrorKind::UnexpectedEof => libc::EIO,
+        ErrorKind::WriteZero => libc::ENOSPC,
+        ErrorKind::WouldBlock => libc::EAGAIN,
+        ErrorKind::TimedOut => libc::ETIMEDOUT,
+        ErrorKind::Interrupted => libc::EINTR,
+        _ => {
+            #[cfg(unix)]
+            {
+                err.raw_os_error().unwrap_or(libc::EIO)
+            }
+            #[cfg(not(unix))]
+            {
+                libc::EIO
+            }
+        }
+    }
+}
+
+fn record_fs_error(code: i32) {
+    LAST_FS_ERROR.with(|slot| slot.set(code));
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_fs_last_error() -> i32 {
+    LAST_FS_ERROR.with(Cell::get)
+}
+
 #[cfg(all(
     unix,
     not(target_os = "android"),
@@ -39,7 +83,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__errno_location() = code;
     }
@@ -48,7 +93,8 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 #[cfg(target_os = "android")]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__errno() = code;
     }
@@ -62,7 +108,8 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 ))]
 #[inline]
 fn set_errno_from_io_error(err: &std::io::Error) {
-    let code = err.raw_os_error().unwrap_or(libc::EIO);
+    let code = normalized_io_error_code(err);
+    record_fs_error(code);
     unsafe {
         *libc::__error() = code;
     }
@@ -70,7 +117,9 @@ fn set_errno_from_io_error(err: &std::io::Error) {
 
 #[cfg(not(unix))]
 #[inline]
-fn set_errno_from_io_error(_err: &std::io::Error) {}
+fn set_errno_from_io_error(err: &std::io::Error) {
+    record_fs_error(normalized_io_error_code(err));
+}
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 #[cfg(unix)]
@@ -662,6 +711,10 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         std::fs::symlink_metadata(path).ok()?
     };
 
+    Some(make_stat_payload_from_metadata(meta))
+}
+
+fn make_stat_payload_from_metadata(meta: std::fs::Metadata) -> serde_json::Value {
     let mode = {
         #[cfg(unix)]
         {
@@ -742,7 +795,7 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         }
     };
 
-    Some(json!({
+    json!({
         "size": meta.len(),
         "mode": mode,
         "dev": dev,
@@ -768,7 +821,7 @@ fn make_stat_payload(path: &str, follow_links: bool) -> Option<serde_json::Value
         "mtime_ns": mtime_ns,
         "ctime_ns": ctime_ns,
         "birthtime_ns": birthtime_ns
-    }))
+    })
 }
 
 #[no_mangle]
@@ -811,7 +864,8 @@ pub extern "C" fn ex_host_fs_read_file(
     let mut file = match std::fs::File::open(path) {
         Ok(file) => file,
         Err(err) => {
-            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            let errno_code = normalized_io_error_code(&err);
+            record_fs_error(errno_code);
             unsafe {
                 *out_len = 0;
                 if !out_errno.is_null() {
@@ -836,7 +890,8 @@ pub extern "C" fn ex_host_fs_read_file(
             Box::into_raw(boxed) as *mut u8
         }
         Err(err) => {
-            let errno_code = err.raw_os_error().unwrap_or(libc::EIO);
+            let errno_code = normalized_io_error_code(&err);
+            record_fs_error(errno_code);
             unsafe {
                 *out_len = 0;
                 if !out_errno.is_null() {
@@ -1391,6 +1446,7 @@ const FS_READ: u32 = 1;
 const FS_WRITE: u32 = 2;
 const FS_CREATE: u32 = 4;
 const FS_TRUNCATE: u32 = 8;
+const FS_APPEND: u32 = 16;
 
 #[no_mangle]
 pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut ExactFileHandle {
@@ -1406,6 +1462,7 @@ pub extern "C" fn ex_host_fs_open(path: *const c_char, flags: u32) -> *mut Exact
     opts.write(flags & FS_WRITE != 0);
     opts.create(flags & FS_CREATE != 0);
     opts.truncate(flags & FS_TRUNCATE != 0);
+    opts.append(flags & FS_APPEND != 0);
 
     match opts.open(path) {
         Ok(file) => Box::into_raw(Box::new(ExactFileHandle { file })),
@@ -1558,6 +1615,48 @@ pub extern "C" fn ex_host_fs_close(file: *mut ExactFileHandle) {
     }
     unsafe {
         drop(Box::from_raw(file));
+    }
+}
+
+/// Flush file contents and metadata (`data_only == 0`) or file contents only
+/// (`data_only != 0`) to stable storage.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_sync(file: *mut ExactFileHandle, data_only: i32) -> i32 {
+    if file.is_null() {
+        record_fs_error(libc::EBADF);
+        return -1;
+    }
+    let handle = unsafe { &mut *file };
+    let result = if data_only != 0 {
+        handle.file.sync_data()
+    } else {
+        handle.file.sync_all()
+    };
+    match result {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Return metadata for the open file identity, independent of later path
+/// rename/unlink operations. Caller frees the JSON string with
+/// `ex_host_free_string`.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_fstat(file: *mut ExactFileHandle) -> *mut c_char {
+    if file.is_null() {
+        record_fs_error(libc::EBADF);
+        return ptr::null_mut();
+    }
+    let handle = unsafe { &mut *file };
+    match handle.file.metadata() {
+        Ok(metadata) => as_json_cstring(&make_stat_payload_from_metadata(metadata)),
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -1939,7 +2038,7 @@ pub extern "C" fn ex_host_fs_append(path: *const c_char, data: *const u8, len: u
     opts.write(true).create(true).append(true);
     match opts.open(&path) {
         Ok(mut file) => match write_all_return_count(&mut file, slice) {
-            Ok(n) => n as i32,
+            Ok(n) => n,
             Err(err) => {
                 set_errno_from_io_error(&err);
                 -1

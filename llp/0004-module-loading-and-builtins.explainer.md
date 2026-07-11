@@ -264,12 +264,13 @@ requested minimums below 1.2 clamp to 1.2.
 host functions in `src/engine/hermes_runtime_platform_windows.cc`. The shared
 Rust `tls_bridge` module, rustls dependencies, and `hermes_runtime_tls.cc` JSI
 shims now compile on Windows, and `installNetHostFunctions` installs the
-`__exactTlsEngine*` host functions after the Windows TCP globals. The full
-timer-driven `tls.connect` oracle tests still run on non-Windows, while Windows
-has a synchronous `tests/node_tls_builtins.rs` smoke that proves the TLS engine
-host surface installs, constructs a rustls engine, and emits initial ClientHello
-bytes. End-to-end Windows `tls.connect` oracle coverage depends on closing the
-separate Windows CLI timer keepalive gap (ENG-23639).
+`__exactTlsEngine*` host functions after the Windows TCP globals. Windows has a
+synchronous `tests/node_tls_builtins.rs` smoke that proves the TLS engine host
+surface installs, constructs a rustls engine, and emits initial ClientHello
+bytes. After the Windows CLI timer/output fixes (ENG-23639/ENG-23705), the full
+timer-driven `tls.connect` oracle suite runs on Windows too; ENG-23716 also
+routes option-carrying HTTPS requests through the socket/TLS path, so the HTTPS
+roundtrip oracle is no longer platform-gated.
 
 #### Fail-loud boundary without the bridge
 

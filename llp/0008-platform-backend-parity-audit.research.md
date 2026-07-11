@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-09 (Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; previously 2026-07-07: Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-11 (ENG-23541: Windows async fs worker-pool hooks and verified error/handle/durability semantics; previously 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -125,6 +125,20 @@ targets keep `statvfs(3)`.
 
 Known platform reality: `lchmod()` is unavailable on Linux and remains an
 `ENOSYS` path rather than a fabricated success.
+
+Windows uses `hermes_runtime_fs_windows.cc` over the same Rust host filesystem
+ABI rather than CRT file descriptors. Since ENG-23541 it also registers the
+worker-pool async hooks for whole-file reads/writes, fd chunk reads/writes,
+`readv`/`writev`, `stat`/`lstat`/`fstat`, and supported directory/path ops
+(`readdir`, `mkdir`, `rmdir`, `unlink`, `rename`, `copyfile`, `realpath`,
+`access`, `chmod`, `mkdtemp`). The Windows fd handles are shared between sync
+and async paths through a `shared_ptr` wrapper with a per-handle I/O mutex so
+the Rust save-cursor positional read/write shims cannot interleave on the same
+fd. Unsupported Windows fs operations still fail honestly with `ENOSYS` until
+host hooks exist. Durability is no longer one of those gaps: the opaque host
+handle exposes `File::sync_all` / `File::sync_data`, so Windows
+`fsync`/`fdatasync` reach `FlushFileBuffers`. The remaining unsupported set is
+the path metadata/link operations that the Windows shim does not implement.
 
 ## Sockets, DNS, and Process
 
@@ -288,6 +302,22 @@ must run on an Android runtime or emulator and exercise:
   `Choreographer` callback path.
 - `cargo fmt --check` passed.
 - `git diff --check` passed.
+- ENG-23541 Windows fs verification passed on the Windows build host with
+  Visual Studio Build Tools and the local Hermes Windows SDK:
+  `cargo check --lib` compiled the Windows C++ bridge, and an
+  `IBEX_NO_BYTECODE=1 cargo run --bin ibex -- run winfs-smoke.js` smoke
+  confirmed all eight async fs hooks were installed and exercised
+  readFile/writeFile/stat/readv/writev, zero-length fd read/write, empty
+  append-create, and directory/path operations. The smoke output reported all
+  hooks `true`, `readvText:"bc"`, `out:"abcZZf"`, zero byte counts, and
+  `emptyAppendExists:true`.
+- The recovered ENG-23541 hardening was recompiled on that Windows host with
+  `cargo check --lib`. `cargo test --test windows_fs_bridge_contract` passed
+  four source/ABI contract checks, and `cargo test --test windows_fs_async`
+  passed the runtime regression covering normalized `ENOENT`/`EEXIST`, append
+  through an fd after its path was renamed, handle-based `fstat`, and real
+  `fsync`/`fdatasync`. The older cross-platform fs suites currently assume a
+  POSIX `/tmp` from `os.tmpdir()` and therefore are not valid Windows evidence.
 - The Android Java helper compiled with Android API 36 plus OkHttp 5.4.0,
   Okio 3.17.0, and Kotlin stdlib 2.1.21.
 - `ANDROID_TARGET=aarch64-linux-android ./scripts/cargo-android.sh` passed,
