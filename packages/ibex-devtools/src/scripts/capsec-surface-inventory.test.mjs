@@ -3217,10 +3217,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(84);
+    ).toHaveLength(89);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_hermes_")),
-    ).toHaveLength(36);
+    ).toHaveLength(37);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_worklet_")),
     ).toHaveLength(10);
@@ -3516,10 +3516,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(12);
+    expect(producers).toHaveLength(13);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(17);
+    ).toBe(18);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")

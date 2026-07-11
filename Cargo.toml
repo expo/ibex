@@ -19,6 +19,7 @@ name = "ibex"
 path = "src/bin/ibex/main.rs"
 
 [dependencies]
+capsec-semantics = { path = "crates/capsec-semantics" }
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"

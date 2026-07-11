@@ -1004,6 +1004,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "capsec-semantics",
  "cc",
  "clap",
  "clap_complete",

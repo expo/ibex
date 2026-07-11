@@ -4,6 +4,7 @@
 //! vocabularies, registry rows, and runtime adapters stay outside this crate.
 //! @ref LLP 0021#ownership-and-profile-identity — neutral semantics boundary
 
+pub mod arming;
 pub mod cache;
 pub mod canonical;
 pub mod containment;

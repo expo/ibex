@@ -115,6 +115,10 @@ pub struct Host {
     module_loader: Arc<ModuleLoader>,
     /// @ref LLP 0013#delegation-and-authority-flow — authority-bearing capability handles.
     handles: Arc<handles::HandleRegistry>,
+    /// Authenticated immutable decision input. Authored files and environment
+    /// values are intentionally absent after this point.
+    /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    armed_snapshot: Option<Arc<capsec_semantics::arming::ArmedSnapshot>>,
 }
 
 impl Host {
@@ -188,7 +192,23 @@ impl Host {
             config,
             module_loader: loader,
             handles: Arc::new(handles::HandleRegistry::new()),
+            armed_snapshot: None,
         }
+    }
+
+    /// Construct an explicitly armed host. Embedders must authenticate the
+    /// snapshot before creating the engine; there is no permissive fallback.
+    pub fn new_armed(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> Self {
+        let mut host = Self::new(config);
+        host.armed_snapshot = Some(armed_snapshot);
+        host
+    }
+
+    pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
+        self.armed_snapshot.as_ref()
     }
 
     /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow

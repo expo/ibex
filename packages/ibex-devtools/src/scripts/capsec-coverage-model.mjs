@@ -5036,6 +5036,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_android_initialize",
     "ex_hermes_callback_backlog",
     "ex_hermes_create",
+    "ex_hermes_create_armed",
     "ex_hermes_debugger_enable",
     "ex_hermes_debugger_eval",
     "ex_hermes_debugger_get_script_source",
@@ -5135,8 +5136,10 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_http_wait",
     "ex_host_init",
     "ex_host_install",
+    "ex_host_install_armed",
     "ex_host_is_allow_all",
     "ex_host_log_event",
+    "ex_host_matches_armed_snapshot_digest",
     "ex_host_module_resolve",
     "ex_host_module_resolve_meta",
     "ex_host_permission_request",
@@ -10815,7 +10818,7 @@ function embedderAbiClassification(name) {
     if (new Set(["exhermesdestroy", "exhermesfreestring"]).has(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
     }
-    if (name === "exhermescreate") {
+    if (new Set(["exhermescreate", "exhermescreatearmed"]).has(name)) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (
@@ -10888,6 +10891,14 @@ function hostAbiClassification(name) {
     )
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (
+    new Set([
+      "exhostinstallarmed",
+      "exhostmatchesarmedsnapshotdigest",
+    ]).has(name)
+  ) {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (name === "exhostconsolelog") {
     return effectSpec(["stdio:write"], "stdio", "WP7", {

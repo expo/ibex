@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145)
+**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -69,8 +69,8 @@ minimal contract `[inferred]`.
 LLP 0021 adds a source-derived security inventory across the public ABI
 families: the Rust/native `ex_host_*` callbacks, the `ex_hermes_*` embedding
 surface, the `ex_worklet_*` surface, and the Android Java/JNI bridge. The
-current generator finds 84, 36, and 10 symbols in the first three families,
-plus one `ex_android_*`, 39 Java, and 8 JNI routes (178 total). It groups source
+current generator finds 89, 37, and 10 symbols in the first three families,
+plus one `ex_android_*`, 39 Java, and 8 JNI routes (184 total). It groups source
 definitions by target variant, including weak/default stubs, rather than
 maintaining a copied symbol list `[observed]`
 (`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`). Those rows
@@ -196,6 +196,15 @@ Strings returned to C are malloc'd via `CString::into_raw` and freed by
   host `[observed]` (`src/engine/hermes_runtime.cc:1785`).
 
 ## Lifecycle (observed)
+
+The typed production path adds an explicit authenticated lifecycle alongside
+the legacy entry points: `ex_host_install_armed(snapshot, expected_identity)`
+strictly parses and authenticates caller-owned bytes, copies them into an
+immutable host decision context, and `ex_hermes_create_armed(digest)` creates
+Hermes only when that installed context has the exact digest. Mismatch or
+absence returns failure before a runtime exists. The ordinary
+`ex_host_install`/`ex_hermes_create` pair remains the legacy compatibility
+surface until WP9 removes weakening defaults.
 
 1. Host installs itself first: a Rust embedder can call
    `install_host(Host::new(...))`; the local `ibex` binary does this from CLI

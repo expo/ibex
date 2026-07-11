@@ -235,6 +235,7 @@ bool env_flag_enabled(const char* env_name) {
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
+extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
 extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
@@ -2558,6 +2559,19 @@ void emitNewScripts(ExactHermesRuntime* runtime,
     fprintf(stderr, "[startup] %-30s %6lld us (%5.1f ms)\n", \
             #name, (long long)_elapsed, _elapsed / 1000.0); \
   }
+
+extern "C" ExactHermesRuntime* ex_hermes_create();
+extern "C" ExactHermesRuntime* ex_hermes_create_armed(
+    const char* armed_snapshot_digest) {
+  // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+  // Refuse before allocating Hermes when the host did not authenticate the
+  // exact snapshot selected by the embedder.
+  if (armed_snapshot_digest == nullptr ||
+      ex_host_matches_armed_snapshot_digest(armed_snapshot_digest) != 1) {
+    return nullptr;
+  }
+  return ex_hermes_create();
+}
 
 extern "C" ExactHermesRuntime* ex_hermes_create() {
   TRACE_START(total);

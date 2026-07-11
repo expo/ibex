@@ -227,6 +227,29 @@ pub fn install_host(host: Host) {
     let _ = HOST.set(RwLock::new(host));
 }
 
+/// Install an immutable armed host from caller-owned bytes. The bytes are
+/// copied and authenticated before publication; later caller mutation cannot
+/// affect the installed decision context.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), String> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    let expected_text = std::str::from_utf8(expected_json)
+        .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
+    let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
+        .map_err(|error| error.to_string())?;
+    let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
+        .map_err(|error| format!("invalid expected arming identity: {error}"))?;
+    let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
+    install_host(Host::new_armed(
+        super::HostConfig {
+            mode: super::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        Arc::new(armed),
+    ));
+    Ok(())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let Some(host) = HOST.get() else {
         return default;
@@ -838,6 +861,50 @@ pub extern "C" fn ex_host_init() {}
 #[no_mangle]
 pub extern "C" fn ex_host_install() {
     install_host(Host::default_legacy());
+}
+
+/// Explicit fail-closed embedder arming entry point. Returns 0 only after the
+/// immutable snapshot is authenticated and installed.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_install_armed(
+    snapshot: *const u8,
+    snapshot_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> i32 {
+    if snapshot.is_null() || expected_identity.is_null() {
+        return -1;
+    }
+    let snapshot = unsafe { std::slice::from_raw_parts(snapshot, snapshot_len) };
+    let expected = unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+    match install_armed_host(snapshot, expected) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("error: refusing host arming: {error}");
+            -1
+        }
+    }
+}
+
+/// Engine/host handshake: exact digest equality proves the runtime being
+/// created is attached to the decision context the caller authenticated.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_char) -> i32 {
+    if digest.is_null() {
+        return 0;
+    }
+    let Ok(digest) = unsafe { CStr::from_ptr(digest) }.to_str() else {
+        return 0;
+    };
+    with_host(
+        |host| {
+            i32::from(
+                host.armed_snapshot()
+                    .is_some_and(|snapshot| snapshot.digest().as_str() == digest),
+            )
+        },
+        0,
+    )
 }
 
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.

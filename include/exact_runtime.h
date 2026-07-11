@@ -37,6 +37,10 @@ typedef struct ExactHermesRuntime ExactHermesRuntime;
 /// @return Pointer to runtime, or NULL on failure
 ExactHermesRuntime* ex_hermes_create(void);
 
+/// Create a runtime only when the installed host carries this exact immutable
+/// armed-snapshot identity. Returns NULL on absence or mismatch.
+ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
+
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
 
@@ -276,6 +280,16 @@ int ex_hermes_dispatch_event(
 /// Install the host singleton. Must be called before creating a runtime.
 /// On iOS, this is called from Swift during app initialization.
 void ex_host_install(void);
+
+/// Authenticate and install an immutable armed snapshot. Both buffers are
+/// copied during the call. Returns 0 on success, non-zero on refusal.
+int ex_host_install_armed(const uint8_t* snapshot,
+                          size_t snapshot_len,
+                          const uint8_t* expected_identity,
+                          size_t expected_identity_len);
+
+/// Return 1 only when the installed host has the exact snapshot digest.
+int ex_host_matches_armed_snapshot_digest(const char* digest);
 
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);
