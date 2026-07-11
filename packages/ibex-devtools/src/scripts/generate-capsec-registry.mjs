@@ -1,0 +1,731 @@
+/**
+ * Generate the LLP 0021 WP1 implementation inventory and language bindings.
+ *
+ * The four semantic datasets under capsec/registry are the authority. Source
+ * discovery proves that every live observed surface joins exactly one
+ * semantic edge; generated bindings never become a second matcher.
+ *
+ * @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — one
+ * closed source inventory, exact target cells, reproducible bindings, and a
+ * non-writing CI drift gate.
+ */
+
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  canonicalJson,
+  capsecRoot,
+  readJsonStrict,
+  repoRoot,
+} from "./capsec-contract.mjs";
+import { buildCoverageModel } from "./capsec-coverage-model.mjs";
+import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
+import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
+import {
+  assertConfinedGeneratedFile,
+  writeGeneratedFilesTransactionally,
+} from "./generated-output-io.mjs";
+
+const __filename = fileURLToPath(import.meta.url);
+
+export const generatedRegistryPaths = Object.freeze({
+  coverage: path.join(capsecRoot, "registry", "coverage-edges.json"),
+  targetCells: path.join(capsecRoot, "registry", "target-cells.json"),
+  implementationManifest: path.join(
+    capsecRoot,
+    "generated",
+    "implementation-manifest.json",
+  ),
+  idsSchema: path.join(
+    capsecRoot,
+    "generated",
+    "capsec-registry-ids.schema.json",
+  ),
+  surfaceDocs: path.join(capsecRoot, "generated", "surface-inventory.md"),
+  targetDocs: path.join(capsecRoot, "generated", "target-matrix.md"),
+  rust: path.join(repoRoot, "src", "capsec_registry_generated.rs"),
+  cxx: path.join(repoRoot, "src", "engine", "capsec_registry_generated.h"),
+  javascript: path.join(
+    repoRoot,
+    "src",
+    "builtins",
+    "helpers",
+    "capsec-registry.generated.cjs",
+  ),
+  typescript: path.join(
+    repoRoot,
+    "packages",
+    "ibex-runtime-js",
+    "src",
+    "security",
+    "capsec-registry.generated.ts",
+  ),
+});
+
+// This catalog is deliberately closed and independent of the order in which
+// renderCapsecRegistry constructs its Map. The implementation manifest cannot
+// digest itself; the aggregate registry digest binds that tenth artifact.
+export const generatedRegistryOutputCatalog = Object.freeze([
+  Object.freeze({
+    path: "capsec/generated/capsec-registry-ids.schema.json",
+    kind: "json-schema",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/implementation-manifest.json",
+    kind: "implementation-manifest",
+    digestBound: false,
+  }),
+  Object.freeze({
+    path: "capsec/generated/surface-inventory.md",
+    kind: "markdown",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/generated/target-matrix.md",
+    kind: "markdown",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/registry/coverage-edges.json",
+    kind: "registry",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "capsec/registry/target-cells.json",
+    kind: "registry",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
+    kind: "typescript",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "src/builtins/helpers/capsec-registry.generated.cjs",
+    kind: "javascript",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "src/capsec_registry_generated.rs",
+    kind: "rust",
+    digestBound: true,
+  }),
+  Object.freeze({
+    path: "src/engine/capsec_registry_generated.h",
+    kind: "cxx",
+    digestBound: true,
+  }),
+]);
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function prettyJson(value) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
+function rawContentDigest(content) {
+  return `sha256-${crypto.createHash("sha256").update(content, "utf8").digest("base64url")}`;
+}
+
+function relativeOutputPath(filePath) {
+  return path.relative(repoRoot, filePath).split(path.sep).join("/");
+}
+
+function compareStringArrays(left, right) {
+  return (
+    canonicalJson([...left].sort(compareText)) ===
+    canonicalJson([...right].sort(compareText))
+  );
+}
+
+function assertExactCatalogPaths(actualPaths, expectedRows, label) {
+  const actual = actualPaths.map(relativeOutputPath);
+  const expected = expectedRows.map((row) => row.path);
+  if (!compareStringArrays(actual, expected)) {
+    const actualSet = new Set(actual);
+    const expectedSet = new Set(expected);
+    throw new Error(
+      `${label}: generated output catalog mismatch; unexpected=[${actual.filter((entry) => !expectedSet.has(entry)).join(", ")}] missing=[${expected.filter((entry) => !actualSet.has(entry)).join(", ")}]`,
+    );
+  }
+}
+
+assertExactCatalogPaths(
+  Object.values(generatedRegistryPaths),
+  generatedRegistryOutputCatalog,
+  "declared generated registry paths",
+);
+
+function quoteRust(value) {
+  return JSON.stringify(value);
+}
+
+function quoteCxx(value) {
+  return JSON.stringify(value)
+    .replaceAll("\\u2028", "\\u2028")
+    .replaceAll("\\u2029", "\\u2029");
+}
+
+function edgeActionIds(edge) {
+  if (edge.classification === "effects") {
+    return edge.effects.map((effect) => effect.cap);
+  }
+  return edge.classification === "closed" ? [edge.cap] : [];
+}
+
+function renderRustBinding(binding) {
+  const actions = binding.actionIds
+    .map((id) => `    ${quoteRust(id)},`)
+    .join("\n");
+  const edges = binding.edgeIds.map((id) => `    ${quoteRust(id)},`).join("\n");
+  const branches = binding.implementationBranchIds
+    .map((id) => `    ${quoteRust(id)},`)
+    .join("\n");
+  const targets = binding.targetKeys
+    .map((id) => `    ${quoteRust(id)},`)
+    .join("\n");
+  return `// @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs
+// Do not edit by hand.
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+
+pub const CAPSEC_PROFILE: &str = ${quoteRust(binding.profile)};
+pub const CAPSEC_SEMANTIC_CORE: &str = ${quoteRust(binding.semanticCore)};
+pub const CAPSEC_CAPABILITY_DEFINITIONS_JSON: &str =
+    include_str!("../capsec/registry/capability-definitions.json");
+pub const CAPSEC_COVERAGE_EDGES_JSON: &str = include_str!("../capsec/registry/coverage-edges.json");
+pub const CAPSEC_TARGET_CELLS_JSON: &str = include_str!("../capsec/registry/target-cells.json");
+pub const CAPSEC_POLICY_RULES_JSON: &str = include_str!("../capsec/registry/policy-rules.json");
+
+#[rustfmt::skip]
+pub const CAPSEC_ACTION_IDS: &[&str] = &[
+${actions}
+];
+
+#[rustfmt::skip]
+pub const CAPSEC_COVERAGE_EDGE_IDS: &[&str] = &[
+${edges}
+];
+
+#[rustfmt::skip]
+pub const CAPSEC_IMPLEMENTATION_BRANCH_IDS: &[&str] = &[
+${branches}
+];
+
+#[rustfmt::skip]
+pub const CAPSEC_TARGET_KEYS: &[&str] = &[
+${targets}
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_registry_ids_are_nonempty_and_sorted() {
+        assert!(!CAPSEC_ACTION_IDS.is_empty());
+        assert!(!CAPSEC_COVERAGE_EDGE_IDS.is_empty());
+        assert!(!CAPSEC_IMPLEMENTATION_BRANCH_IDS.is_empty());
+        assert!(!CAPSEC_TARGET_KEYS.is_empty());
+        assert!(CAPSEC_ACTION_IDS.windows(2).all(|rows| rows[0] < rows[1]));
+        assert!(CAPSEC_COVERAGE_EDGE_IDS
+            .windows(2)
+            .all(|rows| rows[0] < rows[1]));
+        assert!(CAPSEC_IMPLEMENTATION_BRANCH_IDS
+            .windows(2)
+            .all(|rows| rows[0] < rows[1]));
+        assert!(CAPSEC_TARGET_KEYS.windows(2).all(|rows| rows[0] < rows[1]));
+    }
+}
+`;
+}
+
+function renderCxxBinding(binding) {
+  const actions = binding.actionIds
+    .map((id) => `    ${quoteCxx(id)},`)
+    .join("\n");
+  const edges = binding.edgeIds.map((id) => `    ${quoteCxx(id)},`).join("\n");
+  const branches = binding.implementationBranchIds
+    .map((id) => `    ${quoteCxx(id)},`)
+    .join("\n");
+  const targets = binding.targetKeys
+    .map((id) => `    ${quoteCxx(id)},`)
+    .join("\n");
+  return `// @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs
+// Do not edit by hand.
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+#pragma once
+
+#include <cstddef>
+
+namespace ibex::capsec_generated {
+
+inline constexpr const char* kProfile = ${quoteCxx(binding.profile)};
+inline constexpr const char* kSemanticCore = ${quoteCxx(binding.semanticCore)};
+inline constexpr const char* kActionIds[] = {
+${actions}
+};
+inline constexpr const char* kCoverageEdgeIds[] = {
+${edges}
+};
+inline constexpr const char* kImplementationBranchIds[] = {
+${branches}
+};
+inline constexpr const char* kTargetKeys[] = {
+${targets}
+};
+inline constexpr std::size_t kActionCount = sizeof(kActionIds) / sizeof(kActionIds[0]);
+inline constexpr std::size_t kCoverageEdgeCount =
+    sizeof(kCoverageEdgeIds) / sizeof(kCoverageEdgeIds[0]);
+inline constexpr std::size_t kImplementationBranchCount =
+    sizeof(kImplementationBranchIds) / sizeof(kImplementationBranchIds[0]);
+inline constexpr std::size_t kTargetCellCount = sizeof(kTargetKeys) / sizeof(kTargetKeys[0]);
+
+}  // namespace ibex::capsec_generated
+`;
+}
+
+function renderTypeScriptBinding(binding) {
+  return `// @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs
+// Do not edit by hand.
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+
+export const CAPSEC_REGISTRY = Object.freeze({
+  bindingSchema: ${JSON.stringify(binding.bindingSchema)},
+  profile: ${JSON.stringify(binding.profile)},
+  semanticCore: ${JSON.stringify(binding.semanticCore)},
+  actionIds: Object.freeze(${JSON.stringify(binding.actionIds, null, 2)} as const),
+  edgeIds: Object.freeze(${JSON.stringify(binding.edgeIds, null, 2)} as const),
+  implementationBranchIds: Object.freeze(${JSON.stringify(binding.implementationBranchIds, null, 2)} as const),
+  targetKeys: Object.freeze(${JSON.stringify(binding.targetKeys, null, 2)} as const),
+} as const);
+
+export type CapsecActionId = (typeof CAPSEC_REGISTRY.actionIds)[number];
+export type CapsecCoverageEdgeId = (typeof CAPSEC_REGISTRY.edgeIds)[number];
+export type CapsecImplementationBranchId = (typeof CAPSEC_REGISTRY.implementationBranchIds)[number];
+export type CapsecTargetKey = (typeof CAPSEC_REGISTRY.targetKeys)[number];
+`;
+}
+
+function renderJavaScriptBinding(binding) {
+  return `'use strict';
+// @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs
+// Do not edit by hand.
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory
+
+const CAPSEC_REGISTRY = ${JSON.stringify(binding, null, 2)};
+Object.freeze(CAPSEC_REGISTRY.actionIds);
+Object.freeze(CAPSEC_REGISTRY.edgeIds);
+Object.freeze(CAPSEC_REGISTRY.implementationBranchIds);
+Object.freeze(CAPSEC_REGISTRY.targetKeys);
+Object.freeze(CAPSEC_REGISTRY);
+
+module.exports = Object.freeze({ CAPSEC_REGISTRY });
+`;
+}
+
+function renderIdsSchema(binding) {
+  return prettyJson({
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "https://ibex.dev/capsec/generated/capsec-registry-ids.schema.json",
+    title: "Generated Ibex capsec registry identifiers",
+    $comment:
+      "@generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs",
+    $defs: {
+      actionId: { enum: binding.actionIds },
+      coverageEdgeId: { enum: binding.edgeIds },
+      implementationBranchId: { enum: binding.implementationBranchIds },
+      targetKey: { enum: binding.targetKeys },
+    },
+  });
+}
+
+function markdownCell(value) {
+  return String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
+}
+
+function renderSurfaceDocs(coverage, implementationRows) {
+  const implementationByEdge = new Map();
+  for (const row of implementationRows) {
+    const rows = implementationByEdge.get(row.edgeId) ?? [];
+    rows.push(row);
+    implementationByEdge.set(row.edgeId, rows);
+  }
+  const lines = [
+    "<!-- @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs -->",
+    "<!-- @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — generated review output -->",
+    "# Generated capability surface inventory",
+    "",
+    "This table is review output. The JSON registries and observed source-surface manifest are authoritative.",
+    "",
+    "| Edge | Surface | Classification | Effect mode | Actions | Owner | Implementation branches | Observed source references |",
+    "|---|---|---|---|---|---|---|---|",
+  ];
+  for (const edge of coverage.edges) {
+    const implementations = implementationByEdge.get(edge.id) ?? [];
+    const sourceRefs = [
+      ...new Set(implementations.flatMap((row) => row.sourceRefs)),
+    ].sort(compareText);
+    const owners = [
+      ...new Set(implementations.map((row) => row.implementationOwner)),
+    ].sort(compareText);
+    const branches = implementations
+      .map(
+        (row) =>
+          `${row.branchId} [${row.targetVariant}${row.backend ? `/${row.backend}` : ""}]`,
+      )
+      .sort(compareText);
+    lines.push(
+      `| ${markdownCell(edge.id)} | ${markdownCell(`${edge.surface.kind}:${edge.surface.name}`)} | ${markdownCell(edge.classification)} | ${markdownCell(edge.effectMode ?? "—")} | ${markdownCell(edgeActionIds(edge).join(", ") || "—")} | ${markdownCell(owners.join(", ") || "—")} | ${markdownCell(branches.join(", ") || "—")} | ${markdownCell(sourceRefs.join(", ") || "—")} |`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function renderTargetDocs(targetCells, coverage) {
+  const conditionalEdges = coverage.edges.filter(
+    (edge) => edge.effectMode === "conditional-unrefined",
+  ).length;
+  const byTarget = new Map();
+  for (const cell of targetCells.cells) {
+    const targetKey = canonicalJson([cell.target.triple, cell.target.features]);
+    const counts = byTarget.get(targetKey) ?? {
+      target: cell.target,
+      enforced: 0,
+      closed: 0,
+      nonCapability: 0,
+      absent: 0,
+      unsupported: 0,
+      implementationBranches: 0,
+      branchlessCells: 0,
+    };
+    const key =
+      cell.disposition === "non-capability"
+        ? "nonCapability"
+        : cell.disposition;
+    counts[key] += 1;
+    counts.implementationBranches += cell.implementationBranchIds.length;
+    if (cell.implementationBranchIds.length === 0) counts.branchlessCells += 1;
+    byTarget.set(targetKey, counts);
+  }
+  const lines = [
+    "<!-- @generated by packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs -->",
+    "<!-- @ref LLP 0021#default-and-target-claim — exact-target claims remain disabled until conformance -->",
+    "# Generated capsec target matrix",
+    "",
+    `The registry contains ${coverage.edges.length} semantic coverage edges, including ${conditionalEdges} conditional-unrefined edges. WP1 advertises no executable target.`,
+    "",
+    "| Exact target | Structural features | Selected implementation branches | Branchless cells | Enforced | Closed | Non-capability | Absent | Unsupported |",
+    "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+  ];
+  for (const counts of [...byTarget.values()].sort((left, right) =>
+    compareText(canonicalJson(left.target), canonicalJson(right.target)),
+  )) {
+    lines.push(
+      `| ${counts.target.triple} | ${counts.target.features.join(", ")} | ${counts.implementationBranches} | ${counts.branchlessCells} | ${counts.enforced} | ${counts.closed} | ${counts.nonCapability} | ${counts.absent} | ${counts.unsupported} |`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function buildTargetCells(coverage, candidateTargets, implementationRows) {
+  const implementationsByEdge = new Map();
+  for (const row of implementationRows) {
+    const rows = implementationsByEdge.get(row.edgeId) ?? [];
+    rows.push(row);
+    implementationsByEdge.set(row.edgeId, rows);
+  }
+  const cells = [];
+  for (const edge of coverage.edges) {
+    const implementations = implementationsByEdge.get(edge.id) ?? [];
+    if (implementations.length === 0) {
+      throw new Error(`${edge.id}: target cell has no implementation branches`);
+    }
+    for (const target of candidateTargets) {
+      cells.push({
+        edgeId: edge.id,
+        target: structuredClone(target),
+        disposition: "unsupported",
+        implementationBranchIds: applicableImplementationBranchIds(
+          implementations,
+          target,
+        ),
+        fixtures: [],
+        rationale:
+          "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence.",
+      });
+    }
+  }
+  cells.sort((left, right) =>
+    compareText(
+      canonicalJson([left.edgeId, left.target.triple, left.target.features]),
+      canonicalJson([right.edgeId, right.target.triple, right.target.features]),
+    ),
+  );
+  return {
+    targetCellSchema: "ibex/capsec-target-cells/1",
+    profile: "ibex/capsec/1",
+    cells,
+  };
+}
+
+function buildBinding(
+  definitions,
+  coverage,
+  targetCells,
+  rules,
+  implementationRows,
+) {
+  const actionIds = definitions.definitions
+    .map((definition) => definition.id)
+    .sort(compareText);
+  const edgeIds = coverage.edges.map((edge) => edge.id).sort(compareText);
+  const implementationBranchIds = implementationRows
+    .map((row) => row.branchId)
+    .sort(compareText);
+  assertUnique(implementationBranchIds, "implementation branch ids");
+  const targetKeys = targetCells.cells
+    .map((cell) =>
+      canonicalJson([cell.edgeId, cell.target.triple, cell.target.features]),
+    )
+    .sort(compareText);
+  return {
+    bindingSchema: "ibex/capsec-generated-bindings/1",
+    profile: "ibex/capsec/1",
+    semanticCore: rules.semanticCore,
+    actionIds,
+    edgeIds,
+    implementationBranchIds,
+    targetKeys,
+  };
+}
+
+function renderOutputEntries(rendered) {
+  const catalog = generatedRegistryOutputCatalog.filter(
+    (row) => row.digestBound,
+  );
+  assertExactCatalogPaths(
+    [...rendered.keys()],
+    catalog,
+    "digest-bound rendered outputs",
+  );
+  return catalog
+    .map(({ path: outputPath, kind }) => {
+      const content = rendered.get(path.join(repoRoot, outputPath));
+      if (typeof content !== "string") {
+        throw new Error(`digest-bound output ${outputPath} was not rendered`);
+      }
+      return {
+        kind,
+        path: outputPath,
+        rawContentDigest: rawContentDigest(content),
+      };
+    })
+    .sort((left, right) => compareText(left.path, right.path));
+}
+
+function assertUnique(values, label) {
+  if (new Set(values).size !== values.length)
+    throw new Error(`${label}: duplicate value`);
+}
+
+export async function renderCapsecRegistry() {
+  const definitions = readJsonStrict(
+    path.join(capsecRoot, "registry", "capability-definitions.json"),
+  );
+  const rules = readJsonStrict(
+    path.join(capsecRoot, "registry", "policy-rules.json"),
+  );
+  const inventory = await discoverRepositorySurfaces(repoRoot);
+  const flattened = inventory.surfaces ?? inventory;
+  if (!Array.isArray(flattened) || flattened.length === 0) {
+    throw new Error("surface discovery returned no surfaces");
+  }
+  const model = buildCoverageModel(flattened, { definitions, rules });
+  const coverage = model.coverage ?? {
+    coverageSchema: "ibex/capsec-coverage/1",
+    profile: "ibex/capsec/1",
+    edges: model.edges,
+  };
+  coverage.edges.sort((left, right) => compareText(left.id, right.id));
+  assertUnique(
+    coverage.edges.map((edge) => edge.id),
+    "coverage edge ids",
+  );
+
+  const implementationRows = [...model.implementationRows].sort((left, right) =>
+    compareText(
+      `${left.edgeId}\u0000${left.branchId}`,
+      `${right.edgeId}\u0000${right.branchId}`,
+    ),
+  );
+  assertUnique(
+    implementationRows.map((row) => `${row.edgeId}\u0000${row.branchId}`),
+    "implementation edge/branch ids",
+  );
+  const implementedEdgeIds = [
+    ...new Set(implementationRows.map((row) => row.edgeId)),
+  ].sort(compareText);
+  if (
+    canonicalJson(coverage.edges.map((edge) => edge.id)) !==
+    canonicalJson(implementedEdgeIds)
+  ) {
+    throw new Error(
+      "coverage edges and implementation rows do not join one-to-one",
+    );
+  }
+
+  const candidateTargets = structuredClone(
+    rules.initialProfile.candidateTargets,
+  );
+  const targetCells = buildTargetCells(
+    coverage,
+    candidateTargets,
+    implementationRows,
+  );
+  const binding = buildBinding(
+    definitions,
+    coverage,
+    targetCells,
+    rules,
+    implementationRows,
+  );
+
+  const rendered = new Map();
+  rendered.set(generatedRegistryPaths.coverage, prettyJson(coverage));
+  rendered.set(generatedRegistryPaths.targetCells, prettyJson(targetCells));
+  rendered.set(generatedRegistryPaths.rust, renderRustBinding(binding));
+  rendered.set(generatedRegistryPaths.cxx, renderCxxBinding(binding));
+  rendered.set(
+    generatedRegistryPaths.javascript,
+    renderJavaScriptBinding(binding),
+  );
+  rendered.set(
+    generatedRegistryPaths.typescript,
+    renderTypeScriptBinding(binding),
+  );
+  rendered.set(generatedRegistryPaths.idsSchema, renderIdsSchema(binding));
+  rendered.set(
+    generatedRegistryPaths.surfaceDocs,
+    renderSurfaceDocs(coverage, implementationRows),
+  );
+  rendered.set(
+    generatedRegistryPaths.targetDocs,
+    renderTargetDocs(targetCells, coverage),
+  );
+
+  const implementationManifest = {
+    implementationManifestSchema: "ibex/capsec-implementation/1",
+    profile: "ibex/capsec/1",
+    status: "inventory-only-until-conformance",
+    provenance: {
+      sourceRefs: "definitions-stubs-or-security-relevant-references",
+      targetBranches: "source-derived-not-conformance-evidence",
+      targetSelection: "exact-branch-ids-from-target-applicability",
+      promotionRule: "executed-fixtures-required",
+    },
+    sourceDatasets: [
+      "registry/capability-definitions.json",
+      "registry/coverage-edges.json",
+      "registry/policy-rules.json",
+      "registry/target-cells.json",
+    ],
+    candidateTargets,
+    surfaces: implementationRows,
+    definitionCoverage: [...model.definitionCoverage].sort((left, right) =>
+      compareText(left.definitionId, right.definitionId),
+    ),
+    outputs: renderOutputEntries(rendered),
+    counts: {
+      observedReferences: implementationRows.reduce(
+        (sum, row) => sum + row.sourceRefs.length,
+        0,
+      ),
+      logicalSurfaces: new Set(implementationRows.map((row) => row.observedKey))
+        .size,
+      coverageEdges: coverage.edges.length,
+      targetCells: targetCells.cells.length,
+    },
+  };
+  rendered.set(
+    generatedRegistryPaths.implementationManifest,
+    prettyJson(implementationManifest),
+  );
+  assertExactCatalogPaths(
+    [...rendered.keys()],
+    generatedRegistryOutputCatalog,
+    "complete rendered output family",
+  );
+  return {
+    rendered,
+    coverage,
+    targetCells,
+    implementationManifest,
+    binding,
+    inventory,
+  };
+}
+
+export async function runCapsecRegistryGenerator({ write = false } = {}) {
+  const result = await renderCapsecRegistry();
+  const stale = [];
+  if (write) {
+    writeGeneratedFilesTransactionally(
+      repoRoot,
+      [...result.rendered].map(([filePath, content]) => ({
+        path: filePath,
+        content,
+        label: `generated capsec registry output ${relativeOutputPath(filePath)}`,
+      })),
+    );
+  } else {
+    for (const [filePath, content] of result.rendered) {
+      const relative = relativeOutputPath(filePath);
+      if (!fs.existsSync(filePath)) {
+        stale.push(relative);
+        continue;
+      }
+      assertConfinedGeneratedFile(
+        repoRoot,
+        filePath,
+        `generated capsec registry output ${relative}`,
+      );
+      if (fs.readFileSync(filePath, "utf8") !== content) {
+        stale.push(relative);
+      }
+    }
+  }
+  if (stale.length) {
+    throw new Error(
+      `generated capsec registry is stale:\n${stale.map((entry) => `  - ${entry}`).join("\n")}\nRun: bun run generate:capsec-registry`,
+    );
+  }
+  return {
+    coverageEdges: result.coverage.edges.length,
+    targetCells: result.targetCells.cells.length,
+    observedReferences: result.implementationManifest.counts.observedReferences,
+    outputs: result.rendered.size,
+  };
+}
+
+if (path.resolve(process.argv[1] ?? "") === __filename) {
+  const write = process.argv.includes("--write");
+  const check = process.argv.includes("--check");
+  if (write === check) {
+    console.error("usage: generate-capsec-registry.mjs (--write | --check)");
+    process.exit(2);
+  }
+  try {
+    const counts = await runCapsecRegistryGenerator({ write });
+    console.log(
+      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
+    );
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  }
+}

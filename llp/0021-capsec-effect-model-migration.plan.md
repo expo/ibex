@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule)
+**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -165,6 +165,21 @@ The implementation has four generated inputs:
 Generated Rust, C++, JavaScript/TypeScript, JSON schemas, documentation tables,
 and fixtures consume these sources. Handwritten duplicate matcher tables are
 not authoritative. Drift is a build/CI failure.
+
+Coverage edges contain semantic data only. A separately generated
+`implementation-manifest.json` joins each edge to source-derived definitions,
+stubs, or security-relevant references, the later work package that owns its
+gate, fixture obligations, and content digests for generated outputs. Those
+references are inventory evidence, not conformance evidence; only executed
+fixtures can promote a target cell.
+
+An effect edge is normally `conjunctive`. WP1 may record a known
+parameter/provenance-dependent surface as `conditional-unrefined` only while
+every corresponding target cell remains `unsupported`; the edge names its
+refinement owner and why its possible effect set is not yet executable. Such an
+edge cannot be promoted or armed. The owning filesystem, network, process, or
+device work package must replace it with exact conjunctive logical branches
+before conformance.
 
 ### Policy forms and digests
 
@@ -412,9 +427,10 @@ coverage and containment vectors. The registry fixture content-addresses every
 semantic and invalid fixture body as well as its closed file inventory; digest
 payloads and the fixed digest-vector oracle are explicitly excluded where
 including their raw bytes would create a cycle, and are checked independently.
-The registry bundle and armed snapshot are explicitly `contract-fixture`
-artifacts until WP1 provides a generated production registry; conformance
-remains unavailable until WP10. Canonical policy and armed examples carry
+The generated production registry is available after WP1. Its target cells are
+all unsupported and its source references are explicitly non-conformance
+inventory evidence. The armed snapshot remains a `contract-fixture`, and
+conformance remains unavailable until WP10. Canonical policy and armed examples carry
 recomputed self-digests and exact cross-digests. One checked golden vector
 freezes each of the five domains, and the domain-to-payload mapping is fixed.
 
@@ -430,7 +446,10 @@ members. Missing policy canonicalizes to enforce with empty dependency floors
 and empty escalation ceilings. Full deputy intersection, lockdown, frame
 attribution, native compartments, and immutable arming are structural.
 
-WP0 advertises no targets. An executable production or diagnostic-audit
+WP1 advertises no targets and records one candidate exact target,
+`aarch64-apple-darwin` with structural `hermes-frame-attribution`,
+`native-compartments`, and `native-lockdown` features. These are security
+properties, not Cargo feature names. An executable production or diagnostic-audit
 snapshot may arm only when its exact target triple and canonical feature set
 are advertised and every coverage edge has a matching `enforced`, `closed`, or
 `absent` cell; a missing or `unsupported` cell refuses before project code.
@@ -512,6 +531,42 @@ Acceptance:
 - Adding an unclassified surface or unknown capability fails generation/CI.
 - Generated bindings and documentation are byte-reproducible.
 - Target cells begin honestly as unsupported/closed until fixtures prove more.
+
+Implementation: ENG-24145 generates the production coverage registry, exact
+candidate-target product, source-surface/fixture-obligation manifest, stable-ID
+schema, review tables, and Rust/C++/JavaScript/TypeScript bindings. Discovery is
+source-derived across native globals, public host/embedder/worklet ABI,
+builtin exports, installed globals, loader branches, callback producers,
+startup installers/scripts, inspector operations, and CLI commands. Unknown
+surfaces/actions/normalizers fail generation; source filenames never choose a
+semantic classification. `bun run check:capsec-registry`,
+`bun run check:capsec-contract`, their focused tests, and the repository drift
+gate are non-writing checks.
+
+Implementation alternatives retain their source-derived target variant,
+normalized applicability, backend/stub disposition, and a globally unique
+branch ID. Every target cell lists the exact applicable branch IDs even while
+unsupported; fixture obligations are scoped to those branch IDs. Promotion
+must execute the complete obligation union for exactly that source-derived
+branch set. Unknown, wrong-target, omitted, or invented branch evidence fails
+validation, while a branchless target can advance only to target-proved
+`absent`. A known `unsupported-stub` branch cannot promote. Weak-fallback and
+source-uncertain provenance are resolved only by the WP10 report's executed
+obligations bound to the exact target binary; they are not conformance evidence
+by themselves.
+
+The ENG-24145 baseline contains 6,804 logical surfaces and coverage edges,
+6,984 implementation-branch rows, and 11,048 source references. It includes
+2,823 builtin surfaces: 2,696 export/prototype/inherited-shape APIs plus 127
+specifier aliases. Inherited CommonJS and authored shared-runtime class shapes
+are traversed exactly when their base is source-resolvable; otherwise a
+review-bound dynamic-table sentinel closes the entire inherited property domain.
+It also includes 178 host-ABI surfaces: the complete 84/36/10
+`ex_host_*`/`ex_hermes_*`/`ex_worklet_*` families, one `ex_android_*` entry,
+and 39 Java plus 8 JNI Android bridge routes. All 6,804 candidate-target cells
+are unsupported; 760 known
+parameter/provenance-dependent effect edges are explicitly
+`conditional-unrefined` and therefore unpromotable.
 
 ### WP2 — Implement the typed policy and decision core
 

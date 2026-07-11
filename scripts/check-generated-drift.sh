@@ -25,8 +25,11 @@ trap 'rm -rf "$scratch"' EXIT
 stale=()
 
 # --- check-capable generators (verify in place, write nothing) -------------
-# The LLP 0021 WP0 validator also performs cross-file schema/semantic checks;
+# The LLP 0021 validator also performs cross-file schema/semantic checks;
 # do not hide those diagnostics behind the generic stale-file summary.
+# @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — both
+# registry freshness and its downstream contract digests are required.
+bun run check:capsec-registry
 bun run check:capsec-contract
 if ! bun run generate:capability-bits --check >/dev/null 2>&1; then
   stale+=("packages/ibex-runtime-js/src/security/capability-bits.generated.ts")

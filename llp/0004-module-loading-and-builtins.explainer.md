@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation)
+**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -102,6 +102,14 @@ So `node:`, `bun:`, and bare specifiers are deliberate aliases onto a shared set
 of embedded sources `[observed]` (`modules.ts:693-699, 728-729`).
 `[inferred: the single-source-many-aliases design lets Ibex present a Node- and
 Bun-compatible import surface without maintaining separate implementations.]`
+
+The LLP 0021 capability inventory uses the same source-key boundary: it records
+each specifier alias, then statically inventories exported APIs once per source
+key rather than treating `fs`, `node:fs`, and `bun:fs` as three independent
+implementations. Export and prototype-member additions are source-derived and
+participate in `check:capsec-registry`, so a new builtin API cannot silently
+bypass classification `[observed]`
+(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
 
 `exact:http` and `exact:sqlite` are not generated builtin files: their source
 keys point at repo files under `packages/ibex-runtime-js`, and the generated

@@ -41,6 +41,7 @@
       "boundEndpoints",
       "builtins",
       "cacheKeyFields",
+      "candidateTargets",
       "candidates",
       "cidrs",
       "closedSurfaceClasses",
@@ -48,6 +49,7 @@
       "denials",
       "deniedActions",
       "deviceActions",
+      "edgeIds",
       "effects",
       "endowments",
       "environmentTargets",
@@ -57,11 +59,13 @@
       "explicitOnly",
       "features",
       "fileClasses",
+      "fixtureObligations",
       "fixtures",
       "floor",
       "forbiddenLifecycles",
       "formats",
       "generated",
+      "implementationBranchIds",
       "implicitAuthorityRules",
       "importEdges",
       "invalidFixtures",
@@ -91,6 +95,7 @@
       "schemes",
       "setKeys",
       "sourceDatasets",
+      "sourceRefs",
       "stdioSourceKinds",
       "stdioStreams",
       "storageStores"
@@ -120,6 +125,21 @@
         "schema": "ibex/capsec-digest-vectors/1",
         "path": "/vectors",
         "orderBy": ["/id"]
+      },
+      {
+        "schema": "ibex/capsec-implementation/1",
+        "path": "/definitionCoverage",
+        "orderBy": ["/definitionId"]
+      },
+      {
+        "schema": "ibex/capsec-implementation/1",
+        "path": "/outputs",
+        "orderBy": ["/path"]
+      },
+      {
+        "schema": "ibex/capsec-implementation/1",
+        "path": "/surfaces",
+        "orderBy": ["/edgeId", "/branchId"]
       },
       {
         "schema": "ibex/capsec-target-cells/1",
@@ -160,7 +180,7 @@
         "omitFields": []
       },
       "registry": {
-        "status": "contract-fixture-until-wp1",
+        "status": "available",
         "inputSchema": "ibex/capsec-digest-bundle/1",
         "memberOrder": "logical-name-lexical",
         "members": [
@@ -171,6 +191,7 @@
           "network-classifier-snapshot",
           "schema/contract-manifest",
           "schema/coverage-edge",
+          "schema/implementation-manifest",
           "schema/legacy-reconciliation",
           "schema/target-cell",
           "target-cells",
@@ -510,7 +531,57 @@
       { "id": "network.non-public-peer", "predicate": "peer-class-is-not-public", "minimumTier": 3 }
     ],
     "nonCapabilityRationales": [
-      { "id": "ordinary-randomness", "predicate": "cryptographic-random-byte-generation-without-external-device-or-key-access", "rationale": "Random byte generation carries no external authority in the package threat model." }
+      {
+        "id": "authority-control-plane",
+        "predicate": "authenticated-authority-check-delegation-revocation-or-evidence-bookkeeping-without-an-external-effect",
+        "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+      },
+      {
+        "id": "authority-release",
+        "predicate": "close-cancel-release-or-unref-an-already-owned-resource-without-new-external-authority",
+        "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+      },
+      {
+        "id": "callback-attribution-carrier",
+        "predicate": "schedule-enqueue-drain-or-restore-attribution-without-performing-the-eventual-effect",
+        "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+      },
+      {
+        "id": "internal-data-transform",
+        "predicate": "encoding-compression-framing-or-buffer-transformation-over-already-held-memory",
+        "rationale": "Transforming already-held bytes or strings carries no independent external authority."
+      },
+      {
+        "id": "module-reachability-only",
+        "predicate": "module-alias-resolution-or-admission-with-operational-effects-gated-at-their-own-native-boundaries",
+        "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
+      },
+      { "id": "ordinary-randomness", "predicate": "cryptographic-random-byte-generation-without-external-device-or-key-access", "rationale": "Random byte generation carries no external authority in the package threat model." },
+      {
+        "id": "ordinary-time",
+        "predicate": "ordinary-or-high-resolution-clock-read-without-an-external-resource",
+        "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
+      },
+      {
+        "id": "pure-in-memory-compute",
+        "predicate": "deterministic-or-keyless-computation-over-values-already-held-by-the-caller",
+        "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
+      },
+      {
+        "id": "retained-object-wrapper",
+        "predicate": "orchestrate-read-or-write-an-already-held-stream-or-resource-while-all-external-io-and-lifetime-rechecks-occur-at-its-native-retained-object-gate",
+        "rationale": "This wrapper exercises only an already-held object; any external I/O remains mediated and rechecked by that object's native retained-resource gate."
+      },
+      {
+        "id": "runtime-bootstrap-state",
+        "predicate": "trusted-bootstrap-lifecycle-or-immutable-runtime-metadata-with-no-project-controlled-effect",
+        "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+      },
+      {
+        "id": "unbound-owned-resource",
+        "predicate": "allocate-an-unbound-unconnected-resource-without-contacting-an-external-peer-or-namespace",
+        "rationale": "Allocating an unbound local resource carries no external authority until a later bind, connect, transfer, or use operation."
+      }
     ],
     "implicitAuthorityRules": [
       { "id": "package-self-read", "principal": "same-integrity-bound-package", "actions": ["fs:list", "fs:read"], "resource": "that-principals-bound-package-root-tree", "mutable": false }
@@ -518,6 +589,17 @@
   },
   "initialProfile": {
     "advertisedTargets": [],
+    "candidateTargets": [
+      {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      }
+    ],
+    "targetFeatureMeaning": "structural-security-properties-required-by-the-exact-capsec-profile-not-cargo-feature-names",
     "targetRule": "claim-only-exact-targets-with-complete-generated-report",
     "deviceActions": [
       "clipboard:read",

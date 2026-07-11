@@ -1,0 +1,17 @@
+# CapSec digests and generated drift checks are byte-sensitive. Pin every
+# contract artifact and cross-language generated binding to LF so a Windows
+# checkout cannot be clean in Git while differing from the canonical bytes.
+capsec/** text eol=lf
+packages/ibex-runtime-js/src/security/capsec-registry.generated.ts text eol=lf
+src/builtins/helpers/capsec-registry.generated.cjs text eol=lf
+src/capsec_registry_generated.rs text eol=lf
+src/engine/capsec_registry_generated.h text eol=lf
+
+# Evaluator identity review hashes these checked-in bytes. Keep a Windows
+# checkout byte-identical to the reviewed LF source and patch authorities.
+patches/hermes/*.patch text eol=lf
+scripts/hermes-version.sh text eol=lf
+scripts/apply-hermes-patches.sh text eol=lf
+scripts/build-hermes.sh text eol=lf
+scripts/build-hermes-linux.sh text eol=lf
+src/engine/hermes_runtime.cc text eol=lf

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ibex.dev/capsec/schema/implementation-manifest.schema.json",
+  "title": "Ibex capsec observed source-surface inventory",
+  "type": "object",
+  "required": [
+    "implementationManifestSchema",
+    "profile",
+    "status",
+    "provenance",
+    "sourceDatasets",
+    "candidateTargets",
+    "surfaces",
+    "definitionCoverage",
+    "outputs",
+    "counts"
+  ],
+  "properties": {
+    "implementationManifestSchema": { "const": "ibex/capsec-implementation/1" },
+    "profile": { "const": "ibex/capsec/1" },
+    "status": { "const": "inventory-only-until-conformance" },
+    "provenance": {
+      "type": "object",
+      "required": ["sourceRefs", "targetBranches", "targetSelection", "promotionRule"],
+      "properties": {
+        "sourceRefs": { "const": "definitions-stubs-or-security-relevant-references" },
+        "targetBranches": { "const": "source-derived-not-conformance-evidence" },
+        "targetSelection": { "const": "exact-branch-ids-from-target-applicability" },
+        "promotionRule": { "const": "executed-fixtures-required" }
+      },
+      "additionalProperties": false
+    },
+    "sourceDatasets": { "$ref": "#/$defs/nonEmptyStringSet" },
+    "candidateTargets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/target" } },
+    "surfaces": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/surfaceImplementation" } },
+    "definitionCoverage": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/definitionCoverage" } },
+    "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/output" } },
+    "counts": {
+      "type": "object",
+      "required": ["observedReferences", "logicalSurfaces", "coverageEdges", "targetCells"],
+      "properties": {
+        "observedReferences": { "type": "integer", "minimum": 1 },
+        "logicalSurfaces": { "type": "integer", "minimum": 1 },
+        "coverageEdges": { "type": "integer", "minimum": 1 },
+        "targetCells": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "stableId": { "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId" },
+    "nonEmptyStringSet": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "target": {
+      "type": "object",
+      "required": ["triple", "features"],
+      "properties": {
+        "triple": { "type": "string", "pattern": "^[a-z0-9_]+(?:-[a-z0-9_]+){2,}$" },
+        "features": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } }
+      },
+      "additionalProperties": false
+    },
+    "surfaceImplementation": {
+      "type": "object",
+      "required": [
+        "edgeId",
+        "observedKey",
+        "branchId",
+        "branchKind",
+        "targetVariant",
+        "targetApplicability",
+        "sourceRefs",
+        "implementationOwner",
+        "fixtureObligations"
+      ],
+      "properties": {
+        "edgeId": { "$ref": "#/$defs/stableId" },
+        "observedKey": { "type": "string", "pattern": "^[a-z0-9-]+:.+$" },
+        "branchId": { "$ref": "#/$defs/stableId" },
+        "branchKind": { "enum": ["single", "alternative"] },
+        "targetVariant": { "type": "string", "minLength": 1 },
+        "targetApplicability": { "$ref": "#/$defs/targetApplicability" },
+        "backend": { "$ref": "#/$defs/stableId" },
+        "implementationDisposition": { "enum": ["concrete", "degraded-concrete", "unsupported-stub"] },
+        "stubDisposition": { "enum": ["weak-fallback", "contains-weak-fallback", "not-structurally-proven"] },
+        "sourceRefs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+#[-a-zA-Z0-9_.$:/<>\\[\\] ]+$"
+          }
+        },
+        "implementationOwner": { "type": "string", "pattern": "^WP(?:[0-9]|1[01])$" },
+        "fixtureObligations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/stableId" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "targetApplicability": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["all", "fallback"] } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {
+              "enum": [
+                "operating-system",
+                "operating-system-family",
+                "runtime-variant",
+                "build-condition",
+                "linux-backend"
+              ]
+            },
+            "value": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "definitionCoverage": {
+      "type": "object",
+      "required": ["definitionId", "disposition", "edgeIds", "rationale"],
+      "properties": {
+        "definitionId": { "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId" },
+        "disposition": { "enum": ["covered", "closed", "unsupported", "absent"] },
+        "edgeIds": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/stableId" } },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "required": ["kind", "path", "rawContentDigest"],
+      "properties": {
+        "kind": { "enum": ["cxx", "javascript", "json-schema", "markdown", "registry", "rust", "typescript"] },
+        "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+$" },
+        "rawContentDigest": { "type": "string", "pattern": "^sha256-[A-Za-z0-9_-]{43}$" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
-  "$comment": "Runtime surface manifest (LLP 0010#runtime-command-surface; upstream LLP 0175 §8.1a in exact) — the single authority for the ibex command surface, kept next to the clap tree it pins. visibleCommands appear in `ibex --help` and must work standalone. hiddenHarnessCommands are compiled in but hidden from help (`self-test` is a CI harness smoke, not a user test runner; `compat` is the WPT/exact compat harness ported from exact-cli, ENG-23081 — its fixture tree lives in the exact repo). reservedCommands are runtime-namespace names with no implementation yet, and legacyProjectCommands are Exact project commands; both classes must be ABSENT from the clap tree entirely — the pre-clap dispatcher in src/bin/ibex/main.rs owns them and errors with a pointer. Pinned in-process by cli.rs::surface_manifest_matches_clap_tree (ported from exact's stranded packages/exact-cli test, ENG-22429); exact-side behavior guards read their own stale copy until retargeted here.",
-  "version": 2,
+  "$comment": "Runtime surface manifest (LLP 0010#runtime-command-surface; upstream LLP 0175 §8.1a in exact) — the single authority for the ibex command surface, kept next to the clap tree it pins. visibleCommands appear in `ibex --help` and must work standalone. hiddenHarnessCommands are compiled in but hidden from help (`self-test` is a CI harness smoke, not a user test runner; `compat` is the WPT/exact compat harness ported from exact-cli, ENG-23081 — its fixture tree lives in the exact repo). reservedCommands are runtime-namespace names with no implementation yet, and legacyProjectCommands are Exact project commands; both classes must be ABSENT from the clap tree entirely — the pre-clap dispatcher in src/bin/ibex/main.rs owns them and errors with a pointer. clapSurface is the exact recursive route/value-shape inventory plus the reviewed parser kinds and argument-conflict relations described there. Pinned in-process by cli.rs::surface_manifest_matches_clap_tree (ported from exact's stranded packages/exact-cli test, ENG-22429); exact-side behavior guards read their own stale copy until retargeted here.",
+  "version": 4,
   "binary": "ibex",
   "visibleCommands": [
     "run",
@@ -27,5 +27,1318 @@
     "export",
     "start"
   ],
+  "clapSurface": {
+    "$comment": "Every authored Clap command path joins exactly once to this recursive inventory. Authorship is captured before Command.build(): framework-generated help/version arguments and the generated help subcommand are excluded, while authored Help/Version actions and an authored help subcommand remain inventory entries. Positionals are included; an unbounded positional that accepts hyphen-prefixed values is classified as passthrough. Commands and options are sorted deterministically. Each argument records action, arity, requiredness, value names and domain, enum values and aliases, defaults, default-missing values, and hyphen handling; maxValues null means unbounded. semanticRelations additionally records every reflected argument conflict and a stable reviewed parser kind for each non-enumerated value. Clap source attributes are fail-closed against an explicit reviewed key set so an unrepresented parser relation cannot appear silently. This is an exact contract for those recorded semantics, not a claim that help text and every internal Clap setting are serialized.",
+    "frameworkGenerated": {
+      "authoredControlDetection": "pre-build-command-and-argument-identities",
+      "helpArguments": "excluded",
+      "versionArguments": "excluded",
+      "helpSubcommand": "excluded"
+    },
+    "positionalArguments": {
+      "inventory": "included",
+      "passthroughWhen": "unbounded-and-allows-hyphen-values"
+    },
+    "semanticRelations": {
+      "argumentConflicts": [
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "log",
+          "conflictsWith": ["json"]
+        }
+      ],
+      "nonEnumeratedParsers": [
+        { "commandPath": "ibex", "argumentId": "allow", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "args", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "deny", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "eval_code", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "file", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "inspect_host", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "inspect_port", "parserKind": "unsigned-integer-u16" },
+        {
+          "commandPath": "ibex",
+          "argumentId": "max_http_header_size",
+          "parserKind": "unsigned-integer-usize"
+        },
+        { "commandPath": "ibex", "argumentId": "policy", "parserKind": "os-path" },
+        { "commandPath": "ibex", "argumentId": "print_eval", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "stack_size", "parserKind": "utf8-string" },
+        { "commandPath": "ibex build", "argumentId": "file", "parserKind": "utf8-string" },
+        { "commandPath": "ibex build", "argumentId": "outdir", "parserKind": "os-path" },
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "jobs",
+          "parserKind": "unsigned-integer-usize"
+        },
+        { "commandPath": "ibex compat", "argumentId": "module", "parserKind": "utf8-string" },
+        { "commandPath": "ibex compat", "argumentId": "section", "parserKind": "utf8-string" },
+        { "commandPath": "ibex compat", "argumentId": "test", "parserKind": "utf8-string" },
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "timeout",
+          "parserKind": "unsigned-integer-u64"
+        },
+        { "commandPath": "ibex eval", "argumentId": "code", "parserKind": "utf8-string" },
+        { "commandPath": "ibex policy check", "argumentId": "entry", "parserKind": "os-path" },
+        { "commandPath": "ibex policy check", "argumentId": "mode", "parserKind": "utf8-string" },
+        { "commandPath": "ibex policy check", "argumentId": "out", "parserKind": "os-path" },
+        { "commandPath": "ibex policy generate", "argumentId": "entry", "parserKind": "os-path" },
+        {
+          "commandPath": "ibex policy generate",
+          "argumentId": "mode",
+          "parserKind": "utf8-string"
+        },
+        { "commandPath": "ibex policy generate", "argumentId": "out", "parserKind": "os-path" },
+        { "commandPath": "ibex run", "argumentId": "args", "parserKind": "utf8-string" },
+        { "commandPath": "ibex run", "argumentId": "file", "parserKind": "utf8-string" },
+        { "commandPath": "ibex run", "argumentId": "inspect_host", "parserKind": "utf8-string" },
+        {
+          "commandPath": "ibex run",
+          "argumentId": "inspect_port",
+          "parserKind": "unsigned-integer-u16"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "path": "ibex",
+        "options": [
+          {
+            "id": "allow",
+            "names": ["--allow"],
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["CAPABILITY"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "allow_all",
+            "names": ["--allow-all"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["ALLOW_ALL"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "allow_env_endowments",
+            "names": ["--allow-env-endowments"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["ALLOW_ENV_ENDOWMENTS"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "bundle_format",
+            "names": ["--bundle-format"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["BUNDLE_FORMAT"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "cjs",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "esm",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": ["esm"],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "capsec",
+            "names": ["--capsec"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["CAPSEC"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "auto",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "permissive",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "audit",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "enforce",
+                  "aliases": ["strict", "capability"],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": ["auto"],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "capsec_allow_advisory",
+            "names": ["--capsec-allow-advisory"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["CAPSEC_ALLOW_ADVISORY"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            },
+            "hiddenAliases": ["--allow-advisory-attribution"]
+          },
+          {
+            "id": "compat",
+            "names": ["--compat"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["MODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "bun",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "completion_bash",
+            "names": ["--completion-bash"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["COMPLETION_BASH"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "deny",
+            "names": ["--deny"],
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["CAPABILITY"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "engine",
+            "names": ["--engine"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["ENGINE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "hermes",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": ["hermes"],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "eval_code",
+            "names": ["--eval", "-e"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["CODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "expose_internals",
+            "names": ["--expose-internals"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["EXPOSE_INTERNALS"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "inspect",
+            "names": ["--inspect"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_host",
+            "names": ["--inspect-host"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["INSPECT_HOST"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_open",
+            "names": ["--inspect-open"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_OPEN"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_pause",
+            "names": ["--inspect-pause"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_PAUSE"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_port",
+            "names": ["--inspect-port"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["INSPECT_PORT"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_wait",
+            "names": ["--inspect-wait"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_WAIT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "keep_alive",
+            "names": ["--keep-alive"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["KEEP_ALIVE"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "lockdown",
+            "names": ["--lockdown"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["LOCKDOWN"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "max_http_header_size",
+            "names": ["--max-http-header-size"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["BYTES"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "policy",
+            "names": ["--policy"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["POLICY"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "print_eval",
+            "names": ["--print", "-p"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["CODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "stack_size",
+            "names": ["--stack-size"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["SIZE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "version",
+            "names": ["--version", "-v"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["VERSION"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            },
+            "hiddenAliases": ["-V"]
+          },
+          {
+            "id": "watch",
+            "names": ["--watch"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["WATCH"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          }
+        ],
+        "positionals": [
+          {
+            "id": "file",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "args",
+            "index": 2,
+            "passthrough": true,
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["ARGS"],
+              "minValues": 0,
+              "maxValues": null,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": true
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex build",
+        "options": [
+          {
+            "id": "outdir",
+            "names": ["--outdir"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["OUTDIR"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ],
+        "positionals": [
+          {
+            "id": "file",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex compat",
+        "hidden": true,
+        "options": [
+          {
+            "id": "all",
+            "names": ["--all"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["ALL"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "failed",
+            "names": ["--failed"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["FAILED"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "jobs",
+            "names": ["--jobs", "-j"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["N"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "json",
+            "names": ["--json"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["JSON"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "log",
+            "names": ["--log"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["LOG"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "log_color",
+            "names": ["--log-color"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["LOG_COLOR"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "log_no_skip",
+            "names": ["--log-no-skip"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["LOG_NO_SKIP"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "module",
+            "names": ["--module"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["MODULE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "no_retry",
+            "names": ["--no-retry"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["NO_RETRY"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "quick",
+            "names": ["--quick"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["QUICK"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "report",
+            "names": ["--report"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["REPORT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "section",
+            "names": ["--section"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["SECTION"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "strict",
+            "names": ["--strict"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["STRICT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "test",
+            "names": ["--test", "-t"],
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["FILTER"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "timeout",
+            "names": ["--timeout"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["MS"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "update_expectations",
+            "names": ["--update-expectations"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["UPDATE_EXPECTATIONS"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex completions",
+        "positionals": [
+          {
+            "id": "shell",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["SHELL"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "enumerated",
+              "possibleValues": [
+                {
+                  "value": "bash",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "elvish",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "fish",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "powershell",
+                  "aliases": [],
+                  "hidden": false
+                },
+                {
+                  "value": "zsh",
+                  "aliases": [],
+                  "hidden": false
+                }
+              ],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex debug"
+      },
+      {
+        "path": "ibex debug modules"
+      },
+      {
+        "path": "ibex eval",
+        "positionals": [
+          {
+            "id": "code",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["CODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex policy"
+      },
+      {
+        "path": "ibex policy check",
+        "options": [
+          {
+            "id": "entry",
+            "names": ["--entry"],
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["ENTRY"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "mode",
+            "names": ["--mode"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["MODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "out",
+            "names": ["--out"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["OUT"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex policy generate",
+        "options": [
+          {
+            "id": "entry",
+            "names": ["--entry"],
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["ENTRY"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "mode",
+            "names": ["--mode"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["MODE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "out",
+            "names": ["--out"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["OUT"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex repl"
+      },
+      {
+        "path": "ibex run",
+        "options": [
+          {
+            "id": "inspect",
+            "names": ["--inspect"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_host",
+            "names": ["--inspect-host"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["INSPECT_HOST"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_open",
+            "names": ["--inspect-open"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_OPEN"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_pause",
+            "names": ["--inspect-pause"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_PAUSE"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_port",
+            "names": ["--inspect-port"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["INSPECT_PORT"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "inspect_wait",
+            "names": ["--inspect-wait"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["INSPECT_WAIT"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "keep_alive",
+            "names": ["--keep-alive"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["KEEP_ALIVE"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "watch",
+            "names": ["--watch"],
+            "valueShape": {
+              "action": "SetTrue",
+              "required": false,
+              "valueNames": ["WATCH"],
+              "minValues": 0,
+              "maxValues": 0,
+              "valueDomain": "none",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": ["false"],
+              "defaultMissingValues": ["true"],
+              "allowHyphenValues": false
+            }
+          }
+        ],
+        "positionals": [
+          {
+            "id": "file",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "args",
+            "index": 2,
+            "passthrough": true,
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["ARGS"],
+              "minValues": 0,
+              "maxValues": null,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": true
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex self-test",
+        "hidden": true
+      },
+      {
+        "path": "ibex version"
+      }
+    ]
+  },
   "llp": "0010"
 }

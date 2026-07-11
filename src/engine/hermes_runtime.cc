@@ -43,6 +43,11 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — C++
+// consumes generated stable IDs only; WP2's neutral Rust core remains the
+// single decision implementation.
+#include "capsec_registry_generated.h"
 #include <unordered_set>
 #include <optional>
 #include <vector>

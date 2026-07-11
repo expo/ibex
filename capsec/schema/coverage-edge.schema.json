@@ -22,13 +22,12 @@
   "$defs": {
     "surface": {
       "type": "object",
-      "required": ["kind", "name", "sourceRef"],
+      "required": ["kind", "name"],
       "properties": {
         "kind": {
           "enum": ["builtin", "callback", "cli", "host-abi", "loader", "native-op", "startup"]
         },
-        "name": { "type": "string", "minLength": 1 },
-        "sourceRef": { "type": "string", "minLength": 1 }
+        "name": { "type": "string", "minLength": 1 }
       },
       "additionalProperties": false
     },
@@ -97,11 +96,10 @@
         "principalSources",
         "effectOwnerSource",
         "gate",
+        "effectMode",
         "atomicityGroup",
         "lifetimeContract",
-        "barriers",
-        "implementationOwner",
-        "fixtures"
+        "barriers"
       ],
       "properties": {
         "id": {
@@ -128,23 +126,29 @@
         "gate": {
           "enum": ["adds-op-gate", "loader-admission", "reachability-close", "reclassifies"]
         },
+        "effectMode": { "enum": ["conjunctive", "conditional-unrefined"] },
+        "refinementOwner": { "type": "string", "pattern": "^WP(?:[0-9]|1[01])$" },
+        "rationale": { "type": "string", "minLength": 1 },
         "atomicityGroup": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
         },
         "lifetimeContract": {
           "enum": ["child-process", "file-handle", "listener", "none", "operation", "socket-stream", "watch"]
         },
-        "barriers": { "$ref": "#/$defs/barriers" },
-        "implementationOwner": { "type": "string", "minLength": 1 },
-        "fixtures": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+        "barriers": { "$ref": "#/$defs/barriers" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "effectMode": { "const": "conditional-unrefined" } },
+            "required": ["effectMode"]
+          },
+          "then": {
+            "required": ["refinementOwner", "rationale"],
+            "properties": { "refinementOwner": true, "rationale": true }
           }
         }
-      },
+      ],
       "additionalProperties": false
     },
     "nonCapabilityEdge": {
@@ -165,7 +169,7 @@
     },
     "closedEdge": {
       "type": "object",
-      "required": ["id", "classification", "surface", "cap", "fixtures", "rationale"],
+      "required": ["id", "classification", "surface", "cap", "rationale"],
       "properties": {
         "id": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
@@ -174,14 +178,6 @@
         "surface": { "$ref": "#/$defs/surface" },
         "cap": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/actionId"
-        },
-        "fixtures": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
-          }
         },
         "rationale": { "type": "string", "minLength": 1 }
       },

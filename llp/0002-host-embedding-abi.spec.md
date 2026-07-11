@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse)
+**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -65,6 +65,17 @@ debugger surface (`include/exact_runtime.h:216-249`), and GC/heap introspection
 (`include/exact_runtime.h:256-264`).
 These are part of the embedding API but are convenience/optional layers, not the
 minimal contract `[inferred]`.
+
+LLP 0021 adds a source-derived security inventory across the public ABI
+families: the Rust/native `ex_host_*` callbacks, the `ex_hermes_*` embedding
+surface, the `ex_worklet_*` surface, and the Android Java/JNI bridge. The
+current generator finds 84, 36, and 10 symbols in the first three families,
+plus one `ex_android_*`, 39 Java, and 8 JNI routes (178 total). It groups source
+definitions by target variant, including weak/default stubs, rather than
+maintaining a copied symbol list `[observed]`
+(`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`). Those rows
+are classification and fixture obligations, not a conformance claim; every WP1
+target cell remains unsupported.
 
 ### The `__hostCall` bridge — the generic host channel
 

@@ -294,7 +294,24 @@
       "properties": {
         "kind": { "const": "system-info" },
         "name": {
-          "enum": ["architecture", "cpus", "hostname", "memory", "network-interfaces", "os-release", "platform", "uptime", "user"]
+          "enum": [
+            "architecture",
+            "camera-metadata",
+            "cpus",
+            "cwd",
+            "hostname",
+            "language",
+            "load-average",
+            "locale",
+            "memory",
+            "network-interfaces",
+            "os-release",
+            "platform",
+            "screen",
+            "storage-paths",
+            "uptime",
+            "user"
+          ]
         }
       },
       "additionalProperties": false

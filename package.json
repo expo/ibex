@@ -10,6 +10,7 @@
     "build:runtime": "bun packages/ibex-devtools/src/scripts/rolldown-bundle.mjs --entry packages/ibex-runtime-js/src/runtime-entry.ts --out vendored-generated/embedded_runtime_bundle.js --format iife --lower-classes",
     "generate:capability-bits": "bun packages/ibex-devtools/src/scripts/generate-capability-bits.mjs",
     "generate:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --write",
+    "generate:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --write",
     "generate:identity": "bun packages/ibex-devtools/src/scripts/generate-runtime-identity.ts",
     "generate:modules": "bun packages/ibex-devtools/src/scripts/generate-module-manifest.ts --rust-out-dir vendored-generated",
     "generate:vendored-fingerprint": "bun packages/ibex-devtools/src/scripts/generate-vendored-source-fingerprint.mjs",
@@ -17,6 +18,7 @@
     "regenerate:vendored": "scripts/regenerate-vendored.sh",
     "check:drift": "scripts/check-generated-drift.sh",
     "check:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --check",
+    "check:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check",
     "check:example-policy": "bun packages/ibex-devtools/src/scripts/generate-policy.mjs --entry examples/llp0013-supply-chain/app.mjs --out examples/llp0013-supply-chain/ibex-policy.json --mode enforce --check",
     "test": "bun test packages",
     "test:hermes-compat": "node packages/ibex-devtools/src/scripts/run-hermes-compat-corpus.mjs && node packages/ibex-devtools/src/scripts/run-hermes-compat-loader.mjs"

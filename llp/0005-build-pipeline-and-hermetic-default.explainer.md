@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495)
+**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -179,6 +179,24 @@ the freshly-built `OUT_DIR` artifacts `[observed]` (`build.rs:327, 461-467,
 ```
 IBEX_REGENERATE_RUNTIME=1 IBEX_UPDATE_VENDORED_GENERATED=1 cargo build --features openssl-crypto
 ```
+
+## Capability-registry bindings
+
+LLP 0021's capability registry is a separate committed generated-artifact
+family. `generate-capsec-registry.mjs` discovers live runtime surfaces and
+emits the production coverage/target datasets, observed-source manifest,
+stable-ID schema, review tables, and Rust/C++/JavaScript/TypeScript bindings
+`[observed]` (`packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs`;
+`capsec/registry/`; `capsec/generated/`; `src/capsec_registry_generated.rs`;
+`src/engine/capsec_registry_generated.h`). The default native build consumes
+only committed outputs, so it does not add a bun or `node_modules` dependency.
+
+`scripts/regenerate-vendored.sh` refreshes this family before refreshing the
+contract digests, while `scripts/check-generated-drift.sh` runs both generators
+in non-writing check mode. A source-surface, classification, binding, or digest
+change therefore fails the repository's single drift gate until all dependent
+outputs are regenerated `[observed]` (`scripts/regenerate-vendored.sh`;
+`scripts/check-generated-drift.sh`).
 
 ## C++ compilation
 
