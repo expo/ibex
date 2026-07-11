@@ -16970,9 +16970,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.copyfile.020eib5.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -17036,9 +17034,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.copyfilesync.1lu78j2.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -17102,9 +17098,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.cp.0fhbdjd.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -17168,9 +17162,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.cpsync.15303ra.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -19494,9 +19486,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.link.1wbhe5m.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -19560,9 +19550,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.linksync.0ys64dd.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -20167,37 +20155,6 @@
                   "session",
                   "static-floor"
                 ]
-              },
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "fs:write",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "session",
-                  "static-floor"
-                ]
               }
             ],
             "principalSources": [
@@ -20206,9 +20163,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "Public fs.open selects read/write/create/truncate effects from validated flags.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.opendir.1wq91vl.decision",
             "lifetimeContract": "file-handle",
             "barriers": {
@@ -20249,37 +20204,6 @@
                   "session",
                   "static-floor"
                 ]
-              },
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "fs:write",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "session",
-                  "static-floor"
-                ]
               }
             ],
             "principalSources": [
@@ -20288,9 +20212,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "Public fs.open selects read/write/create/truncate effects from validated flags.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.opendirsync.0zwuqf2.decision",
             "lifetimeContract": "file-handle",
             "barriers": {
@@ -20649,9 +20571,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -21482,9 +21402,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "The operation reads one source and writes one or more destination objects.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.promises.link.0qr7l8z.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -21800,37 +21718,6 @@
                   "session",
                   "static-floor"
                 ]
-              },
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "fs:write",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "session",
-                  "static-floor"
-                ]
               }
             ],
             "principalSources": [
@@ -21839,9 +21726,7 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "Public fs.open selects read/write/create/truncate effects from validated flags.",
+            "effectMode": "conjunctive",
             "atomicityGroup": "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.decision",
             "lifetimeContract": "file-handle",
             "barriers": {
@@ -103904,70 +103789,13 @@
           },
           {
             "id": "surface.native.op.global.bun.file.0y6c6oc",
-            "classification": "effects",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "global:Bun.file"
             },
-            "effects": [
-              {
-                "cap": "fs:list",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "requested",
-                  "discovery"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              }
-            ],
-            "principalSources": [
-              "frame-set",
-              "schedule-time"
-            ],
-            "effectOwnerSource": "innermost-nontransparent-frame",
-            "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "Bun.file discovers a path and returns a retained lazy file-backed object whose reads occur later.",
-            "atomicityGroup": "surface.native.op.global.bun.file.0y6c6oc.decision",
-            "lifetimeContract": "file-handle",
-            "barriers": {
-              "authorizeBefore": [
-                "path-discovery",
-                "object-open",
-                "first-use"
-              ],
-              "recheckAt": [
-                "object-use"
-              ],
-              "cancelAt": [
-                "negative-generation-change",
-                "object-identity-mismatch"
-              ]
-            }
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
             "id": "surface.native.op.global.bun.fileurltopath.0jrvhkj",
@@ -109514,70 +109342,13 @@
           },
           {
             "id": "surface.native.op.global.exact.file.1nm8tke",
-            "classification": "effects",
+            "classification": "non-capability",
             "surface": {
               "kind": "native-op",
               "name": "global:Exact.file"
             },
-            "effects": [
-              {
-                "cap": "fs:list",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "requested",
-                  "discovery"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              },
-              {
-                "cap": "fs:read",
-                "selectorNormalizer": "fs.path.selector.v1",
-                "occurrenceNormalizer": "fs.path.occurrence.v1",
-                "stages": [
-                  "commit",
-                  "repeat"
-                ],
-                "positiveSources": [
-                  "ambient-root",
-                  "handle",
-                  "implicit-self",
-                  "session",
-                  "static-floor"
-                ]
-              }
-            ],
-            "principalSources": [
-              "frame-set",
-              "schedule-time"
-            ],
-            "effectOwnerSource": "innermost-nontransparent-frame",
-            "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP5",
-            "rationale": "Bun.file discovers a path and returns a retained lazy file-backed object whose reads occur later.",
-            "atomicityGroup": "surface.native.op.global.exact.file.1nm8tke.decision",
-            "lifetimeContract": "file-handle",
-            "barriers": {
-              "authorizeBefore": [
-                "path-discovery",
-                "object-open",
-                "first-use"
-              ],
-              "recheckAt": [
-                "object-use"
-              ],
-              "cancelAt": [
-                "negative-generation-change",
-                "object-identity-mismatch"
-              ]
-            }
+            "rationaleId": "pure-in-memory-compute",
+            "rationale": "Pure in-memory computation does not grant access to an external resource or another principal's state."
           },
           {
             "id": "surface.native.op.global.exact.fileurltopath.1pk96jt",

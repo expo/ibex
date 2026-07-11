@@ -18238,7 +18238,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.copyfile.020eib5.main.allow",
-        "surface.builtin.export.node.fs.copyfile.020eib5.main.conditional-refinement",
         "surface.builtin.export.node.fs.copyfile.020eib5.main.deny",
         "surface.builtin.export.node.fs.copyfile.020eib5.main.malformed",
         "surface.builtin.export.node.fs.copyfile.020eib5.main.missing-attribution",
@@ -18260,7 +18259,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.allow",
-        "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.conditional-refinement",
         "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.deny",
         "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.malformed",
         "surface.builtin.export.node.fs.copyfilesync.1lu78j2.main.missing-attribution",
@@ -18282,7 +18280,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.cp.0fhbdjd.main.allow",
-        "surface.builtin.export.node.fs.cp.0fhbdjd.main.conditional-refinement",
         "surface.builtin.export.node.fs.cp.0fhbdjd.main.deny",
         "surface.builtin.export.node.fs.cp.0fhbdjd.main.malformed",
         "surface.builtin.export.node.fs.cp.0fhbdjd.main.missing-attribution",
@@ -18304,7 +18301,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.cpsync.15303ra.main.allow",
-        "surface.builtin.export.node.fs.cpsync.15303ra.main.conditional-refinement",
         "surface.builtin.export.node.fs.cpsync.15303ra.main.deny",
         "surface.builtin.export.node.fs.cpsync.15303ra.main.malformed",
         "surface.builtin.export.node.fs.cpsync.15303ra.main.missing-attribution",
@@ -19385,7 +19381,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.link.1wbhe5m.main.allow",
-        "surface.builtin.export.node.fs.link.1wbhe5m.main.conditional-refinement",
         "surface.builtin.export.node.fs.link.1wbhe5m.main.deny",
         "surface.builtin.export.node.fs.link.1wbhe5m.main.malformed",
         "surface.builtin.export.node.fs.link.1wbhe5m.main.missing-attribution",
@@ -19407,7 +19402,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.linksync.0ys64dd.main.allow",
-        "surface.builtin.export.node.fs.linksync.0ys64dd.main.conditional-refinement",
         "surface.builtin.export.node.fs.linksync.0ys64dd.main.deny",
         "surface.builtin.export.node.fs.linksync.0ys64dd.main.malformed",
         "surface.builtin.export.node.fs.linksync.0ys64dd.main.missing-attribution",
@@ -19661,7 +19655,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.opendir.1wq91vl.main.allow",
-        "surface.builtin.export.node.fs.opendir.1wq91vl.main.conditional-refinement",
         "surface.builtin.export.node.fs.opendir.1wq91vl.main.deny",
         "surface.builtin.export.node.fs.opendir.1wq91vl.main.malformed",
         "surface.builtin.export.node.fs.opendir.1wq91vl.main.missing-attribution",
@@ -19683,7 +19676,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.opendirsync.0zwuqf2.main.allow",
-        "surface.builtin.export.node.fs.opendirsync.0zwuqf2.main.conditional-refinement",
         "surface.builtin.export.node.fs.opendirsync.0zwuqf2.main.deny",
         "surface.builtin.export.node.fs.opendirsync.0zwuqf2.main.malformed",
         "surface.builtin.export.node.fs.opendirsync.0zwuqf2.main.missing-attribution",
@@ -19845,7 +19837,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.allow",
-        "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.conditional-refinement",
         "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.deny",
         "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.malformed",
         "surface.builtin.export.node.fs.promises.copyfile.0p02aaw.main.missing-attribution",
@@ -20275,7 +20266,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.allow",
-        "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.conditional-refinement",
         "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.deny",
         "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.malformed",
         "surface.builtin.export.node.fs.promises.link.0qr7l8z.main.missing-attribution",
@@ -20403,7 +20393,6 @@
       "implementationOwner": "WP5",
       "fixtureObligations": [
         "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.main.allow",
-        "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.main.conditional-refinement",
         "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.main.deny",
         "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.main.malformed",
         "surface.builtin.export.node.fs.promises.opendir.0ssjn8i.main.missing-attribution",
@@ -86376,12 +86365,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.allow",
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.conditional-refinement",
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.deny",
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.malformed",
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.missing-attribution",
-        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.wrong-principal"
+        "surface.native.op.global.bun.file.0y6c6oc.default.15qctax.non-capability"
       ]
     },
     {
@@ -94241,12 +94225,7 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.allow",
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.conditional-refinement",
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.deny",
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.malformed",
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.missing-attribution",
-        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.wrong-principal"
+        "surface.native.op.global.exact.file.1nm8tke.default.1hac4u6.non-capability"
       ]
     },
     {
@@ -134270,7 +134249,6 @@
         "surface.native.op.exactwhich.0it66ce",
         "surface.native.op.exactwritefile.1h0gy8u",
         "surface.native.op.global.bun.1idej6y",
-        "surface.native.op.global.bun.file.0y6c6oc",
         "surface.native.op.global.bun.resolve.1kmz1y2",
         "surface.native.op.global.bun.resolvesync.14uup01",
         "surface.native.op.global.bun.spawn.06fthe9",
@@ -134278,7 +134256,6 @@
         "surface.native.op.global.bun.which.030qwlb",
         "surface.native.op.global.bun.write.0z6cgol",
         "surface.native.op.global.exact.084448k",
-        "surface.native.op.global.exact.file.1nm8tke",
         "surface.native.op.global.exact.resolve.1gnhg7o",
         "surface.native.op.global.exact.resolvesync.16jl0hj",
         "surface.native.op.global.exact.spawn.031kfk7",
@@ -134303,7 +134280,7 @@
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 306 observed effect edges."
+      "rationale": "Covered by 304 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -134354,8 +134331,6 @@
         "surface.builtin.export.node.fs.link.1wbhe5m",
         "surface.builtin.export.node.fs.linksync.0ys64dd",
         "surface.builtin.export.node.fs.open.08gsjne",
-        "surface.builtin.export.node.fs.opendir.1wq91vl",
-        "surface.builtin.export.node.fs.opendirsync.0zwuqf2",
         "surface.builtin.export.node.fs.opensync.1lmvgdt",
         "surface.builtin.export.node.fs.promises.copyfile.0p02aaw",
         "surface.builtin.export.node.fs.promises.filehandle.read.17o0u5z",
@@ -134363,7 +134338,6 @@
         "surface.builtin.export.node.fs.promises.filehandle.readv.0zt9syb",
         "surface.builtin.export.node.fs.promises.link.0qr7l8z",
         "surface.builtin.export.node.fs.promises.open.1lbxtab",
-        "surface.builtin.export.node.fs.promises.opendir.0ssjn8i",
         "surface.builtin.export.node.fs.promises.readfile.032wlkt",
         "surface.builtin.export.node.fs.promises.readfilesync.07bcu6q",
         "surface.builtin.export.node.fs.promises.readlink.0qt2tyf",
@@ -134504,8 +134478,6 @@
         "surface.native.op.exactsqliterun.0nde0wm",
         "surface.native.op.exactsqlitevalues.03uveqn",
         "surface.native.op.exactunixconnect.0z2wmqb",
-        "surface.native.op.global.bun.file.0y6c6oc",
-        "surface.native.op.global.exact.file.1nm8tke",
         "surface.native.op.global.ibex.fs.readhandle.return.readfilesync.0hpjmcp",
         "surface.native.op.global.ibex.fs.readhandle.return.readtextsync.1w00738",
         "surface.native.op.global.import.0lvmxcm",
@@ -134521,7 +134493,7 @@
         "surface.startup.env.ibex.repo.root.0qhf2d7",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 211 observed effect edges."
+      "rationale": "Covered by 206 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -134605,8 +134577,6 @@
         "surface.builtin.export.node.fs.mkdtempdisposablesync.1u6noip",
         "surface.builtin.export.node.fs.mkdtempsync.1sydur7",
         "surface.builtin.export.node.fs.open.08gsjne",
-        "surface.builtin.export.node.fs.opendir.1wq91vl",
-        "surface.builtin.export.node.fs.opendirsync.0zwuqf2",
         "surface.builtin.export.node.fs.opensync.1lmvgdt",
         "surface.builtin.export.node.fs.promises.appendfile.1oa8l1l",
         "surface.builtin.export.node.fs.promises.chmod.0ka1mnc",
@@ -134627,7 +134597,6 @@
         "surface.builtin.export.node.fs.promises.mkdir.0l8rdmu",
         "surface.builtin.export.node.fs.promises.mkdtemp.17cjz8j",
         "surface.builtin.export.node.fs.promises.open.1lbxtab",
-        "surface.builtin.export.node.fs.promises.opendir.0ssjn8i",
         "surface.builtin.export.node.fs.promises.rename.1nyx4c5",
         "surface.builtin.export.node.fs.promises.rm.10r7mni",
         "surface.builtin.export.node.fs.promises.rmdir.0za2u4l",
@@ -134795,7 +134764,7 @@
         "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 247 observed effect edges."
+      "rationale": "Covered by 244 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -137546,17 +137515,17 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-D2kdbb35kv_R3N6IU2U2HI60cwJkyCnzPvK8DJweFU8"
+      "rawContentDigest": "sha256-2ARKAnSC3tEb7ueFHXg5UcqYjCw7V8jYXYm0kHo2790"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-er38n8BD2Oh1HDsNLNV1QZsuUmTbwn8601OAQn9S2rk"
+      "rawContentDigest": "sha256-ZDKpKsK0QmFiFmNf3MsDZaMgWtoePUXATueAetBx1tE"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-nXH0ERYt2KYccpHx1smiU0Mj831g9iaAfrN_ePBP1-4"
+      "rawContentDigest": "sha256-jvuLJKcetpOsji59Sfptrw68jmOvnIbB01NeuKHNKiI"
     },
     {
       "kind": "registry",

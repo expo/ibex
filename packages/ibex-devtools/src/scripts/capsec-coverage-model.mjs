@@ -7078,6 +7078,11 @@ function builtinExportClassification(surface) {
         lifetimeContract: "watch",
       });
     }
+    if (/^opendir(?:sync)?$/u.test(name)) {
+      return effectSpec(["fs:list"], "filesystem", "WP5", {
+        lifetimeContract: "file-handle",
+      });
+    }
     if (/open/u.test(name)) {
       return conditionalEffectSpec(
         ["fs:list", "fs:read", "fs:write"],
@@ -7088,11 +7093,10 @@ function builtinExportClassification(surface) {
       );
     }
     if (/copy|^cp(?:sync)?$|^link(?:sync)?$/u.test(name)) {
-      return conditionalEffectSpec(
+      return effectSpec(
         ["fs:read", "fs:write"],
         "filesystem",
         "WP5",
-        "The operation reads one source and writes one or more destination objects.",
       );
     }
     if (/readlink|readfile|^read(?:sync|v|vsync)?$|sendfile/u.test(name)) {
@@ -9692,13 +9696,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return effectSpec(["network:resolve"], "network", "WP6");
     }
     if (member === "file") {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "filesystem",
-        "WP5",
-        "Bun.file discovers a path and returns a retained lazy file-backed object whose reads occur later.",
-        { lifetimeContract: "file-handle" },
-      );
+      return nonCapabilitySpec("pure-in-memory-compute", "WP5");
     }
     if (member === "write") {
       return effectSpec(["fs:list", "fs:write"], "filesystem", "WP5");

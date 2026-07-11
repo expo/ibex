@@ -1460,6 +1460,29 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
   });
 
+  test("opendir is a list-only retained directory operation, not flag-selected open", () => {
+    for (const name of ["opendir", "opendirSync"]) {
+      const classified = classifyObservedSurface(
+        builtinExport("node_fs", name),
+        context,
+      );
+      expect(edgeActions(classified), name).toEqual(["fs:list"]);
+      expect(classified.edge.effectMode, name).toBe("conjunctive");
+      expect(classified.edge.lifetimeContract, name).toBe("file-handle");
+    }
+  });
+
+  test("Bun.file and Exact.file allocate lazy wrappers; native use remains gated", () => {
+    for (const root of ["Bun", "Exact"]) {
+      const classified = classifyObservedSurface(
+        globalApi(root, "file"),
+        context,
+      );
+      expect(classified.edge.classification, root).toBe("non-capability");
+      expect(classified.edge.rationaleId, root).toBe("pure-in-memory-compute");
+    }
+  });
+
   test("shared registries and unowned numeric handles remain closed", () => {
     for (const [sourceKey, exportName, expectedAction] of [
       ["node_cluster", "disconnect", "ipc:channel"],
