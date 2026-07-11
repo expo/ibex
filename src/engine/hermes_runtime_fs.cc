@@ -562,6 +562,7 @@ struct FsAsyncResult {
   // Async open publishes ownership metadata on the JS thread before the fd
   // is resolved to user code. Workers never mutate the capability registry.
   bool registerOpenedFd = false;
+  std::shared_ptr<int> openedFdGuard;
   std::string openedPath;
   bool openedCanRead = false;
   bool openedCanWrite = false;
@@ -761,6 +762,7 @@ static facebook::jsi::Value startFsAsync(
                           registerFd(
                               static_cast<int>(resultPtr->number), resultPtr->openedPath,
                               resultPtr->openedCanRead, resultPtr->openedCanWrite);
+                          if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
                         }
                         switch (resultPtr->kind) {
                           case FsAsyncResult::Kind::Bytes:
@@ -787,6 +789,7 @@ static facebook::jsi::Value startFsAsync(
                   });
               if (!delivered && resultPtr->ok && resultPtr->registerOpenedFd) {
                 ::close(static_cast<int>(resultPtr->number));
+                if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
               }
             },
             enqueueError);
@@ -1374,6 +1377,10 @@ static FsAsyncResult fsOpenWork(
   auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
   result.number = fd;
   result.registerOpenedFd = true;
+  result.openedFdGuard = std::shared_ptr<int>(new int(fd), [](int* guardedFd) {
+    if (*guardedFd >= 0) ::close(*guardedFd);
+    delete guardedFd;
+  });
   result.openedPath = path;
   result.openedCanRead = canRead;
   result.openedCanWrite = canWrite;
