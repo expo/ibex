@@ -258,15 +258,17 @@ impl ModuleLoader {
         // private subpaths remain private. Without `exports`, an exact relative
         // request preserves `main`/index and extension behavior without ever
         // starting an ambient node_modules search.
-        let anchored_specifier = if manifest.get("exports").is_some_and(|value| !value.is_null()) {
+        let anchored_specifier = if manifest
+            .get("exports")
+            .is_some_and(|value| !value.is_null())
+        {
             specifier.to_owned()
         } else if suffix.is_empty() {
             ".".to_owned()
         } else {
             format!(".{suffix}")
         };
-        let mut resolved =
-            self.resolve_with_oxc_at(&anchored_specifier, package_root, false)?;
+        let mut resolved = self.resolve_with_oxc_at(&anchored_specifier, package_root, false)?;
         resolved.package_name = Some(package_name.to_owned());
         resolved.package_root = Some(package_root.to_path_buf());
         resolved.package_version = manifest
@@ -2868,8 +2870,14 @@ for (let i = 0; i < 3; i++) {
         let resolved = test_loader()
             .resolve_meta_from_bound_package("pkg", "pkg", &authenticated)
             .unwrap();
-        assert_eq!(resolved.path.as_deref(), Some(authenticated.join("index.js").as_path()));
-        assert_eq!(resolved.package_root.as_deref(), Some(authenticated.as_path()));
+        assert_eq!(
+            resolved.path.as_deref(),
+            Some(authenticated.join("index.js").as_path())
+        );
+        assert_eq!(
+            resolved.package_root.as_deref(),
+            Some(authenticated.as_path())
+        );
         assert_eq!(resolved.package_version.as_deref(), Some("1.0.0"));
     }
 
@@ -2884,14 +2892,25 @@ for (let i = 0; i < 3; i++) {
             r#"{"name":"pkg","exports":{".":"./public.js"}}"#,
         )
         .unwrap();
-        std::fs::write(authenticated.join("public.js"), "module.exports = 'public';").unwrap();
-        std::fs::write(authenticated.join("private.js"), "module.exports = 'private';").unwrap();
+        std::fs::write(
+            authenticated.join("public.js"),
+            "module.exports = 'public';",
+        )
+        .unwrap();
+        std::fs::write(
+            authenticated.join("private.js"),
+            "module.exports = 'private';",
+        )
+        .unwrap();
 
         let loader = test_loader();
         let public = loader
             .resolve_meta_from_bound_package("pkg", "pkg", &authenticated)
             .unwrap();
-        assert_eq!(public.path.as_deref(), Some(authenticated.join("public.js").as_path()));
+        assert_eq!(
+            public.path.as_deref(),
+            Some(authenticated.join("public.js").as_path())
+        );
         assert!(loader
             .resolve_meta_from_bound_package("pkg/private", "pkg", &authenticated)
             .is_err());

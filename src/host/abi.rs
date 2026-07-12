@@ -511,6 +511,33 @@ pub fn installed_legacy_authorization_check_count() -> usize {
     with_host(Host::legacy_authorization_check_count, 0)
 }
 
+#[cfg(feature = "capsec-conformance-observer")]
+pub fn begin_installed_conformance_observation(terminal_branch_id: &str) -> bool {
+    with_host(
+        |host| {
+            host.begin_conformance_observation(terminal_branch_id);
+            true
+        },
+        false,
+    )
+}
+
+#[cfg(feature = "capsec-conformance-observer")]
+pub fn take_installed_conformance_observations() -> (
+    Vec<super::capability::ObservedCapabilityDecision>,
+    Vec<super::ObservedTypedDecision>,
+) {
+    with_host(
+        |host| {
+            (
+                host.take_conformance_observations(),
+                host.take_typed_conformance_observations(),
+            )
+        },
+        (Vec::new(), Vec::new()),
+    )
+}
+
 /// Render the would-deny audit report for the installed host, but only when it
 /// is running in `Audit` mode and something was flagged.
 ///

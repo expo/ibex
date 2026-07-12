@@ -116,12 +116,13 @@ pub struct CapabilityManager {
     allowed_hosts: Option<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     conformance_observer: RwLock<ConformanceObserver>,
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ObservedCapabilityDecision {
     pub terminal_branch_id: String,
     pub module_id: String,
@@ -131,7 +132,7 @@ pub struct ObservedCapabilityDecision {
     pub fence: Option<String>,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
 #[derive(Default)]
 struct ConformanceObserver {
     terminal_branch_id: Option<String>,
@@ -216,7 +217,7 @@ impl CapabilityManager {
             fs_root: None,
             allowed_hosts: None,
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
             conformance_observer: RwLock::new(ConformanceObserver::default()),
         }
     }
@@ -561,7 +562,7 @@ impl CapabilityManager {
             allowed: false,
             mode: self.mode,
         });
-        #[cfg(test)]
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_conformance_decision(module_id, normalized, false, false, Some(fence));
         true
     }
@@ -580,6 +581,8 @@ impl CapabilityManager {
     fn gate_and_record(&self, module_id: &str, capability: String, decision: bool) -> bool {
         // Permissive and Audit let everything proceed; only Enforce blocks.
         let allowed = self.mode != SecurityMode::Enforce || decision;
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
+        self.record_conformance_decision(module_id, &capability, decision, allowed, None);
         if !decision {
             self.record(AuditEntry {
                 timestamp: std::time::SystemTime::now(),
@@ -592,12 +595,10 @@ impl CapabilityManager {
                 mode: self.mode,
             });
         }
-        #[cfg(test)]
-        self.record_conformance_decision(module_id, &capability, decision, allowed, None);
         allowed
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     fn record_conformance_decision(
         &self,
         module_id: &str,
@@ -993,7 +994,7 @@ impl CapabilityManager {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
         if let Ok(mut observer) = self.conformance_observer.write() {
             observer.terminal_branch_id = Some(terminal_branch_id.to_string());
@@ -1001,7 +1002,7 @@ impl CapabilityManager {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn take_conformance_observations(&self) -> Vec<ObservedCapabilityDecision> {
         let Ok(mut observer) = self.conformance_observer.write() else {
             return Vec::new();

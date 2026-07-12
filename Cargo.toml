@@ -113,6 +113,10 @@ app-host = []
 # `ibex` CLI profile enable this; without it build.rs compiles no-op stubs
 # instead. @ref LLP 0005#c-compilation
 host-http-server = []
+# Enables the observer consumed only by the exact-target CapSec executable
+# recipe harness. The production decision path is unchanged; the observer is
+# inert until a test explicitly scopes one terminal branch.
+capsec-conformance-observer = []
 openssl-crypto = ["dep:openssl-sys"]
 # When enabled, skips the default ex_hermes_notify_callback implementation.
 # The `ibex` binary provides its own tokio-based version.

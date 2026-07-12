@@ -230,6 +230,56 @@ fn host_call_response(payload: String) -> *mut std::os::raw::c_char {
     }
 }
 
+#[cfg(all(test, feature = "capsec-conformance-observer"))]
+fn capsec_conformance_host_call(args: &str) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Request {
+        terminal_branch_id: String,
+        decision_set_json: String,
+        gates_json: String,
+    }
+
+    let request_value = capsec_semantics::strict_json::parse_strict(args)
+        .map_err(|error| anyhow!("invalid conformance adapter request: {error}"))?;
+    let request: Request =
+        serde_json::from_value(request_value).context("malformed conformance adapter request")?;
+    if request.terminal_branch_id.is_empty() {
+        anyhow::bail!("conformance adapter request has no terminal branch id");
+    }
+    if !ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &request.terminal_branch_id,
+    ) {
+        anyhow::bail!("conformance adapter has no installed host");
+    }
+    let response = unsafe {
+        ibex_runtime::host::abi::ex_host_evaluate_typed_decision(
+            request.decision_set_json.as_ptr(),
+            request.decision_set_json.len(),
+            request.gates_json.as_ptr(),
+            request.gates_json.len(),
+        )
+    };
+    if response.is_null() {
+        let _ = ibex_runtime::host::abi::take_installed_conformance_observations();
+        anyhow::bail!("typed decision adapter returned no response");
+    }
+    let response_text = unsafe { CStr::from_ptr(response) }
+        .to_string_lossy()
+        .into_owned();
+    ibex_runtime::host::abi::ex_host_free_string(response);
+    let (legacy_observations, typed_observations) =
+        ibex_runtime::host::abi::take_installed_conformance_observations();
+    let adapter = capsec_semantics::strict_json::parse_strict(&response_text)
+        .map_err(|error| anyhow!("typed decision adapter returned invalid JSON: {error}"))?;
+    serde_json::to_string(&serde_json::json!({
+        "adapter": adapter,
+        "legacyObservations": legacy_observations,
+        "typedObservations": typed_observations,
+    }))
+    .context("conformance adapter response serialization failed")
+}
+
 extern "C" fn exact_agent_host_call(
     op: *const std::os::raw::c_char,
     args_json: *const std::os::raw::c_char,
@@ -246,6 +296,14 @@ extern "C" fn exact_agent_host_call(
             .to_string_lossy()
             .into_owned()
     };
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    if operation == "capsec.conformance.evaluate" {
+        return match capsec_conformance_host_call(&args) {
+            Ok(json) => host_call_response(format!("+{json}")),
+            Err(error) => host_call_response(format!("-{error}")),
+        };
+    }
 
     match crate::agent_logs::handle_host_call(&operation, &args) {
         Ok(json) => host_call_response(format!("+{json}")),
@@ -2484,6 +2542,75 @@ mod tests {
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
         runtime.shutdown();
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn capsec_conformance_host_call_crosses_hermes_and_the_typed_adapter() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let floor = serde_json::json!({
+            "cap": "sys:read",
+            "resource": {"kind": "system-info", "name": "platform"}
+        });
+        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let decision = serde_json::json!({
+            "decisionSetSchema": "ibex/capsec-decision-set/1",
+            "operationId": "conformance-sys-read",
+            "atomicityGroup": "surface.native.op.exactarch.0djy1vp.decision",
+            "combination": "conjunction",
+            "context": {
+                "stage": "delivery",
+                "actor": {"kind": "root", "identity": "project-root"},
+                "constrainedPrincipals": [
+                    {"kind": "root", "identity": "project-root"}
+                ],
+                "presentedHandleIds": []
+            },
+            "effects": [{
+                "cap": "sys:read",
+                "effectOwner": {"kind": "root", "identity": "project-root"},
+                "resource": {
+                    "kind": "system-info-occurrence",
+                    "requested": {"kind": "system-info", "name": "platform"}
+                }
+            }]
+        });
+        let gates = serde_json::json!([{
+            "coverageEdgeId": "surface.native.op.exactarch.0djy1vp",
+            "targetCell": "complete",
+            "definitionAndEdgePredicatesSatisfied": true
+        }]);
+        let request = serde_json::json!({
+            "terminalBranchId": "enforcement.test.exactarch",
+            "decisionSetJson": serde_json::to_string(&decision).unwrap(),
+            "gatesJson": serde_json::to_string(&gates).unwrap()
+        });
+        let script = format!(
+            "JSON.stringify(__hostCall('capsec.conformance.evaluate', {}))",
+            serde_json::to_string(&request).unwrap()
+        );
+        let result: serde_json::Value = serde_json::from_str(
+            engine
+                .eval_immediate(&script)
+                .await
+                .unwrap()
+                .as_deref()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(result["adapter"]["decision"]["outcome"], "allow");
+        assert_eq!(result["typedObservations"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            result["typedObservations"][0]["terminalBranchId"],
+            "enforcement.test.exactarch"
+        );
+        assert_eq!(
+            result["typedObservations"][0]["decisionSet"]["effects"][0]["cap"],
+            "sys:read"
+        );
+        assert_eq!(result["legacyObservations"], serde_json::json!([]));
     }
 
     #[tokio::test(flavor = "current_thread")]

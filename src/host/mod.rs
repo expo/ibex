@@ -177,7 +177,7 @@ pub struct Host {
     typed_decision_count: Arc<AtomicUsize>,
     #[cfg(test)]
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     conformance_typed_observer: Arc<RwLock<TypedConformanceObserver>>,
     typed_imports: Arc<
         BTreeMap<
@@ -198,7 +198,7 @@ pub struct TypedDecisionResult {
     pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObservedTypedDecision {
@@ -208,7 +208,7 @@ pub struct ObservedTypedDecision {
     pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
 #[derive(Default)]
 struct TypedConformanceObserver {
     terminal_branch_id: Option<String>,
@@ -260,7 +260,7 @@ impl Host {
             typed_evidence: Arc::new(RwLock::new(VecDeque::with_capacity(
                 MAX_TYPED_EVIDENCE_ENTRIES,
             ))),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
             conformance_typed_observer: Arc::new(RwLock::new(TypedConformanceObserver::default())),
             typed_imports: Arc::new(BTreeMap::new()),
             typed_module_principals: Arc::new(RwLock::new(HashMap::new())),
@@ -787,11 +787,13 @@ impl Host {
             &classify_network_peer,
         )?;
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
         {
             let evidence =
                 capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
-            self.record_typed_decision_for_tests(set, gates, evidence);
+            #[cfg(test)]
+            self.record_typed_decision_for_tests(evidence.clone());
+            self.record_typed_conformance_decision(set, gates, evidence);
         }
         Ok(decision)
     }
@@ -823,23 +825,32 @@ impl Host {
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(test)]
-        self.record_typed_decision_for_tests(set, gates, evidence.clone());
+        self.record_typed_decision_for_tests(evidence.clone());
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
+        self.record_typed_conformance_decision(set, gates, evidence.clone());
         Ok(TypedDecisionResult { decision, evidence })
     }
 
     #[cfg(test)]
     fn record_typed_decision_for_tests(
         &self,
-        set: &capsec_semantics::model::DecisionSet,
-        gates: &[capsec_semantics::decision::EffectGate],
         evidence: capsec_semantics::decision::StructuredDecisionEvidence,
     ) {
         if let Ok(mut rows) = self.typed_evidence.write() {
             if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
                 rows.pop_front();
             }
-            rows.push_back(evidence.clone());
+            rows.push_back(evidence);
         }
+    }
+
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
+    fn record_typed_conformance_decision(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+        evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+    ) {
         let Ok(mut observer) = self.conformance_typed_observer.write() else {
             return;
         };
@@ -1661,7 +1672,7 @@ impl Host {
         self.capability_manager.audit_report()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
         self.capability_manager
             .begin_conformance_observation(terminal_branch_id);
@@ -1671,12 +1682,12 @@ impl Host {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn take_conformance_observations(&self) -> Vec<capability::ObservedCapabilityDecision> {
         self.capability_manager.take_conformance_observations()
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn take_typed_conformance_observations(&self) -> Vec<ObservedTypedDecision> {
         let Ok(mut observer) = self.conformance_typed_observer.write() else {
             return Vec::new();
@@ -1832,10 +1843,7 @@ impl Host {
         // lexical target to a bound root or exact graph edge. In particular,
         // require.resolve must not reveal existent-vs-missing unauthorized
         // targets through resolver errors or timing.
-        let mut meta = match armed_resolution
-            .as_ref()
-            .map(|(_, _, _, plan)| plan)
-        {
+        let mut meta = match armed_resolution.as_ref().map(|(_, _, _, plan)| plan) {
             Some(ArmedModuleResolution::BoundPackage { name, root }) => self
                 .module_loader
                 .resolve_meta_from_bound_package(specifier, name, root)?,
