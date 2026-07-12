@@ -338,6 +338,7 @@ impl Host {
         module_id: &str,
         operation_key: &str,
         coverage_edge_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
         path: &std::path::Path,
         stage: capsec_semantics::model::Stage,
         object_state: capsec_semantics::model::ObjectState,
@@ -363,6 +364,16 @@ impl Host {
             )
         })?;
         let requested = self.typed_logical_path(&principal, path)?;
+        if constrained_principals.is_empty()
+            || !constrained_principals.contains(&principal)
+            || constrained_principals
+                .windows(2)
+                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "filesystem principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
         if let Some(resolved_parent_path) = resolved_parent_path {
             let parent_matches = if requested.components.is_empty() {
                 self.armed_snapshot
@@ -450,7 +461,7 @@ impl Host {
             context: DecisionContext {
                 stage,
                 actor: principal.clone(),
-                constrained_principals: vec![principal],
+                constrained_principals,
                 presented_handle_ids,
             },
             effects,
@@ -1428,6 +1439,7 @@ mod tests {
                 "0",
                 "fs-open",
                 "surface.native.op.exactfsopen.05ao6wa",
+                vec![host.typed_principal_for_module("0").unwrap()],
                 open_path,
                 capsec_semantics::model::Stage::Requested,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1456,6 +1468,7 @@ mod tests {
                 "0",
                 "fs-open",
                 "surface.native.op.exactfsopen.05ao6wa",
+                vec![host.typed_principal_for_module("0").unwrap()],
                 open_path,
                 capsec_semantics::model::Stage::Discovery,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1479,6 +1492,7 @@ mod tests {
                 "0",
                 "fs-open",
                 "surface.native.op.exactfsopen.05ao6wa",
+                vec![host.typed_principal_for_module("0").unwrap()],
                 open_path,
                 capsec_semantics::model::Stage::Commit,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1502,6 +1516,7 @@ mod tests {
                 "0",
                 "fs-open",
                 "surface.native.op.exactfsopen.05ao6wa",
+                vec![host.typed_principal_for_module("0").unwrap()],
                 open_path,
                 capsec_semantics::model::Stage::Repeat,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1527,6 +1542,35 @@ mod tests {
         assert!(host.check_import("0", "image-lib/subpath"));
         assert!(!host.check_import("0", "other-lib"));
         host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        let mut deputy_principals = vec![
+            host.typed_principal_for_module("0").unwrap(),
+            host.typed_principal_for_module("7").unwrap(),
+        ];
+        deputy_principals.sort_by_key(|principal| serde_json::to_vec(principal).unwrap());
+        let deputy_write = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                deputy_principals,
+                open_path,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new("/Users/example/project/images")),
+                false,
+                true,
+                Some(object("parent")),
+                Some(object("photo")),
+                Some(capsec_semantics::model::NonEmptyString::new("fd:9").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            deputy_write.outcome,
+            capsec_semantics::decision::DecisionOutcome::Deny
+        );
         assert!(host.check_import("7", "node:fs"));
         assert!(host.check_import("7", "node:fs/promises"));
         assert!(!host.check_import("7", "node:http"));
@@ -1620,11 +1664,11 @@ mod tests {
         let denied = host.evaluate_typed_decision(&denied_set, &gates).unwrap();
         assert_eq!(denied.outcome, DecisionOutcome::Deny);
         let evidence = host.typed_evidence();
-        assert_eq!(evidence.len(), 6);
-        assert_eq!(evidence[4].outcome, DecisionOutcome::Allow);
-        assert_eq!(evidence[5].outcome, DecisionOutcome::Deny);
+        assert_eq!(evidence.len(), 7);
+        assert_eq!(evidence[5].outcome, DecisionOutcome::Allow);
+        assert_eq!(evidence[6].outcome, DecisionOutcome::Deny);
         assert_eq!(
-            evidence[4].identity.armed_snapshot_digest,
+            evidence[5].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
     }

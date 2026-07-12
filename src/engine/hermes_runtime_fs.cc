@@ -59,8 +59,10 @@ extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
 extern "C" int32_t ex_host_is_armed(void);
-extern "C" int32_t ex_host_authorize_typed_fs_open(
+extern "C" int32_t ex_host_authorize_typed_fs_stack(
     uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
     const char* path,
     uint32_t stage,
     uint32_t surface,
@@ -94,6 +96,68 @@ struct FdEntry {
 static std::mutex g_fd_registry_mutex;
 static std::unordered_map<int, FdEntry> g_fd_registry;
 static std::unordered_map<int, uint64_t> g_transferable_fds;
+static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
+
+static std::vector<uint64_t> collectTypedPrincipalStack() {
+  if (g_typed_principal_stack) return *g_typed_principal_stack;
+  std::vector<uint64_t> principals;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime != nullptr) {
+    constexpr size_t kMaxStack = 256;
+    uint32_t ids[kMaxStack];
+    size_t count = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids, kMaxStack);
+    principals.reserve(count + 1);
+    for (size_t index = 0; index < count; ++index) {
+      auto id = static_cast<uint64_t>(ids[index]);
+      if (principals.empty() || principals.back() != id) principals.push_back(id);
+    }
+    if (count == kMaxStack) {
+      principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
+    }
+  }
+#endif
+  auto scheduler = g_native_callback_principal_id;
+  if (scheduler != kNoNativePrincipalOverride
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+      && scheduler != static_cast<uint64_t>(kRuntimePrincipalId)
+      && scheduler != static_cast<uint64_t>(kNoUserPrincipalId)
+#endif
+      && (principals.empty() || principals.back() != scheduler)) {
+    principals.push_back(scheduler);
+  }
+  if (principals.empty()) principals.push_back(currentPrincipalId());
+  return principals;
+}
+
+class ScopedTypedPrincipalStack {
+ public:
+  explicit ScopedTypedPrincipalStack(const std::vector<uint64_t>& principals)
+      : previous_(g_typed_principal_stack) {
+    g_typed_principal_stack = &principals;
+  }
+  ~ScopedTypedPrincipalStack() { g_typed_principal_stack = previous_; }
+  ScopedTypedPrincipalStack(const ScopedTypedPrincipalStack&) = delete;
+  ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
+
+ private:
+  const std::vector<uint64_t>* previous_;
+};
+
+static int32_t ex_host_authorize_typed_fs_open(
+    uint64_t module_id,
+    const char* path,
+    uint32_t stage,
+    uint32_t surface,
+    int32_t parent_fd,
+    int32_t fd,
+    int32_t needs_read,
+    int32_t needs_write,
+    const char* presented_handle_id) {
+  auto principals = collectTypedPrincipalStack();
+  return ex_host_authorize_typed_fs_stack(
+      module_id, principals.data(), principals.size(), path, stage, surface,
+      parent_fd, fd, needs_read, needs_write, presented_handle_id);
+}
 
 static bool principalMayUseUnknownFd(uint64_t principal) {
   if (principal == 0) {
@@ -976,13 +1040,15 @@ static facebook::jsi::Value startFsAsync(
   // Capture the scheduling principal on the JS thread so the resolved
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
+  auto principalStack =
+      std::make_shared<std::vector<uint64_t>>(collectTypedPrincipalStack());
   auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
   auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
   auto executor = facebook::jsi::Function::createFromHostFunction(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, workPtr, onEnqueueFailure](
+      [handle, principal, principalStack, workPtr, onEnqueueFailure](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -1001,10 +1067,11 @@ static facebook::jsi::Value startFsAsync(
 
         std::string enqueueError;
         bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve, reject]() mutable {
+            [handle, principal, principalStack, workPtr, resolve, reject]() mutable {
               // shared_ptr wrapper: std::function requires a copyable callable,
               // and a readFile result can be hundreds of MB — share it instead
               // of copying, and move the bytes into the JS heap at delivery.
+              ScopedTypedPrincipalStack typedStack(*principalStack);
               auto resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);

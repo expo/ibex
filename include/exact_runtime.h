@@ -304,7 +304,9 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
 /// descriptor use (stage=2), path disclosure (stage=3), or pre-open effects
 /// (stage=4), or repeated descriptor metadata disclosure (stage=5) for
 /// fs.open. Stages after requested require `parent_fd`.
-int ex_host_authorize_typed_fs_open(uint64_t module_id,
+int ex_host_authorize_typed_fs_stack(uint64_t module_id,
+                                    const uint64_t* module_ids,
+                                    size_t module_ids_len,
                                     const char* path,
                                     uint32_t stage,
                                     uint32_t surface,

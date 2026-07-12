@@ -767,6 +767,12 @@ Armed root bindings are decoded into typed values and host paths normalize
 through the longest authenticated binding. Package roots match only their exact
 package owner, project roots do not borrow package identity, absolute bindings
 remain exact, and paths outside every armed binding refuse before a decision.
+Live typed filesystem decisions now carry the canonical full Hermes principal
+stack, including the captured schedule-time owner. Worker dispatch snapshots
+that stack on the runtime thread and installs a scoped immutable copy on the
+worker, so commit/repeat checks cannot lose an outer caller or detached
+scheduler. The evaluator intersects every constrained principal; an ungranted
+outer principal therefore denies even when the innermost actor has authority.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

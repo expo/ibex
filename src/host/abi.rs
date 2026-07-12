@@ -968,10 +968,13 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
 /// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
 ///
 /// # Safety
-/// `path` and an optional `presented_handle_id` must be valid C strings.
+/// `module_ids` must reference `module_ids_len` values. `path` and an optional
+/// `presented_handle_id` must be valid C strings for the duration of the call.
 #[no_mangle]
-pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
+pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
     path: *const c_char,
     stage: u32,
     surface: u32,
@@ -984,7 +987,12 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{NonEmptyString, Stage};
 
-    if path.is_null() || !matches!(stage, 0..=5) {
+    if path.is_null()
+        || module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || !matches!(stage, 0..=5)
+    {
         return -1;
     }
     let (operation_key, coverage_edge_id) = match surface {
@@ -1044,6 +1052,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             Err(_) => return -1,
         }
     };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
     let (stage, object_state, disclosure_only, parent_object, final_object, retained_handle) =
         if stage == 0 {
             (
@@ -1131,38 +1140,52 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
         }
     };
     with_host(
-        |host| match host.authorize_typed_fs_open_stage(
-            &module_id.to_string(),
-            operation_key,
-            coverage_edge_id,
-            &path,
-            stage,
-            object_state,
-            follow_mode,
-            disclosure_only,
-            resolved_parent_path.as_deref(),
-            needs_read != 0
-                && !(stage == Stage::Discovery
-                    && object_state == capsec_semantics::model::ObjectState::AbsentCreate
-                    && !disclosure_only),
-            needs_write != 0,
-            parent_object,
-            final_object,
-            retained_handle,
-            presented,
-        ) {
-            Ok(decision)
-                if matches!(
-                    decision.outcome,
-                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
-                ) =>
+        |host| {
+            let mut constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
             {
-                1
-            }
-            Ok(_) => 0,
-            Err(error) => {
-                eprintln!("error: typed filesystem authorization refused: {error}");
-                -1
+                Some(principals) => principals,
+                None => return -1,
+            };
+            constrained_principals
+                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
+            constrained_principals.dedup();
+            match host.authorize_typed_fs_open_stage(
+                &module_id.to_string(),
+                operation_key,
+                coverage_edge_id,
+                constrained_principals,
+                &path,
+                stage,
+                object_state,
+                follow_mode,
+                disclosure_only,
+                resolved_parent_path.as_deref(),
+                needs_read != 0
+                    && !(stage == Stage::Discovery
+                        && object_state == capsec_semantics::model::ObjectState::AbsentCreate
+                        && !disclosure_only),
+                needs_write != 0,
+                parent_object,
+                final_object,
+                retained_handle,
+                presented,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed filesystem authorization refused: {error}");
+                    -1
+                }
             }
         },
         -1,

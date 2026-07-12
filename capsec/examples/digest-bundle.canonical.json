@@ -133152,11 +133152,11 @@
             "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
           },
           {
-            "id": "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2",
+            "id": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
             "classification": "non-capability",
             "surface": {
               "kind": "host-abi",
-              "name": "ex_host_authorize_typed_fs_open"
+              "name": "ex_host_authorize_typed_fs_stack"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

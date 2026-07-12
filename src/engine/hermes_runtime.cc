@@ -236,8 +236,10 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
-extern "C" int32_t ex_host_authorize_typed_fs_open(
+extern "C" int32_t ex_host_authorize_typed_fs_stack(
     uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
     const char* path,
     uint32_t stage,
     uint32_t surface,

@@ -57480,7 +57480,7 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2",
+      "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "target": {
         "triple": "aarch64-apple-darwin",
         "features": [
@@ -57491,7 +57491,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2.default.1awtfe4"
+        "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna.default.0suo178"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
