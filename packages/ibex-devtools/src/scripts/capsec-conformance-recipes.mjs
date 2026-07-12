@@ -854,6 +854,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     "__exactGetNetworkInterfaces",
     nativeSystemInfoTemplate("network-interfaces"),
   ],
+  ["__exactGetProcessRSS", nativeSystemInfoTemplate("memory")],
   ["__exactGetTotalMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetUptime", nativeSystemInfoTemplate("uptime")],
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],

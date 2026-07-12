@@ -1668,6 +1668,11 @@ pub unsafe extern "C" fn ex_host_authorize_typed_system_info_stack(
                 None => return -1,
             },
         ),
+        9 => (
+            "system-info-process-rss",
+            "surface.native.op.exactgetprocessrss.0o50wgs",
+            SystemInfoName::Memory,
+        ),
         _ => return -1,
     };
     let stage = if stage == 0 {

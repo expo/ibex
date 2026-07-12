@@ -3953,7 +3953,7 @@ cp \"$input\" \"$out\"\n";
                    os.totalmem(), os.freemem(), os.uptime(), os.endianness(),\
                    Object.keys(os.networkInterfaces()).length, os.loadavg().length,\
                    os.version(), os.machine(), os.availableParallelism(),\
-                   typeof os.userInfo().username])",
+                   typeof os.userInfo().username, __exactGetProcessRSS()])",
             )
             .await
             .unwrap();
@@ -3965,8 +3965,8 @@ cp \"$input\" \"$out\"\n";
         );
         assert_eq!(
             observed.len(),
-            36,
-            "eighteen reads must authorize two stages each"
+            38,
+            "nineteen reads must authorize two stages each"
         );
 
         let expected = [
@@ -4018,6 +4018,7 @@ cp \"$input\" \"$out\"\n";
             ),
             ("surface.native.op.exactgetcpucount.1k05aty", "cpus"),
             ("surface.native.op.exactgetuserinfo.027b1gs", "user"),
+            ("surface.native.op.exactgetprocessrss.0o50wgs", "memory"),
         ];
         for (index, (edge, name)) in expected.into_iter().enumerate() {
             let requested = &observed[index * 2];
@@ -4058,10 +4059,16 @@ cp \"$input\" \"$out\"\n";
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
                 snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
-                snapshot["principals"][0]["denials"] = serde_json::json!([{
-                    "cap": "sys:read",
-                    "resource": {"kind": "system-info", "name": "cpus"}
-                }]);
+                snapshot["principals"][0]["denials"] = serde_json::json!([
+                    {
+                        "cap": "sys:read",
+                        "resource": {"kind": "system-info", "name": "cpus"}
+                    },
+                    {
+                        "cap": "sys:read",
+                        "resource": {"kind": "system-info", "name": "memory"}
+                    }
+                ]);
             });
         assert_ne!(crate::host::abi::install_host(host), 0);
         let _reset = HostResetGuard;
@@ -4074,30 +4081,46 @@ cp \"$input\" \"$out\"\n";
         );
         let value = engine
             .eval_immediate(
-                "try { require('node:os').cpus(); 'unexpected-allow' } \
-                 catch (error) { String(error && error.message || error) }",
+                r#"(function() {
+                    var os = require('node:os');
+                    var calls = [
+                      function() { return os.cpus(); },
+                      function() { return __exactGetProcessRSS(); }
+                    ];
+                    var denied = 0;
+                    for (var i = 0; i < calls.length; i++) {
+                      try { calls[i](); }
+                      catch (error) {
+                        if (String(error && error.message || error).indexOf('Permission denied') !== -1) denied++;
+                      }
+                    }
+                    return String(denied);
+                })()"#,
             )
             .await
             .unwrap()
             .unwrap();
-        assert_ne!(
-            value, "unexpected-allow",
-            "the public read must throw before returning data"
-        );
+        assert_eq!(value, "2", "both public reads must deny before data access");
         let (legacy, observed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         assert!(legacy.is_empty());
-        assert_eq!(observed.len(), 1, "denial must stop before Commit and read");
         assert_eq!(
-            observed[0].decision_set.context.stage,
-            capsec_semantics::model::Stage::Requested
+            observed.len(),
+            2,
+            "each denial must stop before Commit and read"
         );
+        assert!(observed.iter().all(|decision| {
+            decision.decision_set.context.stage == capsec_semantics::model::Stage::Requested
+                && decision.evidence.outcome == capsec_semantics::decision::DecisionOutcome::Deny
+        }));
         assert_eq!(
-            observed[0].gates[0].coverage_edge_id.as_str(),
-            "surface.native.op.exactgetcpucount.1k05aty"
-        );
-        assert_eq!(
-            observed[0].evidence.outcome,
-            capsec_semantics::decision::DecisionOutcome::Deny
+            observed
+                .iter()
+                .map(|decision| decision.gates[0].coverage_edge_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "surface.native.op.exactgetcpucount.1k05aty",
+                "surface.native.op.exactgetprocessrss.0o50wgs",
+            ]
         );
     }
 

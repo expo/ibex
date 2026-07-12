@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(177);
+    expect(nativePublicFixtures).toHaveLength(179);
     expect(
       nativePublicFixtures
         .filter(
@@ -993,6 +993,45 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipe.residualReasons).not.toContain(
       "non-capability-no-decision-probe-not-authored",
     );
+  });
+
+  test("binds process RSS to the exact typed memory selector and stages", () => {
+    const processRss = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactGetProcessRSS",
+    );
+    expect(processRss).toHaveLength(2);
+    expect(processRss.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+    ]);
+    for (const recipe of processRss) {
+      expect(recipe).toMatchObject({
+        actionIds: ["sys:read"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            requiredFloor: [
+              {
+                cap: "sys:read",
+                resource: { kind: "system-info", name: "memory" },
+              },
+            ],
+            expectedActionIds: ["sys:read"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "commit"]
+          : ["requested"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(recipe.scenario === "allow" ? 2 : 1);
+    }
   });
 
   test("preserves multiple argument-selected terminal routes", () => {

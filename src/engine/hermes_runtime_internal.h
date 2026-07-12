@@ -539,6 +539,7 @@ enum class ExactSystemInfoSurface : uint32_t {
   Uptime = 6,
   UserInfo = 7,
   CachedValue = 8,
+  ProcessRss = 9,
 };
 
 enum class ExactSystemInfoName : uint32_t {

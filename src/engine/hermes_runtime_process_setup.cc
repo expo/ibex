@@ -533,10 +533,14 @@ void installProcessSetup(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetProcessRSS"),
       0,
-      [getResidentSetSize](facebook::jsi::Runtime&,
+      [getResidentSetSize](facebook::jsi::Runtime& runtime,
                            const facebook::jsi::Value&,
                            const facebook::jsi::Value*,
                            size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::ProcessRss,
+            ExactSystemInfoName::Memory);
         return facebook::jsi::Value(static_cast<double>(getResidentSetSize()));
       });
   rt.global().setProperty(rt, "__exactGetProcessRSS", std::move(rssFn));
