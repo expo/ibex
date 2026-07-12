@@ -235,6 +235,41 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("authors source-bound reads for non-capability builtin exports", () => {
+    const publicReads = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.kind === "builtin-export-read",
+    );
+    expect(publicReads.length).toBeGreaterThan(1_500);
+    expect(
+      publicReads.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.route.alternatives.length === 1 &&
+          recipe.route.alternatives[0].terminalObservedKey ===
+            recipe.publicSurfaceProbe.surfaceObservedKey,
+      ),
+    ).toBe(true);
+    expect(
+      publicReads.some(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind ===
+          "prototype-property",
+      ),
+    ).toBe(true);
+    expect(
+      publicReads.some((recipe) =>
+        recipe.publicSurfaceProbe.surfaceObservedKey.includes(
+          "[[dynamic-table:",
+        ),
+      ),
+    ).toBe(false);
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>

@@ -16,6 +16,7 @@
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
+import { authoredNonCapabilityBuiltinProbe } from "./capsec-builtin-public-probe-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
@@ -356,6 +357,18 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
     const live = liveByObservedKey.get(row.observedKey);
     const routeEvidence = live?.metadata?.enforcementRouteEvidence;
     if (routeEvidence?.kind === "static-builtin-call-graph") {
+      if (plan.classification === "non-capability") {
+        const route = row.enforcementRoute;
+        if (
+          route?.kind === "surface-branch" &&
+          route.terminalObservedKey === row.observedKey
+        ) {
+          const accumulated = alternatives.get(row.observedKey) ?? new Set();
+          for (const proofPath of route.proofPaths) accumulated.add(proofPath);
+          alternatives.set(row.observedKey, accumulated);
+        }
+        continue;
+      }
       for (const callee of routeEvidence.ambiguousCallees ?? []) {
         ambiguousCallees.add(callee);
       }
@@ -770,31 +783,48 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
     );
     const adapterProbe = adapter.probe;
-    const builtinPublicSurfaceProbe = authoredBuiltinPublicProbe({
+    const effectBuiltinPublicSurfaceProbe = authoredBuiltinPublicProbe({
       plan,
       scenario,
       route,
       liveByObservedKey,
       coverageByObservedKey,
     });
+    const nonCapabilityBuiltinPublicSurfaceProbe =
+      authoredNonCapabilityBuiltinProbe({
+        plan,
+        scenario,
+        route,
+        liveByObservedKey,
+      });
     const nativePublicSurface = nativePublicProbeForPlan({
       plan,
       scenario,
       route,
       liveByObservedKey,
     });
-    if (builtinPublicSurfaceProbe && nativePublicSurface.probe) {
-      throw new Error(`${plan.fixtureId}: multiple public probe authors claimed one fixture`);
+    const authoredPublicSurfaceProbes = [
+      effectBuiltinPublicSurfaceProbe,
+      nonCapabilityBuiltinPublicSurfaceProbe,
+      nativePublicSurface.probe,
+    ].filter((probe) => probe !== null);
+    if (authoredPublicSurfaceProbes.length > 1) {
+      throw new Error(
+        `${plan.fixtureId}: multiple public probe authors claimed one fixture`,
+      );
     }
-    const publicSurfaceProbe =
-      builtinPublicSurfaceProbe ?? nativePublicSurface.probe;
+    const publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
     const residual = residualReasons({
       plan,
       scenario,
       adapterProbe,
       adapterUnavailableReason: adapter.unavailableReason,
       publicSurfaceProbe,
-      publicSurfaceUnavailableReason: nativePublicSurface.unavailableReason,
+      publicSurfaceUnavailableReason:
+        effectBuiltinPublicSurfaceProbe === null &&
+        nonCapabilityBuiltinPublicSurfaceProbe === null
+          ? nativePublicSurface.unavailableReason
+          : null,
       route,
     });
     return {
