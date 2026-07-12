@@ -1398,7 +1398,10 @@ class FsWorkerPool {
     return *pool;
   }
 
-  bool enqueue(std::function<void()> job, std::string& error) {
+  bool enqueue(
+      std::function<void()> job,
+      std::string& error,
+      const std::function<void()>& onAccepted = {}) {
     if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
         fail && std::strcmp(fail, "1") == 0) {
       throw std::runtime_error("injected FS worker enqueue failure");
@@ -1413,6 +1416,12 @@ class FsWorkerPool {
       }
       spawnWorkerIfNeededLocked();
       queue_.push_back(std::move(job));
+      // Some operations must mutate process state only after queue admission
+      // is irrevocable, but before a worker can observe the job. Running the
+      // commit hook under the queue mutex provides exactly that boundary:
+      // allocation/capacity failures leave the caller's state untouched, and
+      // workers cannot pop the accepted job until the hook has completed.
+      if (onAccepted) onAccepted();
     }
     cv_.notify_one();
     return true;
@@ -1525,7 +1534,8 @@ static facebook::jsi::Value startFsAsync(
     ExactHermesRuntime* handle,
     facebook::jsi::Runtime& runtime,
     std::function<FsAsyncResult()> work,
-    std::function<void()> onEnqueueFailure = {}) {
+    std::function<void()> onEnqueueFailure = {},
+    std::function<void()> onEnqueueAccepted = {}) {
   // Capture the scheduling principal on the JS thread so the resolved
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
@@ -1537,7 +1547,8 @@ static facebook::jsi::Value startFsAsync(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, principalStack, workPtr, onEnqueueFailure](
+      [handle, principal, principalStack, workPtr, onEnqueueFailure,
+       onEnqueueAccepted](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -1667,7 +1678,8 @@ static facebook::jsi::Value startFsAsync(
 
         bool queued = false;
         try {
-          queued = FsWorkerPool::instance().enqueue(std::move(worker), enqueueError);
+          queued = FsWorkerPool::instance().enqueue(
+              std::move(worker), enqueueError, onEnqueueAccepted);
         } catch (const std::exception& error) {
           enqueueError = error.what();
         } catch (...) {
@@ -4537,18 +4549,20 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         int fd = static_cast<int>(args[0].asNumber());
         std::optional<FdEntry> entry = requireOwnedFd(runtime, fd, "close");
-        // Revoke authority before dispatch so no later JS operation can race
-        // the close or acquire authority through integer fd reuse. Perform the
-        // close itself before yielding to the worker: deferring close(fd)
-        // would allow a concurrently closed descriptor number to be reused and
-        // make the worker close a different kernel object.
-        unregisterFd(fd);
-        auto closeResult = fsCloseWork(fd);
-        if (!closeResult.ok) restoreFdEntry(fd, entry);
+        auto closeResult = std::make_shared<FsAsyncResult>();
         return startFsAsync(
             handle, runtime,
-            [closeResult = std::move(closeResult)]() mutable {
-              return std::move(closeResult);
+            [closeResult]() mutable { return std::move(*closeResult); },
+            {},
+            [fd, entry = std::move(entry), closeResult]() mutable {
+              // Queue admission happens before this commit hook and the pool
+              // mutex prevents the worker from running it early. Therefore a
+              // rejected enqueue leaves both descriptor and authority intact,
+              // while an accepted close publishes revocation before any later
+              // JS operation can race fd-number reuse.
+              unregisterFd(fd);
+              *closeResult = fsCloseWork(fd);
+              if (!closeResult->ok) restoreFdEntry(fd, entry);
             });
       });
   rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));

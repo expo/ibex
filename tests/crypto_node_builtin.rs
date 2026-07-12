@@ -671,6 +671,7 @@ async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
 /// every coordinate width supported by the compatibility layer. This catches
 /// the easy-to-miss P-521 case (66-byte coordinates, not a power-of-two byte
 /// width) as well as P-256/P-384.
+#[cfg(any(target_os = "macos", feature = "openssl-crypto"))]
 #[tokio::test]
 async fn ec_p1363_interoperates_with_node_for_p256_p384_and_p521() {
     let oracle = r#"
@@ -688,13 +689,17 @@ const vectors = curves.map(([name, namedCurve]) => {
 });
 process.stdout.write(JSON.stringify(vectors));
 "#;
-    let oracle_output = match Command::new("node").arg("-e").arg(oracle).output().await {
-        Ok(output) if output.status.success() => output,
-        _ => {
-            eprintln!("skipping P1363 cross-implementation test: Node oracle unavailable");
-            return;
-        }
-    };
+    let oracle_output = Command::new("node")
+        .arg("-e")
+        .arg(oracle)
+        .output()
+        .await
+        .expect("Node oracle is required by the supported asymmetric crypto matrix");
+    assert!(
+        oracle_output.status.success(),
+        "Node failed to generate P1363 interoperability vectors: {}",
+        String::from_utf8_lossy(&oracle_output.stderr)
+    );
     let vectors = String::from_utf8(oracle_output.stdout).expect("Node vector JSON is UTF-8");
     let ibex_js = format!(
         r#"(function(){{
@@ -715,10 +720,10 @@ process.stdout.write(JSON.stringify(vectors));
         }})()"#
     );
     let ibex_result = eval(&ibex_js).await;
-    if ibex_result.starts_with("ERR:") && is_unavailable(&ibex_result) {
-        eprintln!("skipping: asymmetric crypto bridge unavailable ({ibex_result})");
-        return;
-    }
+    assert!(
+        !(ibex_result.starts_with("ERR:") && is_unavailable(&ibex_result)),
+        "the supported asymmetric crypto matrix must provide its platform bridge: {ibex_result}"
+    );
     let ibex_signatures: serde_json::Value = serde_json::from_str(&ibex_result)
         .unwrap_or_else(|error| panic!("Ibex P1363 result JSON {ibex_result:?}: {error}"));
     let expected_lengths = [64_u64, 96, 132];
