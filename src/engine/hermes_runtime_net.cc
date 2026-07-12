@@ -15,6 +15,10 @@
 #include <unistd.h>
 
 extern "C" int32_t ex_host_is_armed(void);
+extern "C" int32_t ex_host_typed_generations(
+    uint64_t* negative_generation,
+    uint64_t* dynamic_generation,
+    uint64_t* handle_generation);
 extern "C" int32_t ex_host_authorize_typed_network_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
@@ -28,6 +32,13 @@ extern "C" int32_t ex_host_authorize_typed_network_stack(
     const char* verified_peer,
     const char* connection_id,
     uint64_t redirect_index);
+extern "C" int32_t ex_host_authorize_typed_udp_datagram_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    const char* host,
+    uint16_t port,
+    const char* connection_id);
 
 namespace {
 
@@ -44,6 +55,11 @@ struct SocketEntry {
   std::string typedSelected;
   std::string typedPeer;
   std::string typedConnectionId;
+  bool typedAuthorizationGenerationsInitialized = false;
+  uint64_t typedNegativeGeneration = 0;
+  uint64_t typedDynamicGeneration = 0;
+  uint64_t typedHandleGeneration = 0;
+  std::vector<uint64_t> typedAuthorizationPrincipals;
 };
 
 static std::unordered_map<int, SocketEntry> g_socket_handles;
@@ -198,6 +214,72 @@ bool authorizeTypedTcp(
       connectionId);
 }
 
+struct NetworkAuthorizationGenerations {
+  uint64_t negative = 0;
+  uint64_t dynamic = 0;
+  uint64_t handle = 0;
+
+  bool operator==(const NetworkAuthorizationGenerations& other) const {
+    return negative == other.negative && dynamic == other.dynamic &&
+        handle == other.handle;
+  }
+};
+
+bool readNetworkAuthorizationGenerations(
+    NetworkAuthorizationGenerations& generations) {
+  return ex_host_typed_generations(
+             &generations.negative, &generations.dynamic,
+             &generations.handle) == 1;
+}
+
+bool authorizeTypedTcpWithLease(
+    int handle,
+    SocketEntry& entry,
+    const std::string& actualPeer) {
+  NetworkAuthorizationGenerations current;
+  if (!readNetworkAuthorizationGenerations(current)) return false;
+  auto principals = exactCollectTypedPrincipalStack();
+  std::sort(principals.begin(), principals.end());
+  principals.erase(std::unique(principals.begin(), principals.end()), principals.end());
+  if (entry.typedAuthorizationGenerationsInitialized &&
+      entry.typedNegativeGeneration == current.negative &&
+      entry.typedDynamicGeneration == current.dynamic &&
+      entry.typedHandleGeneration == current.handle &&
+      entry.typedAuthorizationPrincipals == principals) {
+    return true;
+  }
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    NetworkAuthorizationGenerations before;
+    NetworkAuthorizationGenerations after;
+    if (!readNetworkAuthorizationGenerations(before) ||
+        !authorizeTypedTcp(
+            entry.owner, entry.typedHost, entry.typedPort, 4,
+            entry.typedCandidates, entry.typedSelected.c_str(),
+            actualPeer.c_str(), entry.typedConnectionId.c_str()) ||
+        !readNetworkAuthorizationGenerations(after)) {
+      return false;
+    }
+    if (!(before == after)) continue;
+
+    std::lock_guard<std::mutex> lock(g_socket_mutex);
+    auto live = g_socket_handles.find(handle);
+    if (live == g_socket_handles.end() || live->second.fd != entry.fd ||
+        live->second.owner != entry.owner ||
+        live->second.typedConnectionId != entry.typedConnectionId) {
+      return false;
+    }
+    live->second.typedAuthorizationGenerationsInitialized = true;
+    live->second.typedNegativeGeneration = after.negative;
+    live->second.typedDynamicGeneration = after.dynamic;
+    live->second.typedHandleGeneration = after.handle;
+    live->second.typedAuthorizationPrincipals = principals;
+    entry = live->second;
+    return true;
+  }
+  return false;
+}
+
 std::optional<std::string> socketPeerText(int fd) {
   struct sockaddr_storage address = {};
   socklen_t length = sizeof(address);
@@ -241,22 +323,9 @@ std::string canonicalCandidateJson(struct addrinfo* result) {
     auto text = addressText(current->ai_addr);
     if (text) candidates.push_back(std::move(*text));
   }
-  auto sortKey = [](const std::string& text) {
-    std::array<uint8_t, 17> key = {};
-    struct in_addr ipv4 = {};
-    struct in6_addr ipv6 = {};
-    if (::inet_pton(AF_INET, text.c_str(), &ipv4) == 1) {
-      key[0] = 0;
-      std::memcpy(key.data() + 1, &ipv4, sizeof(ipv4));
-    } else if (::inet_pton(AF_INET6, text.c_str(), &ipv6) == 1) {
-      key[0] = 1;
-      std::memcpy(key.data() + 1, &ipv6, sizeof(ipv6));
-    }
-    return key;
-  };
-  std::sort(candidates.begin(), candidates.end(), [&](const auto& left, const auto& right) {
-    return sortKey(left) < sortKey(right);
-  });
+  // IpAddress is a transparent JSON string, so ASCII lexical order is its JCS
+  // semantic-set order. Keep the engine and Rust occurrence validator exact.
+  std::sort(candidates.begin(), candidates.end());
   candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
   std::string json = "[";
   for (size_t index = 0; index < candidates.size(); ++index) {
@@ -303,10 +372,7 @@ SocketEntry requireSocketHandle(
       }
       auto actualPeer = socketPeerText(entry.fd);
       if (!actualPeer || *actualPeer != entry.typedPeer ||
-          !authorizeTypedTcp(
-              entry.owner, entry.typedHost, entry.typedPort, 4,
-              entry.typedCandidates, entry.typedSelected.c_str(),
-              actualPeer->c_str(), entry.typedConnectionId.c_str())) {
+          !authorizeTypedTcpWithLease(handle, entry, *actualPeer)) {
         throw facebook::jsi::JSError(runtime, "Permission denied");
       }
     } else if (entry.capability.empty()) {
@@ -1436,21 +1502,15 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           if (ex_host_is_armed() == 1) {
             // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — An unconnected UDP send authorizes and commits its literal destination for this datagram immediately before sendto.
-            std::string candidates = "[\"" + host + "\"]";
             std::string connectionId =
                 "udp:" + std::to_string(fd) + ":" + host + ":" +
                 std::to_string(port);
             auto principal = currentPrincipalId();
-            if (!authorizeTypedNetwork(
-                    principal, 4, host, static_cast<uint16_t>(port), 0,
-                    candidates, nullptr, nullptr, nullptr) ||
-                !authorizeTypedNetwork(
-                    principal, 4, host, static_cast<uint16_t>(port), 1,
-                    candidates, host.c_str(), nullptr, nullptr) ||
-                !authorizeTypedNetwork(
-                    principal, 4, host, static_cast<uint16_t>(port), 2,
-                    candidates, host.c_str(), host.c_str(),
-                    connectionId.c_str())) {
+            auto principals = exactCollectTypedPrincipalStack();
+            if (ex_host_authorize_typed_udp_datagram_stack(
+                    principal, principals.data(), principals.size(),
+                    host.c_str(), static_cast<uint16_t>(port),
+                    connectionId.c_str()) != 1) {
               throw facebook::jsi::JSError(runtime, "Permission denied");
             }
           } else {

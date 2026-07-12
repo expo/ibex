@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, and race-safe retained filesystem objects; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, and race-safe retained filesystem objects; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -577,6 +577,14 @@ are unsupported; 760 known
 parameter/provenance-dependent effect edges are explicitly
 `conditional-unrefined` and therefore unpromotable.
 
+Generator hardening now makes the reviewed/discovered join bidirectional,
+rejects overlapping logical-branch predicates (including subset and
+cross-fact overlaps), fails on unrouted fixed rows and Android provider
+overloads, understands adjacent C++ literals and digit separators, and derives
+implementation branch identity from the target variant rather than mutable
+source-reference paths. Provenance remains digest-bound without becoming the
+semantic identifier.
+
 ### WP2 — Implement the typed policy and decision core
 
 Replace string parsing and matching with the typed Rust semantic core. Implement
@@ -601,6 +609,17 @@ complete frozen semantic identity. Rust golden and property tests consume the
 same WP0 fixtures as the JavaScript/schema validator; CI runs the focused Rust
 test and clippy gates without requiring a Hermes build.
 
+The action-definition `selectorConstraints` fields are executable semantics in
+the Rust core, not schema commentary: the same validator now governs armed
+floors, denials, process/escalation ceilings, handles, dynamic grants, and
+normalized occurrence requests. A corpus test routes every declared invalid
+fixture through the corresponding strict JSON, selector, or occurrence ingress.
+Principal and every other semantic set now use one JCS-byte order at engine,
+host, and core boundaries. IPv4-mapped IPv6 values canonicalize to their
+embedded IPv4 identity, RFC 8785 number bytes use ECMAScript tie-breaking, late
+listen/device facts are required only when their stage produces them, and the
+decision cache is bounded and generation-evictable.
+
 ### WP3 — Rebuild policy generation and import-site authoring
 
 Adapt LLP 0014's import-site generator to emit authored-source inputs and the
@@ -615,6 +634,12 @@ Acceptance:
 - Package code cannot self-grant through import attributes or manifests.
 - Drift reporting distinguishes authority expansion, narrowing, and semantic
   vocabulary changes.
+
+Implementation update (2026-07-12): policy authoring reuses the contract's
+action-specific selector validator. Drift review performs containment-aware
+diffs for floors, denials, ceilings, package/builtin imports, endowments, and
+principal identities, classifying expansion, narrowing, mixed, identity, and
+vocabulary changes. Every semantic set uses canonical UTF-8/JCS byte order.
 
 ### WP4 — Arm immutable snapshots through the CLI, host, and engine
 
@@ -643,6 +668,14 @@ an immutable Host context to each runtime. The old unarmed constructor is
 non-executable. Package principals are stamped only after exact locator,
 resolved root, and whole-tree integrity verification; package-to-root imports
 require an exact authenticated graph edge.
+
+Implementation update (2026-07-12): canonical policy now carries the exact
+registry digest as well as vocabulary identity. Production strictly
+deserializes the complete typed artifact, recomputes its self-digest, validates
+every authority against current definitions, and refuses independently
+recomputed stale vocabulary or registry policies before projection. Bounded
+process ceilings containing package logical roots expand into one bound row per
+authenticated package principal rather than losing their owner identity.
 
 ### WP5 — Convert filesystem effects and checked-object execution
 
@@ -677,8 +710,12 @@ registry publication remains on the attributed runtime thread. The remaining
 descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
 mode, and times, including their worker-backed forms) reuse the retained
 descriptor and typed repeat checks. Synchronous and worker-backed whole-file
-reads use their own registry edges, accept only retained regular files, and
-recheck authority and identity before each chunk. `stat` and directory
+reads use their own registry edges and accept only retained regular files.
+They perform one full repeat decision per descriptor lease and cheaply compare
+negative, dynamic, and handle generations before each chunk; any change
+re-enters the full evaluator before more bytes are observed. Leases are local
+to the exact operation and retained descriptors, so operation/gate/principal/
+object facts cannot collide and descriptor reuse starts a new lease. `stat` and directory
 enumeration likewise use retained no-follow targets and their own `fs:list`
 edges; enumeration rechecks before every disclosed entry. Worker-backed path
 and descriptor stat use the async stat edge and recheck on the worker before
@@ -749,7 +786,10 @@ the request before resolution, submits the canonically sorted complete
 `getaddrinfo` candidate set, authorizes each attempted address, verifies
 `getpeername` at commit, retains the candidate/peer/connection facts with the
 socket handle, and rechecks the actual peer and current principal stack on
-every later handle use. The nonblocking POSIX path applies the same request and
+every later handle use. Retained socket use reuses a full repeat decision only
+for the exact peer and principal set while all mutable authority generations
+remain unchanged; a generation or deputy-set change forces a stable
+before/after redecision. The nonblocking POSIX path applies the same request and
 candidate gates, registers only a pending handle, and withholds read/write
 authority until poll observes successful `SO_ERROR`, verifies `getpeername`,
 and commits the peer. Pending handles may only be polled or closed. Armed
@@ -757,7 +797,8 @@ local-bind options remain closed pending their own typed effects. Windows, TLS,
 WebSocket, and the remaining UDP adapters are not yet migrated. POSIX unconnected UDP sends
 are gated per datagram under their own registry edge: only canonical literal
 IPv4/IPv6 destinations are accepted, and requested, candidate, and committed
-destination facts are checked immediately before `sendto`. A live fixture
+destination facts are checked immediately before `sendto` through one parsed
+and attributed ABI call. A live fixture
 delivers an authorized loopback datagram and proves a metadata datagram is
 rejected before transmission. UDP bind/receive/listen authority remains
 unmigrated and closed in armed execution.
@@ -904,6 +945,12 @@ A retained-operation fixture publishes ceiling-bounded dynamic filesystem
 authority, commits a descriptor use, revokes the grant, observes both negative
 and dynamic generation advances, and proves the immediately following repeat
 check denies.
+Distinct live dynamic grants are now restamped atomically to one published
+generation on every add/revoke/regrant transition, with failed publication
+leaving both rows and clocks unchanged. The typed decision ABI returns the
+decision and its exact structured evidence from one evaluation; bounded
+history receives a clone of that same record and is no longer queried to build
+the response.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
@@ -956,20 +1003,25 @@ for each advertised target. Exercise the real Exact/Snapback graphs and the npm
 compatibility corpus as product-quality evidence, not as a reason to preserve
 the old policy format.
 
-Implementation status (2026-07-11): the only advertised complete profile is
-`aarch64-apple-darwin` with patched Hermes frame attribution, native
-compartments, and native lockdown. `bun run verify:capsec-conformance` executes
-the serialized Rust/JS/red-team commands from a clean tree and publishes a
-revision-, tree-, engine-, vocabulary-, registry-, implementation-, target-,
-and fixture-catalog-bound report. The current run proves all 6,861 inventory
-cells and all 21,597 required fixture obligations with zero missing or failed
-outcomes. The standalone Hermes transform and loader corpora pass 15/15 and
-16/16. An isolated copy of the Exact quick corpus was also exercised: the
-default empty-policy posture intentionally closes tests needing filesystem,
-network, process, or crypto authority rather than silently widening them;
-policy-free, non-authority compatibility results are evidence only and are not
-used to raise this claim ceiling. Other desktop and mobile targets remain
-unadvertised and production startup refuses them.
+Implementation status (2026-07-12): no target is advertised complete. The
+former runner incorrectly converted a handful of broad suite successes into
+21,597 synthetic per-obligation passes. The runner now executes the full
+default Rust/integration/red-team matrix, all-feature executable
+library/binary/test/example coverage plus compile-only all-target coverage,
+complete devtools and runtime-JS tests, Hermes transform/loader corpora,
+all generated drift gates, contract/registry checks, and `ref-check` from a
+clean revision. It launches an executable Hermes probe, but records that probe
+identity separately from the actual runtime engine artifact whose digest enters
+the binding; the probe can never promote a different embedded library. Those
+broad results remain prerequisite suite evidence only, and command logs are
+streamed to files with full digests plus bounded tails rather than retained
+unbounded in the report.
+An obligation can pass only with fixture-specific command evidence carrying
+its exact fixture ID, result marker, exit status, recomputed evidence digest,
+and exact execution binding. Missing, generic, duplicated, stale, or synthetic
+records keep the report incomplete. Promotion remains closed until real
+executable evidence exists for every required fixture and the full matrix is
+green.
 
 Acceptance:
 

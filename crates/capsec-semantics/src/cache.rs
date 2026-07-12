@@ -5,7 +5,7 @@
 //! sources, so possession of one handle cannot authorize a lookup performed
 //! without it. @ref LLP 0021#handles-dynamic-authority-and-generations
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use serde_json::to_value;
 
@@ -153,31 +153,66 @@ impl GenerationClock {
 #[derive(Debug)]
 pub struct DecisionCache<V> {
     entries: HashMap<DecisionCacheKey, V>,
+    insertion_order: VecDeque<DecisionCacheKey>,
+    capacity: usize,
 }
+
+const DEFAULT_DECISION_CACHE_CAPACITY: usize = 4096;
 
 impl<V> Default for DecisionCache<V> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            capacity: DEFAULT_DECISION_CACHE_CAPACITY,
         }
     }
 }
 
 impl<V> DecisionCache<V> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            capacity,
+        }
+    }
+
     pub fn get(&self, key: &DecisionCacheKey) -> Option<&V> {
         key.is_cacheable().then(|| self.entries.get(key)).flatten()
     }
 
     pub fn insert(&mut self, key: DecisionCacheKey, value: V) -> bool {
-        if !key.is_cacheable() {
+        if !key.is_cacheable() || self.capacity == 0 {
             return false;
         }
+        if let Some(existing) = self.entries.get_mut(&key) {
+            *existing = value;
+            return true;
+        }
+        while self.entries.len() >= self.capacity {
+            if let Some(oldest) = self.insertion_order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+        self.insertion_order.push_back(key.clone());
         self.entries.insert(key, value);
         true
     }
 
+    /// Generation publication invalidates all stranded entries in one pass,
+    /// keeping churn from retaining unreachable decisions until capacity.
+    pub fn evict_stale_generations(&mut self, current: GenerationSet) {
+        self.entries.retain(|key, _| key.generations == current);
+        self.insertion_order
+            .retain(|key| self.entries.contains_key(key));
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.insertion_order.clear();
     }
 
     pub fn len(&self) -> usize {
@@ -344,5 +379,33 @@ mod tests {
             },
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn cache_is_bounded_and_generation_publication_evicts_stale_entries() {
+        let zero = GenerationSet {
+            negative: SafeUint::ZERO,
+            dynamic: SafeUint::ZERO,
+            handle: SafeUint::ZERO,
+        };
+        let mut one = zero;
+        one.dynamic = SafeUint::new(1).unwrap();
+        let mut cache = DecisionCache::with_capacity(2);
+        let first = key(Stage::Requested, zero);
+        let mut second = first.clone();
+        second.positive_authority.coverage_edge_id = StableId::new("edge.second").unwrap();
+        let mut third = first.clone();
+        third.positive_authority.coverage_edge_id = StableId::new("edge.third").unwrap();
+        assert!(cache.insert(first.clone(), 1));
+        assert!(cache.insert(second.clone(), 2));
+        assert!(cache.insert(third.clone(), 3));
+        assert_eq!(cache.len(), 2);
+        assert_eq!(cache.get(&first), None);
+
+        let current = key(Stage::Requested, one);
+        assert!(cache.insert(current.clone(), 4));
+        cache.evict_stale_generations(one);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(cache.get(&current), Some(&4));
     }
 }

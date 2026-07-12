@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cache::GenerationSet;
 use crate::containment::{
-    selector_matches_occurrence, try_compare_authority_containment, validate_authority_selector,
+    selector_matches_occurrence_after_stage_validation, try_compare_authority_containment,
     validate_occurrence_stage_facts, AuthorityPolarity, Containment, ContainmentContext,
     PeerClassifier,
 };
@@ -54,7 +54,7 @@ pub struct ArmInputs {
     pub structure_valid: bool,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundAuthority {
     pub source_id: NonEmptyString,
     pub selector: crate::model::AuthoritySelector,
@@ -62,7 +62,7 @@ pub struct BoundAuthority {
     pub package_root_owner: Option<Principal>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AuthorityCeiling {
     Unbounded,
     Bounded(Vec<BoundAuthority>),
@@ -74,7 +74,7 @@ impl Default for AuthorityCeiling {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PrincipalPolicy {
     pub denials: Vec<BoundAuthority>,
     pub static_floor: Vec<BoundAuthority>,
@@ -82,7 +82,7 @@ pub struct PrincipalPolicy {
     pub implicit_package_self: Vec<BoundAuthority>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Revocation {
     pub principal: Principal,
     pub authority: BoundAuthority,
@@ -90,7 +90,7 @@ pub struct Revocation {
     pub ancestor_ids: Vec<NonEmptyString>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BearerHandle {
     pub handle_id: NonEmptyString,
     pub owner: Principal,
@@ -102,7 +102,7 @@ pub struct BearerHandle {
     pub operation_id: Option<NonEmptyString>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DynamicGrant {
     pub grant_id: NonEmptyString,
     pub principal: Principal,
@@ -117,7 +117,7 @@ pub struct ProtectedObjectGuard {
     pub object: ObjectIdentity,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecisionAuthorityState {
     pub generations: GenerationSet,
     pub process_ceiling: AuthorityCeiling,
@@ -179,7 +179,14 @@ impl VerifiedDecisionContext {
     /// Publish a newly validated live authority state while preserving the
     /// authenticated semantic identity and definition set.
     pub fn with_authority(&self, authority: DecisionAuthorityState) -> Result<Self> {
-        validate_authority_state(&self.identity, &self.definitions, &authority)?;
+        if authority.process_ceiling != self.authority.process_ceiling
+            || authority.protected_objects != self.authority.protected_objects
+            || authority.protected_resources != self.authority.protected_resources
+            || authority.principal_policies != self.authority.principal_policies
+        {
+            return arm_refused("live publication attempted to replace immutable authority");
+        }
+        validate_live_authority_state(&self.identity, &self.definitions, &authority)?;
         Ok(Self {
             identity: self.identity.clone(),
             definitions: self.definitions.clone(),
@@ -421,6 +428,20 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
         }
     }
 
+    // 3. Incomplete targets refuse before any deny-only lifecycle result.
+    for (effect_index, gate) in gates.iter().enumerate() {
+        if gate.target_cell == TargetCellDisposition::Incomplete {
+            return Ok(hard_decision(
+                DecisionOutcome::RefuseArming,
+                DecisionStratumId::LifecycleAndTargetClosure,
+                effect_index,
+                None,
+                DecisionReason::TargetCellIncomplete,
+                Some(gate.coverage_edge_id.as_str().to_owned()),
+            ));
+        }
+    }
+
     // 3. Lifecycle and target closure.
     for (effect_index, (occurrence, gate)) in occurrences.iter().zip(gates).enumerate() {
         let definition = match context.definitions.get(occurrence.action.as_str()) {
@@ -482,34 +503,7 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
                     Some(gate.coverage_edge_id.as_str().to_owned()),
                 ))
             }
-            TargetCellDisposition::Incomplete => {
-                return Ok(hard_decision(
-                    DecisionOutcome::RefuseArming,
-                    DecisionStratumId::LifecycleAndTargetClosure,
-                    effect_index,
-                    None,
-                    DecisionReason::TargetCellIncomplete,
-                    Some(gate.coverage_edge_id.as_str().to_owned()),
-                ))
-            }
-        }
-    }
-
-    // Validate stage-sensitive occurrence facts once, before any authority
-    // matcher is invoked. Matchers deliberately validate their public inputs
-    // too, but allowing that validation to happen first inside an optional
-    // ceiling or denial row would make malformed input fail differently based
-    // on which policy rows happened to be loaded.
-    for (effect_index, (occurrence, gate)) in occurrences.iter().zip(gates).enumerate() {
-        if validate_occurrence_stage_facts(occurrence).is_err() {
-            return Ok(hard_decision(
-                DecisionOutcome::Deny,
-                DecisionStratumId::DefinitionAndEdgePositivePredicates,
-                effect_index,
-                None,
-                DecisionReason::InvalidOccurrenceFacts,
-                Some(gate.coverage_edge_id.as_str().to_owned()),
-            ));
+            TargetCellDisposition::Incomplete => unreachable!("handled before lifecycle checks"),
         }
     }
 
@@ -650,7 +644,41 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     }
 
     // 9. Definition/coverage predicates and all stage-sensitive facts.
-    for (effect_index, (_, gate)) in occurrences.iter().zip(gates).enumerate() {
+    for (effect_index, (occurrence, gate)) in occurrences.iter().zip(gates).enumerate() {
+        if validate_occurrence_stage_facts(occurrence).is_err() {
+            return Ok(hard_decision(
+                DecisionOutcome::Deny,
+                DecisionStratumId::DefinitionAndEdgePositivePredicates,
+                effect_index,
+                None,
+                DecisionReason::InvalidOccurrenceFacts,
+                Some(gate.coverage_edge_id.as_str().to_owned()),
+            ));
+        }
+        let Some(requested) = occurrence.resource.requested_selector_resource() else {
+            return Ok(hard_decision(
+                DecisionOutcome::Deny,
+                DecisionStratumId::DefinitionAndEdgePositivePredicates,
+                effect_index,
+                None,
+                DecisionReason::InvalidOccurrenceFacts,
+                Some(gate.coverage_edge_id.as_str().to_owned()),
+            ));
+        };
+        if context
+            .definitions
+            .validate_requested_resource(&occurrence.action, &requested)
+            .is_err()
+        {
+            return Ok(hard_decision(
+                DecisionOutcome::Deny,
+                DecisionStratumId::DefinitionAndEdgePositivePredicates,
+                effect_index,
+                None,
+                DecisionReason::DefinitionOrEdgePredicate,
+                Some(gate.coverage_edge_id.as_str().to_owned()),
+            ));
+        }
         if !gate.definition_and_edge_predicates_satisfied {
             return Ok(hard_decision(
                 DecisionOutcome::Deny,
@@ -825,6 +853,15 @@ fn validate_authority_state(
     definitions: &DefinitionSet,
     state: &DecisionAuthorityState,
 ) -> Result<()> {
+    validate_immutable_authority_state(identity, definitions, state)?;
+    validate_live_authority_state(identity, definitions, state)
+}
+
+fn validate_immutable_authority_state(
+    identity: &SemanticIdentity,
+    definitions: &DefinitionSet,
+    state: &DecisionAuthorityState,
+) -> Result<()> {
     validate_ceiling(
         &state.process_ceiling,
         identity,
@@ -874,6 +911,14 @@ fn validate_authority_state(
         )?;
     }
 
+    Ok(())
+}
+
+fn validate_live_authority_state(
+    identity: &SemanticIdentity,
+    definitions: &DefinitionSet,
+    state: &DecisionAuthorityState,
+) -> Result<()> {
     validate_sorted_by(
         &state.revocations,
         |row| row.authority.source_id.as_str(),
@@ -1001,7 +1046,7 @@ fn validate_bound_authority(
     definitions: &DefinitionSet,
     positive: bool,
 ) -> Result<()> {
-    validate_authority_selector(&authority.selector)?;
+    let definition = definitions.validate_selector(&authority.selector)?;
     if authority.armed_snapshot_digest != identity.armed_snapshot_digest {
         return arm_refused("authority row belongs to a different armed snapshot");
     }
@@ -1010,14 +1055,6 @@ fn validate_bound_authority(
         (Some(owner), true) if owner.is_package() => {}
         (None, false) => {}
         _ => return arm_refused("authority has an invalid package-root owner binding"),
-    }
-    let definition = definitions.get(authority.selector.action.as_str())?;
-    if !definition
-        .resource_kinds
-        .iter()
-        .any(|kind| kind.as_str() == authority.selector.resource.kind_name())
-    {
-        return arm_refused("authority resource kind disagrees with its definition");
     }
     if positive && definition.lifecycle != Lifecycle::Authorable {
         return arm_refused("positive authority references a non-authorable definition");
@@ -1116,7 +1153,7 @@ fn first_matching_authority<'a, C: PeerClassifier>(
 fn authority_matches<C: PeerClassifier>(
     authority: &BoundAuthority,
     occurrence: &EffectOccurrence,
-    principal: &Principal,
+    _principal: &Principal,
     armed_snapshot_digest: &Digest,
     polarity: AuthorityPolarity,
     classifier: &C,
@@ -1126,9 +1163,7 @@ fn authority_matches<C: PeerClassifier>(
         || requested
             .as_ref()
             .is_some_and(|resource| resource.contains_package_logical_root());
-    let expected_owner = if principal.is_package() {
-        Some(principal)
-    } else if occurrence.effect_owner.is_package() {
+    let expected_owner = if occurrence.effect_owner.is_package() {
         Some(&occurrence.effect_owner)
     } else {
         None
@@ -1138,7 +1173,7 @@ fn authority_matches<C: PeerClassifier>(
         same_package_root_owner: !has_package_root
             || authority.package_root_owner.as_ref() == expected_owner,
     };
-    selector_matches_occurrence(
+    selector_matches_occurrence_after_stage_validation(
         &authority.selector,
         occurrence,
         &containment,
@@ -1263,7 +1298,12 @@ mod tests {
         definitions["definitions"]
             .as_array_mut()
             .unwrap()
-            .retain(|definition| matches!(definition["id"].as_str(), Some("env:read" | "fs:read")));
+            .retain(|definition| {
+                matches!(
+                    definition["id"].as_str(),
+                    Some("env:read" | "fs:read" | "process:signal")
+                )
+            });
         ValidatedProfile::from_json(
             &serde_json::to_vec(&definitions).unwrap(),
             include_bytes!("../../../capsec/registry/policy-rules.json"),
@@ -1375,6 +1415,10 @@ mod tests {
         Some(PeerClass::Public)
     }
 
+    fn root(name: &str) -> Principal {
+        serde_json::from_value(json!({ "kind": "root", "identity": name })).unwrap()
+    }
+
     #[test]
     fn audit_relaxes_only_missing_authority() {
         let occurrence = env_occurrence();
@@ -1456,7 +1500,7 @@ mod tests {
         let first = occurrence.effect_owner.clone();
         let second = package("other-package");
         let mut principals = vec![first.clone(), second.clone()];
-        principals.sort_by_key(|p| serde_json::to_vec(p).unwrap());
+        principals.sort_by_key(|principal| principal.canonical_sort_key().unwrap());
         let mut set = set_from(&occurrence);
         set.context.constrained_principals = principals;
         set.effects.push(set.effects[0].clone());
@@ -1482,6 +1526,96 @@ mod tests {
             decision.evidence[0].reason,
             DecisionReason::MissingAuthority
         );
+    }
+
+    #[test]
+    fn mixed_principal_order_and_package_root_owner_preserve_deputy_intersection() {
+        let mut occurrence = occurrence_named("fs:read");
+        let owner = occurrence.effect_owner.clone();
+        let deputy = package("other-package");
+        let root = root("project-root");
+        if let OccurrenceResource::PathOccurrence { requested, .. } = &mut occurrence.resource {
+            requested.root = crate::model::LogicalRoot::Package;
+        } else {
+            unreachable!();
+        }
+        let mut principals = vec![owner.clone(), deputy.clone(), root.clone()];
+        principals.sort_by_key(|principal| principal.canonical_sort_key().unwrap());
+        occurrence.constrained_principals = principals.clone();
+        let mut set = set_from(&occurrence);
+        set.context.constrained_principals = principals;
+
+        let mut state = empty_authority();
+        for (index, principal) in [owner.clone(), deputy, root].into_iter().enumerate() {
+            let mut row = authority(&occurrence, &format!("floor-{index}"));
+            row.package_root_owner = Some(owner.clone());
+            state.principal_policies.insert(
+                principal,
+                PrincipalPolicy {
+                    static_floor: vec![row],
+                    ..PrincipalPolicy::default()
+                },
+            );
+        }
+        let decision = evaluate_decision_set(
+            &arm(state).unwrap(),
+            &set,
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+    }
+
+    #[test]
+    fn incomplete_target_refuses_before_deny_only_lifecycle() {
+        let occurrence = env_occurrence();
+        let mut set = set_from(&occurrence);
+        let mut deny_only = set.effects[0].clone();
+        deny_only.action = ActionId::new("process:signal").unwrap();
+        set.effects = vec![deny_only, set.effects[0].clone()];
+        let mut incomplete = gate();
+        incomplete.target_cell = TargetCellDisposition::Incomplete;
+        let decision = evaluate_decision_set(
+            &arm(empty_authority()).unwrap(),
+            &set,
+            &[gate(), incomplete],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::RefuseArming);
+        assert_eq!(
+            decision.evidence[0].reason,
+            DecisionReason::TargetCellIncomplete
+        );
+        assert_eq!(decision.evidence[0].effect_index, 1);
+    }
+
+    #[test]
+    fn malformed_stage_facts_do_not_jump_ahead_of_principal_denials() {
+        let occurrence = occurrence_named("fs:read");
+        let principal = occurrence.effect_owner.clone();
+        let mut malformed = set_from(&occurrence);
+        malformed.context.stage = crate::model::Stage::Requested;
+        let mut state = empty_authority();
+        state.principal_policies.insert(
+            principal,
+            PrincipalPolicy {
+                denials: vec![authority(&occurrence, "deny")],
+                ..PrincipalPolicy::default()
+            },
+        );
+        let decision = evaluate_decision_set(
+            &arm(state).unwrap(),
+            &malformed,
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.evidence[0].reason, DecisionReason::PrincipalDenial);
     }
 
     #[test]

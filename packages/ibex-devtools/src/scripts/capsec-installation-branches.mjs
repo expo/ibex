@@ -22,15 +22,6 @@ const STUB_DISPOSITIONS = new Set([
   "not-structurally-proven",
 ]);
 
-function evidenceHash(value) {
-  let hash = 0x811c9dc5;
-  for (const byte of new TextEncoder().encode(value)) {
-    hash ^= byte;
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(36).padStart(7, "0");
-}
-
 function normalizedInput(branch) {
   if (!branch || typeof branch !== "object") {
     throw new Error("installation branch must be an object");
@@ -88,9 +79,7 @@ function outputBranch(targetVariant, layers, branchKind) {
   const sourceRefs = uniqueSorted(layers.flatMap((layer) => layer.sourceRefs));
   const route =
     routes.length === 1 ? routes[0] : `composed:${routes.join("+")}`;
-  const id = `${targetVariant}-${evidenceHash(
-    `${targetVariant}\0${routes.join("\0")}\0${sourceRefs.join("\0")}`,
-  )}`;
+  const id = targetVariant;
   const stubDisposition = composedStubDisposition(layers);
   return {
     branchKind,

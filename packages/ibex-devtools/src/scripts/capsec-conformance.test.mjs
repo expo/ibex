@@ -48,11 +48,18 @@ const sha = (value) =>
 const fixtureCatalogDigest = sha(
   fixtureCatalogForTarget({ coverage, implementation, target }),
 );
+const passEvidence = {
+  evidenceSchema: "ibex/capsec-fixture-evidence/1",
+  fixtureId: "edge.one.main.closed",
+  command: ["bun", "test", "edge-one-closed.test.mjs"],
+  exitCode: 0,
+  resultMarker: "ibex-capsec-fixture:edge.one.main.closed:passed",
+};
 const pass = {
   fixtureId: "edge.one.main.closed",
   outcome: "passed",
   executor: "bun:test",
-  artifactDigest: `sha256-${"F".repeat(43)}`,
+  artifactDigest: sha(passEvidence),
   bindingDigest: executionBindingDigest({
     bindings: {
       ...bindings,
@@ -61,6 +68,7 @@ const pass = {
     target,
     fixtureCatalogDigest,
   }),
+  evidence: passEvidence,
 };
 
 describe("capsec target conformance", () => {
@@ -162,5 +170,23 @@ describe("capsec target conformance", () => {
         digestContract,
       }),
     ).toThrow(/binding/);
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [{
+          ...pass,
+          artifactDigest: sha({ command: ["bun", "test"] }),
+          evidence: {
+            ...pass.evidence,
+            command: ["bun", "test"],
+            resultMarker: "generic suite passed",
+          },
+        }],
+        bindings,
+        digestContract,
+      }),
+    ).toThrow(/outcome disagrees/);
   });
 });

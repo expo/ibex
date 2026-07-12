@@ -49,6 +49,16 @@ ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
 /// runtime factory. Returns the byte length, or -1 on failure.
 int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 
+/// Return the device/inode identity of the mapped Hermes factory image when
+/// the platform can attest it (currently macOS). Returns 1 or -1.
+int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
+                                      uint64_t* out_inode);
+
+/// Runtime nonce selected by the active engine entry-point scope. Zero means
+/// no runtime is active on this thread. Native registries use this as an owner
+/// namespace; it is not a user-visible identifier.
+uint64_t ex_hermes_current_runtime_nonce(void);
+
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
 

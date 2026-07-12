@@ -304,6 +304,24 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(forward).toEqual(reverse);
   });
 
+  test("C++ adjacent strings concatenate and digit separators do not confuse scanners", () => {
+    const source = String.raw`
+      constexpr auto count = 1'000;
+      const char* joined = "__exactFoo" /* C++ concatenation */ "Bar";
+      extern "C" void ex_host_after_separator() {}
+    `;
+    expect(
+      scanPrivateNativeIdentifiers(source, "synthetic.cc").map(
+        (row) => row.name,
+      ),
+    ).toEqual(["__exactFooBar"]);
+    expect(
+      scanCppPublicAbiDefinitions(source, "synthetic.cc").map(
+        (row) => row.name,
+      ),
+    ).toEqual(["ex_host_after_separator"]);
+  });
+
   test("Rust comments and strings cannot fabricate public host ABI definitions", () => {
     const source = String.raw`
       // pub extern "C" fn ex_host_line_fake() {}

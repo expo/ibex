@@ -149,3 +149,7 @@ harness = false
 [[bench]]
 name = "runtime_compare"
 harness = false
+
+[[bench]]
+name = "capsec_descriptor_authorization"
+harness = false

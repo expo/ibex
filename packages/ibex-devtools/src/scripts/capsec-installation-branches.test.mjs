@@ -72,11 +72,23 @@ describe("composed installation branches", () => {
       },
     ]);
     expect(branch).toMatchObject({
+      id: "default",
       branchKind: "single",
       routes: ["bootstrap-a", "bootstrap-b"],
       sourceRefs: ["a.js#global", "b.js#global"],
       targetVariant: "default",
     });
+  });
+
+  test("branch identity is stable when evidence paths change", () => {
+    const build = (sourceRefs) =>
+      normalizeComposedInstallationBranches([
+        { route: "native", targetVariant: "default", sourceRefs },
+      ])[0];
+    expect(build(["old/path.cc#symbol"]).id).toBe("default");
+    expect(build(["new/path.cc#symbol", "extra.cc#evidence"]).id).toBe(
+      "default",
+    );
   });
 
   test("is idempotent after evidence views are merged repeatedly", () => {

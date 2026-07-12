@@ -3,12 +3,15 @@
   "$id": "https://ibex.dev/capsec/schema/canonical-policy.schema.json",
   "title": "Ibex canonical capsec review policy",
   "type": "object",
-  "required": ["policySchema", "capsVocab", "semanticCore", "vocabDigest", "policyDigest", "purpose", "mode", "principals"],
+  "required": ["policySchema", "capsVocab", "semanticCore", "vocabDigest", "registryDigest", "policyDigest", "purpose", "mode", "principals"],
   "properties": {
     "policySchema": { "const": "ibex/capsec-policy/1" },
     "capsVocab": { "const": "ibex/capsec/1" },
     "semanticCore": { "const": "capsec/semantics/1" },
     "vocabDigest": {
+      "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+    },
+    "registryDigest": {
       "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
     },
     "policyDigest": {

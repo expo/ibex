@@ -20,6 +20,33 @@ const digest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+function validateExecutionEvidence(execution) {
+  const evidence = execution.evidence;
+  if (
+    evidence?.evidenceSchema !== "ibex/capsec-fixture-evidence/1" ||
+    evidence.fixtureId !== execution.fixtureId ||
+    !Array.isArray(evidence.command) || evidence.command.length === 0 ||
+    !evidence.command.every((part) => typeof part === "string" && part.length > 0) ||
+    !Number.isSafeInteger(evidence.exitCode) ||
+    typeof evidence.resultMarker !== "string"
+  ) {
+    throw new Error(`${execution.fixtureId}: malformed fixture-specific evidence`);
+  }
+  const passedMarker = `ibex-capsec-fixture:${execution.fixtureId}:passed`;
+  const failedMarker = `ibex-capsec-fixture:${execution.fixtureId}:failed`;
+  const derivedOutcome = evidence.exitCode === 0 && evidence.resultMarker === passedMarker
+    ? "passed"
+    : evidence.resultMarker === failedMarker || evidence.exitCode !== 0
+      ? "failed"
+      : null;
+  if (!derivedOutcome || execution.outcome !== derivedOutcome) {
+    throw new Error(`${execution.fixtureId}: outcome disagrees with executed evidence`);
+  }
+  if (execution.artifactDigest !== digest(evidence)) {
+    throw new Error(`${execution.fixtureId}: artifact digest does not match fixture evidence`);
+  }
+}
+
 export function executionBindingDigest({
   bindings,
   target,
@@ -104,6 +131,7 @@ export function buildConformanceReport({
         `${execution.fixtureId}: execution lacks executor or artifact digest`,
       );
     }
+    validateExecutionEvidence(execution);
     if (execution.bindingDigest !== requiredBindingDigest) {
       throw new Error(
         `${execution.fixtureId}: execution binding does not match report inputs`,

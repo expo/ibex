@@ -12,6 +12,7 @@ pub mod decision;
 pub mod digest;
 pub mod error;
 pub mod model;
+pub mod policy;
 pub mod registry;
 pub mod retained;
 pub mod strict_json;

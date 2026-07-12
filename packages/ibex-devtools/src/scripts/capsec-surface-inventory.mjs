@@ -341,8 +341,18 @@ function scanEmbeddedScriptStrings(text) {
 function collectCppStringValues(text, label) {
   const values = [];
   let index = 0;
+  let pending = "";
+  let pendingIncludesRaw = false;
 
-  const skipQuoted = (quote, collect) => {
+  const flushPending = () => {
+    if (!pending) return;
+    values.push(pending);
+    if (pendingIncludesRaw) values.push(...scanEmbeddedScriptStrings(pending));
+    pending = "";
+    pendingIncludesRaw = false;
+  };
+
+  const readQuoted = (quote) => {
     const start = index;
     index += 1;
     let raw = "";
@@ -350,8 +360,7 @@ function collectCppStringValues(text, label) {
       const char = text[index];
       if (char === quote) {
         index += 1;
-        if (collect) values.push(decodeEscapedString(raw, label));
-        return;
+        return decodeEscapedString(raw, label);
       }
       if (char === "\\") {
         raw += char;
@@ -373,6 +382,10 @@ function collectCppStringValues(text, label) {
   while (index < text.length) {
     const char = text[index];
     const next = text[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
     if (char === "/" && next === "/") {
       index += 2;
       while (index < text.length && text[index] !== "\n") index += 1;
@@ -410,23 +423,33 @@ function collectCppStringValues(text, label) {
             );
           }
           const rawValue = text.slice(open + 1, close);
-          if (PRIVATE_NATIVE_IDENTIFIER.test(rawValue)) values.push(rawValue);
-          values.push(...scanEmbeddedScriptStrings(rawValue));
+          pending += rawValue;
+          pendingIncludesRaw = true;
           index = close + closeMarker.length;
           continue;
         }
       }
     }
     if (char === '"') {
-      skipQuoted(char, true);
+      pending += readQuoted(char);
       continue;
     }
     if (char === "'") {
-      skipQuoted(char, false);
+      if (
+        /[0-9A-Fa-f]/u.test(text[index - 1] ?? "") &&
+        /[0-9A-Fa-f]/u.test(next ?? "")
+      ) {
+        index += 1;
+        continue;
+      }
+      flushPending();
+      readQuoted(char);
       continue;
     }
+    flushPending();
     index += 1;
   }
+  flushPending();
   return values;
 }
 
@@ -1046,6 +1069,13 @@ function lexCpp(text, label) {
       continue;
     }
     if (char === "'") {
+      if (
+        /[0-9A-Fa-f]/u.test(text[index - 1] ?? "") &&
+        /[0-9A-Fa-f]/u.test(next ?? "")
+      ) {
+        index += 1;
+        continue;
+      }
       skipQuoted(char, false);
       continue;
     }
@@ -13404,7 +13434,7 @@ function mergeAbiDefinitionRows(rows) {
           (definition) => definition.weak,
         );
         return {
-          id: `${targetVariant}-${evidenceHash(`${targetVariant}\0${sourceRefs.join("\0")}`)}`,
+          id: targetVariant,
           kind: alternatives ? "alternative" : "single",
           sourceRefs,
           stubDisposition: allWeak
@@ -13682,6 +13712,23 @@ export async function discoverRepositorySurfaces(repoRoot) {
     ],
     "inspector route inventory",
   );
+  const routedFixedKeys = new Set(
+    [...loader, ...callbacks, ...startup, ...inspector]
+      .filter((row) =>
+        fixed.some((fixedRow) => fixedRow.observedKey === row.observedKey),
+      )
+      .map((row) => row.observedKey),
+  );
+  const unroutedFixed = fixed.filter(
+    (row) => !routedFixedKeys.has(row.observedKey),
+  );
+  if (unroutedFixed.length) {
+    throw new Error(
+      `fixed runtime surfaces are not routed into the repository inventory: ${unroutedFixed
+        .map((row) => row.observedKey)
+        .join(", ")}`,
+    );
+  }
 
   const discoveredLoaderKinds = uniqueSorted(
     loader

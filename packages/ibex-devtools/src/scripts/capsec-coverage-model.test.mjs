@@ -11,6 +11,7 @@ import {
   classifyObservedSurface,
   deriveEffectTemplate,
   derivePositiveSources,
+  logicalBranchConditionsOverlap,
   reviewedBuiltinExportNames,
   reviewedBuiltinRootNames,
   reviewedCallbackProducerNames,
@@ -171,6 +172,26 @@ function edgeActions(classification) {
 }
 
 describe("LLP 0021 WP1 semantic coverage classifier", () => {
+  test("logical branches reject subset and cross-fact overlap", () => {
+    const base = [{ fact: "mode", equals: "path" }];
+    expect(logicalBranchConditionsOverlap(base, base)).toBe(true);
+    expect(
+      logicalBranchConditionsOverlap(base, [
+        ...base,
+        { fact: "ownership", equals: "caller" },
+      ]),
+    ).toBe(true);
+    expect(
+      logicalBranchConditionsOverlap(base, [
+        { fact: "ownership", equals: "caller" },
+      ]),
+    ).toBe(true);
+    expect(
+      logicalBranchConditionsOverlap(base, [
+        { fact: "mode", equals: "descriptor" },
+      ]),
+    ).toBe(false);
+  });
   const cases = [
     [
       "filesystem open",

@@ -93,7 +93,8 @@
           "outcome",
           "executor",
           "artifactDigest",
-          "bindingDigest"
+          "bindingDigest",
+          "evidence"
         ],
         "properties": {
           "fixtureId": {
@@ -106,6 +107,24 @@
           },
           "bindingDigest": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "evidence": {
+            "type": "object",
+            "required": ["evidenceSchema", "fixtureId", "command", "exitCode", "resultMarker"],
+            "properties": {
+              "evidenceSchema": { "const": "ibex/capsec-fixture-evidence/1" },
+              "fixtureId": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string", "minLength": 1 }
+              },
+              "exitCode": { "type": "integer" },
+              "resultMarker": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false

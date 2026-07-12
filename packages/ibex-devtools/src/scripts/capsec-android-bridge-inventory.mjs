@@ -110,6 +110,14 @@ function lexCppBridge(text, sourcePath) {
       index = close + 2;
       continue;
     }
+    if (
+      char === "'" &&
+      /[0-9A-Fa-f]/u.test(text[index - 1] ?? "") &&
+      /[0-9A-Fa-f]/u.test(text[index + 1] ?? "")
+    ) {
+      index += 1;
+      continue;
+    }
     if (char === '"' || char === "'") {
       const quote = char;
       let value = "";
@@ -338,7 +346,7 @@ function interfaceMethods(tokens, depths, type, sourcePath) {
     }
     index = closeParen;
   }
-  return [...new Set(methods)];
+  return methods;
 }
 
 function assertUnique(rows, sourcePath) {

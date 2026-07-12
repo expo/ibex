@@ -435,78 +435,15 @@ fn write_jcs(value: &Value, output: &mut String) -> Result<()> {
     Ok(())
 }
 
-/// Render the shortest round-tripping decimal using ECMAScript's fixed versus
-/// exponential thresholds. Correct input rounding depends on serde_json's
-/// `float_roundtrip` feature; without it, RFC 8785 edge decimals can enter the
-/// serializer as a neighboring IEEE-754 value.
+/// Render the shortest round-tripping decimal using ECMAScript's specified
+/// tie-breaking and fixed/exponential thresholds. Rust's standard formatter
+/// chooses a different shortest representation for some halfway cases, so it
+/// cannot be used for RFC 8785 bytes shared with JavaScript.
 fn ecmascript_number(value: f64) -> String {
     if value == 0.0 {
         return "0".to_owned();
     }
-
-    let negative = value.is_sign_negative();
-    // Rust's `Display` supplies shortest-roundtrip digits; the logic below
-    // applies ECMAScript's fixed-versus-exponential layout thresholds.
-    let shortest = value.abs().to_string();
-    let (mantissa, explicit_exponent) = shortest.split_once(['e', 'E']).map_or(
-        (shortest.as_str(), 0_i32),
-        |(mantissa, exponent)| {
-            (
-                mantissa,
-                exponent
-                    .trim_start_matches('+')
-                    .parse::<i32>()
-                    .expect("float exponent is a signed decimal integer"),
-            )
-        },
-    );
-    let decimal_index = mantissa.find('.').unwrap_or(mantissa.len()) as i32;
-    let mut digits = mantissa
-        .bytes()
-        .filter(|byte| *byte != b'.')
-        .collect::<Vec<_>>();
-    let leading_zeros = digits.iter().take_while(|byte| **byte == b'0').count();
-    digits.drain(..leading_zeros);
-    let decimal_position = decimal_index + explicit_exponent - leading_zeros as i32;
-    while digits.len() > 1 && digits.last() == Some(&b'0') {
-        digits.pop();
-    }
-    let digits = String::from_utf8(digits).expect("float formatting emits ASCII digits");
-    let digit_count = digits.len() as i32;
-
-    let mut rendered = String::new();
-    if negative {
-        rendered.push('-');
-    }
-    if digit_count <= decimal_position && decimal_position <= 21 {
-        rendered.push_str(&digits);
-        rendered.extend(std::iter::repeat_n(
-            '0',
-            (decimal_position - digit_count) as usize,
-        ));
-    } else if 0 < decimal_position && decimal_position <= 21 {
-        let split = decimal_position as usize;
-        rendered.push_str(&digits[..split]);
-        rendered.push('.');
-        rendered.push_str(&digits[split..]);
-    } else if -6 < decimal_position && decimal_position <= 0 {
-        rendered.push_str("0.");
-        rendered.extend(std::iter::repeat_n('0', (-decimal_position) as usize));
-        rendered.push_str(&digits);
-    } else {
-        rendered.push(digits.as_bytes()[0] as char);
-        if digits.len() > 1 {
-            rendered.push('.');
-            rendered.push_str(&digits[1..]);
-        }
-        let exponent = decimal_position - 1;
-        rendered.push('e');
-        if exponent >= 0 {
-            rendered.push('+');
-        }
-        rendered.push_str(&exponent.to_string());
-    }
-    rendered
+    ryu_js::Buffer::new().format_finite(value).to_owned()
 }
 
 fn compare_utf16(left: &str, right: &str) -> Ordering {

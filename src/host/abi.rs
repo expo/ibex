@@ -501,6 +501,11 @@ pub extern "C" fn ex_host_release_context(context_id: u64) {
     }
 }
 
+#[doc(hidden)]
+pub fn installed_typed_decision_count() -> usize {
+    with_host(Host::typed_decision_count, 0)
+}
+
 /// Render the would-deny audit report for the installed host, but only when it
 /// is running in `Audit` mode and something was flagged.
 ///
@@ -1181,16 +1186,11 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
     let decision_set = unsafe { std::slice::from_raw_parts(decision_set, decision_set_len) };
     let gates = unsafe { std::slice::from_raw_parts(gates, gates_len) };
     let result = with_host(
-        |host| match host.evaluate_typed_decision_json(decision_set, gates) {
-            Ok(decision) => match host.typed_evidence().last() {
-                Some(evidence) => as_json_cstring(&json!({
-                    "decision": decision,
-                    "evidence": evidence,
-                })),
-                None => as_json_cstring(&json!({
-                    "error": "typed decision evidence was not recorded"
-                })),
-            },
+        |host| match host.evaluate_typed_decision_json_with_evidence(decision_set, gates) {
+            Ok(result) => as_json_cstring(&json!({
+                "decision": result.decision,
+                "evidence": result.evidence,
+            })),
             Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
         },
         std::ptr::null_mut(),
@@ -1502,7 +1502,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
     };
     let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
     let concrete_host = match host_text.parse::<std::net::IpAddr>() {
-        Ok(address) if address.to_string() == host_text => ConcreteHost::Ip {
+        Ok(address) if IpAddress::new(address).to_string() == host_text => ConcreteHost::Ip {
             address: IpAddress::new(address),
         },
         Ok(_) => return -1,
@@ -1531,7 +1531,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
         }
         let text = unsafe { CStr::from_ptr(value) }.to_string_lossy();
         let address = text.parse::<std::net::IpAddr>().ok()?;
-        (address.to_string() == text).then_some(Some(IpAddress::new(address)))
+        (IpAddress::new(address).to_string() == text).then_some(Some(IpAddress::new(address)))
     };
     let Some(selected_candidate) = parse_optional_ip(selected_candidate) else {
         return -1;
@@ -1642,6 +1642,102 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
                     -1
                 }
             }
+        },
+        -1,
+    )
+}
+
+/// Authorize one literal-destination UDP datagram across requested, candidate,
+/// and commit stages while parsing and attributing its inputs only once.
+///
+/// # Safety
+/// Pointer arguments must remain valid for the duration of this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_udp_datagram_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    host: *const c_char,
+    port: u16,
+    connection_id: *const c_char,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{
+        ConcreteHost, ConnectTransport, IpAddress, NonEmptyString, Port, Stage, VerifiedPeer,
+    };
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || host.is_null()
+        || connection_id.is_null()
+        || port == 0
+    {
+        return -1;
+    }
+    let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
+    let address = match host_text.parse::<std::net::IpAddr>() {
+        Ok(address) if IpAddress::new(address).to_string() == host_text => IpAddress::new(address),
+        _ => return -1,
+    };
+    let Some(port) = Port::new(port) else {
+        return -1;
+    };
+    let connection_id = match NonEmptyString::new(
+        unsafe { CStr::from_ptr(connection_id) }
+            .to_string_lossy()
+            .into_owned(),
+    ) {
+        Ok(value) => value,
+        Err(_) => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let mut constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            constrained_principals
+                .sort_by_key(|principal| principal.canonical_sort_key().unwrap_or_default());
+            constrained_principals.dedup();
+            let requested = ConcreteHost::Ip { address };
+            for stage in [Stage::Requested, Stage::Candidate, Stage::Commit] {
+                let selected = (stage != Stage::Requested).then_some(address);
+                let verified = (stage == Stage::Commit).then_some(VerifiedPeer { address, port });
+                let committed_id = (stage == Stage::Commit).then_some(connection_id.clone());
+                let result = host.authorize_typed_connect_stage(
+                    &module_id.to_string(),
+                    "udp-send",
+                    "surface.native.op.exactudpsend.0k2gg86",
+                    constrained_principals.clone(),
+                    ConnectTransport::Udp,
+                    requested.clone(),
+                    port,
+                    stage,
+                    vec![address],
+                    selected,
+                    verified,
+                    committed_id,
+                );
+                match result {
+                    Ok(decision)
+                        if matches!(
+                            decision.outcome,
+                            DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                        ) => {}
+                    Ok(_) => return 0,
+                    Err(error) => {
+                        eprintln!("error: typed UDP authorization refused: {error}");
+                        return -1;
+                    }
+                }
+            }
+            1
         },
         -1,
     )
@@ -4013,6 +4109,7 @@ mod tests {
         let ids = [0u64];
         let candidates = CString::new("[]").unwrap();
         let uppercase_host = CString::new("API.example.com").unwrap();
+        let mapped_host = CString::new("::ffff:169.254.169.254").unwrap();
         let canonical_host = CString::new("api.example.com").unwrap();
         let malformed_candidates = CString::new(r#"{"a":1,"a":2}"#).unwrap();
 
@@ -4033,6 +4130,24 @@ mod tests {
             )
         };
         assert_eq!(uppercase, -1);
+
+        let mapped = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                4,
+                mapped_host.as_ptr(),
+                80,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(mapped, -1);
 
         let duplicate_key = unsafe {
             ex_host_authorize_typed_network_stack(

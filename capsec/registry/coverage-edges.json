@@ -133004,6 +133004,16 @@
       "rationale": "The explicitly diagnostic unarmed runtime constructor is outside every production profile."
     },
     {
+      "id": "surface.host.abi.ex.hermes.current.runtime.nonce.0jhvhfz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_current_runtime_nonce"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.debugger.enable.1uf2f9u",
       "classification": "closed",
       "surface": {
@@ -133139,6 +133149,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_hermes_engine_binary_path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.engine.mapped.object.0uojby9",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_engine_mapped_object"
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
@@ -133379,6 +133399,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_host_authorize_typed_network_stack"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_authorize_typed_udp_datagram_stack"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -135495,6 +135525,71 @@
       }
     },
     {
+      "id": "surface.host.abi.ex.host.http.await.writable.owned.1fpsbd5",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_http_await_writable_owned"
+      },
+      "effects": [
+        {
+          "cap": "network:listen",
+          "selectorNormalizer": "network.listen.selector.v1",
+          "occurrenceNormalizer": "network.listen.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit",
+            "delivery",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "descriptor-owner",
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "descriptor-owner",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.http.await.writable.owned.1fpsbd5.decision",
+      "lifetimeContract": "listener",
+      "barriers": {
+        "authorizeBefore": [
+          "route-selection",
+          "dns",
+          "connect-or-bind",
+          "first-io"
+        ],
+        "recheckAt": [
+          "candidate",
+          "redirect",
+          "reconnect",
+          "delivery"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "peer-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.http.cleanup.runtime.1xedwon",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_http_cleanup_runtime"
+      },
+      "rationaleId": "authority-release",
+      "rationale": "Releasing or cancelling an already-owned resource cannot widen authority; the retained resource's live-operation contract governs prior effects."
+    },
+    {
       "id": "surface.host.abi.ex.host.http.close.14s8s2k",
       "classification": "non-capability",
       "surface": {
@@ -136348,6 +136443,61 @@
       "gate": "reclassifies",
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.host.abi.ex.host.http.wait.1fwqe55.decision",
+      "lifetimeContract": "listener",
+      "barriers": {
+        "authorizeBefore": [
+          "route-selection",
+          "dns",
+          "connect-or-bind",
+          "first-io"
+        ],
+        "recheckAt": [
+          "candidate",
+          "redirect",
+          "reconnect",
+          "delivery"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "peer-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.http.wait.owned.1pu40p7",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_http_wait_owned"
+      },
+      "effects": [
+        {
+          "cap": "network:listen",
+          "selectorNormalizer": "network.listen.selector.v1",
+          "occurrenceNormalizer": "network.listen.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit",
+            "delivery",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "descriptor-owner",
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "descriptor-owner",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.http.wait.owned.1pu40p7.decision",
       "lifetimeContract": "listener",
       "barriers": {
         "authorizeBefore": [

@@ -7,6 +7,7 @@
 //! @ref LLP 0021#decision-staging-and-principal-semantics — late facts are
 //! authorized at the stage where they become known, never speculated early.
 
+use crate::canonical::to_jcs_bytes;
 use crate::error::{Error, Result};
 use crate::model::*;
 use serde::{Deserialize, Serialize};
@@ -211,8 +212,7 @@ fn canonical_wire<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let value = serde_json::to_value(value).map_err(|error| {
         Error::InvalidModel(format!("cannot encode semantic set item: {error}"))
     })?;
-    serde_json::to_vec(&value)
-        .map_err(|error| Error::InvalidModel(format!("cannot encode semantic set item: {error}")))
+    to_jcs_bytes(&value)
 }
 
 fn validate_set<T: Serialize>(values: &[T], label: &str, nonempty: bool) -> Result<()> {
@@ -862,7 +862,10 @@ pub fn validate_occurrence_stage_facts(occurrence: &EffectOccurrence) -> Result<
                 | SelectorResource::Microphone { device_id, .. } => device_id.as_ref(),
                 _ => None,
             };
-            if requested_device.is_some() && requested_device != device_identity.as_ref() {
+            if stage.is_commit_or_later()
+                && requested_device.is_some()
+                && requested_device != device_identity.as_ref()
+            {
                 return invalid("broker-resolved device differs from requested deviceId");
             }
         }
@@ -958,9 +961,14 @@ fn validate_bound_endpoints(
     else {
         return Ok(());
     };
+    let Some(endpoints) = endpoints else {
+        // Bound endpoint families are materialized by commit. Pre-commit
+        // stages cannot prove or disprove a requested dual-stack bind.
+        return Ok(());
+    };
     let mut saw_v4 = false;
     let mut saw_v6 = false;
-    for endpoint in endpoints.unwrap_or_default() {
+    for endpoint in endpoints {
         let endpoint_port = ListenPort::Exact {
             value: endpoint.port,
         };
@@ -1001,8 +1009,23 @@ pub fn selector_matches_occurrence<C: PeerClassifier>(
     polarity: AuthorityPolarity,
     classifier: &C,
 ) -> Result<bool> {
-    validate_authority_selector(selector)?;
     validate_occurrence_stage_facts(occurrence)?;
+    selector_matches_occurrence_after_stage_validation(
+        selector, occurrence, context, polarity, classifier,
+    )
+}
+
+/// Decision evaluation validates malformed stage facts at their own precedence
+/// stratum. Earlier hard-deny strata use this form so the decisive evidence is
+/// not accidentally attributed to the first optional policy matcher.
+pub(crate) fn selector_matches_occurrence_after_stage_validation<C: PeerClassifier>(
+    selector: &AuthoritySelector,
+    occurrence: &EffectOccurrence,
+    context: &ContainmentContext,
+    polarity: AuthorityPolarity,
+    classifier: &C,
+) -> Result<bool> {
+    validate_authority_selector(selector)?;
     if selector.action != occurrence.action || !context.same_snapshot {
         return Ok(false);
     }

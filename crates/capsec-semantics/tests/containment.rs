@@ -7,12 +7,13 @@ use capsec_semantics::containment::{
     validate_occurrence_stage_facts, AuthorityPolarity, Containment, ContainmentContext,
 };
 use capsec_semantics::model::{
-    AuthoritySelector, DecisionSet, EffectOccurrence, IpAddress, OccurrenceResource, PeerClass,
-    Stage,
+    ActionId, AuthoritySelector, DecisionSet, EffectOccurrence, IpAddress, LogicalPath,
+    LogicalRoot, OccurrenceResource, PathComponent, PeerClass, SelectorResource, Stage,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 
 fn capsec_file(relative: &str) -> PathBuf {
@@ -332,4 +333,118 @@ fn wire_roundtrip_preserves_committed_selector_shapes() {
     let typed: OccurrenceExamples = serde_json::from_value(raw.clone()).unwrap();
     let encoded = serde_json::to_value(&typed.occurrences).unwrap();
     assert_eq!(encoded, raw["occurrences"]);
+}
+
+#[test]
+fn mapped_ipv6_normalizes_to_embedded_ipv4_and_wire_forms_are_rejected() {
+    let mapped = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xa9fe, 0xa9fe);
+    assert_eq!(
+        IpAddress::new(IpAddr::V6(mapped)).get(),
+        IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))
+    );
+    for wire in [r#""::ffff:169.254.169.254""#, r#""::ffff:a9fe:a9fe""#] {
+        let error = serde_json::from_str::<IpAddress>(wire).unwrap_err();
+        assert!(error.to_string().contains("expected \"169.254.169.254\""));
+    }
+}
+
+#[test]
+fn late_listen_and_device_facts_are_not_required_before_commit() {
+    let examples: OccurrenceExamples =
+        serde_json::from_slice(&read("examples/effect-occurrences.canonical.json")).unwrap();
+
+    let mut listen = examples
+        .occurrences
+        .iter()
+        .find(|row| row.action.as_str() == "network:listen")
+        .unwrap()
+        .clone();
+    listen.stage = Stage::Requested;
+    let OccurrenceResource::ListenOccurrence {
+        requested,
+        bound_endpoints,
+        listener_id,
+        ..
+    } = &mut listen.resource
+    else {
+        unreachable!()
+    };
+    let capsec_semantics::model::SelectorResource::ListenInet { dual_stack, .. } =
+        requested.as_mut()
+    else {
+        unreachable!()
+    };
+    *dual_stack = true;
+    *bound_endpoints = None;
+    *listener_id = None;
+    validate_occurrence_stage_facts(&listen).unwrap();
+
+    let mut camera = examples
+        .occurrences
+        .iter()
+        .find(|row| row.action.as_str() == "device:camera")
+        .unwrap()
+        .clone();
+    camera.stage = Stage::Requested;
+    let OccurrenceResource::DeviceOccurrence {
+        requested,
+        device_identity,
+        ..
+    } = &mut camera.resource
+    else {
+        unreachable!()
+    };
+    let capsec_semantics::model::SelectorResource::Camera { device_id, .. } = requested.as_mut()
+    else {
+        unreachable!()
+    };
+    *device_id = Some(capsec_semantics::model::NonEmptyString::new("camera:back:0").unwrap());
+    *device_identity = None;
+    validate_occurrence_stage_facts(&camera).unwrap();
+}
+
+#[test]
+fn network_candidate_sets_use_jcs_string_order_across_address_families() {
+    let examples: OccurrenceExamples =
+        serde_json::from_slice(&read("examples/effect-occurrences.canonical.json")).unwrap();
+    let mut occurrence = examples
+        .occurrences
+        .into_iter()
+        .find(|row| row.action.as_str() == "network:fetch")
+        .unwrap();
+    let ipv6: IpAddress = serde_json::from_str(r#""2001:db8::10""#).unwrap();
+    let ipv4: IpAddress = serde_json::from_str(r#""93.184.216.34""#).unwrap();
+    if let OccurrenceResource::NetworkOccurrence {
+        candidates,
+        selected_candidate,
+        ..
+    } = &mut occurrence.resource
+    {
+        *candidates = vec![ipv6, ipv4];
+        *selected_candidate = Some(ipv6);
+    } else {
+        unreachable!();
+    }
+    validate_occurrence_stage_facts(&occurrence).unwrap();
+
+    let OccurrenceResource::NetworkOccurrence { candidates, .. } = &mut occurrence.resource else {
+        unreachable!()
+    };
+    candidates.reverse();
+    assert!(validate_occurrence_stage_facts(&occurrence).is_err());
+}
+
+#[test]
+fn programmatic_path_components_obey_wire_canonicality() {
+    let selector = AuthoritySelector {
+        action: ActionId::new("fs:read").unwrap(),
+        resource: SelectorResource::PathExact {
+            path: LogicalPath {
+                root: LogicalRoot::Project,
+                components: vec![PathComponent::Utf8("..".to_owned())],
+                host_bound: None,
+            },
+        },
+    };
+    assert!(validate_authority_selector(&selector).is_err());
 }

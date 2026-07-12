@@ -61,6 +61,10 @@ extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
 extern "C" int32_t ex_host_is_armed(void);
+extern "C" int32_t ex_host_typed_generations(
+    uint64_t* negative,
+    uint64_t* dynamic,
+    uint64_t* handle);
 extern "C" int32_t ex_host_authorize_typed_fs_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
@@ -234,6 +238,66 @@ static int32_t ex_host_authorize_typed_fs_open(
   return ex_host_authorize_typed_fs_stack(
       module_id, principals.data(), principals.size(), path, stage, surface,
       parent_fd, fd, needs_read, needs_write, presented_handle_id);
+}
+
+struct FsAuthorizationGenerations {
+  uint64_t negative = 0;
+  uint64_t dynamic = 0;
+  uint64_t handle = 0;
+
+  bool operator==(const FsAuthorizationGenerations& other) const {
+    return negative == other.negative && dynamic == other.dynamic &&
+        handle == other.handle;
+  }
+};
+
+struct RepeatedFsAuthorizationLease {
+  bool active = false;
+  FsAuthorizationGenerations generations;
+};
+
+static bool readAuthorizationGenerations(FsAuthorizationGenerations& value) {
+  return ex_host_typed_generations(
+             &value.negative, &value.dynamic, &value.handle) == 1;
+}
+
+// A lease is local to one retained descriptor operation, so its operation,
+// principal stack, gate, path, object identities, and presented handle cannot
+// vary. Only the three mutable authority generations need a cheap per-chunk
+// recheck. A changed generation performs a full repeat-stage decision before
+// any more bytes are observed; a concurrent publication during evaluation
+// fails closed rather than caching a result across generations.
+// @ref LLP 0021#handles-dynamic-authority-and-generations
+static int32_t authorizeRepeatedFsWithLease(
+    RepeatedFsAuthorizationLease& lease,
+    uint64_t moduleId,
+    const char* path,
+    uint32_t surface,
+    uint32_t fullStage,
+    int32_t parentFd,
+    int32_t fd,
+    int32_t needsRead,
+    int32_t needsWrite,
+    const char* presentedHandleId) {
+  FsAuthorizationGenerations current;
+  if (!readAuthorizationGenerations(current)) return 0;
+  if (lease.active && current == lease.generations) return 1;
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    FsAuthorizationGenerations before;
+    FsAuthorizationGenerations after;
+    if (!readAuthorizationGenerations(before)) return 0;
+    auto decision = ex_host_authorize_typed_fs_open(
+        moduleId, path, fullStage, surface, parentFd, fd, needsRead, needsWrite,
+        presentedHandleId);
+    if (decision != 1 || !readAuthorizationGenerations(after)) return decision;
+    if (before == after) {
+      lease.active = true;
+      lease.generations = after;
+      return 1;
+    }
+  }
+  return 0;
 }
 
 static bool principalMayUseProcessStdio(uint64_t principal) {
@@ -1674,10 +1738,11 @@ static FsAsyncResult fsReadFileArmedWork(
   if (sb.st_size > 0) data.reserve(static_cast<size_t>(sb.st_size));
   std::array<uint8_t, 64 * 1024> chunk = {};
   const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  RepeatedFsAuthorizationLease authorizationLease;
   while (true) {
-    if (ex_host_authorize_typed_fs_open(
-            principal, path.c_str(), 2, 2, *parent, fd, 1, 0,
-            presented) != 1) {
+    if (authorizeRepeatedFsWithLease(
+            authorizationLease, principal, path.c_str(), 2, 2, *parent, *fd, 1,
+            0, presented) != 1) {
       return fsAsyncError(EACCES, "read", path);
     }
     ssize_t amount;
@@ -2534,10 +2599,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             data.reserve(static_cast<size_t>(sb.st_size));
           }
           std::array<uint8_t, 64 * 1024> chunk = {};
+          RepeatedFsAuthorizationLease authorizationLease;
           while (true) {
-            if (ex_host_authorize_typed_fs_open(
-                    principal, path.c_str(), 2, 1, *parent, fdRaw, 1, 0,
-                    presented) != 1) {
+            if (authorizeRepeatedFsWithLease(
+                    authorizationLease, principal, path.c_str(), 1, 2, parentRaw,
+                    fdRaw, 1, 0, presented) != 1) {
               throw facebook::jsi::JSError(runtime, "Permission denied");
             }
             ssize_t amount;
@@ -2856,13 +2922,14 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             throwFsError(runtime, "scandir", path);
           }
           std::vector<std::string> names;
+          RepeatedFsAuthorizationLease authorizationLease;
           while (true) {
             const char* presented = presentedHandle.empty()
                 ? nullptr
                 : presentedHandle.c_str();
-            if (ex_host_authorize_typed_fs_open(
-                    currentPrincipalId(), path.c_str(), 5, 4,
-                    *descriptors.parent, *descriptors.target, 0, 0,
+            if (authorizeRepeatedFsWithLease(
+                    authorizationLease, currentPrincipalId(), path.c_str(), 4,
+                    5, *descriptors.parent, *descriptors.target, 0, 0,
                     presented) != 1) {
               ::closedir(directory);
               throw facebook::jsi::JSError(runtime, "Permission denied");

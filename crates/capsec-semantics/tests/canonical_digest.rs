@@ -48,6 +48,28 @@ fn jcs_uses_utf16_key_order_and_ecmascript_numbers() {
 }
 
 #[test]
+fn jcs_number_vectors_match_ecmascript_tie_breaking() {
+    for (line_number, line) in include_str!("fixtures/jcs-number-vectors.tsv")
+        .lines()
+        .enumerate()
+    {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (bits, expected) = line
+            .split_once('\t')
+            .unwrap_or_else(|| panic!("invalid number vector line {}", line_number + 1));
+        let bits = u64::from_str_radix(bits, 16).unwrap();
+        let number = serde_json::Number::from_f64(f64::from_bits(bits)).unwrap();
+        assert_eq!(
+            to_jcs(&serde_json::Value::Number(number)).unwrap(),
+            expected,
+            "IEEE-754 bits {bits:016x}"
+        );
+    }
+}
+
+#[test]
 fn semantic_sets_are_utf8_sorted_deduplicated_and_idempotent() {
     let contract = contract();
     let left = json!({

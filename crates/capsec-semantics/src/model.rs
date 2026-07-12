@@ -402,7 +402,7 @@ pub struct IpAddress(IpAddr);
 
 impl IpAddress {
     pub fn new(address: IpAddr) -> Self {
-        Self(address)
+        Self(canonical_ip(address))
     }
 
     pub fn get(self) -> IpAddr {
@@ -417,6 +417,7 @@ impl<'de> Deserialize<'de> for IpAddress {
     {
         let text = String::deserialize(deserializer)?;
         let address: IpAddr = text.parse().map_err(serde::de::Error::custom)?;
+        let address = canonical_ip(address);
         if address.to_string() != text {
             return Err(serde::de::Error::custom(format!(
                 "non-canonical IP address {text:?}; expected {:?}",
@@ -424,6 +425,16 @@ impl<'de> Deserialize<'de> for IpAddress {
             )));
         }
         Ok(Self(address))
+    }
+}
+
+fn canonical_ip(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V6(address) => address
+            .to_ipv4_mapped()
+            .map(IpAddr::V4)
+            .unwrap_or(IpAddr::V6(address)),
+        address => address,
     }
 }
 
@@ -505,6 +516,14 @@ impl PathComponent {
             Self::Utf8(value) => value.as_bytes(),
             Self::Base64Url(value) => value,
         }
+    }
+
+    pub fn is_canonical(&self) -> bool {
+        validate_path_component_bytes(self.bytes()).is_ok()
+            && match self {
+                Self::Utf8(_) => true,
+                Self::Base64Url(bytes) => std::str::from_utf8(bytes).is_err(),
+            }
     }
 }
 
@@ -593,10 +612,11 @@ pub struct LogicalPath {
 
 impl LogicalPath {
     pub fn is_canonical(&self) -> bool {
-        match self.root {
-            LogicalRoot::Absolute => self.host_bound == Some(true),
-            _ => self.host_bound.is_none(),
-        }
+        self.components.iter().all(PathComponent::is_canonical)
+            && match self.root {
+                LogicalRoot::Absolute => self.host_bound == Some(true),
+                _ => self.host_bound.is_none(),
+            }
     }
 
     pub fn contains_package_root(&self) -> bool {
@@ -1443,6 +1463,17 @@ impl EffectOccurrence {
                 principal.is_transparent_runtime_frame()
                     || self.constrained_principals.contains(principal)
             })
+    }
+}
+
+impl Principal {
+    /// Canonical semantic-set key shared by every runtime and decision ingress.
+    /// This must be JCS rather than serde's struct-field order because package
+    /// principals carry additional keys that change the relative ordering.
+    pub fn canonical_sort_key(&self) -> crate::Result<Vec<u8>> {
+        let value = serde_json::to_value(self)
+            .map_err(|error| crate::Error::InvalidModel(error.to_string()))?;
+        crate::canonical::to_jcs_bytes(&value)
     }
 }
 

@@ -19,6 +19,7 @@ import {
   assertNoDuplicateJsonKeys,
   capsecRoot,
   canonicalSetOrder,
+  canonicalIpAddress,
   canonicalJson,
   compareAuthorityContainment,
   computeDomainDigest,
@@ -126,6 +127,35 @@ describe("LLP 0021 capsec contract", () => {
       "pkg@\uE000",
       "pkg@𐀀",
     ]);
+  });
+
+  test("IPv4-mapped IPv6 has one embedded-IPv4 canonical form", () => {
+    expect(() => canonicalIpAddress("::ffff:169.254.169.254")).toThrow(
+      /expected 169\.254\.169\.254/,
+    );
+    expect(() => canonicalIpAddress("::ffff:a9fe:a9fe")).toThrow(
+      /expected 169\.254\.169\.254/,
+    );
+    expect(canonicalIpAddress("169.254.169.254")).toBe(4);
+    expect(canonicalIpAddress("::ffff:0:7f00:1")).toBe(6);
+  });
+
+  test("shared non-integer JCS vectors match ECMAScript bytes", () => {
+    const vectors = fs.readFileSync(
+      path.join(
+        capsecRoot,
+        "../crates/capsec-semantics/tests/fixtures/jcs-number-vectors.tsv",
+      ),
+      "utf8",
+    );
+    const buffer = new ArrayBuffer(8);
+    const view = new DataView(buffer);
+    for (const line of vectors.split("\n")) {
+      if (!line || line.startsWith("#")) continue;
+      const [bits, expected] = line.split("\t");
+      view.setBigUint64(0, BigInt(`0x${bits}`), false);
+      expect(canonicalJson(view.getFloat64(0, false))).toBe(expected);
+    }
   });
 
   test("keyed sets must use their declared composite order", () => {

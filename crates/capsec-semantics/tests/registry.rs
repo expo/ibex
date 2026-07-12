@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use capsec_semantics::model::AuthoritySelector;
 use capsec_semantics::registry::{CapabilityDefinitionsDocument, DefinitionSet, ValidatedProfile};
 use serde::Deserialize;
 use serde_json::Value;
@@ -164,4 +165,72 @@ fn unknown_and_present_empty_selector_constraints_fail() {
         .unwrap();
     row["selectorConstraints"]["stdioStreams"] = Value::Array(vec![]);
     assert!(ValidatedProfile::from_json(&serde_json::to_vec(&empty).unwrap(), rules).is_err());
+}
+
+#[test]
+fn action_specific_selector_constraints_are_executable() {
+    let definitions = ValidatedProfile::from_json(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../capsec/registry/capability-definitions.json"
+        )),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../capsec/registry/policy-rules.json"
+        )),
+    )
+    .unwrap()
+    .definitions;
+    let rejected = [
+        serde_json::json!({
+            "cap": "env:write",
+            "resource": {"kind":"environment-name","target":"broker-base","name":"PATH"}
+        }),
+        serde_json::json!({
+            "cap": "stdio:write",
+            "resource": {"kind":"stdio","stream":"stdin","source":{"kind":"terminal","identity":"terminal-1"}}
+        }),
+        serde_json::json!({
+            "cap": "stdio:raw",
+            "resource": {"kind":"stdio","stream":"stdin","source":{"kind":"pipe","identity":"pipe-1"}}
+        }),
+        serde_json::json!({
+            "cap": "process:cwd",
+            "resource": {"kind":"closed-surface","surfaceClass":"process-identity"}
+        }),
+        serde_json::json!({
+            "cap": "storage:persist",
+            "resource": {"kind":"storage-namespace","store":"session","namespace":{"kind":"principal"}}
+        }),
+    ];
+    for value in rejected {
+        let selector: AuthoritySelector = serde_json::from_value(value).unwrap();
+        assert!(definitions.validate_selector(&selector).is_err());
+    }
+
+    for value in [
+        serde_json::json!({
+            "cap": "env:write",
+            "resource": {"kind":"environment-name","target":"principal-overlay","name":"PATH"}
+        }),
+        serde_json::json!({
+            "cap": "stdio:write",
+            "resource": {"kind":"stdio","stream":"stdout","source":{"kind":"pipe","identity":"pipe-1"}}
+        }),
+        serde_json::json!({
+            "cap": "process:cwd",
+            "resource": {"kind":"closed-surface","surfaceClass":"process-cwd"}
+        }),
+        serde_json::json!({
+            "cap": "fs:read",
+            "resource": {"kind":"path-tree","path":{"root":"project","components":[]}}
+        }),
+        serde_json::json!({
+            "cap": "network:connect",
+            "resource": {"kind":"connect-endpoint","transport":"tcp","host":{"kind":"dns-name","name":"example.com"},"port":{"kind":"exact","value":443},"peerClasses":["public"],"route":{"kind":"direct"}}
+        }),
+    ] {
+        let selector: AuthoritySelector = serde_json::from_value(value).unwrap();
+        definitions.validate_selector(&selector).unwrap();
+    }
 }

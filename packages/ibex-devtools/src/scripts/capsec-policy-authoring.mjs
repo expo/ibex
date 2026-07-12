@@ -4,10 +4,24 @@ import {
   compareAuthorityContainment,
   computeDomainDigest,
   loadAndValidateContract,
+  validateSelectorSemantics,
 } from './capsec-contract.mjs';
 
-const CONTRACT = loadAndValidateContract();
+let cachedContract;
+function contract() {
+  return (cachedContract ??= loadAndValidateContract());
+}
 const POLICY_SCHEMA_ID = 'https://ibex.dev/capsec/schema/canonical-policy.schema.json';
+
+export function compareCanonicalBytes(left, right) {
+  const leftBytes = Buffer.from(typeof left === 'string' ? left : canonicalJson(left), 'utf8');
+  const rightBytes = Buffer.from(typeof right === 'string' ? right : canonicalJson(right), 'utf8');
+  return leftBytes.compare(rightBytes);
+}
+
+function canonicalStringSet(values) {
+  return [...new Set(values)].sort(compareCanonicalBytes);
+}
 
 function digestBytes(value) {
   return `sha256-${createHash('sha256').update(value).digest('base64url')}`;
@@ -18,15 +32,17 @@ export function packageIntegrity(packageJsonText) {
 }
 
 export function assertTypedAuthority(authority, label = 'authority') {
-  const validate = CONTRACT.ajv.getSchema(
+  const currentContract = contract();
+  const validate = currentContract.ajv.getSchema(
     'https://ibex.dev/capsec/schema/authority-selector.schema.json',
   );
   if (!validate(authority)) {
-    throw new TypeError(`${label}: ${CONTRACT.ajv.errorsText(validate.errors)}`);
+    throw new TypeError(`${label}: ${currentContract.ajv.errorsText(validate.errors)}`);
   }
-  const definition = CONTRACT.definitionsById.get(authority.cap);
-  if (!definition || !definition.resourceKinds.includes(authority.resource.kind)) {
-    throw new TypeError(`${label}: ${authority.cap} cannot select ${authority.resource.kind}`);
+  try {
+    validateSelectorSemantics(authority, currentContract.definitionsById, label);
+  } catch (error) {
+    throw new TypeError(error.message, { cause: error });
   }
   return authority;
 }
@@ -42,14 +58,11 @@ export function canonicalAuthorityRows(rows, label = 'authority rows') {
     const current = byAuthority.get(key) || { authority: row.authority, provenance: [] };
     const provenance = new Map(current.provenance.map((entry) => [canonicalJson(entry), entry]));
     for (const entry of row.provenance) provenance.set(canonicalJson(entry), entry);
-    current.provenance = [...provenance.values()].sort((a, b) =>
-      Buffer.from(canonicalJson(a)).compare(Buffer.from(canonicalJson(b))),
-    );
+    current.provenance = [...provenance.values()].sort(compareCanonicalBytes);
     byAuthority.set(key, current);
   }
   return [...byAuthority.values()].sort((a, b) =>
-    Buffer.from(canonicalJson(a.authority)).compare(Buffer.from(canonicalJson(b.authority))),
-  );
+    compareCanonicalBytes(a.authority, b.authority));
 }
 
 export function intersectAuthorities(held, delegated) {
@@ -114,8 +127,9 @@ export function buildCanonicalPolicy(principals) {
     policySchema: 'ibex/capsec-policy/1',
     capsVocab: 'ibex/capsec/1',
     semanticCore: 'capsec/semantics/1',
-    vocabDigest: CONTRACT.policy.vocabDigest,
-    policyDigest: CONTRACT.policy.policyDigest,
+    vocabDigest: contract().policy.vocabDigest,
+    registryDigest: contract().registryDigest,
+    policyDigest: contract().policy.policyDigest,
     purpose: 'production',
     mode: 'enforce',
     principals: principals.map((entry) => ({
@@ -127,59 +141,121 @@ export function buildCanonicalPolicy(principals) {
         `${entry.principal.locator}.escalationCeiling`,
       ),
       imports: {
-        builtins: [...new Set(entry.imports?.builtins || [])].sort(),
-        packages: [...new Set(entry.imports?.packages || [])].sort(),
+        builtins: canonicalStringSet(entry.imports?.builtins || []),
+        packages: canonicalStringSet(entry.imports?.packages || []),
       },
-      endowments: [...new Set(entry.endowments || [])].sort(),
-    })).sort((a, b) => canonicalJson(a.principal).localeCompare(canonicalJson(b.principal))),
+      endowments: canonicalStringSet(entry.endowments || []),
+    })).sort((a, b) => compareCanonicalBytes(a.principal, b.principal)),
   };
   policy.policyDigest = computeDomainDigest(
-    CONTRACT.rules.digestContract.domains.policy,
+    contract().rules.digestContract.domains.policy,
     policy,
-    CONTRACT.rules.digestContract.projections.policy.omitFields,
+    contract().rules.digestContract.projections.policy.omitFields,
   );
-  const validate = CONTRACT.ajv.getSchema(POLICY_SCHEMA_ID);
-  if (!validate(policy)) throw new TypeError(CONTRACT.ajv.errorsText(validate.errors));
+  const currentContract = contract();
+  const validate = currentContract.ajv.getSchema(POLICY_SCHEMA_ID);
+  if (!validate(policy))
+    throw new TypeError(currentContract.ajv.errorsText(validate.errors));
   return policy;
 }
 
 export function classifyPolicyDrift(before, after) {
-  if (before.vocabDigest !== after.vocabDigest || before.semanticCore !== after.semanticCore) {
-    return { semanticVocabularyChange: true, expansions: [], narrowings: [] };
+  const semanticVocabularyChange = before.vocabDigest !== after.vocabDigest ||
+    before.registryDigest !== after.registryDigest ||
+    before.semanticCore !== after.semanticCore || before.capsVocab !== after.capsVocab ||
+    before.policySchema !== after.policySchema;
+  if (semanticVocabularyChange) {
+    return {
+      classification: 'semantic-vocabulary-change',
+      semanticVocabularyChange: true,
+      identityChanges: [],
+      expansions: [],
+      narrowings: [],
+    };
   }
-  const rows = (policy) => policy.principals.flatMap((principal) =>
-    principal.floor.map((row) => ({
-      principal: canonicalJson(principal.principal),
-      authority: row.authority,
-      rendered: canonicalJson([principal.principal, row.authority]),
-    })));
-  const oldRows = rows(before);
-  const newRows = rows(after);
-  const oldKeys = new Set(oldRows.map((row) => row.rendered));
-  const newKeys = new Set(newRows.map((row) => row.rendered));
-  const removed = oldRows.filter((row) => !newKeys.has(row.rendered));
-  const added = newRows.filter((row) => !oldKeys.has(row.rendered));
-  const importRows = (policy) => new Set(policy.principals.flatMap((principal) =>
-    principal.imports.builtins.map((builtin) => `${principal.principal.locator}: import ${builtin}`)));
-  const oldImports = importRows(before);
-  const newImports = importRows(after);
   const context = { sameSnapshot: true, samePackageRootOwner: true };
-  const isContained = (parent, child) =>
-    parent.principal === child.principal &&
+  const authorityRows = (policy, field) => policy.principals.flatMap((entry) =>
+    (entry[field] || []).map((row) => ({
+      principal: canonicalJson(entry.principal),
+      authority: row.authority,
+      rendered: `${entry.principal.locator}: ${field} ${canonicalJson(row.authority)}`,
+    })));
+  const isContained = (parent, child) => parent.principal === child.principal &&
     ['equal', 'strict-subset'].includes(
       compareAuthorityContainment(parent.authority, child.authority, context),
     );
+  const authorityDelta = (field) => {
+    const oldRows = authorityRows(before, field);
+    const newRows = authorityRows(after, field);
+    const oldKeys = new Set(oldRows.map((row) => canonicalJson([row.principal, row.authority])));
+    const newKeys = new Set(newRows.map((row) => canonicalJson([row.principal, row.authority])));
+    const removed = oldRows.filter((row) =>
+      !newKeys.has(canonicalJson([row.principal, row.authority])));
+    const added = newRows.filter((row) =>
+      !oldKeys.has(canonicalJson([row.principal, row.authority])));
+    return {
+      expansions: added
+        .filter((row) => !removed.some((oldRow) => isContained(oldRow, row)))
+        .map((row) => row.rendered),
+      narrowings: removed
+        .filter((row) => !added.some((newRow) => isContained(newRow, row)))
+        .map((row) => row.rendered),
+    };
+  };
+  const setRows = (policy, field) => new Set(policy.principals.flatMap((entry) => {
+    const values = field === 'endowments' ? entry.endowments : entry.imports[field];
+    return values.map((value) => `${entry.principal.locator}: ${field} ${value}`);
+  }));
+  const setDelta = (field) => {
+    const oldRows = setRows(before, field);
+    const newRows = setRows(after, field);
+    return {
+      expansions: [...newRows].filter((row) => !oldRows.has(row)),
+      narrowings: [...oldRows].filter((row) => !newRows.has(row)),
+    };
+  };
+  const floor = authorityDelta('floor');
+  const ceiling = authorityDelta('escalationCeiling');
+  const denials = authorityDelta('denials');
+  const builtins = setDelta('builtins');
+  const packages = setDelta('packages');
+  const endowments = setDelta('endowments');
+  const expansions = canonicalStringSet([
+    ...floor.expansions,
+    ...ceiling.expansions,
+    ...denials.narrowings,
+    ...builtins.expansions,
+    ...packages.expansions,
+    ...endowments.expansions,
+  ]);
+  const narrowings = canonicalStringSet([
+    ...floor.narrowings,
+    ...ceiling.narrowings,
+    ...denials.expansions,
+    ...builtins.narrowings,
+    ...packages.narrowings,
+    ...endowments.narrowings,
+  ]);
+  const identitySet = (policy) => new Set(policy.principals.map((entry) =>
+    canonicalJson(entry.principal)));
+  const oldIdentities = identitySet(before);
+  const newIdentities = identitySet(after);
+  const identityChanges = canonicalStringSet([
+    ...[...newIdentities].filter((identity) => !oldIdentities.has(identity))
+      .map((identity) => `+ ${identity}`),
+    ...[...oldIdentities].filter((identity) => !newIdentities.has(identity))
+      .map((identity) => `- ${identity}`),
+  ]);
+  let classification = 'none';
+  if (expansions.length && narrowings.length) classification = 'mixed';
+  else if (expansions.length) classification = 'expansion';
+  else if (narrowings.length) classification = 'narrowing';
+  else if (identityChanges.length) classification = 'identity-change';
   return {
+    classification,
     semanticVocabularyChange: false,
-    expansions: added
-      .filter((row) => !removed.some((oldRow) => isContained(oldRow, row)))
-      .map((row) => row.rendered)
-      .concat([...newImports].filter((row) => !oldImports.has(row)))
-      .sort(),
-    narrowings: removed
-      .filter((row) => !added.some((newRow) => isContained(newRow, row)))
-      .map((row) => row.rendered)
-      .concat([...oldImports].filter((row) => !newImports.has(row)))
-      .sort(),
+    identityChanges,
+    expansions,
+    narrowings,
   };
 }

@@ -69,6 +69,7 @@ pub struct ArmedRootBinding {
 #[derive(Clone, Debug)]
 pub struct ArmedSnapshot {
     document: Arc<Value>,
+    root_bindings: Arc<[ArmedRootBinding]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
 }
@@ -141,8 +142,12 @@ impl ArmedSnapshot {
             handle: generation(&document, "handle")?,
         };
         validate_snapshot_invariants(&document)?;
+        let root_bindings: Vec<ArmedRootBinding> =
+            serde_json::from_value(value_at(&document, &["rootBindings"])?.clone())
+                .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
         Ok(Self {
             document: Arc::new(document),
+            root_bindings: root_bindings.into(),
             armed_snapshot_digest: claimed,
             generations,
         })
@@ -181,9 +186,8 @@ impl ArmedSnapshot {
             .collect()
     }
 
-    pub fn root_bindings(&self) -> Result<Vec<ArmedRootBinding>> {
-        serde_json::from_value(value_at(&self.document, &["rootBindings"])?.clone())
-            .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))
+    pub fn root_bindings(&self) -> Result<&[ArmedRootBinding]> {
+        Ok(&self.root_bindings)
     }
 
     /// Convert an absolute host path into the most-specific authenticated
@@ -218,7 +222,7 @@ impl ArmedSnapshot {
     ) -> Result<ArmedRootBinding> {
         let mut candidates = self
             .root_bindings()?
-            .into_iter()
+            .iter()
             .filter(|binding| {
                 binding.host_path.root == LogicalRoot::Absolute
                     && binding.host_path.host_bound == Some(true)
@@ -238,7 +242,7 @@ impl ArmedSnapshot {
                 .len()
                 .cmp(&left.host_path.components.len())
         });
-        candidates.into_iter().next().ok_or_else(|| {
+        candidates.into_iter().next().cloned().ok_or_else(|| {
             Error::ArmRefused("host path has no authenticated logical-root binding".into())
         })
     }
@@ -268,7 +272,7 @@ impl ArmedSnapshot {
                 .len()
                 .cmp(&left.host_path.components.len())
         });
-        let binding = candidates.into_iter().next().ok_or_else(|| {
+        let binding = candidates.into_iter().next().cloned().ok_or_else(|| {
             Error::ArmRefused("host path has no authenticated logical-root binding".into())
         })?;
         Ok(binding.owner)
@@ -293,6 +297,11 @@ impl ArmedSnapshot {
         let principal_rows: Vec<SnapshotPrincipalRow> =
             serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
                 .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
+        let package_principals = principal_rows
+            .iter()
+            .filter(|row| row.principal.is_package())
+            .map(|row| row.principal.clone())
+            .collect::<Vec<_>>();
         let mut principal_policies = BTreeMap::new();
         for (principal_index, row) in principal_rows.into_iter().enumerate() {
             let package_owner = row.principal.is_package().then(|| row.principal.clone());
@@ -362,12 +371,10 @@ impl ArmedSnapshot {
                     value_at(&self.document, &["processAuthorityCeiling", "authorities"])?.clone(),
                 )
                 .map_err(|error| invalid(format!("invalid process ceiling: {error}")))?;
-                AuthorityCeiling::Bounded(bind_authorities(
+                AuthorityCeiling::Bounded(bind_process_ceiling(
                     selectors,
-                    0,
-                    "process-ceiling",
                     self.digest(),
-                    None,
+                    &package_principals,
                 )?)
             }
             _ => return Err(invalid("processAuthorityCeiling.kind is invalid")),
@@ -713,6 +720,40 @@ fn bind_authorities(
         .collect()
 }
 
+fn bind_process_ceiling(
+    selectors: Vec<AuthoritySelector>,
+    snapshot_digest: &Digest,
+    package_principals: &[Principal],
+) -> Result<Vec<BoundAuthority>> {
+    let mut bound = Vec::new();
+    for (selector_index, selector) in selectors.into_iter().enumerate() {
+        if selector.resource.contains_package_logical_root() {
+            for (owner_index, owner) in package_principals.iter().enumerate() {
+                bound.push(BoundAuthority {
+                    source_id: NonEmptyString::new(format!(
+                        "process-ceiling.{selector_index:06}.{owner_index:06}"
+                    ))
+                    .map_err(Error::InvalidModel)?,
+                    selector: selector.clone(),
+                    armed_snapshot_digest: snapshot_digest.clone(),
+                    package_root_owner: Some(owner.clone()),
+                });
+            }
+        } else {
+            bound.push(BoundAuthority {
+                source_id: NonEmptyString::new(format!(
+                    "process-ceiling.{selector_index:06}.global"
+                ))
+                .map_err(Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: snapshot_digest.clone(),
+                package_root_owner: None,
+            });
+        }
+    }
+    Ok(bound)
+}
+
 fn digest_field(value: &Value, field: &str) -> Result<Digest> {
     Digest::new(required_str(value, field)?).map_err(Error::InvalidModel)
 }
@@ -930,7 +971,50 @@ mod tests {
     }
 
     #[test]
-    fn refuses_tamper_stale_identity_target_and_graph() {
+    fn binds_package_root_process_ceiling_for_each_package_principal() {
+        let (bytes, expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["processAuthorityCeiling"] = serde_json::json!({
+            "kind": "bounded",
+            "authorities": [{
+                "cap": "fs:read",
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {"root": "package", "components": []}
+                }
+            }]
+        });
+        let mut second = value["principals"][1].clone();
+        second["principal"] = serde_json::json!({
+            "kind": "package",
+            "name": "other-lib",
+            "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "locator": "other-lib@1.0.0"
+        });
+        value["principals"].as_array_mut().unwrap().push(second);
+        let digest = compute_domain_digest(
+            ARMED_SNAPSHOT_DOMAIN,
+            &value,
+            &["armedSnapshotDigest".to_string()],
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest);
+        let snapshot =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        let authority = snapshot.authority_state().unwrap();
+        let AuthorityCeiling::Bounded(rows) = authority.process_ceiling else {
+            panic!("expected bounded process ceiling");
+        };
+        assert_eq!(rows.len(), 2);
+        assert!(rows.iter().all(|row| row
+            .package_root_owner
+            .as_ref()
+            .is_some_and(Principal::is_package)));
+        assert_ne!(rows[0].package_root_owner, rows[1].package_root_owner);
+    }
+
+    #[test]
+    fn refuses_tamper_stale_identity_target_graph_and_incomplete_cell() {
         let (bytes, expected) = fixture();
         let mut tampered: Value = serde_json::from_slice(&bytes).unwrap();
         tampered["runNonce"] = Value::String("changed".into());

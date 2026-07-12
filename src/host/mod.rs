@@ -24,10 +24,14 @@ pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
 use anyhow::Context as _;
-use std::collections::{BTreeMap, HashMap, VecDeque};
+#[cfg(test)]
+use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
+#[cfg(test)]
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
 /// Reject every startup environment input classified `closed` by the checked
@@ -170,6 +174,8 @@ pub struct Host {
     /// Legacy `PolicyFile` data never enters this context.
     /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
     decision_context: Option<Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>>,
+    typed_decision_count: Arc<AtomicUsize>,
+    #[cfg(test)]
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
     typed_imports: Arc<
         BTreeMap<
@@ -182,6 +188,12 @@ pub struct Host {
     /// target. Call sites never manufacture `Complete` locally.
     target_cells: Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
     unarmed_closed: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedDecisionResult {
+    pub decision: capsec_semantics::decision::Decision,
+    pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
 }
 
 impl Host {
@@ -224,6 +236,8 @@ impl Host {
             handles: Arc::new(handles::HandleRegistry::new()),
             armed_snapshot: None,
             decision_context: None,
+            typed_decision_count: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
             typed_evidence: Arc::new(RwLock::new(VecDeque::with_capacity(
                 MAX_TYPED_EVIDENCE_ENTRIES,
             ))),
@@ -444,7 +458,7 @@ impl Host {
                         )
                     })?
                     .root_bindings()?
-                    .into_iter()
+                    .iter()
                     .any(|binding| {
                         binding.logical_root == requested.root
                             && match binding.logical_root {
@@ -751,15 +765,55 @@ impl Host {
             capsec_semantics::decision::Workflow::ProductionEnforce,
             &classify_network_peer,
         )?;
+        self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
+        {
+            let evidence =
+                capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
+            if let Ok(mut rows) = self.typed_evidence.write() {
+                if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
+                    rows.pop_front();
+                }
+                rows.push_back(evidence);
+            }
+        }
+        Ok(decision)
+    }
+
+    /// Evaluate and return the exact evidence envelope produced by that same
+    /// operation. Callers that need evidence must use this atomic result
+    /// rather than consulting the shared bounded history afterward.
+    pub fn evaluate_typed_decision_with_evidence(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+    ) -> capsec_semantics::Result<TypedDecisionResult> {
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed decision requested without an armed context".into(),
+            )
+        })?;
+        let context = context.read().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let decision = capsec_semantics::decision::evaluate_decision_set(
+            &context,
+            set,
+            gates,
+            capsec_semantics::decision::Workflow::ProductionEnforce,
+            &classify_network_peer,
+        )?;
         let evidence =
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
+        self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
         if let Ok(mut rows) = self.typed_evidence.write() {
             if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
                 rows.pop_front();
             }
-            rows.push_back(evidence);
+            rows.push_back(evidence.clone());
         }
-        Ok(decision)
+        Ok(TypedDecisionResult { decision, evidence })
     }
 
     /// Strict JSON ingress for engine/host adapters. Duplicate keys and unsafe
@@ -785,11 +839,37 @@ impl Host {
         self.evaluate_typed_decision(&set, &gates)
     }
 
+    pub fn evaluate_typed_decision_json_with_evidence(
+        &self,
+        decision_set_json: &[u8],
+        gates_json: &[u8],
+    ) -> capsec_semantics::Result<TypedDecisionResult> {
+        let set_text = std::str::from_utf8(decision_set_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!("decision set is not UTF-8: {error}"))
+        })?;
+        let gates_text = std::str::from_utf8(gates_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!("effect gates are not UTF-8: {error}"))
+        })?;
+        let set_value = capsec_semantics::strict_json::parse_strict(set_text)?;
+        let gates_value = capsec_semantics::strict_json::parse_strict(gates_text)?;
+        let set: capsec_semantics::model::DecisionSet = serde_json::from_value(set_value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let gates: Vec<capsec_semantics::decision::EffectGate> =
+            serde_json::from_value(gates_value)
+                .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.evaluate_typed_decision_with_evidence(&set, &gates)
+    }
+
+    #[cfg(test)]
     pub fn typed_evidence(&self) -> Vec<capsec_semantics::decision::StructuredDecisionEvidence> {
         self.typed_evidence
             .read()
             .map(|rows| rows.iter().cloned().collect())
             .unwrap_or_default()
+    }
+
+    pub fn typed_decision_count(&self) -> usize {
+        self.typed_decision_count.load(Ordering::Relaxed)
     }
 
     pub fn typed_generations(&self) -> Option<capsec_semantics::cache::GenerationSet> {
@@ -854,6 +934,10 @@ impl Host {
         authority
             .dynamic_grants
             .sort_by(|left, right| left.grant_id.cmp(&right.grant_id));
+        for grant in &mut authority.dynamic_grants {
+            grant.observed_negative_generation = authority.generations.negative;
+            grant.published_dynamic_generation = next_dynamic;
+        }
         authority.generations.dynamic = next_dynamic;
         *current = current.with_authority(authority)?;
         Ok(true)
@@ -3015,6 +3099,72 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_typed_decisions_keep_their_own_atomic_evidence() {
+        use capsec_semantics::decision::EffectGate;
+        use capsec_semantics::model::DecisionSet;
+        use std::sync::{Arc, Barrier};
+
+        let host = example_armed_host();
+        let gate: EffectGate = serde_json::from_value(serde_json::json!({
+            "coverageEdgeId": "test.fs.concurrent-read",
+            "targetCell": "complete",
+            "definitionAndEdgePredicatesSatisfied": true
+        }))
+        .unwrap();
+        let make_set = |operation: &str| -> DecisionSet {
+            serde_json::from_value(serde_json::json!({
+                "decisionSetSchema": "ibex/capsec-decision-set/1",
+                "operationId": operation,
+                "atomicityGroup": "test.fs.concurrent-read",
+                "combination": "conjunction",
+                "context": {
+                    "stage": "commit",
+                    "actor": {"kind": "root", "identity": "project-root"},
+                    "constrainedPrincipals": [{"kind": "root", "identity": "project-root"}]
+                },
+                "effects": [{
+                    "cap": "fs:read",
+                    "effectOwner": {"kind": "root", "identity": "project-root"},
+                    "resource": {
+                        "kind": "path-occurrence",
+                        "requested": {"root": "project", "components": [
+                            {"encoding": "utf8", "value": "concurrent.txt"}
+                        ]},
+                        "followMode": "follow-final",
+                        "objectState": "existing",
+                        "parentObject": {"platform": "unix", "volume": "dev-test", "file": "parent-concurrent"},
+                        "finalObject": {"platform": "unix", "volume": "dev-test", "file": "file-concurrent"},
+                        "retainedHandle": "fd:concurrent"
+                    }
+                }]
+            }))
+            .unwrap()
+        };
+        let barrier = Arc::new(Barrier::new(3));
+        let mut threads = Vec::new();
+        for operation in ["concurrent-a", "concurrent-b"] {
+            let host = host.clone();
+            let gate = gate.clone();
+            let set = make_set(operation);
+            let barrier = barrier.clone();
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                let result = host
+                    .evaluate_typed_decision_with_evidence(&set, &[gate])
+                    .unwrap();
+                assert_eq!(result.evidence.operation_id.as_str(), operation);
+                assert_eq!(result.evidence.actor, set.context.actor);
+                barrier.wait();
+            }));
+        }
+        barrier.wait();
+        barrier.wait();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+    }
+
+    #[test]
     fn typed_fetch_stages_bind_candidates_and_always_reject_metadata_peers() {
         use capsec_semantics::decision::DecisionOutcome;
         use capsec_semantics::model::{
@@ -3651,6 +3801,127 @@ mod tests {
         assert_eq!(
             authorize(capsec_semantics::model::Stage::Repeat).outcome,
             DecisionOutcome::Deny
+        );
+    }
+
+    #[test]
+    fn multiple_dynamic_grants_publish_as_one_generation_consistent_overlay() {
+        use capsec_semantics::model::{AuthoritySelector, NonEmptyString, Principal};
+
+        let ceiling = serde_json::json!({
+            "cap": "fs:write",
+            "resource": {
+                "kind": "path-tree",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "images"}]
+                }
+            }
+        });
+        let host = example_armed_host_with(|value| {
+            value["principals"][1]["escalationCeiling"] = serde_json::Value::Array(vec![ceiling]);
+        });
+        let principal: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        }))
+        .unwrap();
+        let selector = |name: &str| -> AuthoritySelector {
+            serde_json::from_value(serde_json::json!({
+                "cap": "fs:write",
+                "resource": {
+                    "kind": "path-exact",
+                    "path": {
+                        "root": "project",
+                        "components": [
+                            {"encoding": "utf8", "value": "images"},
+                            {"encoding": "utf8", "value": name}
+                        ]
+                    }
+                }
+            }))
+            .unwrap()
+        };
+        let first = NonEmptyString::new("grant-a").unwrap();
+        let second = NonEmptyString::new("grant-b").unwrap();
+        assert!(host
+            .grant_typed_dynamic(first.clone(), principal.clone(), selector("a.jpg"))
+            .unwrap());
+        let after_first = host.typed_generations().unwrap();
+        assert!(host
+            .grant_typed_dynamic(second.clone(), principal.clone(), selector("b.jpg"))
+            .unwrap());
+        let after_second = host.typed_generations().unwrap();
+        assert!(after_second.dynamic > after_first.dynamic);
+        {
+            let current = host.decision_context.as_ref().unwrap().read().unwrap();
+            assert_eq!(current.authority().dynamic_grants.len(), 2);
+            assert!(current.authority().dynamic_grants.iter().all(|grant| {
+                grant.observed_negative_generation == after_second.negative
+                    && grant.published_dynamic_generation == after_second.dynamic
+            }));
+        }
+
+        let before_duplicate = host.typed_generations().unwrap();
+        assert!(!host
+            .grant_typed_dynamic(second.clone(), principal.clone(), selector("b.jpg"))
+            .unwrap());
+        assert_eq!(host.typed_generations().unwrap(), before_duplicate);
+
+        assert!(host.revoke_typed_dynamic(&first).unwrap());
+        let after_revoke = host.typed_generations().unwrap();
+        {
+            let current = host.decision_context.as_ref().unwrap().read().unwrap();
+            assert_eq!(current.authority().dynamic_grants.len(), 1);
+            let remaining = &current.authority().dynamic_grants[0];
+            assert_eq!(remaining.grant_id, second);
+            assert_eq!(
+                remaining.observed_negative_generation,
+                after_revoke.negative
+            );
+            assert_eq!(remaining.published_dynamic_generation, after_revoke.dynamic);
+        }
+        assert!(host
+            .grant_typed_dynamic(first, principal.clone(), selector("a.jpg"))
+            .unwrap());
+
+        let before_failure = host.typed_generations().unwrap();
+        let rows_before = host
+            .decision_context
+            .as_ref()
+            .unwrap()
+            .read()
+            .unwrap()
+            .authority()
+            .dynamic_grants
+            .len();
+        let outside: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "fs:write",
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "outside.jpg"}]
+                }
+            }
+        }))
+        .unwrap();
+        assert!(host
+            .grant_typed_dynamic(NonEmptyString::new("outside").unwrap(), principal, outside,)
+            .is_err());
+        assert_eq!(host.typed_generations().unwrap(), before_failure);
+        assert_eq!(
+            host.decision_context
+                .as_ref()
+                .unwrap()
+                .read()
+                .unwrap()
+                .authority()
+                .dynamic_grants
+                .len(),
+            rows_before
         );
     }
 }

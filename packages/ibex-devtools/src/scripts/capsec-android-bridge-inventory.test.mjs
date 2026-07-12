@@ -14,6 +14,24 @@ const repoRoot = path.resolve(
 );
 
 describe("Android Java bridge inventory", () => {
+  test("provider overloads fail instead of collapsing into one surface", () => {
+    expect(() =>
+      scanAndroidJavaBridgeSurfaces(
+        `
+          package dev.ibex.runtime;
+          public final class IbexNetworking {
+            public interface Provider {
+              String acquire(String resource);
+              String acquire(int resource);
+            }
+            public static void fetch(String url) {}
+            private static native void nativeComplete(int id);
+          }
+        `,
+        "synthetic.java",
+      ),
+    ).toThrow(/overloaded or duplicate Android bridge surface/);
+  });
   test("is structural and excludes comments, literals, and nested overrides", () => {
     const rows = scanAndroidJavaBridgeSurfaces(
       `

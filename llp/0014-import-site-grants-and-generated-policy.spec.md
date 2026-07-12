@@ -5,7 +5,7 @@
 **Systems:** Build, Module Loader, Runtime, CLI
 **Author:** Charlie Cheever / Claude (Fable)
 **Date:** 2026-07-02
-**Revised:** 2026-07-11 (ENG-24147 typed authoring and canonical policy generation)
+**Revised:** 2026-07-11 (ENG-24147 typed authoring and canonical policy generation); 2026-07-12 (ENG-24239/24247/24251 registry-bound policy ingress, selector constraints, and semantic drift classification)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests)
 
 > **Current implementation (2026-07-11):** authoring produces the versioned,
@@ -241,6 +241,7 @@ rejected at the canonical boundary rather than copied or silently omitted.
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
   "vocabDigest": "sha256-...",
+  "registryDigest": "sha256-...",
   "policyDigest": "sha256-...",
   "purpose": "production",
   "mode": "enforce",
@@ -275,8 +276,11 @@ Normative properties:
 - **Committed and drift-checked.** The artifact is checked in like a
   lockfile. `generate-policy.mjs --check` regenerates and fails CI on any
   difference, reporting typed authority **expansions** separately from
-  narrowings, and semantic vocabulary changes separately from both. Structural
-  graph, import, endowment, integrity, or provenance changes remain loud diffs.
+  narrowings, mixed changes, semantic vocabulary changes, and graph/package
+  identity changes separately. Package/builtin imports, endowments, denial
+  removal, and ceiling widening participate in authority classification rather
+  than being mislabeled as structural drift. Provenance-only changes remain
+  loud diffs.
 
 ## Dynamic grants and the static ceiling
 

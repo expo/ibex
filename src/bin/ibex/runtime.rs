@@ -1666,6 +1666,37 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
     let engine_digest = engine_identity.binary_digest.clone();
     let engine_object = serde_json::to_value(&engine_identity.object)?;
+    if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
+        anyhow::bail!("environment-selected policy paths are forbidden in production");
+    }
+    let current_identity: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    let digest_from_current = |field: &str| -> Result<capsec_semantics::model::Digest> {
+        capsec_semantics::model::Digest::new(
+            current_identity[field]
+                .as_str()
+                .with_context(|| format!("current CapSec identity is missing {field}"))?,
+        )
+        .map_err(anyhow::Error::msg)
+    };
+    let expected_policy_identity = capsec_semantics::policy::ExpectedPolicyIdentity {
+        profile: "ibex/capsec/1".into(),
+        semantic_core: "capsec/semantics/1".into(),
+        vocab_digest: digest_from_current("vocabDigest")?,
+        registry_digest: digest_from_current("registryDigest")?,
+    };
+    let policy_profile = capsec_semantics::registry::ValidatedProfile::from_json(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/capability-definitions.json"
+        )),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/policy-rules.json"
+        )),
+    )?;
     let policy_path = cli
         .policy
         .clone()
@@ -1674,7 +1705,8 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         "policySchema": "ibex/capsec-policy/1",
         "capsVocab": "ibex/capsec/1",
         "semanticCore": "capsec/semantics/1",
-        "vocabDigest": serde_json::from_slice::<serde_json::Value>(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/examples/canonical-policy.canonical.json")))?["vocabDigest"],
+        "vocabDigest": expected_policy_identity.vocab_digest.clone(),
+        "registryDigest": expected_policy_identity.registry_digest.clone(),
         "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "purpose": "production",
         "mode": "enforce",
@@ -1705,8 +1737,17 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
         anyhow::bail!("canonical policy digest is stale or tampered");
+    } else {
+        policy["policyDigest"] = serde_json::json!(policy_digest.as_str());
     }
-    policy["policyDigest"] = serde_json::json!(policy_digest);
+    let canonical_policy = capsec_semantics::policy::CanonicalPolicy::load(
+        &serde_json::to_vec(&policy)?,
+        &expected_policy_identity,
+        &policy_profile.definitions,
+    )
+    .context("canonical production policy failed typed validation")?;
+    let policy_digest = canonical_policy.policy_digest.as_str().to_owned();
+    policy = serde_json::to_value(canonical_policy)?;
     let policy_principals = policy["principals"]
         .as_array()
         .context("canonical policy principals must be an array")?;
@@ -4283,11 +4324,31 @@ mod tests {
             serde_json::to_vec(&tampered).unwrap(),
         )
         .unwrap();
-        let error = build_host(&cli)
-            .err()
-            .expect("tampered policy must fail")
-            .to_string();
+        let error = build_host(&cli).err().expect("tampered policy must fail");
+        let error = format!("{error:#}");
         assert!(error.contains("digest is stale or tampered"), "{error}");
+
+        for field in ["vocabDigest", "registryDigest"] {
+            let mut stale: serde_json::Value = serde_json::from_slice(policy).unwrap();
+            stale[field] = serde_json::json!("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+            let digest = capsec_semantics::digest::compute_domain_digest(
+                capsec_semantics::digest::POLICY_DOMAIN,
+                &stale,
+                &["policyDigest".to_string()],
+            )
+            .unwrap();
+            stale["policyDigest"] = serde_json::json!(digest);
+            std::fs::write(
+                directory.path().join("ibex-policy.json"),
+                serde_json::to_vec(&stale).unwrap(),
+            )
+            .unwrap();
+            let error = build_host(&cli)
+                .err()
+                .expect("stale semantic identity must fail");
+            let error = format!("{error:#}");
+            assert!(error.contains("failed typed validation"), "{error}");
+        }
     }
 
     // ENG-22884 — enforce must not silently proceed as full-strength capsec when

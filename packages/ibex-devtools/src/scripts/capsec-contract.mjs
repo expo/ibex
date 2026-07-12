@@ -691,6 +691,7 @@ function renderDigestExamples() {
     "generated capsec canonical policy",
   );
   policy.vocabDigest = vocabDigest;
+  policy.registryDigest = registryDigest;
   policy.policyDigest = computeDomainDigest(
     rules.digestContract.domains.policy,
     policy,
@@ -778,19 +779,35 @@ function renderDigestExamples() {
 }
 
 function listJsonFiles(dir) {
-  return fs
-    .readdirSync(dir)
-    .filter((name) => name.endsWith(".json"))
-    .sort()
-    .map((name) => path.join(dir, name));
+  const files = [];
+  const visit = (current) => {
+    for (const entry of fs
+      .readdirSync(current, { withFileTypes: true })
+      .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))) {
+      const filePath = path.join(current, entry.name);
+      if (entry.isDirectory()) visit(filePath);
+      else if (entry.isFile() && entry.name.endsWith(".json")) files.push(filePath);
+    }
+  };
+  visit(dir);
+  return files;
 }
 
-function relativeFiles(dir, predicate = () => true) {
-  return fs
-    .readdirSync(path.join(capsecRoot, dir))
-    .filter(predicate)
-    .sort()
-    .map((name) => `${dir}/${name}`);
+function relativeFiles(dir) {
+  const root = path.join(capsecRoot, dir);
+  const files = [];
+  const visit = (current) => {
+    for (const entry of fs
+      .readdirSync(current, { withFileTypes: true })
+      .sort((left, right) => Buffer.from(left.name).compare(Buffer.from(right.name)))) {
+      const filePath = path.join(current, entry.name);
+      if (entry.isDirectory()) visit(filePath);
+      else if (entry.isFile())
+        files.push(path.relative(capsecRoot, filePath).split(path.sep).join("/"));
+    }
+  };
+  visit(root);
+  return files;
 }
 
 function assertExactFileList(expected, actual, label) {
@@ -1127,8 +1144,8 @@ function canonicalDnsName(value, label) {
   return value;
 }
 
-function canonicalIpAddress(value, label) {
-  const family = net.isIP(value);
+export function canonicalIpAddress(value, label = "IP address") {
+  let family = net.isIP(value);
   if (!family)
     throw new Error(`${label}: invalid IP address ${JSON.stringify(value)}`);
   let canonical;
@@ -1139,6 +1156,14 @@ function canonicalIpAddress(value, label) {
       .join(".");
   } else {
     canonical = new URL(`http://[${value}]/`).hostname.slice(1, -1);
+    const integer = ipv6ToInteger(canonical, label);
+    if (integer >> 32n === 0xffffn) {
+      const low = Number(integer & 0xffffffffn);
+      canonical = [24, 16, 8, 0]
+        .map((shift) => String((low >>> shift) & 0xff))
+        .join(".");
+      family = 4;
+    }
   }
   if (value !== canonical) {
     throw new Error(
@@ -1146,6 +1171,21 @@ function canonicalIpAddress(value, label) {
     );
   }
   return family;
+}
+
+function ipv6ToInteger(value, label) {
+  const [leftText, rightText = ""] = value.split("::");
+  const left = leftText ? leftText.split(":") : [];
+  const right = rightText ? rightText.split(":") : [];
+  const groups = value.includes("::")
+    ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
+    : left;
+  if (groups.length !== 8)
+    throw new Error(`${label}: invalid IPv6 group count`);
+  return groups.reduce(
+    (result, group) => (result << 16n) | BigInt(`0x${group}`),
+    0n,
+  );
 }
 
 function ipToInteger(value, label) {
@@ -1158,20 +1198,9 @@ function ipToInteger(value, label) {
         .reduce((result, part) => (result << 8n) | BigInt(Number(part)), 0n),
     };
   }
-  const [leftText, rightText = ""] = value.split("::");
-  const left = leftText ? leftText.split(":") : [];
-  const right = rightText ? rightText.split(":") : [];
-  const groups = value.includes("::")
-    ? [...left, ...Array(8 - left.length - right.length).fill("0"), ...right]
-    : left;
-  if (groups.length !== 8)
-    throw new Error(`${label}: invalid IPv6 group count`);
   return {
     bits: 128,
-    value: groups.reduce(
-      (result, group) => (result << 16n) | BigInt(`0x${group}`),
-      0n,
-    ),
+    value: ipv6ToInteger(value, label),
   };
 }
 
@@ -1199,13 +1228,6 @@ function cidrContains(network, prefix, address, label) {
 
 function classifyIpAddress(address, rules, label) {
   canonicalIpAddress(address, label);
-  let classificationAddress = address;
-  if (address.startsWith("::ffff:")) {
-    const low = Number(ipToInteger(address, label).value & 0xffffffffn);
-    classificationAddress = [24, 16, 8, 0]
-      .map((shift) => String((low >>> shift) & 0xff))
-      .join(".");
-  }
   for (const row of rules.classifierRules.network.classes) {
     if (row.class === "public") continue;
     if (
@@ -1214,7 +1236,7 @@ function classifyIpAddress(address, rules, label) {
         return cidrContains(
           cidr.slice(0, slash),
           Number(cidr.slice(slash + 1)),
-          classificationAddress,
+          address,
           label,
         );
       })
@@ -1923,7 +1945,7 @@ export function assertLegacyReconciliationDestinations(
   });
 }
 
-function validateSelectorSemantics(
+export function validateSelectorSemantics(
   selector,
   definitionsById,
   label,
@@ -2841,17 +2863,17 @@ export function loadAndValidateContract() {
   validateWith(ajv, SCHEMA_IDS.manifest, manifest, "contract file manifest");
   assertExactFileList(
     manifest.schemas,
-    relativeFiles("schema", (name) => name.endsWith(".json")),
+    relativeFiles("schema"),
     "contract file manifest.schemas",
   );
   assertExactFileList(
     manifest.registries,
-    relativeFiles("registry", (name) => name.endsWith(".json")),
+    relativeFiles("registry"),
     "contract file manifest.registries",
   );
   assertExactFileList(
     manifest.examples,
-    relativeFiles("examples", (name) => name.endsWith(".json")),
+    relativeFiles("examples"),
     "contract file manifest.examples",
   );
   const invalidFixturePaths = manifest.invalidFixtures.map(
@@ -2859,7 +2881,7 @@ export function loadAndValidateContract() {
   );
   assertExactFileList(
     invalidFixturePaths,
-    relativeFiles("testdata/invalid", (name) => name.endsWith(".json")),
+    relativeFiles("testdata/invalid"),
     "contract file manifest.invalidFixtures",
   );
   assertExactFileList(
@@ -3464,6 +3486,7 @@ export function loadAndValidateContract() {
   );
   if (
     policy.vocabDigest !== vocabDigest ||
+    policy.registryDigest !== registryDigest ||
     policy.policyDigest !== policyDigest
   ) {
     throw new Error(
@@ -3609,13 +3632,20 @@ export function loadAndValidateContract() {
     coverageExamples,
     targetCellExamples,
     policy,
+    registryDigest,
     armed,
   };
   for (const entry of manifest.invalidFixtures) {
     let rejected = false;
     try {
       validateInvalidFixtureEntry(entry, contract);
-    } catch {
+    } catch (error) {
+      if (error?.code || !String(error?.message ?? error).includes(entry.path)) {
+        throw new Error(
+          `${entry.path}: invalid fixture failed for an unrelated reason: ${error?.message ?? error}`,
+          { cause: error },
+        );
+      }
       rejected = true;
     }
     if (!rejected)

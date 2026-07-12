@@ -128,3 +128,12 @@ inner median ≈ 1684 ms, active inner median ≈ 1680 ms → **inner overhead
 the Goal 3 =<1% budget. (Runs an order of magnitude shorter, e.g. ~430 ms, sit
 near the 1 ms `Date.now()` quantization floor and are noticeably noisier — prefer
 the default iteration count.)
+
+## CapSec descriptor authorization
+
+`cargo bench --bench capsec_descriptor_authorization` measures 64 MiB
+sequential reads in three arms: raw I/O, the former full typed semantic
+decision on every 64 KiB chunk, and the generation-checked descriptor lease.
+It is informational and prints median timings; correctness is protected by the
+large-read engine test, including the requirement that a lease never survives
+descriptor reuse.

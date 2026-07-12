@@ -32,6 +32,7 @@ import {
   assertTypedAuthority,
   buildCanonicalPolicy,
   classifyPolicyDrift,
+  compareCanonicalBytes,
   packageIntegrity,
   resolveTypedDelegations,
 } from './capsec-policy-authoring.mjs';
@@ -369,7 +370,7 @@ function surfacesFor(pkg) {
   return explicitSurfaces.get(pkg);
 }
 
-rootSiteLists.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
+rootSiteLists.sort((a, b) => compareCanonicalBytes(a.file, b.file));
 for (const { file, sites } of rootSiteLists) {
   const rel = path.relative(root, file);
   for (const site of sites) {
@@ -407,7 +408,7 @@ if (generationErrors.length) {
 }
 
 const sortedEdges = [...edges]
-  .sort()
+  .sort(compareCanonicalBytes)
   .map((e) => e.split('\u0000'))
   .filter(([from]) => from !== '') // root edges carry grants via import sites, not delegates
   .map(([from, to]) => [from, to]);
@@ -454,7 +455,7 @@ for (const [from, to] of sortedEdges) {
   importsByIdentity.get(from).add(to);
 }
 
-const principals = [...packageIdentities].sort().map((identity) => {
+const principals = [...packageIdentities].sort(compareCanonicalBytes).map((identity) => {
   const principal = packageMetadata.get(identity);
   if (!principal) {
     throw new Error(`reachable package ${identity} has no readable integrity manifest`);
@@ -472,10 +473,10 @@ const principals = [...packageIdentities].sort().map((identity) => {
           ...(observedBuiltins.get(identity) || []),
           ...(explicit?.builtins || []),
         ]),
-      ].sort(),
-      packages: [...(importsByIdentity.get(identity) || [])].sort(),
+      ].sort(compareCanonicalBytes),
+      packages: [...(importsByIdentity.get(identity) || [])].sort(compareCanonicalBytes),
     },
-    endowments: [...(explicit?.endow || [])].sort(),
+    endowments: [...(explicit?.endow || [])].sort(compareCanonicalBytes),
   };
 });
 
@@ -530,8 +531,13 @@ if (opts.check) {
       console.error('policy narrowing:');
       for (const line of drift.narrowings) console.error(`  - ${line}`);
     }
-    if (!drift.expansions.length && !drift.narrowings.length && !drift.semanticVocabularyChange) {
-      console.error('(structural changes only — graph, imports, endowments, integrity, or provenance)');
+    if (drift.identityChanges.length) {
+      console.error('policy identity changes (review graph/package content):');
+      for (const line of drift.identityChanges) console.error(`  ${line}`);
+    }
+    if (!drift.expansions.length && !drift.narrowings.length &&
+        !drift.semanticVocabularyChange && !drift.identityChanges.length) {
+      console.error('(structural provenance changes only)');
     }
   } catch (err) {
     if (err instanceof SyntaxError) {

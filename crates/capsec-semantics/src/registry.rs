@@ -11,8 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::canonical::DigestContract;
+use crate::containment::validate_authority_selector;
 use crate::model::{
-    ActionId, ClosedSurfaceClass, EnvironmentTarget, StdioSourceKind, StdioStream, StorageStore,
+    ActionId, AuthoritySelector, ClosedSurfaceClass, EnvironmentTarget, SelectorResource,
+    StdioSourceKind, StdioStream, StorageStore,
 };
 use crate::strict_json::parse_slice_strict;
 use crate::{Error, Result};
@@ -367,6 +369,95 @@ impl DefinitionSet {
             .iter()
             .map(|(action, definition)| (action.as_str(), definition))
     }
+
+    /// Validate an authority against the complete digest-bound action
+    /// definition, including constraints that cannot be expressed by the
+    /// resource's schema alone.
+    pub fn validate_selector(&self, selector: &AuthoritySelector) -> Result<&CapabilityDefinition> {
+        validate_authority_selector(selector)?;
+        let definition = self.get(selector.action.as_str())?;
+        self.validate_resource(definition, &selector.resource)?;
+        Ok(definition)
+    }
+
+    /// Validate a normalized requested resource for an action occurrence.
+    /// Runtime occurrences and reusable selectors deliberately share this
+    /// exact action-specific constraint path.
+    pub fn validate_requested_resource(
+        &self,
+        action: &ActionId,
+        resource: &SelectorResource,
+    ) -> Result<&CapabilityDefinition> {
+        let definition = self.get(action.as_str())?;
+        self.validate_resource(definition, resource)?;
+        Ok(definition)
+    }
+
+    fn validate_resource(
+        &self,
+        definition: &CapabilityDefinition,
+        resource: &SelectorResource,
+    ) -> Result<()> {
+        if !definition
+            .resource_kinds
+            .iter()
+            .any(|kind| kind.as_str() == resource.kind_name())
+        {
+            return Err(Error::InvalidModel(format!(
+                "{} cannot select resource kind {}",
+                definition.id,
+                resource.kind_name()
+            )));
+        }
+        validate_selector_constraints(definition, resource)
+    }
+}
+
+fn validate_selector_constraints(
+    definition: &CapabilityDefinition,
+    resource: &SelectorResource,
+) -> Result<()> {
+    let Some(constraints) = &definition.selector_constraints else {
+        return Ok(());
+    };
+    let rejected = |field: &str| {
+        Err(Error::InvalidModel(format!(
+            "{} rejects selector value for {field}",
+            definition.id
+        )))
+    };
+    if let Some(allowed) = &constraints.closed_surface_classes {
+        match resource {
+            SelectorResource::ClosedSurface { surface_class }
+                if allowed.contains(surface_class) => {}
+            _ => return rejected("closedSurfaceClasses"),
+        }
+    }
+    if let Some(allowed) = &constraints.environment_targets {
+        match resource {
+            SelectorResource::EnvironmentName { target, .. } if allowed.contains(target) => {}
+            _ => return rejected("environmentTargets"),
+        }
+    }
+    if let Some(allowed) = &constraints.stdio_streams {
+        match resource {
+            SelectorResource::Stdio { stream, .. } if allowed.contains(stream) => {}
+            _ => return rejected("stdioStreams"),
+        }
+    }
+    if let Some(allowed) = &constraints.stdio_source_kinds {
+        match resource {
+            SelectorResource::Stdio { source, .. } if allowed.contains(&source.kind) => {}
+            _ => return rejected("stdioSourceKinds"),
+        }
+    }
+    if let Some(allowed) = &constraints.storage_stores {
+        match resource {
+            SelectorResource::StorageNamespace { store, .. } if allowed.contains(store) => {}
+            _ => return rejected("storageStores"),
+        }
+    }
+    Ok(())
 }
 
 fn validate_policy_rules(

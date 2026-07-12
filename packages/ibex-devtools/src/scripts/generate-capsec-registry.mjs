@@ -20,7 +20,10 @@ import {
   readJsonStrict,
   repoRoot,
 } from "./capsec-contract.mjs";
-import { buildCoverageModel } from "./capsec-coverage-model.mjs";
+import {
+  assertReviewedSurfaceInventory,
+  buildCoverageModel,
+} from "./capsec-coverage-model.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
 import {
@@ -565,6 +568,7 @@ export async function renderCapsecRegistry() {
   if (!Array.isArray(flattened) || flattened.length === 0) {
     throw new Error("surface discovery returned no surfaces");
   }
+  assertReviewedSurfaceInventory(flattened);
   const model = buildCoverageModel(flattened, { definitions, rules });
   const coverage = model.coverage ?? {
     coverageSchema: "ibex/capsec-coverage/1",

@@ -2778,6 +2778,7 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexLockedDown",
+  "__ibexTamed",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -5050,6 +5051,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
+    "ex_hermes_current_runtime_nonce",
     "ex_hermes_debugger_enable",
     "ex_hermes_debugger_eval",
     "ex_hermes_debugger_get_script_source",
@@ -5064,6 +5066,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_emit_module_event",
     "ex_hermes_emit_module_view_event",
     "ex_hermes_engine_binary_path",
+    "ex_hermes_engine_mapped_object",
     "ex_hermes_eval",
     "ex_hermes_free_string",
     "ex_hermes_gc",
@@ -5088,6 +5091,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_armed_endowments",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
+    "ex_host_authorize_typed_udp_datagram_stack",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
@@ -5140,6 +5144,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_has_deputy_classes",
     "ex_host_http_address",
     "ex_host_http_await_writable",
+    "ex_host_http_await_writable_owned",
+    "ex_host_http_cleanup_runtime",
     "ex_host_http_close",
     "ex_host_http_drain",
     "ex_host_http_has_pending_requests",
@@ -5160,6 +5166,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_http_serve",
     "ex_host_http_set_ref",
     "ex_host_http_wait",
+    "ex_host_http_wait_owned",
     "ex_host_init",
     "ex_host_install",
     "ex_host_install_armed",
@@ -6274,23 +6281,17 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_AWAIT_UNWRAP_TIMEOUT_MS",
     "env:IBEX_CAPSEC_ALLOW_ADVISORY",
     "env:IBEX_CDP_LOG",
-    "env:IBEX_COMPARTMENTS",
     "env:IBEX_DNS_SERVER",
-    "env:IBEX_ENDOW",
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
-    "env:IBEX_LOCKDOWN",
     "env:IBEX_LOOP_TRACE",
-    "env:IBEX_NATIVE_LOCKDOWN",
     "env:IBEX_NO_BYTECODE",
     "env:IBEX_NO_DISK_RUNTIME_FALLBACK",
-    "env:IBEX_PER_PACKAGE_CHUNKS",
     "env:IBEX_POLICY",
     "env:IBEX_QUIET",
     "env:IBEX_REPL_PROMPT",
     "env:IBEX_REPO_ROOT",
     "env:IBEX_RUNTIME_TRANSFORM",
-    "env:IBEX_SEAL_SELF_GRANT",
     "env:IBEX_STARTUP_TRACE",
     "env:IBEX_SUPPRESS_CONSOLE_MIRROR",
     "env:IBEX_TEST_ARMED_CREATE_PAUSE_MS",
@@ -6321,9 +6322,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:__has_include:18ool1z:stream-enhance",
     "evaluation:__has_include:18ool1z:stream-stability-patch",
     "evaluation:defined:13e9rgh:promise-unwrap",
-    "evaluation:env_flag_enabled:0x0uwpa:compartment-registry",
-    "evaluation:env_flag_enabled:0x0uwpa:eager-install-seal",
-    "evaluation:env_flag_enabled:0x0uwpa:lockdown",
     "evaluation:ex_hermes_debugger_eval:cdp",
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
@@ -6558,8 +6556,83 @@ export function reviewedStartupNames() {
   return [...REVIEWED_STARTUP_NAMES];
 }
 
+/** Fail generation when a reviewed name silently disappears from discovery. */
+export function assertReviewedSurfaceInventory(surfaces) {
+  const names = (predicate) =>
+    new Set(surfaces.filter(predicate).map((surface) => surface.name));
+  const inventories = [
+    [
+      "builtin roots",
+      REVIEWED_BUILTIN_ROOT_NAMES,
+      names(
+        (row) => row.kind === "builtin" && row.metadata?.surfaceType !== "export",
+      ),
+    ],
+    [
+      "builtin exports",
+      REVIEWED_BUILTIN_EXPORT_NAMES,
+      names(
+        (row) => row.kind === "builtin" && row.metadata?.surfaceType === "export",
+      ),
+    ],
+    [
+      "private native operations",
+      REVIEWED_NATIVE_OPERATION_NAMES,
+      names(
+        (row) =>
+          row.kind === "native-op" &&
+          !row.name.startsWith("inspector.") &&
+          (row.metadata?.surfaceType !== "global-api" ||
+            row.metadata?.surfaceTypes?.includes("private-native-operation")),
+      ),
+    ],
+    [
+      "callback producers",
+      REVIEWED_CALLBACK_PRODUCER_NAMES,
+      names(
+        (row) =>
+          row.kind === "callback" &&
+          row.metadata?.evidenceType === "push-runtime-callback-producer",
+      ),
+    ],
+    [
+      "global APIs",
+      REVIEWED_GLOBAL_API_NAMES,
+      names((row) => row.metadata?.surfaceType === "global-api"),
+    ],
+    ["host ABIs", REVIEWED_HOST_ABI_NAMES, names((row) => row.kind === "host-abi")],
+    [
+      "inspector natives",
+      REVIEWED_INSPECTOR_NATIVE_NAMES,
+      names((row) => row.kind === "native-op" && row.name.startsWith("inspector.")),
+    ],
+    ["CLI surfaces", REVIEWED_CLI_NAMES, names((row) => row.kind === "cli")],
+    ["loader surfaces", REVIEWED_LOADER_NAMES, names((row) => row.kind === "loader")],
+    ["startup surfaces", REVIEWED_STARTUP_NAMES, names((row) => row.kind === "startup")],
+  ];
+  for (const [label, reviewed, discovered] of inventories) {
+    const missing = [...reviewed].filter((name) => !discovered.has(name));
+    if (missing.length) {
+      throw new Error(
+        `${label}: reviewed surfaces missing from discovery [${missing.sort(utf8Compare).join(", ")}]`,
+      );
+    }
+  }
+}
+
 export function canonicalStringSet(values) {
   return [...new Set(values)].sort(utf8Compare);
+}
+
+export function logicalBranchConditionsOverlap(left, right) {
+  const leftByFact = new Map(
+    left.map((condition) => [condition.fact, condition.equals]),
+  );
+  return !right.some(
+    (condition) =>
+      leftByFact.has(condition.fact) &&
+      leftByFact.get(condition.fact) !== condition.equals,
+  );
 }
 
 function fnv1a32(value) {
@@ -9224,12 +9297,6 @@ const CLOSED_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT",
   "EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE",
   "IBEX_CAPSEC_ALLOW_ADVISORY",
-  "IBEX_COMPARTMENTS",
-  "IBEX_ENDOW",
-  "IBEX_LOCKDOWN",
-  "IBEX_NATIVE_LOCKDOWN",
-  "IBEX_PER_PACKAGE_CHUNKS",
-  "IBEX_SEAL_SELF_GRANT",
   "NODE_TLS_REJECT_UNAUTHORIZED",
 ]);
 
@@ -11226,6 +11293,7 @@ function embedderAbiClassification(name) {
         "exhermescreate",
         "exhermescreatearmed",
         "exhermesenginebinarypath",
+        "exhermesenginemappedobject",
       ]).has(name)
     ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
@@ -11233,6 +11301,7 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermescallbackbacklog",
+        "exhermescurrentruntimenonce",
         "exhermeshaspendingtasks",
         "exhermesnexttimer",
         "exhermesnotifycallback",
@@ -11295,7 +11364,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -11386,7 +11455,7 @@ function hostAbiClassification(name) {
         lifetimeContract: "listener",
       });
     }
-    if (name === "exhosthttpclose") {
+    if (new Set(["exhosthttpcleanup_runtime", "exhosthttpcleanupruntime", "exhosthttpclose"]).has(name)) {
       return nonCapabilitySpec("authority-release", "WP6");
     }
     if (
@@ -11397,7 +11466,7 @@ function hostAbiClassification(name) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (
-      /^exhosthttp(?:address|awaitwritable|drain|poll|readbody|respond|respondabort|respondchunk|respondchunktry|respondend|respondendtry|respondjson|respondstream|respondstring|respondtext|wait)$/u.test(
+      /^exhosthttp(?:address|awaitwritable|awaitwritableowned|drain|poll|readbody|respond|respondabort|respondchunk|respondchunktry|respondend|respondendtry|respondjson|respondstream|respondstring|respondtext|wait|waitowned)$/u.test(
         name,
       )
     ) {
@@ -11591,6 +11660,29 @@ function classifyConcreteSurface(surface) {
   }
   if (surface.kind === "host-abi") {
     if (!REVIEWED_HOST_ABI_NAMES.has(surface.name)) return null;
+    if (surface.name === "ex_hermes_current_runtime_nonce") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (surface.name === "ex_hermes_engine_mapped_object") {
+      return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
+    }
+    if (surface.name === "ex_host_http_await_writable_owned") {
+      return effectSpec(["network:listen"], "network", "WP6", {
+        lifetimeContract: "listener",
+        effectOwnerSource: "descriptor-owner",
+        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+      });
+    }
+    if (surface.name === "ex_host_http_wait_owned") {
+      return effectSpec(["network:listen"], "network", "WP6", {
+        lifetimeContract: "listener",
+        effectOwnerSource: "descriptor-owner",
+        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+      });
+    }
+    if (surface.name === "ex_host_http_cleanup_runtime") {
+      return nonCapabilitySpec("authority-release", "WP6");
+    }
     const android = androidHostAbiClassification(surface.name);
     if (android) return android;
     const escape = abiEscapeClassification(surface.name);
@@ -12354,7 +12446,7 @@ function semanticEdge(surface, specification, context) {
       );
     }
     const seenIds = new Set();
-    const seenConditions = new Set();
+    const priorConditions = [];
     logicalBranches = specification.logicalBranches
       .map((branch) => {
         const branchId = validateStableId(branch.id, "logical branch id");
@@ -12378,13 +12470,15 @@ function semanticEdge(surface, specification, context) {
               JSON.stringify([right.fact, right.equals]),
             ),
           );
-        const conditionKey = JSON.stringify(when);
-        if (seenConditions.has(conditionKey)) {
+        const overlaps = priorConditions.some((prior) =>
+          logicalBranchConditionsOverlap(prior, when),
+        );
+        if (overlaps) {
           throw new Error(
-            `${surface.observedKey}: duplicate logical branch condition`,
+            `${surface.observedKey}: overlapping logical branch conditions`,
           );
         }
-        seenConditions.add(conditionKey);
+        priorConditions.push(when);
         const branchBarriers =
           branch.barriers ??
           specification.barriers ??

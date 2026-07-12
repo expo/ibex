@@ -28,7 +28,7 @@ const outputPath = path.resolve(
 );
 const enginePath = path.resolve(
   repoRoot,
-  option("--engine") ?? "ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
+  option("--engine") ?? "tools/hermes/hermes",
 );
 const executionsPath = option("--executions");
 

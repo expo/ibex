@@ -2665,9 +2665,9 @@ mod tests {
             let mut bytes = Vec::new();
             for _ in 0..2 {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut byte = [0u8; 1];
-                stream.read_exact(&mut byte).unwrap();
-                bytes.push(byte[0]);
+                let mut chunk = [0u8; 3];
+                stream.read_exact(&mut chunk).unwrap();
+                bytes.extend(chunk);
             }
             bytes
         });
@@ -2684,11 +2684,14 @@ mod tests {
         });
         let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let before = crate::host::abi::installed_typed_decision_count();
 
         let script = format!(
             r#"(function() {{
                 if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
                 var socket = __exactTcpConnect('127.0.0.1', {port});
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
                 if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
                 __exactTcpClose(socket);
                 var pending = __exactTcpConnectStart('127.0.0.1', {port});
@@ -2701,6 +2704,8 @@ mod tests {
                 }}
                 if (!connected) throw new Error('pending connect did not complete');
                 if (__exactTcpWrite(pending, 'y') !== 1) throw new Error('pending write');
+                if (__exactTcpWrite(pending, 'y') !== 1) throw new Error('pending write');
+                if (__exactTcpWrite(pending, 'y') !== 1) throw new Error('pending write');
                 __exactTcpClose(pending);
                 var metadataDenied = false;
                 try {{ __exactTcpConnect('169.254.169.254', 80); }} catch (_) {{ metadataDenied = true; }}
@@ -2710,7 +2715,12 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
         assert_eq!(outcome.as_deref(), Some("ok"));
-        assert_eq!(server.join().unwrap(), vec![b'x', b'y']);
+        assert_eq!(server.join().unwrap(), b"xxxyyy");
+        let decisions = crate::host::abi::installed_typed_decision_count() - before;
+        assert!(
+            (8..=10).contains(&decisions),
+            "unexpected full network decision count: {decisions}"
+        );
     }
 
     #[cfg(unix)]
@@ -2972,6 +2982,52 @@ mod tests {
         assert_eq!(async_write.as_deref(), Some("ok"));
         assert_eq!(std::fs::read(&async_whole).unwrap(), b"worker");
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_large_reads_use_generation_checked_descriptor_leases() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-large-read-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let large = root.join("large.bin");
+        std::fs::write(&large, vec![0x5a; 4 * 1024 * 1024]).unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let before = crate::host::abi::installed_typed_decision_count();
+        for expected in ["first", "second"] {
+            let script = format!(
+                r#"(function() {{
+                    if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                    var bytes = __exactReadFile({path:?});
+                    if (bytes.length !== 4194304 || bytes[0] !== 90 || bytes[4194303] !== 90) {{
+                      throw new Error('large read mismatch');
+                    }}
+                    return {expected:?};
+                }})()"#,
+                path = large.to_str().unwrap(),
+            );
+            let outcome = engine.eval_immediate(&script).await.unwrap();
+            assert_eq!(outcome.as_deref(), Some(expected));
+        }
+        let decisions = crate::host::abi::installed_typed_decision_count() - before;
+        // Each descriptor performs one commit and one repeat decision. The 64
+        // chunks then recheck only generations. A lease must not survive into
+        // the second descriptor operation, hence the lower bound as well.
+        assert!(
+            (4..=6).contains(&decisions),
+            "two 4 MiB reads performed {decisions} full decisions"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
