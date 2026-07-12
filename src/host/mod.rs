@@ -1421,6 +1421,23 @@ mod tests {
             committed_open.outcome,
             capsec_semantics::decision::DecisionOutcome::Allow
         );
+        let repeated_open = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                open_path,
+                capsec_semantics::model::Stage::Repeat,
+                true,
+                false,
+                Some(object("parent")),
+                Some(object("photo")),
+                Some(capsec_semantics::model::NonEmptyString::new("fd:7").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            repeated_open.outcome,
+            capsec_semantics::decision::DecisionOutcome::Allow
+        );
         assert!(!host.check_capability("0", "fs:read:/anything"));
         assert!(!host.check_capability_stack(&["0"], "fs:read:/anything"));
         assert!(!host.check_import("0", "node:fs"));
@@ -1521,11 +1538,11 @@ mod tests {
         let denied = host.evaluate_typed_decision(&denied_set, &gates).unwrap();
         assert_eq!(denied.outcome, DecisionOutcome::Deny);
         let evidence = host.typed_evidence();
-        assert_eq!(evidence.len(), 4);
-        assert_eq!(evidence[2].outcome, DecisionOutcome::Allow);
-        assert_eq!(evidence[3].outcome, DecisionOutcome::Deny);
+        assert_eq!(evidence.len(), 5);
+        assert_eq!(evidence[3].outcome, DecisionOutcome::Allow);
+        assert_eq!(evidence[4].outcome, DecisionOutcome::Deny);
         assert_eq!(
-            evidence[2].identity.armed_snapshot_digest,
+            evidence[3].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
     }

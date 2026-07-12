@@ -652,9 +652,11 @@ retained descriptor ID before publishing the fd registry entry. An explicitly
 presented typed bearer ID participates in both decisions. Armed write/create/
 truncate opens remain closed before `open(2)` until retained-parent discovery
 can authorize them without pre-decision mutation. Legacy hosts retain
-their existing gate; armed refusal never falls back to it. Discovery/openat
-walking, async open, repeated fd validation, and the remaining filesystem
-operations are still pending.
+their existing gate; armed refusal never falls back to it. The fd registry
+retains the presented bearer ID and every armed read re-authorizes at `repeat`
+against a fresh `fstat` identity and current authority generations. Discovery/
+openat walking, async open, writes, and the remaining filesystem operations are
+still pending.
 
 ### WP6 — Convert network effects and protected peers
 

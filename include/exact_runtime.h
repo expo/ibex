@@ -300,8 +300,8 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
                                       const uint8_t* gates,
                                       size_t gates_len);
 
-/// Authorize requested (stage=0) or retained-fd commit (stage=1) facts for the
-/// native fs.open branch. `presented_handle_id` may be null.
+/// Authorize requested (stage=0), retained-fd commit (stage=1), or repeated
+/// descriptor use (stage=2) for the native fs.open branch.
 int ex_host_authorize_typed_fs_open(uint64_t module_id,
                                     const char* path,
                                     uint32_t stage,

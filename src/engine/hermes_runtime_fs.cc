@@ -85,6 +85,7 @@ struct FdEntry {
   bool canRead;
   bool canWrite;
   bool processIpc;
+  std::string presentedHandleId;
 };
 
 static std::mutex g_fd_registry_mutex;
@@ -103,12 +104,18 @@ static bool principalMayUseUnknownFd(uint64_t principal) {
   return false;
 }
 
-static void registerFd(int fd, const std::string& path, bool canRead, bool canWrite) {
+static void registerFd(
+    int fd,
+    const std::string& path,
+    bool canRead,
+    bool canWrite,
+    const std::string& presentedHandleId = "") {
   if (fd < 0 || isAllowAll()) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
-  g_fd_registry[fd] = FdEntry{currentPrincipalId(), path, canRead, canWrite, false};
+  g_fd_registry[fd] =
+      FdEntry{currentPrincipalId(), path, canRead, canWrite, false, presentedHandleId};
 }
 
 void exactRegisterProcessIpcFd(int fd) {
@@ -121,7 +128,7 @@ void exactRegisterProcessIpcFd(int fd) {
 #endif
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry[fd] =
-      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true};
+      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true, ""};
 }
 
 static void unregisterFd(int fd) {
@@ -150,7 +157,8 @@ static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const cha
   auto entry = lookupFdEntry(fd);
   if (!entry) {
     if (principalMayUseUnknownFd(principal) || isAllowAll()) {
-      return FdEntry{principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false};
+      return FdEntry{
+          principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false, ""};
     }
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
@@ -168,7 +176,15 @@ static void requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* s
   if (!entry.canRead) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for reading");
   }
-  if (!checkCapability("fs:read:" + entry.path)) {
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 2, fd, 1, 0, handle) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+  } else if (!checkCapability("fs:read:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
@@ -1995,7 +2011,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         // @ref LLP 0013#policy — raw POSIX fds are forgeable integers, so the
         // host records the owner/path/access class at open and later fd ops
         // recheck both ownership and the current capability grant. (ENG-22707)
-        registerFd(fd, path, needsRead, needsWrite);
+        registerFd(fd, path, needsRead, needsWrite, presentedHandle);
         return facebook::jsi::Value(fd);
       });
   rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
