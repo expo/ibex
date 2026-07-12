@@ -471,6 +471,7 @@ void exactRegisterTransferableFd(int fd, uint64_t owner);
 void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
+std::vector<uint64_t> exactCollectTypedPrincipalStack();
 void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 

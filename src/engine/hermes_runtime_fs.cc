@@ -98,7 +98,7 @@ static std::unordered_map<int, FdEntry> g_fd_registry;
 static std::unordered_map<int, uint64_t> g_transferable_fds;
 static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
-static std::vector<uint64_t> collectTypedPrincipalStack() {
+std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   if (g_typed_principal_stack) return *g_typed_principal_stack;
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
@@ -153,7 +153,7 @@ static int32_t ex_host_authorize_typed_fs_open(
     int32_t needs_read,
     int32_t needs_write,
     const char* presented_handle_id) {
-  auto principals = collectTypedPrincipalStack();
+  auto principals = exactCollectTypedPrincipalStack();
   return ex_host_authorize_typed_fs_stack(
       module_id, principals.data(), principals.size(), path, stage, surface,
       parent_fd, fd, needs_read, needs_write, presented_handle_id);
@@ -1088,7 +1088,7 @@ static facebook::jsi::Value startFsAsync(
   // continuation is attributed to the caller, not a bare native frame.
   uint64_t principal = currentPrincipalId();
   auto principalStack =
-      std::make_shared<std::vector<uint64_t>>(collectTypedPrincipalStack());
+      std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
   auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
   auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
   auto executor = facebook::jsi::Function::createFromHostFunction(

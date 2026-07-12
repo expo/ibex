@@ -2124,7 +2124,7 @@ mod tests {
     }
 
     fn install_armed_test_host() -> (HostResetGuard, String) {
-        install_armed_test_host_at(None, false, false, false)
+        install_armed_test_host_at(None, false, false, false, vec![])
     }
 
     fn install_armed_test_host_at(
@@ -2132,6 +2132,7 @@ mod tests {
         allow_write: bool,
         allow_read: bool,
         allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
     ) -> (HostResetGuard, String) {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
@@ -2211,6 +2212,10 @@ mod tests {
             value["principals"][0]["floor"] = serde_json::Value::Array(floor);
             value["principals"][0]["denials"] = serde_json::Value::Array(denials);
         }
+        value["principals"][0]["floor"]
+            .as_array_mut()
+            .unwrap()
+            .extend(extra_floor);
         let digest = capsec_semantics::digest::compute_domain_digest(
             capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
             &value,
@@ -2293,6 +2298,49 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer() {
+        use std::io::Read;
+        use std::net::TcpListener;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut byte = [0u8; 1];
+            stream.read_exact(&mut byte).unwrap();
+            byte[0]
+        });
+        let floor = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "tcp",
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureNet();
+                var socket = __exactTcpConnect('127.0.0.1', {port});
+                if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
+                __exactTcpClose(socket);
+                return 'ok';
+            }})()"#
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("ok"));
+        assert_eq!(server.join().unwrap(), b'x');
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -2315,7 +2363,7 @@ mod tests {
         std::fs::write(&existing, b"old contents").unwrap();
         let link = root.join("existing-link");
         std::os::unix::fs::symlink(&existing, &link).unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2491,7 +2539,7 @@ mod tests {
         let hard_linked = root.join("hard-linked.txt");
         std::fs::write(&existing, b"must survive").unwrap();
         std::fs::create_dir(&retained_directory).unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2583,7 +2631,7 @@ mod tests {
         let directory = root.join("directory");
         let file = directory.join("secret.txt");
         std::fs::write(&file, b"secret").unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, false);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, false, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2633,7 +2681,7 @@ mod tests {
         symlink(&outside_file, root.join("final-link")).unwrap();
         let parent_escape = root.join("parent-link/protected.txt");
         let final_escape = root.join("final-link");
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(

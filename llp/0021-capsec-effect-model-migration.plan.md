@@ -715,6 +715,14 @@ The C ABI accepts the complete staged network fact set for fetch and connect,
 maps authenticated numeric frame stacks to typed principals, and rejects
 noncanonical host/IP text, duplicate-key or ill-typed candidate JSON, invalid
 ports/stages/transports, and unsafe redirect counters before host evaluation.
+The synchronous POSIX TCP adapter now uses that ABI end to end: it authorizes
+the request before resolution, submits the canonically sorted complete
+`getaddrinfo` candidate set, authorizes each attempted address, verifies
+`getpeername` at commit, retains the candidate/peer/connection facts with the
+socket handle, and rechecks the actual peer and current principal stack on
+every later handle use. Armed local-bind options remain closed pending their
+own typed effects. The nonblocking, Windows, UDP, TLS, and WebSocket adapters
+are not yet migrated.
 
 Acceptance:
 
