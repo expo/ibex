@@ -16,6 +16,7 @@
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
+import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -391,13 +392,14 @@ function residualReasons({
   scenario,
   adapterProbe,
   adapterUnavailableReason,
+  publicSurfaceProbe,
   route,
 }) {
   const reasons = [];
   if (plan.expectedObservation.kind === "target-absence") {
     reasons.push("target-absence-probe-not-authored");
     return reasons;
-  } else {
+  } else if (!publicSurfaceProbe) {
     reasons.push("public-surface-invocation-not-authored");
   }
   if (plan.classification === "closed") {
@@ -422,7 +424,7 @@ function residualReasons({
   if (route.alternatives.length === 0 && plan.expectedObservation.kind !== "target-absence") {
     reasons.push("no-static-enforcement-terminal");
   }
-  if (route.alternatives.length > 1) {
+  if (route.alternatives.length > 1 && !publicSurfaceProbe) {
     reasons.push("argument-selected-terminal-alternatives-not-authored");
   }
   if (route.ambiguousCallees.length > 0) {
@@ -475,6 +477,12 @@ export function buildConformanceRecipeCatalog({
     implementation.surfaces.map((row) => [row.branchId, row]),
   );
   const coverageByEdge = new Map(coverage.edges.map((edge) => [edge.id, edge]));
+  const coverageByObservedKey = new Map(
+    coverage.edges.map((edge) => [
+      `${edge.surface.kind}:${edge.surface.name}`,
+      edge,
+    ]),
+  );
   const liveSurfaces = inventory.surfaces ?? inventory;
   const liveByObservedKey = new Map(
     liveSurfaces.map((surface) => [surface.observedKey, surface]),
@@ -493,11 +501,19 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
     );
     const adapterProbe = adapter.probe;
+    const publicSurfaceProbe = authoredBuiltinPublicProbe({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+      coverageByObservedKey,
+    });
     const residual = residualReasons({
       plan,
       scenario,
       adapterProbe,
       adapterUnavailableReason: adapter.unavailableReason,
+      publicSurfaceProbe,
       route,
     });
     return {
@@ -513,6 +529,7 @@ export function buildConformanceRecipeCatalog({
       expectedObservation: plan.expectedObservation,
       route,
       adapterProbe,
+      publicSurfaceProbe,
       status: residual.length === 0 ? "fully-executable" : "unresolved",
       residualReasons: residual,
     };

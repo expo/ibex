@@ -81,8 +81,17 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.summary.adapterExecutableFixtures).toBe(
       recipes.recipes.filter((recipe) => recipe.adapterProbe !== null).length,
     );
-    expect(recipes.summary.fullyExecutableFixtures).toBe(0);
-    expect(recipes.summary.unresolvedFixtures).toBe(expectedFixtureIds.length);
+    const authoredPublicFixtures = recipes.recipes.filter(
+      (recipe) => recipe.publicSurfaceProbe !== null,
+    ).length;
+    expect(authoredPublicFixtures).toBeGreaterThan(0);
+    expect(recipes.summary.fullyExecutableFixtures).toBe(
+      recipes.recipes.filter((recipe) => recipe.status === "fully-executable")
+        .length,
+    );
+    expect(recipes.summary.unresolvedFixtures).toBe(
+      expectedFixtureIds.length - recipes.summary.fullyExecutableFixtures,
+    );
     const publicFixtures = recipes.recipes.filter(
       (recipe) => recipe.expectedObservation.kind === "enforcement-branch",
     ).length;
@@ -93,13 +102,55 @@ describe("exact-target CapSec executable recipes", () => {
       recipes.summary.residualReasons[
         "public-surface-invocation-not-authored"
       ],
-    ).toBe(publicFixtures);
+    ).toBe(publicFixtures - authoredPublicFixtures);
     expect(
       recipes.summary.residualReasons["target-absence-probe-not-authored"],
     ).toBe(absenceFixtures);
     expect(publicFixtures + absenceFixtures).toBe(expectedFixtureIds.length);
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
       /executable recipe catalog is incomplete/,
+    );
+  });
+
+  test("authors node:os probes without hand-labeling a native terminal", () => {
+    const allow = recipes.recipes.find(
+      (recipe) =>
+        recipe.scenario === "allow" &&
+        recipe.route.surfaceObservedKeys.includes(
+          "builtin:export:node_os:cpus",
+        ),
+    );
+    const deny = recipes.recipes.find(
+      (recipe) =>
+        recipe.scenario === "deny" &&
+        recipe.route.surfaceObservedKeys.includes(
+          "builtin:export:node_os:cpus",
+        ),
+    );
+    expect(allow.publicSurfaceProbe).toMatchObject({
+      kind: "public-surface-invocation",
+      surfaceObservedKey: "builtin:export:node_os:cpus",
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:os",
+        exportName: "cpus",
+        expectedResult: "return",
+        expectedTypedDecisionCount: 2,
+        expectedTypedStages: ["requested", "commit"],
+        expectedActionIds: ["sys:read"],
+      },
+    });
+    expect(deny.publicSurfaceProbe.invocation).toMatchObject({
+      expectedResult: "permission-denied",
+      expectedTypedDecisionCount: 1,
+      expectedTypedStages: ["requested"],
+    });
+    expect(
+      allow.publicSurfaceProbe.invocation.allowedCoverageEdgeIds,
+    ).toEqual(["surface.native.op.exactgetcpucount.1k05aty"]);
+    expect(allow.publicSurfaceProbe.invocation).not.toHaveProperty(
+      "terminalObservedKey",
     );
   });
 

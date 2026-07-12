@@ -94,9 +94,19 @@ function tmpdir() {
       "/tmp";
     if (typeof tempPath === "string" &&
         tempPath.length > 1 &&
-        tempPath[tempPath.length - 1] === "/" &&
-        tempPath.indexOf('\\') === -1) {
-      return tempPath.slice(0, -1);
+        tempPath[tempPath.length - 1] === "/") {
+      var containsBackslash = false;
+      for (var i = 0; i < tempPath.length; i++) {
+        if (tempPath[i] === "\\") {
+          containsBackslash = true;
+          break;
+        }
+      }
+      if (!containsBackslash) {
+        var trimmed = "";
+        for (var j = 0; j < tempPath.length - 1; j++) trimmed += tempPath[j];
+        return trimmed;
+      }
     }
     return tempPath;
   }
@@ -110,9 +120,6 @@ function version() {
   authorizeSystemInfo(10);
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return "Android " + androidVersion;
-  if (typeof __exactGetOsVersion === 'function') {
-    return __exactGetOsVersion();
-  }
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) {
     return globalThis.process.__exactOSVersion;
   }

@@ -824,6 +824,49 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     });
   });
 
+  test("builtin routes follow only source-proven returned-callable wrappers", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function decorate(getter) {
+          const wrapped = function() { return getter(); };
+          wrapped.toString = function() { return String(getter()); };
+          return wrapped;
+        }
+        function platform() { return __exactAuthorizeSystemInfo(11); }
+        module.exports = { platform: decorate(platform) };
+      `,
+      {
+        sourceKey: "node_wrapped_route",
+        sourcePath: "src/builtins/wrapped-route.js",
+      },
+    );
+    expect(
+      rows.find(
+        (row) => row.name === "export:node_wrapped_route:platform",
+      ).metadata.enforcementRouteEvidence,
+    ).toEqual({
+      ambiguousCallees: [],
+      kind: "static-builtin-call-graph",
+      paths: [
+        "export:platform -> decorate -> wrapped -> parameter:getter -> platform -> __exactAuthorizeSystemInfo",
+      ],
+      terminals: ["__exactAuthorizeSystemInfo"],
+    });
+
+    const opaque = scanStaticBuiltinExports(
+      "function factory(value) { return service.wrap(value); } function read() { return __exactReadFile('/tmp/x'); } module.exports = { read: factory(read) };",
+      {
+        sourceKey: "node_opaque_wrapped_route",
+        sourcePath: "src/builtins/opaque-wrapped-route.js",
+      },
+    );
+    expect(
+      opaque.find(
+        (row) => row.name === "export:node_opaque_wrapped_route:read",
+      ).metadata.enforcementRouteEvidence.terminals,
+    ).toEqual([]);
+  });
+
   test("builtin enforcement routes reject shadowed, computed, and dynamic call ambiguity", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`

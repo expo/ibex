@@ -1811,6 +1811,7 @@ export function scanStaticBuiltinExports(
   const facts = new Map();
   const aliases = new Map();
   const bindings = new Map();
+  const callValuedBindings = new Map();
   const prototypeFacts = new Map();
   const inheritedPrototypeFacts = new Map();
   const knownPrototypeOwners = new Set();
@@ -2221,6 +2222,139 @@ export function scanStaticBuiltinExports(
     return result;
   };
 
+  // Some builtins export a function returned by a small decorator/factory,
+  // for example `legacyStringValue(platform)`.  Treating every call-valued
+  // export as opaque loses the real enforcement route, while blindly
+  // following a factory argument would let an unrelated constructor invent a
+  // route.  Recover only factories that provably return a locally declared
+  // callable and whose returned callable invokes a callable parameter.
+  const routeForReturnedCallableFactory = (call) => {
+    if (
+      call?.callee?.type !== "Identifier" ||
+      (callableDefinitionsByName.get(call.callee.name) ?? []).length !== 1
+    ) {
+      return null;
+    }
+    const factoryName = call.callee.name;
+    const definition = callableDefinitionsByName.get(factoryName)[0].node;
+    const parameterTargets = new Map();
+    for (let index = 0; index < (definition.params ?? []).length; index += 1) {
+      const parameter = definition.params[index];
+      const argument = call.arguments[index];
+      if (parameter?.type === "Identifier" && argument?.type === "Identifier") {
+        parameterTargets.set(parameter.name, argument.name);
+      }
+    }
+    const localCallbacks = new Map();
+    const returned = [];
+    walkDirectFunctionBody(definition, (node) => {
+      if (
+        node.type === "VariableDeclarator" &&
+        node.id?.type === "Identifier" &&
+        callbackFunction(node.init)
+      ) {
+        localCallbacks.set(node.id.name, node.init);
+      }
+      if (node.type === "ReturnStatement") returned.push(node.argument);
+    });
+    if (returned.length === 0) return null;
+
+    const terminalNames = new Set();
+    const routePaths = new Set();
+    const ambiguous = new Set();
+    const analyzedCallbacks = new Set();
+    const mergeRoute = (prefix, route) => {
+      for (const terminal of route.terminals) terminalNames.add(terminal);
+      for (const routePath of route.paths) {
+        routePaths.add(`${prefix} -> ${routePath}`);
+      }
+      for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+    };
+    const analyzeCallback = (label, callback) => {
+      if (analyzedCallbacks.has(callback)) return;
+      analyzedCallbacks.add(callback);
+      walkDirectFunctionBody(callback, (node) => {
+        if (node.type !== "CallExpression") return;
+        const terminal = staticEnforcementCall(node);
+        if (terminal?.name) {
+          terminalNames.add(terminal.name);
+          routePaths.add(`${factoryName} -> ${label} -> ${terminal.name}`);
+          return;
+        }
+        if (terminal?.ambiguity) {
+          ambiguous.add(terminal.ambiguity);
+          return;
+        }
+        if (node.callee?.type === "Identifier") {
+          const target = parameterTargets.get(node.callee.name);
+          if (target) {
+            mergeRoute(
+              `${factoryName} -> ${label} -> parameter:${node.callee.name}`,
+              routeForCallable(target),
+            );
+            return;
+          }
+          const nested = localCallbacks.get(node.callee.name);
+          if (nested) {
+            analyzeCallback(node.callee.name, nested);
+            return;
+          }
+          if (
+            intrinsicGlobalCalls.has(node.callee.name) ||
+            intrinsicGlobalReceivers.has(node.callee.name)
+          ) {
+            return;
+          }
+          mergeRoute(
+            `${factoryName} -> ${label}`,
+            routeForCallable(node.callee.name),
+          );
+          return;
+        }
+        if (node.callee?.type === "MemberExpression" && node.callee.computed) {
+          ambiguous.add("computed-call");
+          return;
+        }
+        if (
+          node.callee?.type === "MemberExpression" &&
+          isProvenIntrinsicReceiver(node.callee.object)
+        ) {
+          return;
+        }
+        if (node.callee?.type === "MemberExpression") {
+          ambiguous.add(
+            `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,
+          );
+        }
+      });
+    };
+
+    for (const value of returned) {
+      if (callbackFunction(value)) {
+        analyzeCallback("returned-callback", value);
+        continue;
+      }
+      if (value?.type !== "Identifier") return null;
+      const callback = localCallbacks.get(value.name);
+      if (callback) {
+        analyzeCallback(value.name, callback);
+        continue;
+      }
+      const target = parameterTargets.get(value.name);
+      if (!target) return null;
+      mergeRoute(
+        `${factoryName} -> returned-parameter:${value.name}`,
+        routeForCallable(target),
+      );
+    }
+    if (terminalNames.size === 0 && ambiguous.size === 0) return null;
+    return {
+      ambiguous: uniqueSorted(ambiguous),
+      paths: uniqueSorted(routePaths),
+      terminals: uniqueSorted(terminalNames),
+    };
+  };
+
   const routeForExport = (exportName) => {
     const segments = exportName.split(".");
     const rootName = segments[0];
@@ -2229,6 +2363,12 @@ export function scanStaticBuiltinExports(
     const routes = [];
     for (const localName of exactBindings ?? []) {
       routes.push(routeForCallable(localName));
+    }
+    for (const call of callValuedBindings
+      .get(ROOT_EXPORT_OBJECT)
+      ?.get(exportName) ?? []) {
+      const route = routeForReturnedCallableFactory(call);
+      if (route) routes.push(route);
     }
     if (routes.length === 0 && segments.length > 1) {
       const methodName = segments.at(-1);
@@ -2384,6 +2524,20 @@ export function scanStaticBuiltinExports(
       targetBindings.set(exportName, localNames);
     }
     localNames.add(localName);
+  };
+  const addCallValuedBinding = (target, exportName, call) => {
+    if (!target || !exportName || call?.type !== "CallExpression") return;
+    let targetBindings = callValuedBindings.get(target);
+    if (!targetBindings) {
+      targetBindings = new Map();
+      callValuedBindings.set(target, targetBindings);
+    }
+    let calls = targetBindings.get(exportName);
+    if (!calls) {
+      calls = new Set();
+      targetBindings.set(exportName, calls);
+    }
+    calls.add(call);
   };
   const addPrototypeFact = (owner, name) => {
     if (!owner || !name) return;
@@ -3062,6 +3216,11 @@ export function scanStaticBuiltinExports(
           for (const name of names)
             addBinding(target, name, property.value.name);
         } else {
+          if (property.value?.type === "CallExpression") {
+            for (const name of names) {
+              addCallValuedBinding(target, name, property.value);
+            }
+          }
           const classBound = bindClassExpression(
             target,
             names,
@@ -4129,6 +4288,15 @@ export function scanStaticBuiltinExports(
               addBinding(target, name, localName);
             if ((bindings.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
+          }
+          for (const [name, calls] of callValuedBindings.get(source) ?? []) {
+            const before = callValuedBindings.get(target)?.get(name)?.size ?? 0;
+            for (const call of calls) addCallValuedBinding(target, name, call);
+            if (
+              (callValuedBindings.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
           }
         }
       }
