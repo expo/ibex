@@ -1722,10 +1722,146 @@ fn transpile_tooling_hash() -> Result<[u8; 32]> {
 }
 
 #[derive(Clone)]
+struct CapturedTranspileToolFile {
+    original: PathBuf,
+    relative: PathBuf,
+    source: std::sync::Arc<Vec<u8>>,
+}
+
+#[derive(Clone)]
 struct TranspileOverrideIdentity {
     path: PathBuf,
-    source: std::sync::Arc<Vec<u8>>,
+    root: PathBuf,
+    entry_relative: PathBuf,
+    files: std::sync::Arc<Vec<CapturedTranspileToolFile>>,
+    directory_digest: [u8; 32],
+    runner: PathBuf,
+    runner_name: &'static str,
+    runner_digest: [u8; 32],
     digest: [u8; 32],
+}
+
+fn capture_transpile_tool_directory(
+    root: &Path,
+) -> Result<(Vec<CapturedTranspileToolFile>, [u8; 32])> {
+    const MAX_FILES: usize = 4096;
+    const MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+    fn walk(
+        root: &Path,
+        directory: &Path,
+        files: &mut Vec<CapturedTranspileToolFile>,
+        total: &mut u64,
+    ) -> Result<()> {
+        let mut entries =
+            std::fs::read_dir(directory)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        for item in entries {
+            let path = item.path();
+            let metadata = std::fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() {
+                anyhow::bail!(
+                    "Transpile override tool directories may not contain symlinks: {}",
+                    path.display()
+                );
+            }
+            if metadata.is_dir() {
+                walk(root, &path, files, total)?;
+                continue;
+            }
+            if !metadata.is_file() {
+                continue;
+            }
+            if files.len() >= MAX_FILES {
+                anyhow::bail!("Transpile override exceeds {MAX_FILES} authenticated files");
+            }
+            *total = total
+                .checked_add(metadata.len())
+                .context("Transpile override size overflow")?;
+            if *total > MAX_BYTES {
+                anyhow::bail!("Transpile override exceeds the 256 MiB authenticated size limit");
+            }
+            let source = std::fs::read(&path)?;
+            let relative = path
+                .strip_prefix(root)
+                .context("Transpile override file escaped its tool root")?
+                .to_path_buf();
+            if relative.to_str().is_none() {
+                anyhow::bail!("Transpile override paths must be valid UTF-8");
+            }
+            files.push(CapturedTranspileToolFile {
+                original: path,
+                relative,
+                source: std::sync::Arc::new(source),
+            });
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    let mut total = 0;
+    walk(root, root, &mut files, &mut total)?;
+    files.sort_by(|left, right| left.relative.cmp(&right.relative));
+    let mut hasher = Sha256::new();
+    hasher.update(b"transpile-tool-directory-v1\0");
+    for file in &files {
+        hasher.update(file.relative.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
+        hasher.update((file.source.len() as u64).to_le_bytes());
+        hasher.update(file.source.as_slice());
+    }
+    Ok((files, hasher.finalize().into()))
+}
+
+fn compute_transpile_override_identity(path: &Path) -> Result<TranspileOverrideIdentity> {
+    let path = std::fs::canonicalize(path)
+        .with_context(|| format!("Failed to authenticate transpile script {}", path.display()))?;
+    let root = path
+        .parent()
+        .context("Transpile override has no parent directory")?
+        .to_path_buf();
+    let entry_relative = path
+        .strip_prefix(&root)
+        .context("Transpile override escaped its parent directory")?
+        .to_path_buf();
+    let (files, directory_digest) = capture_transpile_tool_directory(&root)?;
+    if !files.iter().any(|file| file.original == path) {
+        anyhow::bail!(
+            "Transpile override entry was not captured: {}",
+            path.display()
+        );
+    }
+    let (runner, runner_name) = find_js_runner()?;
+    let runner = std::fs::canonicalize(&runner)
+        .with_context(|| format!("Failed to authenticate JS runner {}", runner.display()))?;
+    const MAX_RUNNER_BYTES: u64 = 512 * 1024 * 1024;
+    if std::fs::metadata(&runner)?.len() > MAX_RUNNER_BYTES {
+        anyhow::bail!("Selected JS runner exceeds the 512 MiB identity limit");
+    }
+    let runner_digest: [u8; 32] = Sha256::digest(
+        std::fs::read(&runner)
+            .with_context(|| format!("Failed to read JS runner {}", runner.display()))?,
+    )
+    .into();
+    let mut hasher = Sha256::new();
+    hasher.update(b"subprocess-transpile-toolchain-v2\0");
+    hasher.update(path.to_string_lossy().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(directory_digest);
+    hasher.update(runner.to_string_lossy().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(runner_digest);
+    Ok(TranspileOverrideIdentity {
+        path,
+        root,
+        entry_relative,
+        files: std::sync::Arc::new(files),
+        directory_digest,
+        runner,
+        runner_name,
+        runner_digest,
+        digest: hasher.finalize().into(),
+    })
 }
 
 fn transpile_override_identity() -> Result<TranspileOverrideIdentity> {
@@ -1733,16 +1869,7 @@ fn transpile_override_identity() -> Result<TranspileOverrideIdentity> {
     if let Some(identity) = CACHED.get() {
         return Ok(identity.clone());
     }
-    let path = transpile_script_path()?;
-    let path = std::fs::canonicalize(&path)
-        .with_context(|| format!("Failed to authenticate transpile script {}", path.display()))?;
-    let source = std::fs::read(&path)
-        .with_context(|| format!("Failed to read transpile script {}", path.display()))?;
-    let identity = TranspileOverrideIdentity {
-        path,
-        digest: Sha256::digest(&source).into(),
-        source: std::sync::Arc::new(source),
-    };
+    let identity = compute_transpile_override_identity(&transpile_script_path()?)?;
     let _ = CACHED.set(identity.clone());
     Ok(identity)
 }
@@ -2045,11 +2172,28 @@ fn run_transpile_override(
     source: &str,
     script: &TranspileOverrideIdentity,
 ) -> Result<()> {
+    verify_transpile_override_identity(script)?;
+
     // The cache key and manifest bind `source`, the loader's single read.
     // Give the subprocess an immutable staged copy of those exact bytes;
     // sending the live entry path lets A→B (or ABA) publish output for B
     // under A's content-addressed key.
     let staged_input = unique_staged_transpile_input(entry, output);
+    let staged_tool_root = unique_tmp_path(&output.with_file_name("transpile-tool"));
+    struct StageCleanup<'a> {
+        input: &'a Path,
+        tool_root: &'a Path,
+    }
+    impl Drop for StageCleanup<'_> {
+        fn drop(&mut self) {
+            std::fs::remove_file(self.input).ok();
+            std::fs::remove_dir_all(self.tool_root).ok();
+        }
+    }
+    let _cleanup = StageCleanup {
+        input: &staged_input,
+        tool_root: &staged_tool_root,
+    };
     if let Some(parent) = staged_input.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -2068,29 +2212,55 @@ fn run_transpile_override(
     input.sync_all()?;
     drop(input);
 
-    // The tooling digest and the executed script come from the same captured
-    // bytes. Executing the live override path here would recreate the source
-    // split-input race for the tool itself.
-    // Keep the authenticated copy beside the selected script so its relative
-    // imports resolve exactly as they do for the configured entry point. A
-    // copy in the cache output directory silently broke any override that
-    // imported `./helper`.
-    let staged_script = unique_staged_transpile_input(&script.path, &script.path);
-    let mut script_file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&staged_script)?;
-    script_file.write_all(script.source.as_slice())?;
-    script_file.sync_all()?;
-    drop(script_file);
+    // Stage the complete authenticated tool directory, not only its entry
+    // script. Relative helpers and package.json module-mode semantics are real
+    // executable inputs; resolving them from the live directory after hashing
+    // only the entry created stale-cache and split-input races.
+    std::fs::create_dir(&staged_tool_root)?;
+    for tool_file in script.files.iter() {
+        let staged = staged_tool_root.join(&tool_file.relative);
+        if let Some(parent) = staged.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged)?;
+        file.write_all(tool_file.source.as_slice())?;
+        file.sync_all()?;
+    }
+    let staged_script = staged_tool_root.join(&script.entry_relative);
 
-    let result = (|| {
-        wait_for_transpile_test_barrier(output)?;
-        run_transpile_subprocess(&staged_input, output, target, &staged_script)
-    })();
-    std::fs::remove_file(&staged_input).ok();
-    std::fs::remove_file(&staged_script).ok();
-    result
+    wait_for_transpile_test_barrier(output)?;
+    run_transpile_subprocess(
+        &staged_input,
+        output,
+        target,
+        &staged_script,
+        &script.runner,
+        script.runner_name,
+    )?;
+    // Do not publish output if either the selected runner or any live tool
+    // file changed during the subprocess. The staged copy guarantees the
+    // output itself used the pre-run bytes; this check keeps the cache key
+    // from blessing a concurrently upgraded toolchain.
+    verify_transpile_override_identity(script)
+}
+
+fn verify_transpile_override_identity(script: &TranspileOverrideIdentity) -> Result<()> {
+    let (_, current_directory_digest) = capture_transpile_tool_directory(&script.root)?;
+    if current_directory_digest != script.directory_digest {
+        anyhow::bail!("Transpile override tool directory changed during this process");
+    }
+    let current_runner_digest: [u8; 32] = Sha256::digest(
+        std::fs::read(&script.runner)
+            .with_context(|| format!("Failed to verify JS runner {}", script.runner.display()))?,
+    )
+    .into();
+    if current_runner_digest != script.runner_digest {
+        anyhow::bail!("Selected JS runner changed during this process");
+    }
+    Ok(())
 }
 
 fn unique_staged_transpile_input(entry: &Path, output: &Path) -> PathBuf {
@@ -2164,10 +2334,10 @@ fn run_transpile_subprocess(
     output: &Path,
     target: &str,
     script: &Path,
+    runner: &Path,
+    runner_name: &str,
 ) -> Result<()> {
-    let (runner, runner_name) = find_js_runner()?;
-
-    let status = Command::new(&runner)
+    let status = Command::new(runner)
         .arg(script)
         .arg("--entry")
         .arg(entry)
@@ -2532,10 +2702,12 @@ mod tests {
             return;
         }
         let dir = tempdir().unwrap();
+        let tool_dir = dir.path().join("tool");
+        std::fs::create_dir(&tool_dir).unwrap();
         let entry = dir.path().join("module.ts");
         let output = dir.path().join("module.js");
-        let script = dir.path().join("transpile.cjs");
-        let helper = dir.path().join("helper.cjs");
+        let script = tool_dir.join("transpile.cjs");
+        let helper = tool_dir.join("helper.cjs");
         let ready = dir.path().join("ready");
         let release = dir.path().join("release");
         let observed = dir.path().join("observed-entry");
@@ -2555,12 +2727,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(&helper, "module.exports = true;\n").unwrap();
-        let script_source = std::fs::read(&script).unwrap();
-        let script_identity = TranspileOverrideIdentity {
-            path: script.clone(),
-            digest: Sha256::digest(&script_source).into(),
-            source: std::sync::Arc::new(script_source),
-        };
+        let script_identity = compute_transpile_override_identity(&script).unwrap();
         let source_a = "export const answer: number = 41;";
         let source_b = "export const answer: number = 99;";
         std::fs::write(&entry, source_a).unwrap();
@@ -2593,6 +2760,64 @@ mod tests {
         assert!(
             !observed_entry.exists(),
             "staged input must be removed after subprocess exit"
+        );
+    }
+
+    #[test]
+    fn subprocess_transpile_rejects_live_helper_mutation() {
+        if find_js_runner().is_err() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let tool_dir = dir.path().join("tool");
+        std::fs::create_dir(&tool_dir).unwrap();
+        let entry = dir.path().join("module.ts");
+        let output = dir.path().join("module.js");
+        let script = tool_dir.join("transpile.cjs");
+        let helper = tool_dir.join("helper.cjs");
+        let ready = dir.path().join("ready");
+        let release = dir.path().join("release");
+        let quoted = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap();
+        std::fs::write(
+            &script,
+            format!(
+                "const fs=require('fs'); require('./helper.cjs'); const a=process.argv; \
+                 const entry=a[a.indexOf('--entry')+1], out=a[a.indexOf('--out')+1]; \
+                 fs.writeFileSync({}, ''); while(!fs.existsSync({})) {{}} \
+                 fs.writeFileSync(out, fs.readFileSync(entry));",
+                quoted(&ready),
+                quoted(&release),
+            ),
+        )
+        .unwrap();
+        std::fs::write(&helper, "module.exports = 'old';\n").unwrap();
+        std::fs::write(&entry, "export const answer = 42;\n").unwrap();
+        let identity = compute_transpile_override_identity(&script).unwrap();
+
+        let error = std::thread::scope(|scope| {
+            let handle = scope.spawn(|| {
+                run_transpile_override(
+                    &entry,
+                    &output,
+                    "es2015",
+                    "export const answer = 42;\n",
+                    &identity,
+                )
+            });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !ready.exists() {
+                assert!(std::time::Instant::now() < deadline);
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            std::fs::write(&helper, "module.exports = 'new';\n").unwrap();
+            std::fs::write(&release, []).unwrap();
+            handle.join().unwrap().unwrap_err()
+        });
+        assert!(
+            error
+                .to_string()
+                .contains("tool directory changed during this process"),
+            "unexpected error: {error:#}"
         );
     }
 
