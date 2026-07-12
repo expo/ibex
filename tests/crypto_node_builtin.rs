@@ -779,13 +779,17 @@ const pair = c.generateKeyPairSync('ec', {
 });
 process.stdout.write(JSON.stringify(pair));
 "#;
-    let oracle_output = match Command::new("node").arg("-e").arg(oracle).output().await {
-        Ok(output) if output.status.success() => output,
-        _ => {
-            eprintln!("skipping strict PKCS#8 import test: Node oracle unavailable");
-            return;
-        }
-    };
+    let oracle_output = Command::new("node")
+        .arg("-e")
+        .arg(oracle)
+        .output()
+        .await
+        .expect("Node oracle is required by the crypto compatibility matrix");
+    assert!(
+        oracle_output.status.success(),
+        "Node failed to generate the strict PKCS#8 fixture: {}",
+        String::from_utf8_lossy(&oracle_output.stderr)
+    );
     let pair = String::from_utf8(oracle_output.stdout).expect("Node key pair JSON is UTF-8");
     let js = format!(
         r#"(function(){{
