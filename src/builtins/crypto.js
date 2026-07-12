@@ -1376,6 +1376,11 @@ function _detectAsymmetricKeyType(raw) {
     var upper = raw.toUpperCase();
     if (upper.indexOf('BEGIN RSA PUBLIC KEY') !== -1 || upper.indexOf('BEGIN RSA PRIVATE KEY') !== -1) return 'rsa';
     if (upper.indexOf('BEGIN EC PRIVATE KEY') !== -1) return 'ec';
+    // Traditional OpenSSL DSA PEM wraps a bare integer sequence and therefore
+    // carries no algorithm OID inside the DER. Recognize its authenticated PEM
+    // label so dsaEncoding:'ieee-p1363' cannot silently fall through as RSA and
+    // be ignored.
+    if (upper.indexOf('BEGIN DSA PRIVATE KEY') !== -1 || upper.indexOf('BEGIN DSA PUBLIC KEY') !== -1) return 'dsa';
   }
 
   var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();

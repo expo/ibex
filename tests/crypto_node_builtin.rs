@@ -602,13 +602,15 @@ async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
         code('rounds', function(){ c.checkPrimeSync(65537n, { checks: 65 }); }); \
         var dsaDer = Buffer.from('300b06072a8648ce380401', 'hex'); \
         var dsaPem = '-----BEGIN PUBLIC KEY-----\\n' + dsaDer.toString('base64') + '\\n-----END PUBLIC KEY-----'; \
+        var traditionalDsa = '-----BEGIN DSA PRIVATE KEY-----\\nMAkCAQACAQECAQE=\\n-----END DSA PRIVATE KEY-----'; \
         code('dsaSign', function(){ c.sign('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }); }); \
         code('dsaVerify', function(){ c.verify('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }, Buffer.alloc(40)); }); \
+        code('traditionalDsa', function(){ c.sign('sha256', Buffer.from('x'), { key: traditionalDsa, dsaEncoding: 'ieee-p1363' }); }); \
         return JSON.stringify(out); })()";
     let result = eval(js).await;
     assert_eq!(
         result,
-        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED"}"#,
+        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED","traditionalDsa":"ERR_OSSL_UNSUPPORTED"}"#,
         "sync work bounds and P1363 rejection must fail explicitly: {result}"
     );
 }
