@@ -1832,6 +1832,16 @@ export function scanStaticBuiltinExports(
     definitions.push(definition);
   }
   const qualifiedCallableDefinitions = new Map();
+  const staticObjectBindings = new Set();
+  const reassignedObjectBindings = new Set();
+  walkAst(program, (node) => {
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "Identifier"
+    ) {
+      reassignedObjectBindings.add(node.left.name);
+    }
+  });
   const addQualifiedCallable = (name, node) => {
     if (!name || !node) return;
     let definitions = qualifiedCallableDefinitions.get(name);
@@ -1842,6 +1852,30 @@ export function scanStaticBuiltinExports(
     definitions.push(node);
   };
   walkAst(program, (node) => {
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init?.type === "ObjectExpression" &&
+      !reassignedObjectBindings.has(node.id.name)
+    ) {
+      staticObjectBindings.add(node.id.name);
+      for (const property of node.init.properties) {
+        if (property.computed || property.key?.type !== "Identifier") continue;
+        const callable =
+          property.type === "ObjectMethod"
+            ? property
+            : property.type === "ObjectProperty" && callbackFunction(property.value)
+              ? property.value
+              : null;
+        if (callable) {
+          addQualifiedCallable(
+            `${node.id.name}.${property.key.name}`,
+            callable,
+          );
+        }
+      }
+      return;
+    }
     if (
       (node.type === "ClassDeclaration" || node.type === "ClassExpression") &&
       node.id?.name
@@ -1860,6 +1894,16 @@ export function scanStaticBuiltinExports(
       const method = directMemberName(node.left);
       const owner = prototypeOwner(node.left?.object);
       if (method && owner) addQualifiedCallable(`${owner}.${method}`, node.right);
+      else if (
+        method &&
+        node.left.object?.type === "Identifier" &&
+        staticObjectBindings.has(node.left.object.name)
+      ) {
+        addQualifiedCallable(
+          `${node.left.object.name}.${method}`,
+          node.right,
+        );
+      }
     }
   });
 
@@ -1911,6 +1955,84 @@ export function scanStaticBuiltinExports(
     /^__(?:exact|native)[A-Za-z0-9_$]*$/u.test(name) ||
     name === "__hostCall" ||
     name === "__hostCallAsync";
+  const intrinsicGlobalReceivers = new Set([
+    "Array",
+    "ArrayBuffer",
+    "Atomics",
+    "BigInt",
+    "Boolean",
+    "Buffer",
+    "DataView",
+    "Date",
+    "Error",
+    "Intl",
+    "JSON",
+    "Map",
+    "Math",
+    "Number",
+    "Object",
+    "Promise",
+    "Proxy",
+    "Reflect",
+    "RegExp",
+    "Set",
+    "String",
+    "Symbol",
+    "Uint8Array",
+    "URL",
+    "URLSearchParams",
+    "WeakMap",
+    "WeakSet",
+  ]);
+  const isProvenIntrinsicReceiver = (expression) =>
+    Boolean(
+      expression &&
+        ((expression.type === "Identifier" &&
+          intrinsicGlobalReceivers.has(expression.name) &&
+          !declaredIdentifiers.has(expression.name)) ||
+          new Set([
+            "ArrayExpression",
+            "BigIntLiteral",
+            "BooleanLiteral",
+            "NumericLiteral",
+            "RegExpLiteral",
+            "StringLiteral",
+          ]).has(expression.type)),
+    );
+  const isProvenIntrinsicValue = (expression, localBindings) => {
+    if (!expression) return false;
+    if (isProvenIntrinsicReceiver(expression)) return true;
+    if (
+      expression.type === "Identifier" &&
+      localBindings.has(expression.name)
+    ) {
+      return true;
+    }
+    if (
+      expression.type === "NewExpression" &&
+      expression.callee?.type === "Identifier" &&
+      intrinsicGlobalReceivers.has(expression.callee.name) &&
+      !declaredIdentifiers.has(expression.callee.name)
+    ) {
+      return true;
+    }
+    if (expression.type === "CallExpression") {
+      if (
+        expression.callee?.type === "Identifier" &&
+        intrinsicGlobalReceivers.has(expression.callee.name) &&
+        !declaredIdentifiers.has(expression.callee.name)
+      ) {
+        return true;
+      }
+      if (
+        expression.callee?.type === "MemberExpression" &&
+        isProvenIntrinsicReceiver(expression.callee.object)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
   const terminalReference = (expression) => {
     if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
       return declaredIdentifiers.has(expression.name)
@@ -1966,6 +2088,22 @@ export function scanStaticBuiltinExports(
   };
 
   const routeMemo = new Map();
+  const intrinsicGlobalCalls = new Set([
+    "BigInt",
+    "Boolean",
+    "Number",
+    "String",
+    "decodeURI",
+    "decodeURIComponent",
+    "encodeURI",
+    "encodeURIComponent",
+    "escape",
+    "isFinite",
+    "isNaN",
+    "parseFloat",
+    "parseInt",
+    "unescape",
+  ]);
   const routeForCallable = (name, active = new Set()) => {
     if (routeMemo.has(name)) return routeMemo.get(name);
     if (active.has(name)) return { ambiguous: [], paths: [], terminals: [] };
@@ -1975,7 +2113,14 @@ export function scanStaticBuiltinExports(
       : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
     if (definitions.length !== 1) {
       const result = {
-        ambiguous: definitions.length > 1 ? [name] : [],
+        ambiguous:
+          definitions.length > 1
+            ? [name]
+            : (intrinsicGlobalCalls.has(name) ||
+                  intrinsicGlobalReceivers.has(name)) &&
+                !declaredIdentifiers.has(name)
+              ? []
+              : [`unresolved-call:${name}`],
         paths: [],
         terminals: [],
       };
@@ -1985,6 +2130,24 @@ export function scanStaticBuiltinExports(
     const nextActive = new Set(active);
     nextActive.add(name);
     const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
+    const localIntrinsicBindings = new Set(staticArrays.keys());
+    let intrinsicChanged = true;
+    while (intrinsicChanged) {
+      intrinsicChanged = false;
+      walkDirectFunctionBody(definitions[0], (node) => {
+        if (
+          node.type !== "VariableDeclarator" ||
+          node.id?.type !== "Identifier" ||
+          localIntrinsicBindings.has(node.id.name) ||
+          assignedIdentifiers.has(node.id.name) ||
+          !isProvenIntrinsicValue(node.init, localIntrinsicBindings)
+        ) {
+          return;
+        }
+        localIntrinsicBindings.add(node.id.name);
+        intrinsicChanged = true;
+      });
+    }
     const terminalNames = new Set();
     const routePaths = new Set();
     const directAmbiguities = new Set();
@@ -2014,6 +2177,21 @@ export function scanStaticBuiltinExports(
       ) {
         const method = directMemberName(node.callee);
         if (method) calleeNames.add(`${owner}.${method}`);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "Identifier" &&
+        staticObjectBindings.has(node.callee.object.name)
+      ) {
+        const method = directMemberName(node.callee);
+        if (method) calleeNames.add(`${node.callee.object.name}.${method}`);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        (isProvenIntrinsicReceiver(node.callee.object) ||
+          (node.callee.object?.type === "Identifier" &&
+            localIntrinsicBindings.has(node.callee.object.name)))
+      ) {
+        // Intrinsic receiver identity is lexical and non-shadowed. These
+        // methods cannot hide an Ibex host boundary of their own.
       } else if (node.callee?.type === "MemberExpression") {
         directAmbiguities.add(
           `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,

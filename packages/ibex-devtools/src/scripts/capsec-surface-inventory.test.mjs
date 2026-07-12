@@ -817,10 +817,23 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         class Writer {
           run() { return globalThis.__exactWriteFile('/tmp/output', 'x'); }
         }
+        const helpers = {
+          read() { return globalThis.__exactReadFile('/tmp/input'); }
+        };
+        function staticObject() { return helpers.read(); }
+        let mutable = { read() { return globalThis.__exactReadFile('/tmp/input'); } };
+        mutable = service;
+        function mutableObject() { return mutable.read(); }
+        function intrinsic() {
+          const values = [];
+          values.push('safe');
+          return Object.keys({safe: values.join(',')});
+        }
         function dynamicReceiver() { return service.run(); }
         module.exports = {
           shadowed, dynamicTerminal, computed, aliased,
-          Reader, Writer, dynamicReceiver
+          Reader, Writer, staticObject, mutableObject, intrinsic,
+          dynamicReceiver
         };
       `,
       {
@@ -847,6 +860,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(evidence("Reader.go").terminals).toEqual(["__exactReadFile"]);
     expect(evidence("Writer.run").terminals).toEqual(["__exactWriteFile"]);
+    expect(evidence("staticObject").terminals).toEqual(["__exactReadFile"]);
+    expect(evidence("mutableObject").ambiguousCallees).toContain(
+      "dynamic-call-receiver:read",
+    );
+    expect(evidence("intrinsic").ambiguousCallees).toEqual([]);
   });
 
   test("inherited CommonJS export shapes are enumerated or closed explicitly", () => {
