@@ -254,7 +254,7 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.kind === "builtin-export-read",
     );
-    expect(publicReads.length).toBeGreaterThan(1_500);
+    expect(publicReads.length).toBeGreaterThan(300);
     expect(
       publicReads.every(
         (recipe) =>
@@ -263,18 +263,24 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
+          new Set(["accessor", "data"]).has(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.valueShape,
+          ) &&
+          new Set(["export-property", "module-value"]).has(
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind,
+          ) &&
           recipe.route.alternatives.length === 1 &&
           recipe.route.alternatives[0].terminalObservedKey ===
             recipe.publicSurfaceProbe.surfaceObservedKey,
       ),
     ).toBe(true);
     expect(
-      publicReads.some(
-        (recipe) =>
-          recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind ===
-          "prototype-property",
+      publicReads.some((recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind.includes(
+          "prototype",
+        ),
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       publicReads.some((recipe) =>
         recipe.publicSurfaceProbe.surfaceObservedKey.includes(
@@ -282,6 +288,11 @@ describe("exact-target CapSec executable recipes", () => {
         ),
       ),
     ).toBe(false);
+    expect(
+      recipes.summary.residualReasons[
+        "builtin-export-not-available-on-target"
+      ],
+    ).toBe(14);
   });
 
   test("binds target absence to source variants and exact runtime lookups", () => {

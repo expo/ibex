@@ -575,7 +575,14 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       moduleSpecifiers: ["node:synthetic", "synthetic"],
       sourceKey: "node_synthetic",
       surfaceType: "export",
+      valueShape: "callable",
     });
+    expect(
+      rows.find((row) => row.name.endsWith(":length")).metadata.valueShape,
+    ).toBe("accessor");
+    expect(
+      rows.find((row) => row.name.endsWith(":default")).metadata.valueShape,
+    ).toBe("data");
   });
 
   test("ESM declarations and array-driven CommonJS properties are static exports", () => {
@@ -670,6 +677,47 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "export:node_copied:BETA",
       "export:node_copied:default",
     ]);
+    expect(
+      copied
+        .filter((row) => /:(?:ALPHA|BETA)$/u.test(row.name))
+        .map((row) => row.metadata.valueShape),
+    ).toEqual(["data", "data"]);
+  });
+
+  test("builtin constants retain source-derived platform availability", () => {
+    const rows = scanStaticBuiltinExports(
+      fs.readFileSync(path.join(repoRoot, "src/builtins/constants.js"), "utf8"),
+      {
+        sourceKey: "node_constants",
+        sourcePath: "src/builtins/constants.js",
+      },
+    );
+    const availability = Object.fromEntries(
+      rows
+        .filter((row) => row.metadata.platformAvailability)
+        .map((row) => [
+          row.metadata.exportName,
+          row.metadata.platformAvailability,
+        ]),
+    );
+    expect(availability).toEqual({
+      EDQUOT: ["android", "linux"],
+      EMULTIHOP: ["android", "linux"],
+      ENODATA: ["android", "linux"],
+      ENOLINK: ["android", "linux"],
+      ENOSR: ["android", "linux"],
+      ENOSTR: ["android", "linux"],
+      ESTALE: ["android", "linux"],
+      ETIME: ["android", "linux"],
+      EWOULDBLOCK: ["android", "linux"],
+      O_DIRECT: ["android", "linux"],
+      O_NOATIME: ["android", "linux"],
+      O_SYMLINK: ["darwin"],
+      SIGINFO: ["darwin"],
+      SIGPOLL: ["android", "linux"],
+      SIGPWR: ["android", "linux"],
+      SIGSTKFLT: ["android", "linux"],
+    });
   });
 
   test("open table copies and opaque export-shape sources fail closed", () => {
@@ -1136,6 +1184,14 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "export:node_net:Socket.ready",
       "export:node_net:default",
     ]);
+    expect(
+      rows.find((row) => row.name.endsWith(":Socket.ready")).metadata
+        .valueShape,
+    ).toBe("accessor");
+    expect(
+      rows.find((row) => row.name.endsWith(":Socket.close")).metadata
+        .valueShape,
+    ).toBe("callable");
 
     for (const source of [
       "function Socket() {} Socket.prototype.__defineGetter__(getName(), function() {}); module.exports = { Socket };",

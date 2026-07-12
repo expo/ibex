@@ -1812,7 +1812,9 @@ export function scanStaticBuiltinExports(
   const aliases = new Map();
   const bindings = new Map();
   const callValuedBindings = new Map();
+  const valueShapeFacts = new Map();
   const prototypeFacts = new Map();
+  const prototypeValueShapeFacts = new Map();
   const inheritedPrototypeFacts = new Map();
   const knownPrototypeOwners = new Set();
   const prototypeSources = new Map();
@@ -1838,6 +1840,8 @@ export function scanStaticBuiltinExports(
     definitions.push(definition);
   }
   const qualifiedCallableDefinitions = new Map();
+  const classDefinitionNames = new Set();
+  const localValueExpressions = new Map();
   const staticObjectBindings = new Set();
   const reassignedObjectBindings = new Set();
   walkAst(program, (node) => {
@@ -1858,6 +1862,38 @@ export function scanStaticBuiltinExports(
     definitions.push(node);
   };
   walkAst(program, (node) => {
+    if (
+      (node.type === "ClassDeclaration" ||
+        node.type === "FunctionDeclaration") &&
+      node.id?.name
+    ) {
+      if (node.type === "ClassDeclaration") classDefinitionNames.add(node.id.name);
+    }
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      node.init
+    ) {
+      let expressions = localValueExpressions.get(node.id.name);
+      if (!expressions) {
+        expressions = [];
+        localValueExpressions.set(node.id.name, expressions);
+      }
+      expressions.push(node.init);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      node.left?.type === "Identifier" &&
+      node.right
+    ) {
+      let expressions = localValueExpressions.get(node.left.name);
+      if (!expressions) {
+        expressions = [];
+        localValueExpressions.set(node.left.name, expressions);
+      }
+      expressions.push(node.right);
+    }
     if (
       node.type === "VariableDeclarator" &&
       node.id?.type === "Identifier" &&
@@ -2502,6 +2538,152 @@ export function scanStaticBuiltinExports(
     }
     idioms.add(idiom);
   };
+  const shapeFactMap = (collection, target) => {
+    let entries = collection.get(target);
+    if (!entries) {
+      entries = new Map();
+      collection.set(target, entries);
+    }
+    return entries;
+  };
+  const addShapeFact = (collection, target, name, shape) => {
+    if (
+      !target ||
+      typeof name !== "string" ||
+      name.length === 0 ||
+      !new Set(["accessor", "callable", "data", "unknown"]).has(shape)
+    ) {
+      return;
+    }
+    const entries = shapeFactMap(collection, target);
+    let shapes = entries.get(name);
+    if (!shapes) {
+      shapes = new Set();
+      entries.set(name, shapes);
+    }
+    shapes.add(shape);
+  };
+  const addValueShapeFact = (target, name, shape) =>
+    addShapeFact(valueShapeFacts, target, name, shape);
+  const addPrototypeValueShapeFact = (owner, name, shape) =>
+    addShapeFact(prototypeValueShapeFacts, owner, name, shape);
+  const resolvedValueShape = (shapes) => {
+    if (!shapes || shapes.size !== 1) return "unknown";
+    return [...shapes][0];
+  };
+  const expressionValueShape = (expression, activeNames = new Set()) => {
+    if (!expression) return "unknown";
+    if (
+      new Set([
+        "ArrowFunctionExpression",
+        "ClassDeclaration",
+        "ClassExpression",
+        "FunctionDeclaration",
+        "FunctionExpression",
+      ]).has(expression.type)
+    ) {
+      return "callable";
+    }
+    if (
+      new Set([
+        "ArrayExpression",
+        "BigIntLiteral",
+        "BooleanLiteral",
+        "NullLiteral",
+        "NumericLiteral",
+        "ObjectExpression",
+        "RegExpLiteral",
+        "StringLiteral",
+        "TemplateLiteral",
+        "UnaryExpression",
+      ]).has(expression.type)
+    ) {
+      return "data";
+    }
+    if (expression.type === "BinaryExpression") return "data";
+    if (expression.type === "Identifier") {
+      if (
+        classDefinitionNames.has(expression.name) ||
+        (callableDefinitionsByName.get(expression.name) ?? []).length > 0
+      ) {
+        return "callable";
+      }
+      if (activeNames.has(expression.name)) return "unknown";
+      const candidates = localValueExpressions.get(expression.name) ?? [];
+      if (candidates.length === 0) return "unknown";
+      const nextActive = new Set(activeNames);
+      nextActive.add(expression.name);
+      const shapes = new Set(
+        candidates.map((candidate) =>
+          expressionValueShape(candidate, nextActive),
+        ),
+      );
+      return resolvedValueShape(shapes);
+    }
+    if (
+      expression.type === "LogicalExpression" ||
+      expression.type === "ConditionalExpression"
+    ) {
+      const children =
+        expression.type === "LogicalExpression"
+          ? [expression.left, expression.right]
+          : [expression.consequent, expression.alternate];
+      return resolvedValueShape(
+        new Set(
+          children.map((child) => expressionValueShape(child, activeNames)),
+        ),
+      );
+    }
+    if (expression.type === "SequenceExpression") {
+      return expressionValueShape(expression.expressions.at(-1), activeNames);
+    }
+    if (
+      expression.type === "CallExpression" &&
+      new Set(["freeze", "seal"]).has(callName(expression)) &&
+      expression.callee?.type === "MemberExpression" &&
+      expression.callee.object?.type === "Identifier" &&
+      expression.callee.object.name === "Object" &&
+      expression.arguments.length === 1
+    ) {
+      return expressionValueShape(expression.arguments[0], activeNames);
+    }
+    return "unknown";
+  };
+  const propertyValueShape = (property) => {
+    if (property?.type === "ObjectMethod") {
+      if (property.kind === "get") return "accessor";
+      if (property.kind === "set") return null;
+      return "callable";
+    }
+    if (property?.type === "ObjectProperty") {
+      return expressionValueShape(property.value);
+    }
+    return "unknown";
+  };
+  const descriptorValueShape = (descriptor) => {
+    if (descriptor?.type !== "ObjectExpression") return "unknown";
+    let value = null;
+    let getter = false;
+    let invalidGetter = false;
+    for (const property of descriptor.properties) {
+      if (property.type === "SpreadElement" || property.computed) continue;
+      const names =
+        property.key?.type === "Identifier"
+          ? [property.key.name]
+          : staticPropertyName(property.key);
+      if (names.includes("get")) {
+        if (propertyValueShape(property) === "callable") getter = true;
+        else invalidGetter = true;
+      }
+      if (names.includes("value") && property.type === "ObjectProperty") {
+        value = property.value;
+      }
+    }
+    if ((getter || invalidGetter) && value) return "unknown";
+    if (invalidGetter) return "unknown";
+    if (getter) return "accessor";
+    return value ? expressionValueShape(value) : "unknown";
+  };
   const addAlias = (target, source) => {
     if (!target || !source || target === source) return;
     let sources = aliases.get(target);
@@ -2642,7 +2824,18 @@ export function scanStaticBuiltinExports(
           ? "computed-static-class-member"
           : "computed-class-member",
       );
-      for (const name of names) addPrototypeFact(owner, name);
+      for (const name of names) {
+        addPrototypeFact(owner, name);
+        addPrototypeValueShapeFact(
+          owner,
+          name,
+          method.kind === "get"
+            ? "accessor"
+            : method.kind === "set"
+              ? null
+              : "callable",
+        );
+      }
     }
     if (classNode.superClass) {
       const baseOwner =
@@ -3141,7 +3334,10 @@ export function scanStaticBuiltinExports(
           ? [property.key.name]
           : staticPropertyName(property.key, substitutions);
       observePrototypeRegistration(property, owner, property.key, names, idiom);
-      for (const name of names) addPrototypeFact(owner, name);
+      for (const name of names) {
+        addPrototypeFact(owner, name);
+        addPrototypeValueShapeFact(owner, name, propertyValueShape(property));
+      }
     }
   };
 
@@ -3211,6 +3407,9 @@ export function scanStaticBuiltinExports(
             names,
             `${idiom}-object-property`,
           );
+          for (const name of names) {
+            addValueShapeFact(target, name, propertyValueShape(property));
+          }
         }
         if (property.value?.type === "Identifier") {
           for (const name of names)
@@ -3364,6 +3563,11 @@ export function scanStaticBuiltinExports(
     if (node.type === "AssignmentExpression" && node.operator === "=") {
       if (isModuleExports(node.left)) {
         addFact(ROOT_EXPORT_OBJECT, "default", "module-exports-assignment");
+        addValueShapeFact(
+          ROOT_EXPORT_OBJECT,
+          "default",
+          expressionValueShape(node.right),
+        );
         let classBound = false;
         if (node.right?.type === "Identifier") {
           addBinding(ROOT_EXPORT_OBJECT, "default", node.right.name);
@@ -3496,7 +3700,14 @@ export function scanStaticBuiltinExports(
           names,
           "computed-prototype-assignment",
         );
-        for (const name of names) addPrototypeFact(prototype, name);
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            expressionValueShape(node.right),
+          );
+        }
       }
       if (
         node.left?.type === "MemberExpression" &&
@@ -3526,6 +3737,11 @@ export function scanStaticBuiltinExports(
         );
         for (const name of member.names) {
           addFact(member.target, name, "member-assignment");
+          addValueShapeFact(
+            member.target,
+            name,
+            expressionValueShape(node.right),
+          );
           if (node.right?.type === "Identifier")
             addBinding(member.target, name, node.right.name);
         }
@@ -3634,6 +3850,11 @@ export function scanStaticBuiltinExports(
         }
         for (const name of names) {
           addFact(target, name, idiom);
+          addValueShapeFact(
+            target,
+            name,
+            descriptorValueShape(node.arguments[2]),
+          );
         }
         const descriptorValue =
           node.arguments[2]?.type === "ObjectExpression"
@@ -3673,6 +3894,11 @@ export function scanStaticBuiltinExports(
         );
         for (const name of prototypeNames) {
           addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            descriptorValueShape(node.arguments[2]),
+          );
         }
       } else if (mutation === "Reflect.set") {
         const target = exportTargetId(node.arguments[0]);
@@ -3696,6 +3922,11 @@ export function scanStaticBuiltinExports(
         }
         for (const name of names) {
           addFact(target, name, "reflect-set");
+          addValueShapeFact(
+            target,
+            name,
+            expressionValueShape(node.arguments[2]),
+          );
           if (node.arguments[2]?.type === "Identifier") {
             addBinding(target, name, node.arguments[2].name);
           }
@@ -3722,7 +3953,14 @@ export function scanStaticBuiltinExports(
           names,
           "computed-prototype-reflect-set",
         );
-        for (const name of names) addPrototypeFact(prototype, name);
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          addPrototypeValueShapeFact(
+            prototype,
+            name,
+            expressionValueShape(node.arguments[2]),
+          );
+        }
       } else if (mutation === "Object.defineProperties") {
         const target = exportTargetId(node.arguments[0]);
         for (const name of objectPropertyNames(
@@ -3745,6 +3983,13 @@ export function scanStaticBuiltinExports(
               names,
               "define-properties",
             );
+            for (const name of names) {
+              addValueShapeFact(
+                target,
+                name,
+                descriptorValueShape(property.value),
+              );
+            }
             const descriptorValue =
               property.value?.type === "ObjectExpression"
                 ? (property.value.properties.find(
@@ -3804,7 +4049,12 @@ export function scanStaticBuiltinExports(
           names,
           `computed-prototype-${legacyAccessor}`,
         );
-        for (const name of names) addPrototypeFact(prototype, name);
+        for (const name of names) {
+          addPrototypeFact(prototype, name);
+          if (legacyAccessor === "__defineGetter__") {
+            addPrototypeValueShapeFact(prototype, name, "accessor");
+          }
+        }
       }
       if (
         node.callee?.type === "MemberExpression" &&
@@ -3820,6 +4070,11 @@ export function scanStaticBuiltinExports(
 
     if (node.type === "ExportDefaultDeclaration") {
       addFact(ROOT_EXPORT_OBJECT, "default", "esm-default-export");
+      addValueShapeFact(
+        ROOT_EXPORT_OBJECT,
+        "default",
+        expressionValueShape(node.declaration),
+      );
       if (node.declaration?.type === "ClassDeclaration") {
         const owner =
           node.declaration.id?.name ?? classExpressionOwner(node.declaration);
@@ -4272,6 +4527,17 @@ export function scanStaticBuiltinExports(
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
           }
+          for (const [name, sourceShapes] of
+            valueShapeFacts.get(source) ?? []) {
+            const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
+            for (const shape of sourceShapes)
+              addValueShapeFact(target, name, shape);
+            if (
+              (valueShapeFacts.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
+          }
         }
       }
       for (const [target, sources] of aliases) {
@@ -4281,6 +4547,17 @@ export function scanStaticBuiltinExports(
             for (const idiom of sourceIdioms) addFact(target, name, idiom);
             if ((facts.get(target)?.get(name)?.size ?? 0) !== before)
               graphChanged = true;
+          }
+          for (const [name, sourceShapes] of
+            valueShapeFacts.get(source) ?? []) {
+            const before = valueShapeFacts.get(target)?.get(name)?.size ?? 0;
+            for (const shape of sourceShapes)
+              addValueShapeFact(target, name, shape);
+            if (
+              (valueShapeFacts.get(target)?.get(name)?.size ?? 0) !== before
+            ) {
+              graphChanged = true;
+            }
           }
           for (const [name, localNames] of bindings.get(source) ?? []) {
             const before = bindings.get(target)?.get(name)?.size ?? 0;
@@ -4345,8 +4622,12 @@ export function scanStaticBuiltinExports(
     if (explicitlyClosedTableNodes.has(node)) continue;
     const names = [...(facts.get(registration.source)?.keys() ?? [])];
     if (registration.prototypeOwner && closedShapes.has(registration.source)) {
-      for (const name of names)
+      for (const name of names) {
         addPrototypeFact(registration.prototypeOwner, name);
+        for (const shape of valueShapeFacts.get(registration.source)?.get(name) ?? []) {
+          addPrototypeValueShapeFact(registration.prototypeOwner, name, shape);
+        }
+      }
       resolvedRegistrations.add(node);
       continue;
     }
@@ -4379,8 +4660,13 @@ export function scanStaticBuiltinExports(
       for (const source of sources.values()) {
         if (!source.sourceOwner) continue;
         const before = prototypeFacts.get(owner)?.size ?? 0;
-        for (const name of prototypeFacts.get(source.sourceOwner) ?? [])
+        for (const name of prototypeFacts.get(source.sourceOwner) ?? []) {
           markInheritedPrototypeFact(owner, name);
+          for (const shape of
+            prototypeValueShapeFacts.get(source.sourceOwner)?.get(name) ?? []) {
+            addPrototypeValueShapeFact(owner, name, shape);
+          }
+        }
         if ((prototypeFacts.get(owner)?.size ?? 0) !== before)
           inheritedChanged = true;
       }
@@ -4397,8 +4683,13 @@ export function scanStaticBuiltinExports(
         );
         continue;
       }
-      for (const name of inherited)
+      for (const name of inherited) {
         addFact(target, name, "inherited-prototype-member");
+        for (const shape of
+          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+          addValueShapeFact(target, name, shape);
+        }
+      }
     }
   }
   propagateFactSources();
@@ -4514,11 +4805,94 @@ export function scanStaticBuiltinExports(
     }
   }
 
+  // constants.js authors platform tables side by side and selects one at
+  // runtime. Preserve that source-derived availability instead of treating the
+  // union inventory as a promise that every named constant exists everywhere.
+  // @ref LLP 0004#the-builtin-module-surface
+  const platformAvailabilityByExport = new Map();
+  if (
+    sourceKey === "node_constants" &&
+    sourcePath === "src/builtins/constants.js"
+  ) {
+    const darwinNames = new Set([
+      ...(facts.get("_signalsDarwin")?.keys() ?? []),
+      ...(facts.get("_errnoDarwin")?.keys() ?? []),
+    ]);
+    const linuxAndroidNames = new Set([
+      ...(facts.get("_signalsLinux")?.keys() ?? []),
+      ...(facts.get("_errnoLinux")?.keys() ?? []),
+    ]);
+    const fsFlags = callableDefinitionsByName.get("_fsFlags") ?? [];
+    if (fsFlags.length === 1) {
+      walkDirectFunctionBody(fsFlags[0].node, (node) => {
+        if (node.type !== "IfStatement") return;
+        const condition = text.slice(node.test.start ?? 0, node.test.end ?? 0);
+        if (
+          !condition.includes("_platform") ||
+          !condition.includes("linux") ||
+          !condition.includes("android")
+        ) {
+          return;
+        }
+        const collectFlagNames = (branch, destination) => {
+          walkAst(branch, (candidate) => {
+            if (
+              candidate.type !== "AssignmentExpression" ||
+              candidate.operator !== "=" ||
+              candidate.left?.type !== "MemberExpression" ||
+              candidate.left.object?.type !== "Identifier" ||
+              candidate.left.object.name !== "out"
+            ) {
+              return;
+            }
+            const name = directMemberName(candidate.left);
+            if (name) destination.add(name);
+          });
+        };
+        collectFlagNames(node.consequent, linuxAndroidNames);
+        collectFlagNames(node.alternate, darwinNames);
+      });
+    }
+    for (const exportName of facts.get(ROOT_EXPORT_OBJECT)?.keys() ?? []) {
+      const onDarwin = darwinNames.has(exportName);
+      const onLinuxAndroid = linuxAndroidNames.has(exportName);
+      if (onDarwin && !onLinuxAndroid) {
+        platformAvailabilityByExport.set(exportName, ["darwin"]);
+      } else if (onLinuxAndroid && !onDarwin) {
+        platformAvailabilityByExport.set(exportName, ["android", "linux"]);
+      }
+    }
+  }
+
   const specifiers = uniqueSorted(moduleSpecifiers);
+  const prototypeExportIdioms = new Set([
+    "exported-constructor-inherited-prototype",
+    "exported-constructor-prototype",
+  ]);
   const rows = [];
   for (const [exportName, idioms] of facts.get(ROOT_EXPORT_OBJECT) ?? []) {
     const exportIdioms = uniqueSorted(idioms);
     const enforcementRoute = routeForExport(exportName);
+    const valueShapes = new Set(
+      valueShapeFacts.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? [],
+    );
+    for (const localName of
+      bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName) ?? []) {
+      valueShapes.add(
+        expressionValueShape({ type: "Identifier", name: localName }),
+      );
+    }
+    if (exportIdioms.some((idiom) => prototypeExportIdioms.has(idiom))) {
+      const [ownerExportName, ...memberSegments] = exportName.split(".");
+      const memberName = memberSegments.join(".");
+      for (const localName of
+        bindings.get(ROOT_EXPORT_OBJECT)?.get(ownerExportName) ?? []) {
+        for (const shape of
+          prototypeValueShapeFacts.get(localName)?.get(memberName) ?? []) {
+          valueShapes.add(shape);
+        }
+      }
+    }
     const inheritedShape =
       exportName.includes("[[dynamic-table:inherited-") ||
       exportIdioms.some((idiom) =>
@@ -4539,7 +4913,12 @@ export function scanStaticBuiltinExports(
       sourceKey,
       sourceKind,
       surfaceType: "export",
+      valueShape: resolvedValueShape(valueShapes),
     };
+    const platformAvailability = platformAvailabilityByExport.get(exportName);
+    if (platformAvailability) {
+      metadata.platformAvailability = platformAvailability;
+    }
     if (inheritedShape) {
       metadata.inheritedShape = true;
       metadata.semanticRoles = ["inherited-export-shape"];

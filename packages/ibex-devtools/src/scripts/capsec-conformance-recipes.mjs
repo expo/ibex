@@ -16,7 +16,10 @@
 import crypto from "node:crypto";
 import { canonicalJson } from "./capsec-contract.mjs";
 import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
-import { authoredNonCapabilityBuiltinProbe } from "./capsec-builtin-public-probe-templates.mjs";
+import {
+  authoredNonCapabilityBuiltinProbe,
+  nonCapabilityBuiltinProbeResidualReason,
+} from "./capsec-builtin-public-probe-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
@@ -101,7 +104,9 @@ function requestedResourceKind(resource) {
 function definitionMap(capabilityDefinitions) {
   const definitions = capabilityDefinitions?.definitions;
   if (!Array.isArray(definitions) || definitions.length === 0) {
-    throw new Error("recipe generation requires checked capability definitions");
+    throw new Error(
+      "recipe generation requires checked capability definitions",
+    );
   }
   const byAction = new Map(
     definitions.map((definition) => [definition.id, definition]),
@@ -167,8 +172,7 @@ function constrainExampleForAction(example, action, definitionByAction) {
       constraints.stdioStreams,
     );
     if (requested.stream !== previousStream) {
-      requested.source.identity =
-        `conformance:${requested.source.kind}:${requested.stream}`;
+      requested.source.identity = `conformance:${requested.source.kind}:${requested.stream}`;
     }
   }
   if (constraints.stdioSourceKinds) {
@@ -180,8 +184,7 @@ function constrainExampleForAction(example, action, definitionByAction) {
       constraints.stdioSourceKinds,
     );
     if (requested.source.kind !== previousSourceKind) {
-      requested.source.identity =
-        `conformance:${requested.source.kind}:${requested.stream}`;
+      requested.source.identity = `conformance:${requested.source.kind}:${requested.stream}`;
     }
   }
   if (constraints.closedSurfaceClasses) {
@@ -242,7 +245,12 @@ function actionTemplate(action, occurrences, selectors, definitionByAction) {
       break;
     }
   }
-  occurrence ??= exampleForAction(occurrences, action, null, definitionByAction);
+  occurrence ??= exampleForAction(
+    occurrences,
+    action,
+    null,
+    definitionByAction,
+  );
   selector ??= exampleForAction(selectors, action, null, definitionByAction);
   if (!occurrence || !selector) return null;
   selector.cap = action;
@@ -821,7 +829,9 @@ function residualReasons({
     reasons.push("closed-surface-denial-probe-not-authored");
   } else if (plan.classification === "non-capability" && !publicSurfaceProbe) {
     if (scenario === "non-capability") {
-      reasons.push("non-capability-no-decision-probe-not-authored");
+      if (!publicSurfaceUnavailableReason) {
+        reasons.push("non-capability-no-decision-probe-not-authored");
+      }
     } else {
       reasons.push(`callback-invariant-${scenario}-probe-not-authored`);
     }
@@ -956,6 +966,7 @@ export function buildConformanceRecipeCatalog({
         scenario,
         route,
         liveByObservedKey,
+        target,
       });
     const nativePublicSurface = nativePublicProbeForPlan({
       plan,
@@ -976,17 +987,20 @@ export function buildConformanceRecipeCatalog({
       );
     }
     const publicSurfaceProbe = authoredPublicSurfaceProbes[0] ?? null;
+    const publicSurfaceUnavailableReason = publicSurfaceProbe
+      ? null
+      : (nonCapabilityBuiltinProbeResidualReason({
+          route,
+          liveByObservedKey,
+          target,
+        }) ?? nativePublicSurface.unavailableReason);
     const residual = residualReasons({
       plan,
       scenario,
       adapterProbe,
       adapterUnavailableReason: adapter.unavailableReason,
       publicSurfaceProbe,
-      publicSurfaceUnavailableReason:
-        effectBuiltinPublicSurfaceProbe === null &&
-        nonCapabilityBuiltinPublicSurfaceProbe === null
-          ? nativePublicSurface.unavailableReason
-          : null,
+      publicSurfaceUnavailableReason,
       route,
     });
     return {

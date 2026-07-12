@@ -1031,6 +1031,20 @@ records keep the report incomplete. Promotion remains closed until real
 executable evidence exists for every required fixture and the full matrix is
 green.
 
+Builtin public-surface evidence follows the same rule at value granularity.
+The source scanner records whether an export is data, a readable accessor, a
+callable, or unresolved, plus source-derived platform availability where the
+builtin authors conditional tables. A generic read recipe is valid only for a
+root data property or readable root accessor on the selected target; the
+loaded runtime must match the authored property descriptor, and accessor
+evidence actually invokes the getter. Retrieving a function, constructor, or
+prototype method is presence evidence rather than execution evidence, so those
+surfaces remain residual until a bounded call/setup recipe is authored.
+Manifest-builtin initialization may resolve exact manifest-owned private
+builtin dependencies without creating package import edges, but that exemption
+is scoped to synchronous body evaluation and does not suppress capability
+terminal checks or survive through an exported `require` closure.
+
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.

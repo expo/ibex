@@ -2,11 +2,11 @@
  * Source-bound public probes for builtin exports whose classification can be
  * demonstrated by importing and reading the exact export through Hermes.
  *
- * A read probe never calls a discovered function. That is intentional for a
- * non-capability row: it proves that the inventoried public export is present
- * on the loaded runtime while the conformance observer proves that access did
- * not cross a capability gate. Calls that need arguments or setup remain
- * residual until an explicit bounded template is authored.
+ * A generic read probe is emitted only for a source-proven data property or
+ * root accessor. Merely retrieving a discovered function, constructor, or
+ * prototype method does not execute that surface and therefore is not
+ * conformance evidence. Those callable surfaces remain residual until an
+ * explicit bounded call/setup template is authored.
  *
  * @ref LLP 0004#the-builtin-module-surface — builtin aliases share one
  * source-derived export inventory.
@@ -33,7 +33,7 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
   "ibex",
   "--features",
   "capsec-conformance-observer",
-  "capsec_public_builtin_recipe_batch",
+  "capsec_public_noncap_builtin_recipe_batch",
   "--",
   "--test-threads=1",
   "--nocapture",
@@ -43,6 +43,35 @@ const PROTOTYPE_IDIOMS = new Set([
   "exported-constructor-prototype",
   "exported-constructor-inherited-prototype",
 ]);
+const KNOWN_PLATFORMS = new Set(["android", "darwin", "linux"]);
+
+function platformForTarget(target) {
+  const triple =
+    typeof target === "string"
+      ? target
+      : typeof target?.triple === "string"
+        ? target.triple
+        : null;
+  if (!triple) return null;
+  if (triple.includes("android")) return "android";
+  if (triple.includes("apple-darwin")) return "darwin";
+  if (triple.includes("linux")) return "linux";
+  return null;
+}
+
+function platformAvailability(metadata) {
+  const availability = metadata?.platformAvailability;
+  if (availability === undefined) return null;
+  if (
+    !Array.isArray(availability) ||
+    availability.length === 0 ||
+    !availability.every((platform) => KNOWN_PLATFORMS.has(platform)) ||
+    canonicalJson(availability) !== canonicalJson(canonicalSet(availability))
+  ) {
+    return false;
+  }
+  return availability;
+}
 
 function canonicalModuleSpecifier(specifiers) {
   const ranked = canonicalSet(specifiers).sort((left, right) => {
@@ -87,13 +116,16 @@ function exportAccess(exportName, exportIdioms) {
   return { kind: "export-property", path: segments };
 }
 
-function sourceDescriptor(surface) {
+function sourceDescriptor(surface, target) {
   const metadata = surface?.metadata;
+  const availability = platformAvailability(metadata);
+  const targetPlatform = platformForTarget(target);
   if (
     metadata?.surfaceType !== "export" ||
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
     metadata.sourceKey === "node_os" ||
+    !new Set(["accessor", "data"]).has(metadata.valueShape) ||
     typeof metadata.exportName !== "string" ||
     metadata.exportName.length === 0 ||
     !Array.isArray(metadata.exportIdioms) ||
@@ -107,6 +139,9 @@ function sourceDescriptor(surface) {
     ) ||
     canonicalJson(metadata.moduleSpecifiers) !==
       canonicalJson(canonicalSet(metadata.moduleSpecifiers)) ||
+    availability === false ||
+    (availability &&
+      (!targetPlatform || !availability.includes(targetPlatform))) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length !== 1
   ) {
@@ -116,16 +151,26 @@ function sourceDescriptor(surface) {
   if (surface.observedKey !== expectedObservedKey) return null;
   const access = exportAccess(metadata.exportName, metadata.exportIdioms);
   const moduleSpecifier = canonicalModuleSpecifier(metadata.moduleSpecifiers);
-  if (!access || !moduleSpecifier) return null;
-  return {
+  if (
+    !access ||
+    !moduleSpecifier ||
+    !new Set(["export-property", "module-value"]).has(access.kind) ||
+    (metadata.valueShape === "accessor" && access.kind !== "export-property")
+  ) {
+    return null;
+  }
+  const descriptor = {
     kind: "builtin-export",
     sourceKey: metadata.sourceKey,
     exportName: metadata.exportName,
     exportIdioms: [...metadata.exportIdioms],
     moduleSpecifiers: [...metadata.moduleSpecifiers],
     sourceRef: surface.sourceRefs[0],
+    valueShape: metadata.valueShape,
     access,
   };
+  if (availability) descriptor.platformAvailability = [...availability];
+  return descriptor;
 }
 
 export function authoredNonCapabilityBuiltinProbe({
@@ -133,6 +178,7 @@ export function authoredNonCapabilityBuiltinProbe({
   scenario,
   route,
   liveByObservedKey,
+  target,
 }) {
   if (
     plan.classification !== "non-capability" ||
@@ -156,6 +202,7 @@ export function authoredNonCapabilityBuiltinProbe({
   }
   const descriptor = sourceDescriptor(
     liveByObservedKey.get(surfaceObservedKey),
+    target,
   );
   if (!descriptor) return null;
   const moduleSpecifier = canonicalModuleSpecifier(descriptor.moduleSpecifiers);
@@ -180,4 +227,23 @@ export function authoredNonCapabilityBuiltinProbe({
       expectedActionIds: [],
     },
   };
+}
+
+export function nonCapabilityBuiltinProbeResidualReason({
+  route,
+  liveByObservedKey,
+  target,
+}) {
+  if (route.surfaceObservedKeys.length !== 1) return null;
+  const surface = liveByObservedKey.get(route.surfaceObservedKeys[0]);
+  const availability = platformAvailability(surface?.metadata);
+  const targetPlatform = platformForTarget(target);
+  if (
+    availability &&
+    targetPlatform &&
+    !availability.includes(targetPlatform)
+  ) {
+    return "builtin-export-not-available-on-target";
+  }
+  return null;
 }
