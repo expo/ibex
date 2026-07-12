@@ -47,13 +47,16 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-/// Run `ibex run app.js` (allow-all default) with `app` as the program body,
-/// enforcing a wall-clock timeout so a regressed deadlock fails the test instead
-/// of hanging the suite forever. Extra files can be pre-written into `dir`.
+/// Run `ibex capsec audit app.js` with `app` as the program body, enforcing a
+/// wall-clock timeout so a regressed deadlock fails the test instead of hanging
+/// the suite forever. Production execution intentionally refuses while this
+/// target has no verified advertisement; these bridge-parity tests use the
+/// explicit diagnostic entry point. Extra files can be pre-written into `dir`.
 fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
     write_text(&dir.join("app.js"), app);
     let mut child = Command::new(IBEX)
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -820,7 +823,8 @@ setTimeout(function () {
 
     let mut command = Command::new(IBEX);
     command
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
