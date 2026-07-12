@@ -533,6 +533,8 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: runtime invocation is not source-descriptor bound`,
     );
   }
+  const callbackInvariant =
+    authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
   if (
     !Number.isSafeInteger(authored.expectedTypedDecisionCount) ||
     authored.expectedTypedDecisionCount < 0 ||
@@ -550,9 +552,10 @@ function validateRuntimeInvocation(observation, recipe) {
     !authored.expectedActionIds.every(
       (actionId) => typeof actionId === "string" && actionId.length > 0,
     ) ||
-    authored.expectedActionIds.some(
-      (actionId) => !recipe.actionIds.includes(actionId),
-    ) ||
+    (!callbackInvariant &&
+      authored.expectedActionIds.some(
+        (actionId) => !recipe.actionIds.includes(actionId),
+      )) ||
     (authored.expectedTypedDecisionCount > 0 &&
       authored.expectedActionIds.length === 0) ||
     canonicalJson(authored.allowedCoverageEdgeIds) !==
@@ -564,8 +567,6 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: malformed authored runtime expectations`,
     );
   }
-  const callbackInvariant =
-    authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
   if (
     callbackInvariant &&
     (!Array.isArray(authored.expectedTypedOutcomes) ||
@@ -807,6 +808,46 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       : coverageTerminalMap(coverage);
   const callbackInvariant =
     authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
+  if (callbackInvariant) {
+    // Callback/control surfaces are deliberately classified as
+    // non-capabilities. Their runtime invariant may nevertheless exercise one
+    // independently reviewed effect edge (for example, an environment read
+    // before and after revocation). Bind that auxiliary action to the checked
+    // coverage edge instead of pretending it belongs to the callback surface.
+    const auxiliaryEdgeId =
+      authored.sourceDescriptor?.auxiliaryDecisionEdgeId ?? null;
+    const expectedAuxiliaryEdgeIds = auxiliaryEdgeId ? [auxiliaryEdgeId] : [];
+    const auxiliaryEdge = auxiliaryEdgeId
+      ? coverage?.edges?.find((edge) => edge.id === auxiliaryEdgeId)
+      : null;
+    const auxiliaryActions = auxiliaryEdge
+      ? canonicalSet((auxiliaryEdge.effects ?? []).map((effect) => effect.cap))
+      : [];
+    const auxiliaryStages = auxiliaryEdge
+      ? new Set(
+          (auxiliaryEdge.effects ?? []).flatMap((effect) => effect.stages ?? []),
+        )
+      : new Set();
+    if (
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson(expectedAuxiliaryEdgeIds) ||
+      (auxiliaryEdgeId !== null &&
+        (auxiliaryEdge?.classification !== "effects" ||
+          canonicalJson(auxiliaryActions) !==
+            canonicalJson(authored.expectedActionIds) ||
+          !authored.expectedTypedStages.every((stage) =>
+            auxiliaryStages.has(stage),
+          ))) ||
+      (auxiliaryEdgeId === null &&
+        (authored.expectedTypedDecisionCount !== 0 ||
+          authored.expectedActionIds.length !== 0 ||
+          authored.expectedTypedStages.length !== 0))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: callback auxiliary decision is not coverage-bound`,
+      );
+    }
+  }
   for (const [decisionIndex, decision] of observation.typedDecisions.entries()) {
     exactKeys(
       decision,

@@ -37,6 +37,17 @@ const coverage = {
       id: "edge.terminal",
       surface: { kind: "native-op", name: "__exactPublic" },
     },
+    {
+      id: "edge.callback-terminal",
+      classification: "effects",
+      surface: { kind: "native-op", name: "__exactGetEnv" },
+      effects: [
+        {
+          cap: "env:read",
+          stages: ["requested", "commit"],
+        },
+      ],
+    },
   ],
 };
 
@@ -590,7 +601,7 @@ function completeCallbackCatalog() {
       name: "__exactCallbackCarrier",
     },
     executionMechanism: "scheduled-public-environment-revocation-recheck",
-    auxiliaryDecisionEdgeId: "edge.terminal",
+    auxiliaryDecisionEdgeId: "edge.callback-terminal",
   };
   Object.assign(recipe, {
     fixtureId: "fixture.callback.generation-recheck",
@@ -631,7 +642,7 @@ function completeCallbackCatalog() {
         "dynamic-session",
         "missing-authority",
       ],
-      allowedCoverageEdgeIds: ["edge.terminal"],
+      allowedCoverageEdgeIds: ["edge.callback-terminal"],
       expectedActionIds: ["env:read"],
     },
   });
@@ -759,6 +770,8 @@ function globalReadObservation(recipe) {
 
 function callbackRuntimeObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
+  const auxiliaryEdgeId =
+    invocation.sourceDescriptor.auxiliaryDecisionEdgeId;
   const packagePrincipal = {
     kind: "package",
     name: "image-lib",
@@ -771,7 +784,7 @@ function callbackRuntimeObservation(recipe) {
     decisionSet: {
       decisionSetSchema: "ibex/capsec-decision-set/1",
       operationId: `fixture-callback-${suffix}`,
-      atomicityGroup: "edge.terminal.decision",
+      atomicityGroup: `${auxiliaryEdgeId}.decision`,
       combination: "conjunction",
       context: {
         stage,
@@ -797,7 +810,7 @@ function callbackRuntimeObservation(recipe) {
     },
     gates: [
       {
-        coverageEdgeId: "edge.terminal",
+        coverageEdgeId: auxiliaryEdgeId,
         targetCell: "complete",
         definitionAndEdgePredicatesSatisfied: true,
       },
@@ -1125,6 +1138,45 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/malformed runtime public observation/);
+
+    const wrongAuxiliary = structuredClone(recipe);
+    wrongAuxiliary.publicSurfaceProbe.invocation.allowedCoverageEdgeIds = [
+      "edge.terminal",
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongAuxiliary,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/auxiliary decision is not coverage-bound/);
+
+    const wrongAuxiliaryAction = structuredClone(recipe);
+    wrongAuxiliaryAction.publicSurfaceProbe.invocation.expectedActionIds = [
+      "fs:read",
+    ];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongAuxiliaryAction,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/auxiliary decision is not coverage-bound/);
+
+    const driftedCoverage = structuredClone(coverage);
+    driftedCoverage.edges.find(
+      (edge) => edge.id === "edge.callback-terminal",
+    ).effects[0].cap = "fs:read";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage: driftedCoverage,
+      }),
+    ).toThrow(/auxiliary decision is not coverage-bound/);
   });
 
   test("rejects hand-labeled callback terminals", () => {
