@@ -1,8 +1,9 @@
-//! Informational large-read authorization benchmark for ENG-24253.
+//! Informational retained-descriptor authorization benchmark for ENG-24253.
 //!
-//! Compares raw sequential I/O, the former full typed decision per 64 KiB
-//! chunk, and a descriptor-local lease that performs one full repeat decision
-//! while checking immutable generation tuples for subsequent chunks.
+//! Compares raw I/O, the former full typed decision per use, and a
+//! descriptor-local lease that performs one full repeat decision while
+//! checking immutable generation tuples for subsequent uses. It exercises both
+//! a 64 MiB sequential read and many distinct operations on one retained fd.
 
 use std::collections::BTreeMap;
 use std::hint::black_box;
@@ -22,6 +23,7 @@ use capsec_semantics::registry::{ValidatedProfile, PROFILE, SEMANTIC_CORE};
 
 const ZERO_DIGEST: &str = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const FILE_BYTES: usize = 64 * 1024 * 1024;
+const REPEATED_FD_OPERATIONS: usize = 25_000;
 
 fn context_and_decision() -> (VerifiedDecisionContext, DecisionSet, EffectGate) {
     let definitions = ValidatedProfile::from_json(
@@ -184,6 +186,53 @@ fn run(
     start.elapsed()
 }
 
+fn run_repeated_fd_operations(
+    file: &mut std::fs::File,
+    arm: Arm,
+    context: &VerifiedDecisionContext,
+    decision: &DecisionSet,
+    gate: &EffectGate,
+) -> Duration {
+    let start = Instant::now();
+    let mut byte = [0_u8; 1];
+    let leased_generations = context.authority().generations;
+    let mut lease_active = false;
+    for index in 0..REPEATED_FD_OPERATIONS {
+        match arm {
+            Arm::Baseline => {}
+            Arm::FullPerChunk => {
+                black_box(evaluate_decision_set(
+                    context,
+                    decision,
+                    std::slice::from_ref(gate),
+                    Workflow::ProductionEnforce,
+                    &|_| None,
+                ))
+                .unwrap();
+            }
+            Arm::DescriptorLease => {
+                if !lease_active || context.authority().generations != leased_generations {
+                    black_box(evaluate_decision_set(
+                        context,
+                        decision,
+                        std::slice::from_ref(gate),
+                        Workflow::ProductionEnforce,
+                        &|_| None,
+                    ))
+                    .unwrap();
+                    lease_active = true;
+                }
+                black_box(context.authority().generations);
+            }
+        }
+        file.seek(SeekFrom::Start((index % FILE_BYTES) as u64))
+            .unwrap();
+        file.read_exact(&mut byte).unwrap();
+        black_box(byte[0]);
+    }
+    start.elapsed()
+}
+
 fn median(mut values: Vec<Duration>) -> Duration {
     values.sort();
     values[values.len() / 2]
@@ -208,5 +257,19 @@ fn main() {
     let lease = samples(Arm::DescriptorLease);
     println!(
         "capsec descriptor authorization (64 MiB): baseline={baseline:?} full-per-chunk={former:?} generation-lease={lease:?}"
+    );
+
+    let mut repeated_samples = |arm| {
+        median(
+            (0..5)
+                .map(|_| run_repeated_fd_operations(&mut file, arm, &context, &decision, &gate))
+                .collect(),
+        )
+    };
+    let repeated_baseline = repeated_samples(Arm::Baseline);
+    let repeated_former = repeated_samples(Arm::FullPerChunk);
+    let repeated_lease = repeated_samples(Arm::DescriptorLease);
+    println!(
+        "capsec retained descriptor ({REPEATED_FD_OPERATIONS} operations): baseline={repeated_baseline:?} full-per-operation={repeated_former:?} generation-lease={repeated_lease:?}"
     );
 }

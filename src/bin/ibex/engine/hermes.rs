@@ -2199,6 +2199,64 @@ mod tests {
         protected_objects: Option<Vec<serde_json::Value>>,
         mutate: impl FnOnce(&mut serde_json::Value),
     ) -> (crate::host::Host, String) {
+        build_armed_test_host_control(
+            project_root,
+            allow_write,
+            allow_read,
+            allow_list,
+            extra_floor,
+            Vec::new(),
+            true,
+            0,
+            protected_objects,
+            mutate,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn install_armed_test_host_with_control(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+        allow_read: bool,
+        allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
+        extra_escalation_ceiling: Vec<serde_json::Value>,
+        deny_ungranted_fs: bool,
+        fs_principal_index: usize,
+    ) -> (HostResetGuard, String, crate::host::Host) {
+        let (host, digest) = build_armed_test_host_control(
+            project_root,
+            allow_write,
+            allow_read,
+            allow_list,
+            extra_floor,
+            extra_escalation_ceiling,
+            deny_ungranted_fs,
+            fs_principal_index,
+            None,
+            |_| {},
+        );
+        assert_ne!(
+            crate::host::abi::install_host(host.clone()),
+            0,
+            "test Host context token allocation"
+        );
+        (HostResetGuard, digest, host)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build_armed_test_host_control(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+        allow_read: bool,
+        allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
+        extra_escalation_ceiling: Vec<serde_json::Value>,
+        deny_ungranted_fs: bool,
+        fs_principal_index: usize,
+        protected_objects: Option<Vec<serde_json::Value>>,
+        mutate: impl FnOnce(&mut serde_json::Value),
+    ) -> (crate::host::Host, String) {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
@@ -2249,7 +2307,7 @@ mod tests {
                     "cap":"fs:list",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
                 }));
-            } else {
+            } else if deny_ungranted_fs {
                 denials.push(serde_json::json!({
                     "cap":"fs:list",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
@@ -2260,7 +2318,7 @@ mod tests {
                     "cap":"fs:read",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
                 }));
-            } else {
+            } else if deny_ungranted_fs {
                 denials.push(serde_json::json!({
                     "cap":"fs:read",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
@@ -2271,19 +2329,23 @@ mod tests {
                     "cap":"fs:write",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
                 }));
-            } else {
+            } else if deny_ungranted_fs {
                 denials.push(serde_json::json!({
                     "cap":"fs:write",
                     "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
                 }));
             }
-            value["principals"][0]["floor"] = serde_json::Value::Array(floor);
-            value["principals"][0]["denials"] = serde_json::Value::Array(denials);
+            value["principals"][fs_principal_index]["floor"] = serde_json::Value::Array(floor);
+            value["principals"][fs_principal_index]["denials"] = serde_json::Value::Array(denials);
         }
-        value["principals"][0]["floor"]
+        value["principals"][fs_principal_index]["floor"]
             .as_array_mut()
             .unwrap()
             .extend(extra_floor);
+        value["principals"][fs_principal_index]["escalationCeiling"]
+            .as_array_mut()
+            .unwrap()
+            .extend(extra_escalation_ceiling);
         mutate(&mut value);
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
@@ -3027,6 +3089,125 @@ mod tests {
             (4..=6).contains(&decisions),
             "two 4 MiB reads performed {decisions} full decisions"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-revoked-read-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let large = root.join("large.bin");
+        let file = std::fs::File::create(&large).unwrap();
+        file.set_len(128 * 1024 * 1024).unwrap();
+        drop(file);
+        let package = root.join("node_modules/image-lib");
+        std::fs::create_dir_all(&package).unwrap();
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.join("index.js"),
+            r#"module.exports = function(path) {
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                try { __exactReadFile(path); return 'completed'; }
+                catch (error) { return String(error && error.message || error); }
+            };"#,
+        )
+        .unwrap();
+        let entry = root.join("app.js");
+        std::fs::write(
+            &entry,
+            format!(
+                "globalThis.__revokedReadOutcome = require('image-lib')({:?});\n",
+                large.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        struct RestoreCwd(std::path::PathBuf);
+        impl Drop for RestoreCwd {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+        let cwd = RestoreCwd(std::env::current_dir().unwrap());
+        std::env::set_current_dir(&root).unwrap();
+
+        let read_authority = serde_json::json!({
+            "cap":"fs:read",
+            "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
+        });
+        let (_reset, digest, host) = install_armed_test_host_with_control(
+            Some(&root),
+            false,
+            false,
+            false,
+            Vec::new(),
+            vec![read_authority.clone()],
+            false,
+            1,
+        );
+        let principal: capsec_semantics::model::Principal =
+            serde_json::from_value(serde_json::json!({
+                "kind":"package",
+                "name":"image-lib",
+                "integrity":"sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                "locator":"image-lib@2.4.1"
+            }))
+            .unwrap();
+        let selector: capsec_semantics::model::AuthoritySelector =
+            serde_json::from_value(read_authority).unwrap();
+        let grant_id = capsec_semantics::model::NonEmptyString::new("stream-read-grant").unwrap();
+        assert!(host
+            .grant_typed_dynamic(grant_id.clone(), principal, selector)
+            .unwrap());
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let before = host.typed_decision_count();
+        let control = host.clone();
+        let revoked_id = grant_id.clone();
+        let (sent, received) = std::sync::mpsc::sync_channel(1);
+        let revoker = std::thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while control.typed_decision_count() <= before {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "read never reached its first typed decision"
+                );
+                std::thread::yield_now();
+            }
+            let revoked = control.revoke_typed_dynamic(&revoked_id).unwrap();
+            sent.send(revoked).unwrap();
+        });
+        engine.run_file(entry.to_str().unwrap()).await.unwrap();
+        let outcome = engine
+            .eval_immediate("globalThis.__revokedReadOutcome")
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        assert!(
+            received
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap(),
+            "dynamic read grant was not revoked"
+        );
+        revoker.join().unwrap();
+        assert!(
+            outcome.contains("Permission denied"),
+            "read continued after authority revocation: {outcome}"
+        );
+        assert!(host.typed_decision_count() >= before + 2);
+        drop(cwd);
         std::fs::remove_dir_all(root).unwrap();
     }
 

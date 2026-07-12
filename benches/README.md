@@ -131,9 +131,9 @@ the default iteration count.)
 
 ## CapSec descriptor authorization
 
-`cargo bench --bench capsec_descriptor_authorization` measures 64 MiB
-sequential reads in three arms: raw I/O, the former full typed semantic
-decision on every 64 KiB chunk, and the generation-checked descriptor lease.
-It is informational and prints median timings; correctness is protected by the
-large-read engine test, including the requirement that a lease never survives
-descriptor reuse.
+`cargo bench --bench capsec_descriptor_authorization` measures two retained-fd
+workloads: a 64 MiB sequential read and 25,000 distinct operations on one open
+descriptor. Each has three arms: raw I/O, the former full typed semantic
+decision on every use, and the generation-checked descriptor lease. It is
+informational and prints median timings; correctness is protected by engine
+tests for decision count, revocation, and descriptor reuse.
