@@ -775,6 +775,11 @@ closed: individual environment reads return `undefined`, enumeration returns an
 empty object, cwd disclosure returns `undefined`, and cwd mutation is denied
 without changing the host process directory. A live armed fixture covers all
 four boundaries.
+The same live fixture invokes shell exec, synchronous spawn, and asynchronous
+spawn with a real marker-file command. All three are denied at the armed native
+boundary and the marker remains absent, so executable selection, child
+environment, stdio, and IPC option parsing cannot reach process creation via
+the legacy `process:spawn` oracle.
 The armed import gate also carries an artifact-independent terminal-builtin
 deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
 (including `node:` aliases and subpaths). A deliberately overbroad but

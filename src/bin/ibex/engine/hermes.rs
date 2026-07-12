@@ -2301,6 +2301,8 @@ mod tests {
         let _lock = hermes_engine_test_lock().lock().await;
         let original_cwd = std::env::current_dir().unwrap();
         let target = std::env::temp_dir();
+        let marker = target.join(format!("ibex-armed-spawn-marker-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
         let (_reset, digest) = install_armed_test_host();
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let script = format!(
@@ -2310,13 +2312,19 @@ mod tests {
                 if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
                 if (__exactGetCwd() === undefined) denied++;
                 try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
+                __exactEnsureChildProcess();
+                try {{ __exactExecSync('touch ' + {marker:?}, '{{}}'); }} catch (_) {{ denied++; }}
+                try {{ __exactSpawnSync('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
+                try {{ __exactSpawn('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             target = target.to_str().unwrap(),
+            marker = marker.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("4"));
+        assert_eq!(outcome.as_deref(), Some("7"));
         assert_eq!(std::env::current_dir().unwrap(), original_cwd);
+        assert!(!marker.exists());
     }
 
     #[cfg(unix)]
