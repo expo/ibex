@@ -2745,18 +2745,25 @@ mod tests {
             let handle = scope.spawn(|| {
                 run_transpile_override(&entry, &output, "es2015", source_a, &script_identity)
             });
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while !ready.exists() {
-                assert!(
-                    std::time::Instant::now() < deadline,
-                    "transpiler did not reach barrier"
-                );
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !ready.exists() && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
-            std::fs::write(&entry, source_b).unwrap();
-            std::fs::write(&entry, source_a).unwrap();
+            let reached_barrier = ready.exists();
+            if reached_barrier {
+                std::fs::write(&entry, source_b).unwrap();
+                std::fs::write(&entry, source_a).unwrap();
+            }
+            // Always release the child before joining. Panicking on the
+            // deadline while a scoped child is deliberately blocked on this
+            // file makes scope unwinding wait forever.
             std::fs::write(&release, []).unwrap();
-            handle.join().unwrap().unwrap();
+            let result = handle.join().unwrap();
+            assert!(
+                reached_barrier,
+                "transpiler did not reach barrier: {result:?}"
+            );
+            result.unwrap();
         });
 
         assert_eq!(std::fs::read_to_string(&output).unwrap(), source_a);
@@ -2813,14 +2820,23 @@ mod tests {
                     &identity,
                 )
             });
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while !ready.exists() {
-                assert!(std::time::Instant::now() < deadline);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            while !ready.exists() && std::time::Instant::now() < deadline {
                 std::thread::sleep(std::time::Duration::from_millis(2));
             }
-            std::fs::write(&helper, "module.exports = 'new';\n").unwrap();
+            let reached_barrier = ready.exists();
+            if reached_barrier {
+                std::fs::write(&helper, "module.exports = 'new';\n").unwrap();
+            }
+            // See the sibling ABA test: a timeout must not strand the scoped
+            // child in its intentional busy-wait.
             std::fs::write(&release, []).unwrap();
-            handle.join().unwrap().unwrap_err()
+            let result = handle.join().unwrap();
+            assert!(
+                reached_barrier,
+                "transpiler did not reach barrier: {result:?}"
+            );
+            result.unwrap_err()
         });
         assert!(
             error
@@ -3344,9 +3360,17 @@ const asyncIterable = {
             std::path::Path::new("fixture.js"),
             source
         ));
-        assert!(!ModuleLoader::needs_js_downlevel(
+        assert!(ModuleLoader::needs_js_downlevel(
             std::path::Path::new("bundle.js"),
             source
+        ));
+        // Runtime bundles may contain top-level syntax that is legal only in
+        // their wrapper, so plain bundles remain exempt. The exemption must be
+        // content-aware: a bundle that actually contains unsupported syntax is
+        // still lowered before Hermes sees it.
+        assert!(!ModuleLoader::needs_js_downlevel(
+            std::path::Path::new("bundle.js"),
+            "return (function () { return 42; })();"
         ));
     }
 

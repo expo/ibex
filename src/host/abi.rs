@@ -858,6 +858,37 @@ fn install_sqlite_authorizer(db: &Connection) {
     db.authorizer(Some(sqlite_authorizer));
 }
 
+fn stable_legacy_json_text(value: &serde_json::Value, output: &mut String) {
+    match value {
+        serde_json::Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                stable_legacy_json_text(value, output);
+            }
+            output.push(']');
+        }
+        serde_json::Value::Object(values) => {
+            let mut entries = values.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.as_bytes().cmp(right.as_bytes()));
+            output.push('{');
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output
+                    .push_str(&serde_json::to_string(key).expect("JSON object key must serialize"));
+                output.push(':');
+                stable_legacy_json_text(value, output);
+            }
+            output.push('}');
+        }
+        _ => output.push_str(&value.to_string()),
+    }
+}
+
 /// Convert an ordinary user binding using the legacy SQLite semantics. This
 /// function deliberately does not recognize the private transport envelope:
 /// envelope decoding happens exactly once at the binding boundary, otherwise
@@ -888,18 +919,25 @@ fn plain_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
                 .map(|value| value.as_u64().unwrap_or_default() as u8)
                 .collect(),
         ),
-        serde_json::Value::Object(value) => rusqlite::types::Value::Text(value.iter().fold(
-            String::new(),
-            |mut out, (key, value)| {
-                if !out.is_empty() {
-                    out.push(',');
-                }
-                out.push_str(key);
-                out.push('=');
-                out.push_str(&value.to_string());
-                out
-            },
-        )),
+        serde_json::Value::Object(value) => {
+            // serde_json's map representation is feature-unified across the
+            // workspace. Do not let an unrelated dependency enabling
+            // `preserve_order` silently change the legacy SQLite text value.
+            let mut entries = value.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.as_bytes().cmp(right.as_bytes()));
+            rusqlite::types::Value::Text(entries.into_iter().fold(
+                String::new(),
+                |mut out, (key, value)| {
+                    if !out.is_empty() {
+                        out.push(',');
+                    }
+                    out.push_str(key);
+                    out.push('=');
+                    stable_legacy_json_text(value, &mut out);
+                    out
+                },
+            ))
+        }
     }
 }
 
@@ -4808,11 +4846,12 @@ mod tests {
                 }
             }
         });
-        assert!(matches!(
+        assert_eq!(
             to_sql_value(&value),
-            rusqlite::types::Value::Text(text)
-                if text == "$ibexSqliteBindingV1={\"base64\":\"AAEC/v8=\",\"kind\":\"blob\"}"
-        ));
+            rusqlite::types::Value::Text(
+                "$ibexSqliteBindingV1={\"base64\":\"AAEC/v8=\",\"kind\":\"blob\"}".into(),
+            ),
+        );
     }
 
     #[test]

@@ -515,7 +515,7 @@ impl CapabilityManager {
     fn fence_denial(&self, capability: &str) -> Option<&'static str> {
         let mut parts = capability.splitn(3, ':');
         let scope = parts.next().unwrap_or("");
-        let action = parts.next();
+        let _action = parts.next();
         let resource = parts.next();
         match scope {
             "fs" => {
@@ -530,12 +530,6 @@ impl CapabilityManager {
                 (!inside).then_some("root_dir")
             }
             "network" => {
-                // allowed_hosts is an outbound destination fence. Applying it
-                // to network:listen made an embedder's remote-host allowlist
-                // unexpectedly prevent binding a local server.
-                if action == Some("listen") {
-                    return None;
-                }
                 let hosts = self.allowed_hosts.as_deref()?;
                 // Endpoint values are `<host>` or `<host>:<port>`; an entry
                 // without a port covers the host across ports via the same
@@ -1499,36 +1493,55 @@ fn matches_capability(pattern: &str, value: &str) -> bool {
 }
 
 fn network_endpoint_match(pattern: &str, value: &str) -> bool {
-    if pattern == value {
-        return true;
-    }
     // Network endpoint capabilities are emitted as `host:port` for socket
     // operations and, depending on URL parser shape, fetch/WebSocket authorities.
     // A policy resource without a port grants that host across ports, but it must
     // not become a generic string prefix (`example.com` must not match
     // `example.com.evil`). Keep this scope-specific so generic capability
     // resources remain exact unless they use `/**`.
-    fn split_endpoint(endpoint: &str) -> (&str, Option<&str>) {
+    fn split_endpoint(endpoint: &str) -> Option<(&str, Option<&str>)> {
         if endpoint.starts_with('[') {
-            if let Some(end) = endpoint.find(']') {
-                let host = &endpoint[1..end];
-                let port = endpoint[end + 1..].strip_prefix(':');
-                return (host, port);
+            let end = endpoint.find(']')?;
+            let host = &endpoint[1..end];
+            if host.parse::<std::net::Ipv6Addr>().is_err() {
+                return None;
             }
+            let remainder = &endpoint[end + 1..];
+            return match remainder {
+                "" => Some((host, None)),
+                suffix if suffix.starts_with(':') => {
+                    let port = &suffix[1..];
+                    port.parse::<u16>().ok().map(|_| (host, Some(port)))
+                }
+                _ => None,
+            };
+        }
+        if endpoint.contains(['[', ']']) || endpoint.is_empty() {
+            return None;
         }
         // A whole unbracketed IPv6 literal is a host-only policy resource.
         // Never reinterpret its final hextet as a decimal port. Concrete
         // host+port resources emitted by native code are always bracketed.
         if endpoint.bytes().filter(|byte| *byte == b':').count() > 1 {
-            return (endpoint, None);
+            return endpoint
+                .parse::<std::net::Ipv6Addr>()
+                .ok()
+                .map(|_| (endpoint, None));
         }
         match endpoint.rsplit_once(':') {
-            Some((host, port)) if port.parse::<u16>().is_ok() => (host, Some(port)),
-            _ => (endpoint, None),
+            Some((host, port)) if !host.is_empty() && port.parse::<u16>().is_ok() => {
+                Some((host, Some(port)))
+            }
+            Some(_) => None,
+            None => Some((endpoint, None)),
         }
     }
-    let (pattern_host, pattern_port) = split_endpoint(pattern);
-    let (value_host, value_port) = split_endpoint(value);
+    let Some((pattern_host, pattern_port)) = split_endpoint(pattern) else {
+        return false;
+    };
+    let Some((value_host, value_port)) = split_endpoint(value) else {
+        return false;
+    };
     pattern_host == value_host && pattern_port.is_none_or(|port| value_port == Some(port))
 }
 
@@ -1764,6 +1777,10 @@ mod tests {
         assert!(!network_endpoint_match("[::1]:80", "[::1]:443"));
         assert!(!network_endpoint_match("::1", "[::10]:443"));
         assert!(!network_endpoint_match("[::1]", "[::1].evil:443"));
+        assert!(!network_endpoint_match("[::1]", "[::1]:not-a-port"));
+        assert!(!network_endpoint_match("[::1]", "[::1]:65536"));
+        assert!(!network_endpoint_match("[::1]", "[::1"));
+        assert!(!network_endpoint_match("[not-ipv6]", "[not-ipv6]:443"));
 
         assert!(matches_capability(
             "network:connect:::1",
