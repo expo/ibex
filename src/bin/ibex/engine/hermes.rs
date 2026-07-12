@@ -366,7 +366,7 @@ fn local_hermes_tool_candidates(root: &Path, tool: &str) -> Vec<PathBuf> {
 }
 
 /// Find the Hermes binary
-fn find_hermes_binary() -> Result<PathBuf> {
+pub(crate) fn find_hermes_binary() -> Result<PathBuf> {
     for root in workspace_roots() {
         for path in local_hermes_tool_candidates(&root, "hermes") {
             if path.exists() {

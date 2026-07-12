@@ -23,6 +23,7 @@ pub mod policy;
 pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
+use anyhow::Context as _;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, RwLock};
@@ -1466,9 +1467,24 @@ impl Host {
     ) -> anyhow::Result<ResolvedModule> {
         let meta = self.module_loader.resolve_meta(specifier, referrer)?;
         if let Some(path) = meta.path.as_ref() {
-            let cap = format!("fs:read:{}", path.to_string_lossy());
-            if !self.check_capability("module-loader", &cap) {
-                anyhow::bail!("Permission denied for {}", path.display());
+            if let Some(snapshot) = self.armed_snapshot.as_deref() {
+                let canonical = std::fs::canonicalize(path).with_context(|| {
+                    format!("failed to authenticate module path {}", path.display())
+                })?;
+                let components = host_path_components(&canonical)?;
+                let root = self
+                    .typed_imports
+                    .keys()
+                    .find(|principal| principal.is_root())
+                    .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
+                snapshot
+                    .logical_path_for_host_components(root, &components)
+                    .map_err(|_| anyhow::anyhow!("Permission denied for {}", path.display()))?;
+            } else {
+                let cap = format!("fs:read:{}", path.to_string_lossy());
+                if !self.check_capability("module-loader", &cap) {
+                    anyhow::bail!("Permission denied for {}", path.display());
+                }
             }
         }
         Ok(meta)
@@ -1544,6 +1560,17 @@ fn typed_import_allowed(
     policy: &capsec_semantics::arming::PrincipalImportPolicy,
     specifier: &str,
 ) -> bool {
+    // Relative modules remain inside the loader-attributed graph, and the
+    // absolute entry path is selected by the trusted launcher. Package/builtin
+    // reachability is the authority-bearing axis below; do not mistake a local
+    // source filename for a package name.
+    if specifier.starts_with("./")
+        || specifier.starts_with("../")
+        || (std::path::Path::new(specifier).is_absolute()
+            && !specifier.replace('\\', "/").contains("/node_modules/"))
+    {
+        return true;
+    }
     let without_node = specifier.strip_prefix("node:").unwrap_or(specifier);
     let builtin_root = without_node.split('/').next().unwrap_or(without_node);
     // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Terminal builtins remain absent even if an authenticated artifact erroneously lists them.

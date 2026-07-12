@@ -57,6 +57,7 @@ async-trait = "0.1"
 
 # Base64 for source maps
 base64 = "0.22"
+sha2 = "0.10"
 
 # HTTP server host bridge
 hyper = { version = "1.1", features = ["server", "http1", "http2"] }

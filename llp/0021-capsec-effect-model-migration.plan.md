@@ -893,9 +893,16 @@ installed structurally for both the ordinary CLI and direct `Runtime`
 construction, and missing lockdown, frame attribution, or package isolation is
 a hard enforce failure with no advisory override. Compatibility, inspector,
 and runtime-fidelity controls also refuse at ordinary host construction. The
-remaining cutover step is replacing that unarmed legacy host construction with
-the default immutable typed snapshot path and moving audit to its separately
-named foreground command.
+ordinary no-policy path now constructs an execution-bound immutable typed
+snapshot instead of the legacy host: it binds the actual project directory
+object, patched-Hermes binary digest, exact advertised target/features, empty
+package graph, empty dependency floors and dynamic ceilings, and the current
+semantic/registry identity. Auto and explicit enforce produce byte-identical
+snapshot documents and engine handshakes. The trusted module loader may read
+only source that canonicalizes under the authenticated project binding after
+the typed import gate succeeds. Remaining cutover work is ingesting a generated
+canonical policy into this same snapshot builder and moving audit to its
+separately named foreground command.
 
 Acceptance:
 

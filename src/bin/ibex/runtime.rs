@@ -1531,7 +1531,7 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     use std::sync::Arc;
 
     match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
-        (None, None) => Ok((Host::new(build_host_config(cli)?), None)),
+        (None, None) => build_default_armed_host(cli),
         (Some(_), None) | (None, Some(_)) => anyhow::bail!(
             "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
         ),
@@ -1563,7 +1563,10 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 || !cli.deny.is_empty()
                 || cli.allow_all
                 || cli.allow_env_endowments
-                || cli.capsec != crate::cli::CapSecMode::Auto
+                || !matches!(
+                    cli.capsec,
+                    crate::cli::CapSecMode::Auto | crate::cli::CapSecMode::Enforce
+                )
             {
                 anyhow::bail!(
                     "armed capability startup cannot be combined with legacy policy, mode, allow, deny, allow-all, or environment-endowment overrides"
@@ -1603,6 +1606,163 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             Ok((host, Some(digest)))
         }
     }
+}
+
+fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    use capsec_semantics::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN, POLICY_DOMAIN};
+    use capsec_semantics::model::Digest;
+    use sha2::{Digest as _, Sha256};
+
+    let config = build_host_config(cli)?;
+    if config.mode != crate::host::SecurityMode::Enforce {
+        anyhow::bail!("foreground audit requires its separate diagnostic arming workflow");
+    }
+    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        anyhow::bail!(
+            "the complete capsec profile is not advertised for this target; refusing to degrade"
+        );
+    }
+
+    let entry = cli.file.as_deref().or(match cli.command.as_ref() {
+        Some(crate::cli::Commands::Run { file, .. })
+        | Some(crate::cli::Commands::Build { file, .. }) => Some(file.as_str()),
+        _ => None,
+    });
+    let project_candidate = entry
+        .and_then(|entry| std::fs::canonicalize(entry).ok())
+        .and_then(|entry| entry.parent().map(Path::to_path_buf))
+        .unwrap_or(std::env::current_dir()?);
+    let project_root = std::fs::canonicalize(project_candidate)
+        .context("failed to authenticate the project root")?;
+    #[cfg(unix)]
+    let root_object = {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(&project_root)?;
+        serde_json::json!({
+            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) { "apple" } else { "unix" },
+            "volume": format!("dev:{}", metadata.dev()),
+            "file": format!("ino:{}", metadata.ino()),
+        })
+    };
+    #[cfg(not(unix))]
+    let root_object = unreachable!("the only advertised target is Unix-like");
+    let components = project_root
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => Some(serde_json::json!({
+                "encoding": "utf8",
+                "value": value.to_str().expect("advertised target paths must be UTF-8"),
+            })),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let engine_path = crate::engine::hermes::find_hermes_binary()?;
+    let engine_bytes = std::fs::read(&engine_path)
+        .with_context(|| format!("failed to read Hermes binary {}", engine_path.display()))?;
+    let engine_digest = format!(
+        "sha256-{}",
+        URL_SAFE_NO_PAD.encode(Sha256::digest(&engine_bytes))
+    );
+    let empty_policy = serde_json::json!({
+        "policySchema": "ibex/capsec-policy/1",
+        "capsVocab": "ibex/capsec/1",
+        "semanticCore": "capsec/semantics/1",
+        "vocabDigest": serde_json::from_slice::<serde_json::Value>(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/capsec/examples/canonical-policy.canonical.json")))?["vocabDigest"],
+        "policyDigest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "purpose": "production",
+        "mode": "enforce",
+        "principals": [],
+    });
+    let policy_digest =
+        compute_domain_digest(POLICY_DOMAIN, &empty_policy, &["policyDigest".to_string()])?;
+    let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    value["workflow"] = serde_json::json!("production");
+    value["effectiveMode"] = serde_json::json!("enforce");
+    value["policyDigest"] = serde_json::json!(policy_digest);
+    value["engine"] = serde_json::json!({
+        "target": "aarch64-apple-darwin",
+        "binaryDigest": engine_digest,
+        "features": ["hermes-frame-attribution", "native-compartments", "native-lockdown"],
+    });
+    value["packageGraph"] = serde_json::json!({
+        "digest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "nodes": [],
+        "importEdges": [],
+    });
+    let graph_digest = compute_domain_digest(
+        "ibex:capsec:package-graph:1",
+        &value["packageGraph"],
+        &["digest".to_string()],
+    )?;
+    value["packageGraph"]["digest"] = serde_json::json!(graph_digest);
+    value["principals"] = serde_json::json!([{
+        "principal": {"kind": "root", "identity": "project-root"},
+        "floor": [],
+        "denials": [],
+        "escalationCeiling": [],
+        "imports": {"builtins": [], "packages": []},
+        "endowments": [],
+    }]);
+    value["rootBindings"] = serde_json::json!([{
+        "logicalRoot": "project",
+        "hostPath": {"root": "absolute", "components": components, "hostBound": true},
+        "object": root_object,
+    }]);
+    value["protectedObjects"] = serde_json::json!([{
+        "role": "package-graph",
+        "object": root_object,
+        "deniedActions": ["fs:write"],
+    }]);
+    let digest = compute_domain_digest(
+        ARMED_SNAPSHOT_DOMAIN,
+        &value,
+        &["armedSnapshotDigest".to_string()],
+    )?;
+    value["armedSnapshotDigest"] = serde_json::json!(digest);
+    let digest_at = |path: &[&str]| -> Result<Digest> {
+        let field = path
+            .iter()
+            .fold(&value, |current, segment| &current[*segment]);
+        Digest::new(field.as_str().context("missing default arming digest")?)
+            .map_err(anyhow::Error::msg)
+    };
+    let expected = ExpectedArmingIdentity {
+        profile: value["capsVocab"].as_str().unwrap().into(),
+        semantic_core: value["semanticCore"].as_str().unwrap().into(),
+        vocab_digest: digest_at(&["vocabDigest"])?,
+        registry_digest: digest_at(&["registryDigest"])?,
+        policy_digest: digest_at(&["policyDigest"])?,
+        target: value["engine"]["target"].as_str().unwrap().into(),
+        engine_binary_digest: digest_at(&["engine", "binaryDigest"])?,
+        features: value["engine"]["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|feature| feature.as_str().unwrap().into())
+            .collect(),
+        package_graph_digest: digest_at(&["packageGraph", "digest"])?,
+        target_complete_and_advertised: true,
+    };
+    let snapshot = Arc::new(ArmedSnapshot::load(
+        &serde_json::to_vec(&value)?,
+        &expected,
+    )?);
+    let digest = snapshot.digest().as_str().to_owned();
+    let host = Host::new_armed(
+        HostConfig {
+            mode: crate::host::SecurityMode::Enforce,
+            ..Default::default()
+        },
+        snapshot,
+    )?;
+    Ok((host, Some(digest)))
 }
 
 /// Whether the policy path was explicitly configured (via `--policy` or the
@@ -3564,6 +3724,19 @@ mod tests {
             host.armed_snapshot().unwrap().digest().as_str(),
             expected_digest
         );
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let explicit = Cli::parse_from([
+            "ibex".into(),
+            "--capsec".into(),
+            "enforce".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let (_, explicit_digest) = build_host(&explicit).expect("explicit enforce must arm");
+        assert_eq!(explicit_digest.as_deref(), Some(expected_digest.as_str()));
     }
 
     fn file_hash(path: &Path) -> u64 {
@@ -3662,6 +3835,30 @@ mod tests {
         // ... and `--allow-all` (back-compat legacy escape hatch).
         let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
         assert!(resolve(&allow_all, Some(enforce.as_path())).is_err());
+    }
+
+    #[test]
+    fn default_and_explicit_enforce_arm_the_same_empty_typed_snapshot() {
+        let auto = Cli::parse_from(["ibex", "app.ts"]);
+        let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", "app.ts"]);
+        let (auto_host, auto_digest) = build_host(&auto).unwrap();
+        let (explicit_host, explicit_digest) = build_host(&explicit).unwrap();
+        assert_eq!(auto_digest, explicit_digest);
+        let auto_snapshot = auto_host.armed_snapshot().unwrap();
+        let explicit_snapshot = explicit_host.armed_snapshot().unwrap();
+        assert_eq!(auto_snapshot.document(), explicit_snapshot.document());
+        let principals = auto_snapshot.document()["principals"].as_array().unwrap();
+        assert_eq!(principals.len(), 1);
+        assert_eq!(
+            principals[0]["principal"],
+            serde_json::json!({"kind": "root", "identity": "project-root"})
+        );
+        assert_eq!(principals[0]["floor"], serde_json::json!([]));
+        assert_eq!(principals[0]["escalationCeiling"], serde_json::json!([]));
+        assert_eq!(
+            auto_snapshot.document()["packageGraph"]["nodes"],
+            serde_json::json!([])
+        );
     }
 
     // ENG-22884 — enforce must not silently proceed as full-strength capsec when
