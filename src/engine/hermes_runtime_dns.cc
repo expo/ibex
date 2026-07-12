@@ -946,6 +946,21 @@ class DnsWorkerPool {
   }
 };
 
+class DnsAsyncLifetime {
+ public:
+  explicit DnsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~DnsAsyncLifetime() {
+    if (!active_) return;
+    target_.runtime->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
+};
+
 // Build a Promise whose resolution runs `work` on a DNS worker thread and
 // delivers the DnsResult back on the runtime thread via pushRuntimeCallback —
 // the same wake-driven discipline as __hostCallAsync / fetch. The caller must
@@ -977,23 +992,41 @@ facebook::jsi::Value startDnsAsync(
         auto reject =
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
 
+        auto target = exactRuntimeCallbackTarget(handle);
+        auto lifetime = std::make_shared<DnsAsyncLifetime>(target);
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(rt, "DNS async: runtime is shutting down");
+        }
+
         // Mark the lookup in flight before dispatching so the event loop stays
         // alive across the resolver call even with no other pending work.
         handle->pending_dns_lookups.fetch_add(1, std::memory_order_relaxed);
+        lifetime->activate();
 
         std::string enqueueError;
         bool queued = DnsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve = std::move(resolve), reject = std::move(reject)]() mutable {
-              DnsResult result = (*workPtr)();
+            [target, principal, workPtr, resolve, reject,
+             lifetime]() mutable {
+              exactTestDelayRuntimeProducer();
+              DnsResult result;
+              try {
+                result = (*workPtr)();
+              } catch (const std::exception& error) {
+                result.error = std::string("DNS worker failed: ") + error.what();
+                result.code = "EAI_FAIL";
+              } catch (...) {
+                result.error = "DNS worker failed";
+                result.code = "EAI_FAIL";
+              }
+              *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
               pushRuntimeCallback(
-                  handle,
-                  [handle, principal, resolve = std::move(runtimeResolve),
+                  target,
+                  [principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), result = std::move(result)](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
-                    handle->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
                     try {
                       if (result.ok) {
                         resolve->call(
@@ -1007,7 +1040,7 @@ facebook::jsi::Value startDnsAsync(
             },
             enqueueError);
         if (!queued) {
-          handle->pending_dns_lookups.fetch_sub(1, std::memory_order_relaxed);
+          *workPtr = {};
           reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
         }
         return facebook::jsi::Value::undefined();

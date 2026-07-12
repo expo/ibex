@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-12 (runtime callback identity is pointer-plus-nonce; teardown closes admission, cancels sources, drains producer pins, and destroys queued JSI captures on their owner thread — ENG-24244); 2026-07-12 (ENG-24261: Android's production WebSocket flow controller now has executable host-JVM flood, terminal-state, and repeated pause/resume coverage); 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -120,6 +120,19 @@ detached watcher thread turns that into a `pushRuntimeCallback` that drains
 pending signals into the JS `process` emitter `[observed]`
 (`src/engine/hermes_runtime_crypto.cc`, `src/engine/bootstrap/stream-enhance.js`).
 
+Cross-thread callback identity is the pair `(ExactHermesRuntime*,
+runtime_nonce)`, never the address alone. Destruction changes the registry row
+from `Running` to `Closing`, unregisters or cancels event sources, and keeps
+that exact generation present while already-admitted native producer pins
+drain. Those producers may transfer JSI-owning completion closures into the
+closing runtime queue; destroy discards them (without invoking user JS) on the
+owner thread. Native finalizers, including a WebSocket context's final
+`jsi::Object`, run on that same thread. Only after the pin count reaches zero
+does teardown erase the generation and delete Hermes. An old completion can
+therefore neither enter a new runtime allocated at the same address nor force
+the former leak-on-dead-runtime fallback `[observed]`
+(`src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_{dns,fs,http,fetch,websocket}.cc`).
+
 Async failures are fatal, matching Node: a callback that throws with no
 `uncaughtException` handler consuming it — a timer, a `process.nextTick`, a
 cross-thread task or callback — makes the poll report `-1`, which the host
@@ -197,6 +210,11 @@ The shared pool discipline, learned the hard way:
   the runtime handle (`pending_dns_lookups`, `pending_fs_ops`) that the loop's
   referenced-work checks consult; otherwise the process exits before the
   worker delivers its completion.
+- **Teardown producer pin.** Any worker carrying a JSI resolve/reject/object
+  holds a generation-scoped native-worker pin from queue admission through
+  callback transfer. Closing refuses new pins, cancels sources that can be
+  cancelled, waits for the rest, and destroys transferred captures on the
+  runtime thread before Hermes.
 - **No JSI off-thread; checks stay on the JS thread.** Workers touch plain
   data only. Argument validation and capability checks (the deputy stack is
   JS-thread-local) run before enqueue; errno capture happens on the worker at

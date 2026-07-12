@@ -241,7 +241,13 @@ allow-all production runtime.
    `src/engine/hermes_runtime.cc:1815-1949`). Source comments document a
    `cli-notify` replacement for the default callback path `[observed]`
    (`src/engine/mod.rs:18-37`).
-5. `ex_hermes_destroy()` tears the runtime down `[observed]`.
+5. `ex_hermes_destroy()` must run on the runtime's owner thread. It marks the
+   pointer-plus-nonce registry identity closing, unregisters/cancels native
+   callback sources, drains generation-scoped producer pins, and destroys
+   queued JSI captures on that owner thread before deleting Hermes. Registry
+   removal happens only after the drain, so delayed work cannot enter a later
+   runtime whose handle reuses the same address `[observed]`
+   (`src/engine/hermes_runtime.cc`; [LLP 0003](./0003-hermes-engine-bridge.explainer.md#the-event-loop)).
 
 ## Notes / boundaries
 

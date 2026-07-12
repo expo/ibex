@@ -1352,16 +1352,16 @@ struct FsAsyncResult {
 
 class FsAsyncLifetime {
  public:
-  explicit FsAsyncLifetime(ExactHermesRuntime* handle) : handle_(handle) {}
+  explicit FsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
   void activate() noexcept { active_ = true; }
   ~FsAsyncLifetime() {
     if (!active_) return;
-    handle_->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
-    exactUnpinRuntimeNativeWorker(handle_);
+    target_.runtime->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(target_);
   }
 
  private:
-  ExactHermesRuntime* handle_;
+  RuntimeCallbackTarget target_;
   bool active_{false};
 };
 
@@ -1563,11 +1563,13 @@ static facebook::jsi::Value startFsAsync(
 
         std::string enqueueError;
         auto resultPtr = std::make_shared<FsAsyncResult>();
-        auto lifetime = std::make_shared<FsAsyncLifetime>(handle);
+        auto target = exactRuntimeCallbackTarget(handle);
+        auto lifetime = std::make_shared<FsAsyncLifetime>(target);
         std::function<void()> worker =
-            [handle, principal, principalStack, workPtr, resolve, reject,
+            [handle, target, principal, principalStack, workPtr, resolve, reject,
              resultPtr, lifetime]() mutable {
               try {
+                exactTestDelayRuntimeProducer();
               // shared_ptr wrapper: std::function requires a copyable callable,
               // and a readFile result can be hundreds of MB — share it instead
               // of copying, and move the bytes into the JS heap at delivery.
@@ -1596,7 +1598,7 @@ static facebook::jsi::Value startFsAsync(
               auto runtimeReject = std::move(reject);
               bool delivered = false;
               pushRuntimeCallback(
-                  handle,
+                  target,
                   [handle, principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
                       facebook::jsi::Runtime& rt) {
@@ -1668,7 +1670,7 @@ static facebook::jsi::Value startFsAsync(
               }
             };
 
-        if (!exactPinRuntimeNativeWorker(handle)) {
+        if (!exactPinRuntimeNativeWorker(target)) {
           throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
         }
         // Activate the noexcept shared guard immediately after the pin/count.

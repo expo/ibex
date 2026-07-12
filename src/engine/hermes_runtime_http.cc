@@ -85,6 +85,19 @@ struct HttpServerEntry {
 static std::mutex g_http_server_mutex;
 static std::unordered_map<uint32_t, HttpServerEntry> g_http_servers;
 
+class HttpAsyncLifetime {
+ public:
+  explicit HttpAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~HttpAsyncLifetime() {
+    if (active_) exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
+};
+
 uint32_t parseHttpServerId(const std::string& json) {
   auto id_pos = json.find("\"id\"");
   if (id_pos == std::string::npos) {
@@ -347,15 +360,23 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                   args[0].asObject(runtime).asFunction(runtime));
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(runtime).asFunction(runtime));
+              auto target = exactRuntimeCallbackTarget(handle);
+              auto lifetime = std::make_shared<HttpAsyncLifetime>(target);
+              if (!exactPinRuntimeNativeWorker(target)) {
+                throw facebook::jsi::JSError(
+                    runtime, "__exactHttpWait: runtime is shutting down");
+              }
+              lifetime->activate();
 
               struct WaitTask {
-                ExactHermesRuntime* handle;
+                RuntimeCallbackTarget target;
                 uint32_t server_id;
                 uint32_t timeout_ms;
                 uint64_t runtime_nonce;
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
+                std::shared_ptr<HttpAsyncLifetime> lifetime;
               };
 
               constexpr size_t kMaxWaitWorkers = 16;
@@ -389,6 +410,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         queue.pop_front();
                       }
 
+                      exactTestDelayRuntimeProducer();
                       char* json = ex_host_http_wait_owned(
                           t.server_id, t.timeout_ms, t.runtime_nonce);
                       std::string payload;
@@ -402,7 +424,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       auto resolve = std::move(t.resolve);
                       auto reject = std::move(t.reject);
                       pushRuntimeCallback(
-                          t.handle,
+                          t.target,
                           [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, has_payload,
                            payload = std::move(payload)](
@@ -460,8 +482,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               static WaitWorkerPool* workerPool = new WaitWorkerPool();
 
               auto task = WaitTask{
-                  handle, server_id, timeout_ms, handle->runtime_nonce,
-                  waitPrincipal, resolve, reject};
+                  target, server_id, timeout_ms, handle->runtime_nonce,
+                  waitPrincipal, resolve, reject, lifetime};
               std::string enqueueError;
               if (!workerPool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
@@ -850,9 +872,16 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                   args[0].asObject(runtime).asFunction(runtime));
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(runtime).asFunction(runtime));
+              auto target = exactRuntimeCallbackTarget(handle);
+              auto lifetime = std::make_shared<HttpAsyncLifetime>(target);
+              if (!exactPinRuntimeNativeWorker(target)) {
+                throw facebook::jsi::JSError(
+                    runtime, "__exactHttpAwaitWritable: runtime is shutting down");
+              }
+              lifetime->activate();
 
               struct WritableTask {
-                ExactHermesRuntime* handle;
+                RuntimeCallbackTarget target;
                 uint32_t server_id;
                 uint32_t request_id;
                 uint32_t timeout_ms;
@@ -860,6 +889,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
+                std::shared_ptr<HttpAsyncLifetime> lifetime;
               };
 
               constexpr size_t kMaxWritableWorkers = 16;
@@ -893,6 +923,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         queue.pop_front();
                       }
 
+                      exactTestDelayRuntimeProducer();
                       int32_t code = ex_host_http_await_writable_owned(
                           t.server_id, t.request_id, t.timeout_ms,
                           t.runtime_nonce);
@@ -900,7 +931,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                       auto resolve = std::move(t.resolve);
                       auto reject = std::move(t.reject);
                       pushRuntimeCallback(
-                          t.handle,
+                          t.target,
                           [resolve = std::move(resolve), reject = std::move(reject),
                            principal = t.principal, code](
                               facebook::jsi::Runtime& rt) {
@@ -954,8 +985,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               static WritableWorkerPool* writablePool = new WritableWorkerPool();
 
               auto task = WritableTask{
-                  handle, server_id, request_id, timeout_ms,
-                  handle->runtime_nonce, waitPrincipal, resolve, reject};
+                  target, server_id, request_id, timeout_ms,
+                  handle->runtime_nonce, waitPrincipal, resolve, reject, lifetime};
               std::string enqueueError;
               if (!writablePool->enqueue(std::move(task), enqueueError)) {
                 reject->call(

@@ -1,6 +1,8 @@
 #include "hermes_runtime_internal.h"
 #include "hermes_runtime_zlib_streams.h"
 
+void unregisterSignalRuntime(ExactHermesRuntime*) {}
+
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif

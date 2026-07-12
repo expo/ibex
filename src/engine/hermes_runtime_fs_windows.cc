@@ -397,6 +397,21 @@ class FsWorkerPool {
   }
 };
 
+class FsAsyncLifetime {
+ public:
+  explicit FsAsyncLifetime(RuntimeCallbackTarget target) : target_(target) {}
+  void activate() noexcept { active_ = true; }
+  ~FsAsyncLifetime() {
+    if (!active_) return;
+    target_.runtime->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(target_);
+  }
+
+ private:
+  RuntimeCallbackTarget target_;
+  bool active_{false};
+};
+
 facebook::jsi::Value makeFsAsyncErrorValue(
     facebook::jsi::Runtime& rt,
     const FsAsyncResult& result) {
@@ -452,11 +467,19 @@ facebook::jsi::Value startFsAsync(
             std::make_shared<facebook::jsi::Function>(args[0].asObject(rt).asFunction(rt));
         auto reject =
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
+        auto target = exactRuntimeCallbackTarget(handle);
+        auto lifetime = std::make_shared<FsAsyncLifetime>(target);
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
+        }
         handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
+        lifetime->activate();
 
         std::string enqueueError;
         bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, principalStack, workPtr, resolve, reject]() mutable {
+            [handle, target, principal, principalStack, workPtr, resolve, reject,
+             lifetime]() mutable {
+              exactTestDelayRuntimeProducer();
               ScopedRuntimeSecurityContext securityContext(handle);
               ScopedTypedPrincipalStack typedStack(*principalStack);
               std::shared_ptr<FsAsyncResult> resultPtr;
@@ -473,12 +496,11 @@ facebook::jsi::Value startFsAsync(
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
               pushRuntimeCallback(
-                  handle,
+                  target,
                   [handle, principal, resolve = std::move(runtimeResolve),
                    reject = std::move(runtimeReject), resultPtr](
                       facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
-                    handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
                     try {
                       if (resultPtr->ok) {
                         switch (resultPtr->kind) {
@@ -526,7 +548,6 @@ facebook::jsi::Value startFsAsync(
             },
             enqueueError);
         if (!queued) {
-          handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
           *workPtr = {};

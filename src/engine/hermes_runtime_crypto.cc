@@ -101,7 +101,8 @@ namespace {
 static constexpr int kMaxTrappedSignal = 63;
 static std::atomic<unsigned> g_pending_signal_counts[kMaxTrappedSignal + 1];
 static int g_signal_wake_pipe[2] = {-1, -1};
-static std::atomic<ExactHermesRuntime*> g_signal_runtime{nullptr};
+static std::mutex g_signal_runtime_mutex;
+static RuntimeCallbackTarget g_signal_runtime;
 static std::once_flag g_signal_watcher_once;
 
 static void signal_handler(int sig) {
@@ -126,13 +127,13 @@ static void signalWatcherThreadMain() {
       return;
     }
     if (n == 0) return;  // write end closed (does not happen today)
-    ExactHermesRuntime* runtime = g_signal_runtime.load(std::memory_order_acquire);
-    if (!runtime) continue;
-    // pushRuntimeCallback re-checks the runtime registry under its own lock,
-    // so a stale pointer to a destroyed runtime degrades to a leaked no-op
-    // callback instead of a use-after-free (same contract as fetch/WS
-    // completions).
-    pushRuntimeCallback(runtime, [](facebook::jsi::Runtime& rt) {
+    RuntimeCallbackTarget target;
+    {
+      std::lock_guard<std::mutex> lock(g_signal_runtime_mutex);
+      target = g_signal_runtime;
+    }
+    if (!target) continue;
+    pushRuntimeCallback(target, [](facebook::jsi::Runtime& rt) {
       auto dispatch =
           rt.global().getProperty(rt, "__exactDispatchPendingSignals");
       if (dispatch.isObject()) {
@@ -1549,6 +1550,15 @@ static std::string digestAlgorithmFromNodeCrypto(const std::string& algorithm) {
 
 
 } // namespace
+
+void unregisterSignalRuntime(ExactHermesRuntime* handle) {
+  auto target = exactRuntimeCallbackTarget(handle);
+  std::lock_guard<std::mutex> lock(g_signal_runtime_mutex);
+  if (g_signal_runtime.runtime == target.runtime &&
+      g_signal_runtime.nonce == target.nonce) {
+    g_signal_runtime = {};
+  }
+}
 
 #if !defined(EXACT_NO_OPENSSL)
 // Test-only C ABI (ENG-23002) exercising the shared OpenSSL RSA sign/verify core
@@ -5307,7 +5317,10 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         ensureSignalWatcher();
         // Route dispatch to the runtime that trapped last; the CLI has one
         // runtime for the process lifetime.
-        g_signal_runtime.store(handle, std::memory_order_release);
+        {
+          std::lock_guard<std::mutex> lock(g_signal_runtime_mutex);
+          g_signal_runtime = exactRuntimeCallbackTarget(handle);
+        }
         struct sigaction sa = {};
         sa.sa_handler =
 #ifdef SIGXFSZ

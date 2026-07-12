@@ -34,6 +34,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <condition_variable>
+#include <cstdlib>
 #include <deque>
 #include <cmath>
 #include <functional>
@@ -82,6 +84,34 @@ struct HostCallAsyncEntry {
   std::shared_ptr<facebook::jsi::Function> reject;
 };
 
+struct ExactHermesRuntime;
+
+// A runtime address is not an identity: allocators routinely reuse the same
+// address after destroy/recreate. Every asynchronous producer therefore
+// carries the creation nonce it observed while the handle was live, and the
+// registry validates the pair atomically before any handle dereference.
+// @ref LLP 0003#the-event-loop — callback delivery is runtime-generation scoped.
+struct RuntimeCallbackTarget {
+  ExactHermesRuntime* runtime{nullptr};
+  uint64_t nonce{0};
+
+  explicit operator bool() const {
+    return runtime != nullptr && nonce != 0;
+  }
+};
+
+inline void exactTestDelayRuntimeProducer() {
+#if defined(IBEX_CAPSEC_CONFORMANCE_OBSERVER)
+  const char* value = std::getenv("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+  if (!value || !*value) return;
+  char* end = nullptr;
+  auto milliseconds = std::strtoull(value, &end, 10);
+  if (end == value || *end != '\0') return;
+  milliseconds = std::min<unsigned long long>(milliseconds, 2000);
+  std::this_thread::sleep_for(std::chrono::milliseconds(milliseconds));
+#endif
+}
+
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
   uint64_t host_context_id{0};
@@ -124,18 +154,23 @@ struct ExactHermesRuntime {
   // its completion via pushRuntimeCallback. (ENG-23497)
   std::atomic<int> pending_fs_ops{0};
   // Pins held by native workers that may dereference this handle outside the
-  // runtime thread. Destroy unregisters first, then waits for this count to
-  // reach zero before cleanup/delete.
+  // runtime thread. Destroy enters Closing (refusing new pins), cancels source
+  // work, and keeps the exact registry generation until this reaches zero.
   std::atomic<uint32_t> native_worker_pins{0};
   std::mutex native_worker_mutex;
   std::condition_variable native_worker_cv;
   std::mutex fetchMutex;
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
   std::mutex hostCallAsyncMutex;
-  uint64_t nextHostCallAsyncId{1};
   std::unordered_map<uint64_t, HostCallAsyncEntry> hostCallAsyncCallbacks;
   std::mutex callbackMutex;
   std::deque<std::function<void(facebook::jsi::Runtime&)>> callbackQueue;
+  // Finalizers are admitted from native producer threads but always executed
+  // by poll/destroy on the owning runtime thread. Unlike callbackQueue, these
+  // run during teardown: they exist for native contexts whose final release
+  // owns a JSI value (notably WebSocket callback contexts).
+  std::mutex finalizerMutex;
+  std::deque<std::function<void()>> finalizerQueue;
   // Fail-loud marker for async callbacks (process.nextTick, cross-thread
   // tasks/callbacks) that threw with no uncaughtException handler consuming
   // the error: the poll that observes it returns -1 so the host loop surfaces
@@ -204,12 +239,16 @@ struct ExactHermesRuntime {
 };
 
 struct NativeWebSocketCallbackContext {
-  ExactHermesRuntime* runtime;
+  RuntimeCallbackTarget target;
   std::shared_ptr<facebook::jsi::Object> ws_instance;
   uint64_t runtime_nonce;
   uint64_t principal;
   std::string capability;
   std::atomic<uint32_t> ref_count{1};
+  // One producer pin spans native connect through the backend's final context
+  // release. It keeps teardown in its closing phase until every native callback
+  // has stopped touching this context and its JSI owner has been marshalled.
+  bool runtime_pin_held{false};
   // Guarded by g_websocket_mutex in hermes_runtime_websocket.cc. Keeping the
   // pre-registration terminal state on the exact per-runtime callback
   // context avoids process-global missing-ID tombstones.
@@ -645,8 +684,10 @@ void exactCleanupRuntimeHttpServers(uint64_t runtimeNonce);
 bool disposeAsyncCallbackError(
     ExactHermesRuntime* runtime,
     const facebook::jsi::JSError& err);
-bool exactPinRuntimeNativeWorker(ExactHermesRuntime* runtime);
-void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime);
+RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime);
+uint64_t exactAllocateRuntimeNonce();
+bool exactPinRuntimeNativeWorker(RuntimeCallbackTarget target);
+void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target);
 
 class ScopedTypedPrincipalStack {
  public:
@@ -955,6 +996,7 @@ uint64_t nowMs();
 double processUptimeSeconds();
 facebook::jsi::Function makeHardExitFn(facebook::jsi::Runtime& rt);
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
+void exactForgetNativeFetchTarget(uint32_t requestId, uint64_t runtimeNonce);
 
 bool eval_bootstrap_script(ExactHermesRuntime* handle,
                            const char* source,
@@ -977,6 +1019,7 @@ void runFinalProcessVersionsFix(ExactHermesRuntime* handle);
 void installWebStreamsPolyfill(ExactHermesRuntime* handle);
 void installDnsHostFunctions(ExactHermesRuntime* handle);
 void installCryptoHostFunctions(ExactHermesRuntime* handle);
+void unregisterSignalRuntime(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
 void installNetHostFunctions(ExactHermesRuntime* handle);
@@ -1034,13 +1077,13 @@ void disableDebugger(ExactHermesRuntime* runtime);
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
 std::string buildPausedEvent(facebook::hermes::debugger::Debugger& debugger);
 #endif
-bool runtimeIsAlive(ExactHermesRuntime* runtime);
+bool runtimeIsAlive(RuntimeCallbackTarget target);
 
 // ENG-22925/ENG-23028: run `body` with the runtime pinned alive. Holds
-// g_runtimeRegistryMutex across a membership test AND the synchronous execution
+// g_runtimeRegistryMutex across a generation test AND the synchronous execution
 // of `body`, so a caller on any thread can safely dereference runtime-owned
 // state (per-runtime mutexes/maps) that would otherwise race a concurrent
-// ex_hermes_destroy — which holds the same mutex across its `delete`. Returns
+// ex_hermes_destroy entering Closing. Returns
 // true iff the runtime was alive and `body` ran. `body` MUST be short and MUST
 // NOT re-enter the runtime registry (no ex_hermes_destroy / pushRuntimeCallback /
 // runtimeIsAlive). If it takes a per-runtime lock, that lock must follow the
@@ -1049,7 +1092,7 @@ bool runtimeIsAlive(ExactHermesRuntime* runtime);
 // form of the resolve_host_call pin so sibling completion paths (fetch,
 // debugger, etc.) can close the same check-then-lock TOCTOU without exposing the
 // registry internals.
-bool withRuntimePinned(ExactHermesRuntime* runtime,
+bool withRuntimePinned(RuntimeCallbackTarget target,
                        const std::function<void()>& body);
 
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
@@ -1057,9 +1100,15 @@ void emitNewScripts(ExactHermesRuntime* runtime,
                     facebook::hermes::debugger::Debugger& debugger);
 #endif
 
-void pushRuntimeCallback(ExactHermesRuntime* runtime,
+void pushRuntimeCallback(RuntimeCallbackTarget target,
                          std::function<void(facebook::jsi::Runtime&)> fn,
                          bool* accepted = nullptr);
+
+// Enqueue a native-resource finalizer without transferring ownership on
+// failure. A successful enqueue guarantees `fn` runs on the runtime thread,
+// including while destroy waits for native producer pins to drain.
+bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
+                          std::function<void()> fn);
 
 void exactRequireFdReadable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireFdWritable(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

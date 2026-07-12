@@ -62,11 +62,23 @@ bool registerWebSocket(
     g_websocket_cv.notify_all();
     return false;
   }
-  bool inserted = g_websockets
-      .emplace(
-          ws_id,
-          WebSocketEntry{context->runtime_nonce, owner, capability, context, false})
-      .second;
+  bool inserted = false;
+  try {
+    inserted = g_websockets
+                   .emplace(
+                       ws_id,
+                       WebSocketEntry{
+                           context->runtime_nonce, owner, capability, context, false})
+                   .second;
+  } catch (...) {
+    // A native callback may already be waiting for registration. Publish a
+    // terminal state before unwinding so it cannot retain the context (and the
+    // runtime teardown pin) forever after an allocation failure.
+    context->websocket_registered = true;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    throw;
+  }
   context->websocket_registered = true;
   g_websocket_cv.notify_all();
   return inserted;
@@ -232,20 +244,35 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         auto wsPrincipal = currentPrincipalId();
         auto runtimeNonce = ex_hermes_current_runtime_nonce();
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
-        auto* callbackContext =
-            new NativeWebSocketCallbackContext{
-                handle, wsInstance, runtimeNonce, wsPrincipal, connectCapability, 1};
+        auto target = exactRuntimeCallbackTarget(handle);
+        if (!exactPinRuntimeNativeWorker(target)) {
+          throw facebook::jsi::JSError(runtime, "WebSocket runtime is shutting down");
+        }
+        NativeWebSocketCallbackContext* callbackContext = nullptr;
+        try {
+          callbackContext = new NativeWebSocketCallbackContext();
+          callbackContext->target = target;
+          callbackContext->ws_instance = std::move(wsInstance);
+          callbackContext->runtime_nonce = runtimeNonce;
+          callbackContext->principal = wsPrincipal;
+          callbackContext->capability = connectCapability;
+          callbackContext->runtime_pin_held = true;
+        } catch (...) {
+          delete callbackContext;
+          exactUnpinRuntimeNativeWorker(target);
+          throw;
+        }
 
         auto wsId = native_ws_connect(
             url.c_str(),
             protocols.empty() ? nullptr : protocols.c_str(),
             [](uint32_t ws_id, const char* protocol, const char* extensions, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
               if (!webSocketCallbackIsCurrent(ws_id, context)) return;
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto protoCopy = std::string(protocol ? protocol : "");
@@ -254,7 +281,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
 
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    protoCopy,
                    extCopy,
@@ -269,11 +296,11 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, const uint8_t* data, size_t length, int is_text, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
               if (!webSocketCallbackIsCurrent(ws_id, context)) return;
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               native_ws_retain_context(context);
@@ -281,7 +308,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               if (is_text) {
                 auto textCopy = std::string(reinterpret_cast<const char*>(data), length);
                 pushRuntimeCallback(
-                    runtime,
+                    target,
                     [wsObj,
                      textCopy,
                      principal,
@@ -293,7 +320,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               } else {
                 auto dataCopy = std::make_shared<std::vector<uint8_t>>(data, data + length);
                 pushRuntimeCallback(
-                    runtime,
+                    target,
                     [wsObj,
                      dataCopy,
                      principal,
@@ -312,10 +339,10 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, uint16_t code, const char* reason, int was_clean, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto reasonCopy = std::string(reason ? reason : "");
@@ -325,7 +352,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    codeCopy,
                    reasonCopy,
@@ -342,10 +369,10 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, const char* message, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto msgCopy = std::string(message ? message : "Unknown error");
@@ -367,7 +394,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    msgCopy,
                    closeAfterError,
@@ -388,18 +415,18 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
             },
             [](uint32_t ws_id, size_t bytes_sent, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
-              if (!context || !context->runtime || !context->ws_instance) {
+              if (!context || !context->target || !context->ws_instance) {
                 return;
               }
               if (!webSocketCallbackIsCurrent(ws_id, context)) return;
-              auto runtime = context->runtime;
+              auto target = context->target;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto sentCopy = bytes_sent;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
-                  runtime,
+                  target,
                   [wsObj,
                    sentCopy,
                    principal,
@@ -414,7 +441,15 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
           native_ws_release_context(callbackContext);
           return facebook::jsi::Value::undefined();
         }
-        if (!registerWebSocket(callbackContext, wsId, wsPrincipal, connectCapability)) {
+        bool registered = false;
+        try {
+          registered =
+              registerWebSocket(callbackContext, wsId, wsPrincipal, connectCapability);
+        } catch (...) {
+          native_ws_destroy(wsId);
+          throw;
+        }
+        if (!registered) {
           native_ws_destroy(wsId);
           return facebook::jsi::Value::undefined();
         }

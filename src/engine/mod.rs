@@ -744,6 +744,166 @@ mod tests {
         }
     }
 
+    /// DNS and filesystem pool jobs retain JSI promise callbacks off-thread.
+    /// Destroy must enter Closing, wait for those producers to publish their
+    /// callbacks, and discard the captures on this owner thread before Hermes
+    /// is deleted. Recreating immediately exercises allocator address reuse.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn destroy_drains_delayed_dns_and_fs_producers_before_recreate() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let temp = std::env::temp_dir().join(format!(
+            "ibex-runtime-lifetime-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::write(&temp, b"lifetime").expect("write async lifetime fixture");
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", &format!("fs:read:{}", temp.display()), None);
+        host.capabilities()
+            .grant("*", "network:resolve:localhost", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let path = serde_json::to_string(&temp.to_string_lossy()).unwrap();
+            let (status, value) = eval(
+                first,
+                &format!("require('fs'); __exactFsReadFileAsync({path}); 'fs-queued'"),
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("fs-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(first);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned filesystem worker drained"
+            );
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            let (status, value) = eval(
+                second,
+                "require('dns'); __exactDnsLookupAsync('localhost', 4); 'dns-queued'",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("dns-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(second);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned DNS worker drained"
+            );
+
+            let third = ex_hermes_create_diagnostic();
+            assert!(!third.is_null());
+            assert_eq!(
+                eval(third, "'fresh-runtime'").1.as_deref(),
+                Some("fresh-runtime")
+            );
+            ex_hermes_destroy(third);
+        }
+
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+        let _ = std::fs::remove_file(temp);
+    }
+
+    /// Fetch backends may complete after cancellation. The native callback
+    /// takes its nonce-bearing target before this injected delay; destroy and
+    /// immediate recreate must make the later pin fail instead of delivering
+    /// old-runtime JSI handles into a reused address.
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[test]
+    fn delayed_fetch_completion_cannot_enter_recreated_runtime() {
+        use std::io::{Read as _, Write as _};
+        use std::net::TcpListener;
+
+        let _host_guard = crate::host::abi::host_test_lock();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fetch lifetime server");
+        let port = listener.local_addr().unwrap().port();
+        let (responded_tx, responded_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept fetch lifetime request");
+            let mut request = [0u8; 2048];
+            let _ = stream.read(&mut request);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .expect("write fetch lifetime response");
+            let _ = stream.flush();
+            responded_tx.send(()).unwrap();
+        });
+
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:127.0.0.1", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "150");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let source = format!(
+                "__nativeFetch('http://127.0.0.1:{port}/', {{method:'GET'}}, null); 'fetch-queued'"
+            );
+            assert_eq!(eval(first, &source).1.as_deref(), Some("fetch-queued"));
+            responded_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("native fetch reached local server");
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            ex_hermes_destroy(first);
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            assert_eq!(
+                eval(second, "'fresh-after-fetch'").1.as_deref(),
+                Some("fresh-after-fetch")
+            );
+            ex_hermes_destroy(second);
+        }
+
+        server.join().expect("fetch lifetime server thread");
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+    }
+
+    #[cfg(all(feature = "host-http-server", feature = "capsec-conformance-observer"))]
+    #[test]
+    fn destroy_cancels_and_drains_delayed_http_wait_before_recreate() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:listen:127.0.0.1:0", None);
+        crate::host::abi::install_host(host);
+        std::env::set_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS", "100");
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            let (status, value) = eval(
+                first,
+                "require('http'); var __lifeServer = JSON.parse(__exactHttpServe(0, '127.0.0.1')); __exactHttpWait(__lifeServer.id, 5000); 'http-queued'",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("http-queued")));
+            let started = std::time::Instant::now();
+            ex_hermes_destroy(first);
+            assert!(
+                started.elapsed() >= std::time::Duration::from_millis(60),
+                "destroy returned before the pinned HTTP waiter drained"
+            );
+
+            let second = ex_hermes_create_diagnostic();
+            assert!(!second.is_null());
+            assert_eq!(
+                eval(second, "'fresh-after-http'").1.as_deref(),
+                Some("fresh-after-http")
+            );
+            ex_hermes_destroy(second);
+        }
+        std::env::remove_var("IBEX_TEST_RUNTIME_CALLBACK_DELAY_MS");
+    }
+
     #[cfg(target_os = "windows")]
     mod windows_native_smoke {
         use super::*;

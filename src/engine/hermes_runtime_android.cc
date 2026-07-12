@@ -98,16 +98,29 @@ extern "C" int android_camera_host_call(
 namespace {
 
 std::mutex g_android_runtime_mutex;
-std::unordered_set<ExactHermesRuntime*> g_android_runtimes;
+std::unordered_map<ExactHermesRuntime*, RuntimeCallbackTarget> g_android_runtimes;
 
 struct AndroidAnimationFrameCallback {
-  ExactHermesRuntime* runtime = nullptr;
+  RuntimeCallbackTarget target;
   std::shared_ptr<facebook::jsi::Function> callback;
 };
 
 std::mutex g_android_animation_frame_mutex;
 std::unordered_map<uint64_t, AndroidAnimationFrameCallback> g_android_animation_frame_callbacks;
 std::atomic<uint64_t> g_next_android_animation_frame_token{1};
+
+uint64_t allocateAndroidAnimationFrameToken() {
+  uint64_t token =
+      g_next_android_animation_frame_token.load(std::memory_order_relaxed);
+  for (;;) {
+    if (token == 0 || token == std::numeric_limits<uint64_t>::max()) return 0;
+    if (g_next_android_animation_frame_token.compare_exchange_weak(
+            token, token + 1, std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return token;
+    }
+  }
+}
 
 void requireAndroidCapability(
     facebook::jsi::Runtime& runtime,
@@ -712,36 +725,61 @@ void registerAndroidRuntime(ExactHermesRuntime* handle) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_android_runtime_mutex);
-  g_android_runtimes.insert(handle);
+  g_android_runtimes[handle] = exactRuntimeCallbackTarget(handle);
 }
 
 uint64_t registerAndroidAnimationFrameCallback(
     ExactHermesRuntime* handle, facebook::jsi::Function callback) {
-  uint64_t token = g_next_android_animation_frame_token.fetch_add(1, std::memory_order_relaxed);
-  if (token == 0) {
-    token = g_next_android_animation_frame_token.fetch_add(1, std::memory_order_relaxed);
+  uint64_t token = allocateAndroidAnimationFrameToken();
+  if (token == 0) return 0;
+  auto target = exactRuntimeCallbackTarget(handle);
+  if (!exactPinRuntimeNativeWorker(target)) return 0;
+  bool inserted = false;
+  try {
+    auto shared =
+        std::make_shared<facebook::jsi::Function>(std::move(callback));
+    std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
+    inserted = g_android_animation_frame_callbacks
+                   .emplace(token, AndroidAnimationFrameCallback{target, std::move(shared)})
+                   .second;
+  } catch (...) {
+    exactUnpinRuntimeNativeWorker(target);
+    throw;
   }
-  std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
-  g_android_animation_frame_callbacks[token] = AndroidAnimationFrameCallback{
-      handle, std::make_shared<facebook::jsi::Function>(std::move(callback))};
+  if (!inserted) {
+    exactUnpinRuntimeNativeWorker(target);
+    return 0;
+  }
   return token;
 }
 
 void removeAndroidAnimationFrameCallback(uint64_t token) {
-  std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
-  g_android_animation_frame_callbacks.erase(token);
+  RuntimeCallbackTarget target;
+  {
+    std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
+    auto it = g_android_animation_frame_callbacks.find(token);
+    if (it == g_android_animation_frame_callbacks.end()) return;
+    target = it->second.target;
+    g_android_animation_frame_callbacks.erase(it);
+  }
+  exactUnpinRuntimeNativeWorker(target);
 }
 
 void removeAndroidAnimationFrameCallbacksForRuntime(ExactHermesRuntime* handle) {
-  std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
-  for (auto it = g_android_animation_frame_callbacks.begin();
-       it != g_android_animation_frame_callbacks.end();) {
-    if (it->second.runtime == handle) {
-      it = g_android_animation_frame_callbacks.erase(it);
-    } else {
-      ++it;
+  std::vector<RuntimeCallbackTarget> targets;
+  {
+    std::lock_guard<std::mutex> lock(g_android_animation_frame_mutex);
+    for (auto it = g_android_animation_frame_callbacks.begin();
+         it != g_android_animation_frame_callbacks.end();) {
+      if (it->second.target.runtime == handle) {
+        targets.push_back(it->second.target);
+        it = g_android_animation_frame_callbacks.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
+  for (auto target : targets) exactUnpinRuntimeNativeWorker(target);
 }
 
 } // namespace
@@ -926,19 +964,18 @@ extern "C" void android_animation_frame_callback(uint64_t token, int64_t frame_t
     entry = std::move(it->second);
     g_android_animation_frame_callbacks.erase(it);
   }
-  if (!entry.runtime || !entry.callback) {
-    return;
-  }
-  if (!runtimeIsAlive(entry.runtime)) {
-    (void)new std::shared_ptr<facebook::jsi::Function>(std::move(entry.callback));
+  if (!entry.target) return;
+  if (!entry.callback) {
+    exactUnpinRuntimeNativeWorker(entry.target);
     return;
   }
   double frame_time_ms = static_cast<double>(frame_time_nanos) / 1000000.0;
   pushRuntimeCallback(
-      entry.runtime,
+      entry.target,
       [callback = entry.callback, frame_time_ms](facebook::jsi::Runtime& runtime) {
         callback->call(runtime, facebook::jsi::Value(frame_time_ms));
       });
+  exactUnpinRuntimeNativeWorker(entry.target);
 #else
   (void)token;
   (void)frame_time_nanos;
@@ -947,16 +984,14 @@ extern "C" void android_animation_frame_callback(uint64_t token, int64_t frame_t
 
 extern "C" void android_platform_event_available(void) {
 #if defined(EXACT_PLATFORM_ANDROID)
-  std::vector<ExactHermesRuntime*> runtimes;
+  std::vector<RuntimeCallbackTarget> runtimes;
   {
     std::lock_guard<std::mutex> lock(g_android_runtime_mutex);
-    runtimes.assign(g_android_runtimes.begin(), g_android_runtimes.end());
+    runtimes.reserve(g_android_runtimes.size());
+    for (const auto& entry : g_android_runtimes) runtimes.push_back(entry.second);
   }
-  for (auto* runtime : runtimes) {
-    if (!runtimeIsAlive(runtime)) {
-      continue;
-    }
-    pushRuntimeCallback(runtime, [runtime](facebook::jsi::Runtime&) {
+  for (auto target : runtimes) {
+    pushRuntimeCallback(target, [runtime = target.runtime](facebook::jsi::Runtime&) {
       dispatchAndroidPlatformEvents(runtime);
     });
   }

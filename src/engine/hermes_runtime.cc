@@ -789,61 +789,146 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
 
 std::mutex g_runtimeRegistryMutex;
-std::unordered_set<ExactHermesRuntime*> g_activeRuntimes;
+
+enum class RuntimeLifecycleState : uint8_t {
+  Running,
+  Closing,
+};
+
+struct RuntimeRegistryEntry {
+  uint64_t nonce;
+  RuntimeLifecycleState state;
+};
+
+std::unordered_map<ExactHermesRuntime*, RuntimeRegistryEntry> g_activeRuntimes;
+std::mutex g_hostCallTargetMutex;
+std::unordered_map<uint64_t, RuntimeCallbackTarget> g_hostCallTargets;
+std::atomic<uint64_t> g_nextHostCallId{1};
+
+static uint64_t registerHostCallTarget(RuntimeCallbackTarget target) {
+  uint64_t id = g_nextHostCallId.load(std::memory_order_relaxed);
+  for (;;) {
+    if (id == 0 || id == std::numeric_limits<uint64_t>::max()) return 0;
+    if (g_nextHostCallId.compare_exchange_weak(
+            id, id + 1, std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      break;
+    }
+  }
+  std::lock_guard<std::mutex> lock(g_hostCallTargetMutex);
+  g_hostCallTargets.emplace(id, target);
+  return id;
+}
+
+static RuntimeCallbackTarget takeHostCallTarget(
+    ExactHermesRuntime* claimedRuntime,
+    uint64_t id) {
+  std::lock_guard<std::mutex> lock(g_hostCallTargetMutex);
+  auto it = g_hostCallTargets.find(id);
+  if (it == g_hostCallTargets.end() || it->second.runtime != claimedRuntime) {
+    return {};
+  }
+  auto target = it->second;
+  g_hostCallTargets.erase(it);
+  return target;
+}
+
+static void forgetHostCallTargets(RuntimeCallbackTarget target) {
+  std::lock_guard<std::mutex> lock(g_hostCallTargetMutex);
+  for (auto it = g_hostCallTargets.begin(); it != g_hostCallTargets.end();) {
+    if (it->second.runtime == target.runtime && it->second.nonce == target.nonce) {
+      it = g_hostCallTargets.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+static bool runtimeTargetMatchesLocked(
+    RuntimeCallbackTarget target,
+    bool allowClosing) {
+  if (!target) return false;
+  auto it = g_activeRuntimes.find(target.runtime);
+  return it != g_activeRuntimes.end() && it->second.nonce == target.nonce &&
+      (allowClosing || it->second.state == RuntimeLifecycleState::Running);
+}
+
+RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime) {
+  if (!runtime) return {};
+  return RuntimeCallbackTarget{runtime, runtime->runtime_nonce};
+}
+
+// Resolve an externally retained opaque handle without dereferencing it. This
+// is the only safe way for an any-thread producer (notably the watchdog) to
+// turn a raw callback token back into a runtime generation: the address may
+// already be stale or may name a newer allocation.
+static RuntimeCallbackTarget registeredRuntimeCallbackTarget(
+    ExactHermesRuntime* runtime) {
+  if (!runtime) return {};
+  std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(runtime);
+  if (it == g_activeRuntimes.end() ||
+      it->second.state != RuntimeLifecycleState::Running) {
+    return {};
+  }
+  return RuntimeCallbackTarget{runtime, it->second.nonce};
+}
 
 void registerRuntime(ExactHermesRuntime* runtime) {
-  if (!runtime) return;
+  if (!runtime || runtime->runtime_nonce == 0) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
-  g_activeRuntimes.insert(runtime);
+  g_activeRuntimes[runtime] =
+      RuntimeRegistryEntry{runtime->runtime_nonce, RuntimeLifecycleState::Running};
 }
 
 void unregisterRuntime(ExactHermesRuntime* runtime) {
   if (!runtime) return;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
-  g_activeRuntimes.erase(runtime);
+  auto it = g_activeRuntimes.find(runtime);
+  if (it != g_activeRuntimes.end() && it->second.nonce == runtime->runtime_nonce) {
+    g_activeRuntimes.erase(it);
+  }
 }
 
-bool runtimeIsAliveImpl(ExactHermesRuntime* runtime) {
-  if (!runtime) return false;
+bool runtimeIsAliveImpl(RuntimeCallbackTarget target) {
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
-  return g_activeRuntimes.find(runtime) != g_activeRuntimes.end();
+  return runtimeTargetMatchesLocked(target, false);
 }
 
 // ENG-22925: membership test for callers that ALREADY hold
 // g_runtimeRegistryMutex and need the check + a subsequent deref to be atomic
-// with respect to ex_hermes_destroy (which now holds the same mutex across the
-// delete). runtimeIsAlive/runtimeIsAliveImpl take the mutex themselves, so they
+// with respect to ex_hermes_destroy (which changes Running to Closing under the
+// same mutex before cleanup). runtimeIsAlive/runtimeIsAliveImpl take the mutex themselves, so they
 // cannot be used while it is held and their lock-then-release leaves the TOCTOU
 // gap this whole fix closes.
-static bool runtimeIsRegisteredLocked(ExactHermesRuntime* runtime) {
-  return runtime && g_activeRuntimes.find(runtime) != g_activeRuntimes.end();
+static bool runtimeIsRegisteredLocked(RuntimeCallbackTarget target) {
+  return runtimeTargetMatchesLocked(target, false);
 }
 
 // ENG-23028: cross-TU form of the ENG-22925 resolve_host_call pin. Holds
 // g_runtimeRegistryMutex across the membership test AND the synchronous body so
 // any-thread completion callbacks in sibling .cc files (fetch, debugger, ...)
 // can close the same check-then-lock TOCTOU without touching the file-local
-// registry primitives directly. ex_hermes_destroy holds the same mutex across
-// teardown and delete, so the runtime cannot be freed while body runs. See the
+// registry primitives directly. ex_hermes_destroy must acquire the same mutex
+// to enter Closing, so the runtime cannot be freed while body runs. See the
 // header for the body contract.
-bool withRuntimePinned(ExactHermesRuntime* runtime,
+bool withRuntimePinned(RuntimeCallbackTarget target,
                        const std::function<void()>& body) {
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-  if (!runtimeIsRegisteredLocked(runtime)) return false;
+  if (!runtimeIsRegisteredLocked(target)) return false;
   body();
   return true;
 }
 
-bool exactPinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
-  if (!runtime) return false;
+bool exactPinRuntimeNativeWorker(RuntimeCallbackTarget target) {
   std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-  if (!runtimeIsRegisteredLocked(runtime)) return false;
-  runtime->native_worker_pins.fetch_add(1, std::memory_order_acq_rel);
+  if (!runtimeIsRegisteredLocked(target)) return false;
+  target.runtime->native_worker_pins.fetch_add(1, std::memory_order_acq_rel);
   return true;
 }
 
-void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
-  if (!runtime) return;
+void exactUnpinRuntimeNativeWorker(RuntimeCallbackTarget target) {
+  if (!target) return;
   // Publish the final decrement while holding the same mutex destroy waits on.
   // If the count reached zero before taking this lock, destroy could observe
   // zero, delete the handle, and race this function's later lock/notify against
@@ -852,6 +937,7 @@ void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
   // its final access to the runtime and released the mutex.
   // @ref LLP 0003#blocking-work-worker-pools — detached-worker pins must drain
   // completely before runtime teardown destroys their synchronization state.
+  auto* runtime = target.runtime;
   std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
   auto previous = runtime->native_worker_pins.fetch_sub(1, std::memory_order_acq_rel);
   if (previous == 1) {
@@ -859,18 +945,75 @@ void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
   }
 }
 
-void unregisterRuntimeAndWaitForNativeWorkers(ExactHermesRuntime* runtime) {
-  {
-    // Registry membership is the admission gate for new pins. Taking this
-    // mutex also waits out any callback body already running under
-    // withRuntimePinned before teardown proceeds.
-    std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-    g_activeRuntimes.erase(runtime);
+static bool beginRuntimeTeardown(RuntimeCallbackTarget target) {
+  std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+  auto it = g_activeRuntimes.find(target.runtime);
+  if (it == g_activeRuntimes.end() || it->second.nonce != target.nonce) {
+    return false;
   }
-  std::unique_lock<std::mutex> lock(runtime->native_worker_mutex);
-  runtime->native_worker_cv.wait(lock, [runtime] {
-    return runtime->native_worker_pins.load(std::memory_order_acquire) == 0;
-  });
+  it->second.state = RuntimeLifecycleState::Closing;
+  return true;
+}
+
+static void drainRuntimeFinalizers(ExactHermesRuntime* runtime) {
+  std::deque<std::function<void()>> queue;
+  {
+    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
+    queue.swap(runtime->finalizerQueue);
+  }
+  for (auto& finalizer : queue) {
+    try {
+      finalizer();
+    } catch (...) {
+      // Native finalizers must be noexcept. Continue draining so one broken
+      // resource cannot strand another JSI owner past Hermes deletion.
+      ex_host_console_log(1, "Runtime-owned native finalizer failed");
+    }
+  }
+}
+
+static void discardRuntimeCallbacksOnOwnerThread(ExactHermesRuntime* runtime) {
+  std::deque<std::function<void(facebook::jsi::Runtime&)>> queue;
+  {
+    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+    queue.swap(runtime->callbackQueue);
+  }
+  // `queue` is intentionally destroyed on the runtime owner thread. Its
+  // functions may own jsi::Function/Object values and must not be dropped by
+  // the worker that produced them.
+}
+
+static void finishRuntimeTeardown(RuntimeCallbackTarget target) {
+  auto* runtime = target.runtime;
+  for (;;) {
+    // WebSocket callback guards can hold the last native context reference in
+    // callbackQueue. Discarding queued JS delivery and running native
+    // finalizers while we wait lets those producer pins retire without ever
+    // executing user JavaScript during teardown.
+    discardRuntimeCallbacksOnOwnerThread(runtime);
+    drainRuntimeFinalizers(runtime);
+
+    std::unique_lock<std::mutex> lock(runtime->native_worker_mutex);
+    if (runtime->native_worker_pins.load(std::memory_order_acquire) == 0) {
+      break;
+    }
+    runtime->native_worker_cv.wait_for(lock, std::chrono::milliseconds(25));
+  }
+
+  // A producer can enqueue immediately before publishing its final unpin.
+  // Drain once more after observing zero, then remove the exact generation so
+  // no later stale callback can be admitted at a reused address.
+  discardRuntimeCallbacksOnOwnerThread(runtime);
+  drainRuntimeFinalizers(runtime);
+  {
+    std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+    auto it = g_activeRuntimes.find(runtime);
+    if (it != g_activeRuntimes.end() && it->second.nonce == target.nonce) {
+      g_activeRuntimes.erase(it);
+    }
+  }
+  discardRuntimeCallbacksOnOwnerThread(runtime);
+  drainRuntimeFinalizers(runtime);
 }
 
 bool hasPendingFetchCallbacks(ExactHermesRuntime* runtime) {
@@ -913,6 +1056,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
     auto& url = std::get<2>(entry);
     // Expiry must also cancel the in-flight native task (NSURLSession et al.),
     // not just reject the JS promise. @ref LLP 0008#linux-networking
+    exactForgetNativeFetchTarget(request_id, runtime->runtime_nonce);
     native_fetch_cancel(request_id, runtime->runtime_nonce);
     if (!reject) {
       continue;
@@ -939,6 +1083,7 @@ void cancelAllFetchCallbacks(ExactHermesRuntime* runtime) {
     runtime->fetchCallbacks.clear();
   }
   for (auto requestId : requestIds) {
+    exactForgetNativeFetchTarget(requestId, runtime->runtime_nonce);
     native_fetch_cancel(requestId, runtime->runtime_nonce);
   }
 }
@@ -957,35 +1102,33 @@ extern "C" void native_ws_release_context(void* context) {
     return;
   }
   if (ctx->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-    // The final release can land on an NSURLSession/dispatch thread, but
-    // deleting ctx destroys a jsi::Object, which is only safe on the JS
-    // thread while the runtime is alive. Marshal the delete there; if the
-    // runtime is already gone, intentionally leak the context rather than
-    // destroy a JSI handle after runtime teardown (UB).
+    // The final release can land on an NSURLSession/dispatch thread. The
+    // context's producer pin keeps its exact runtime generation in Closing
+    // until this JSI-owning object has been marshalled to the owner thread.
     // @ref LLP 0003#the-event-loop
-    auto* runtime = ctx->runtime;
-    if (!runtime) {
-      return;  // leak-on-dead-runtime fallback
-    }
-    // ENG-22925: pin across the liveness check AND the runtime_thread read so a
-    // concurrent ex_hermes_destroy can't free the runtime between them.
+    auto target = ctx->target;
     bool onRuntimeThread = false;
     {
       std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-      if (!runtimeIsRegisteredLocked(runtime)) {
-        return;  // leak-on-dead-runtime fallback
+      if (!runtimeTargetMatchesLocked(target, true)) {
+        // A pinned context cannot outlive its registry generation. Fail loud
+        // instead of reintroducing either the old UAF or an unbounded leak.
+        std::terminate();
       }
-      onRuntimeThread = std::this_thread::get_id() == runtime->runtime_thread;
+      onRuntimeThread =
+          std::this_thread::get_id() == target.runtime->runtime_thread;
     }
     if (onRuntimeThread) {
-      // On the runtime thread: ex_hermes_destroy runs on that same thread, so it
-      // cannot be executing concurrently — the runtime is still alive here.
       delete ctx;
+      exactUnpinRuntimeNativeWorker(target);
       return;
     }
-    // Off-thread: pushRuntimeCallback re-pins internally. If the runtime dies in
-    // the gap the queued lambda is dropped and ctx leaks (documented fallback).
-    pushRuntimeCallback(runtime, [ctx](facebook::jsi::Runtime&) { delete ctx; });
+    if (!pushRuntimeFinalizer(target, [ctx]() { delete ctx; })) {
+      std::terminate();
+    }
+    // Ownership of ctx is now in finalizerQueue. Publishing the last unpin lets
+    // destroy drain that queue on the runtime thread before deleting Hermes.
+    exactUnpinRuntimeNativeWorker(target);
   }
 }
 
@@ -1009,47 +1152,39 @@ CFRefPtr<T> adoptCF(T ptr) {
   return CFRefPtr<T>(ptr);
 }
 
-bool runtimeIsAlive(ExactHermesRuntime* runtime) {
-  return runtimeIsAliveImpl(runtime);
+bool runtimeIsAlive(RuntimeCallbackTarget target) {
+  return runtimeIsAliveImpl(target);
 }
 
 extern "C" void ex_hermes_notify_callback();
 
-void pushRuntimeCallback(ExactHermesRuntime* runtime,
+void pushRuntimeCallback(RuntimeCallbackTarget target,
                          std::function<void(facebook::jsi::Runtime&)> fn,
                          bool* accepted) {
     {
-        // ENG-22925: pin the runtime across the liveness check AND the enqueue.
-        // ex_hermes_destroy holds g_runtimeRegistryMutex across the delete, so
+        // ENG-22925: pin the runtime generation across validation AND enqueue.
+        // ex_hermes_destroy enters Closing under g_runtimeRegistryMutex, so
         // holding it here closes the TOCTOU gap the old lock-then-release
         // runtimeIsAlive left open — an any-thread completion (fetch / WS /
         // timer / host-call) can no longer deref runtime->callbackMutex after a
         // concurrent free. Lock order registry -> callbackMutex; destroy never
         // locks callbackMutex, so there is no inversion.
         std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-        if (!runtimeIsRegisteredLocked(runtime)) {
-            // ENG-23033: the runtime is already destroyed (or mid-destroy on its
-            // own thread). `fn` routinely captures JSI handles by value —
-            // shared_ptr<jsi::Function>/<jsi::Object> for the fetch, DNS, HTTP,
-            // WebSocket and host-call completions. Letting `fn` be destructed
-            // here would run ~Function/~Object on THIS thread (a worker/network
-            // thread, since the runtime thread is gone), and PointerValue::
-            // invalidate() dereferences the freed HermesRuntime's value table —
-            // a use-after-free. There is no live runtime thread left to marshal
-            // the destruction to, so intentionally LEAK the callback (and its
-            // captures) rather than destroy JSI handles off-thread, mirroring the
-            // WebSocket ctx-release leak-on-dead-runtime fallback. Because every
-            // completion captures its handles by value, this leaked copy also
-            // pins the caller's own resolve/reject locals (refcount stays >= 1),
-            // so their drop at function return can't run ~Function off-thread
-            // either. The leak is bounded by the async work in flight at
-            // teardown; the runtime is being torn down regardless.
-            (void)new std::function<void(facebook::jsi::Runtime&)>(std::move(fn));
+        if (!runtimeTargetMatchesLocked(target, true)) {
+            // JSI-bearing producers hold a native-worker pin through enqueue,
+            // and destroy retains this exact generation in Closing until all
+            // such pins drain. A rejection is therefore a stale generation or
+            // a producer-lifetime bug; never hide either behind an unbounded
+            // leak fallback.
             if (accepted) *accepted = false;
             return;
         }
+        auto* runtime = target.runtime;
         std::lock_guard<std::mutex> lock(runtime->callbackMutex);
         runtime->callbackQueue.push_back(std::move(fn));
+        if (g_activeRuntimes.at(runtime).state == RuntimeLifecycleState::Closing) {
+          runtime->native_worker_cv.notify_all();
+        }
     }
     // Notify outside ALL locks: the host wake hook (exact LLP 0297 W4b/B8) takes
     // its executor lock inside the notify, and the host's idle-plan probes call
@@ -1057,6 +1192,25 @@ void pushRuntimeCallback(ExactHermesRuntime* runtime,
     // either mutex inverts that order and deadlocks the two threads (19a3412).
     ex_hermes_notify_callback();
     if (accepted) *accepted = true;
+}
+
+bool pushRuntimeFinalizer(RuntimeCallbackTarget target,
+                          std::function<void()> fn) {
+  {
+    std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+    if (!runtimeTargetMatchesLocked(target, true)) return false;
+    auto* runtime = target.runtime;
+    {
+      std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
+      runtime->finalizerQueue.push_back(std::move(fn));
+    }
+    runtime->native_worker_cv.notify_all();
+  }
+  // A final native context release can be the only event left in an embedded
+  // runtime. Wake its owner just like a JS callback so the queued JSI owner is
+  // not retained until unrelated work happens or the runtime is destroyed.
+  ex_hermes_notify_callback();
+  return true;
 }
 
 namespace {
@@ -2981,7 +3135,7 @@ extern "C" void ex_host_release_context(uint64_t context_id);
 
 static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed);
 
-static uint64_t allocateRuntimeNonce() {
+uint64_t exactAllocateRuntimeNonce() {
   // Zero is the unscoped sentinel. Refuse before the monotonic namespace can
   // wrap and make an old runtime's fd/socket authority addressable again.
   static std::atomic<uint64_t> next{1};
@@ -3129,7 +3283,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   // use structural isolation. Only production seals dynamic self-grant and
   // consumes authenticated endowments.
   handle->structural_lockdown = true;
-  handle->runtime_nonce = allocateRuntimeNonce();
+  handle->runtime_nonce = exactAllocateRuntimeNonce();
   if (handle->runtime_nonce == 0) {
     delete handle;
     return nullptr;
@@ -3273,20 +3427,41 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
     return;
   }
+  if (runtime->runtime_thread != std::this_thread::get_id()) {
+    // Every field holding a JSI value must be destroyed on its owning thread.
+    // Silently continuing here is Hermes value-table corruption, not a
+    // recoverable embedding error.
+    ex_host_console_log(1, "ex_hermes_destroy must run on the runtime owner thread");
+    std::terminate();
+  }
   uint64_t hostContext = runtime->host_context_id;
+  auto target = exactRuntimeCallbackTarget(runtime);
   ScopedRuntimeSecurityContext securityContext(runtime);
-  unregisterRuntimeAndWaitForNativeWorkers(runtime);
+
+  if (!beginRuntimeTeardown(target)) {
+    return;
+  }
+
+  // Stop/cancel callback sources while the exact generation remains
+  // registered in Closing. Already-admitted JSI-bearing producers retain a
+  // native-worker pin, may enqueue their captures, and are drained below.
   unregisterAndroidHostFunctions(runtime);
+  unregisterSignalRuntime(runtime);
+  disableDebugger(runtime);
+  forgetHostCallTargets(target);
   cancelAllFetchCallbacks(runtime);
-  exactCleanupRuntimeSpawnedProcesses(runtime->runtime_nonce);
   exactCleanupRuntimeWebSockets(runtime->runtime_nonce);
+  ex_host_http_cleanup_runtime(runtime->runtime_nonce, 1);
+  exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
+
+  finishRuntimeTeardown(target);
+
+  exactCleanupRuntimeSpawnedProcesses(runtime->runtime_nonce);
   ibex_tls_cleanup_runtime(runtime->runtime_nonce);
   ibex_zlib_streams::cleanupZlibStreams(runtime);
   exactCleanupRuntimeFileDescriptors(runtime->runtime_nonce);
   exactCleanupRuntimeSockets(runtime->runtime_nonce);
   exactCleanupRuntimeSqlite(runtime->runtime_nonce);
-  ex_host_http_cleanup_runtime(runtime->runtime_nonce, 1);
-  exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // Destroy is normally called outside an engine entry point. If an embedder
   // does destroy the currently selected handle, clear the cache rather than
@@ -3296,11 +3471,8 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     g_vm_runtime = nullptr;
   }
 #endif
-  // Registry removal above prevented new callback/worker pins and waited out
-  // existing ones before subsystem cleanup. The handle is now unreachable to
-  // background work and can be destroyed without holding the process-global
-  // registry mutex across arbitrary JSI/debugger destructors.
-  disableDebugger(runtime);
+  // All producer pins are gone and every queued/finalized JSI capture was
+  // destroyed on this thread before Hermes itself.
   delete runtime;
   ex_host_release_context(hostContext);
 }
@@ -3901,10 +4073,14 @@ extern "C" void ex_hermes_set_host_call_async(
               auto reject = std::make_shared<facebook::jsi::Function>(
                   args[1].asObject(rt).asFunction(rt));
 
-              uint64_t callId = 0;
+              auto target = exactRuntimeCallbackTarget(runtime);
+              uint64_t callId = registerHostCallTarget(target);
+              if (callId == 0) {
+                throw facebook::jsi::JSError(
+                    rt, "__hostCallAsync: call id space exhausted");
+              }
               {
                 std::lock_guard<std::mutex> lock(runtime->hostCallAsyncMutex);
-                callId = runtime->nextHostCallAsyncId++;
                 runtime->hostCallAsyncCallbacks[callId] = {std::move(resolve),
                                                            std::move(reject)};
               }
@@ -3921,9 +4097,12 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
                                             const char* payload) {
   if (!runtime) return;
 
+  auto target = takeHostCallTarget(runtime, call_id);
+  if (!target || !exactPinRuntimeNativeWorker(target)) return;
+
   std::shared_ptr<facebook::jsi::Function> resolve;
   std::shared_ptr<facebook::jsi::Function> reject;
-  {
+  bool extracted = withRuntimePinned(target, [&]() {
     // ENG-22925: pin the runtime across the liveness check AND the callback
     // extraction. ex_hermes_destroy holds g_runtimeRegistryMutex across the
     // delete, so this closes the TOCTOU gap that let a concurrent free land
@@ -3933,24 +4112,26 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
     // reconnect). Lock order registry -> hostCallAsync; destroy never locks
     // hostCallAsync, so there is no inversion, and the notify inside the
     // pushRuntimeCallback below fires outside this mutex.
-    std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
     // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — an armed
     // runtime must reject generic async completions before extracting pending
     // callbacks. Check `armed` under the registry pin so a stale pointer is
     // never dereferenced before the liveness check.
-    if (!runtimeIsRegisteredLocked(runtime) || runtime->armed) return;
+    if (runtime->armed) return;
     std::lock_guard<std::mutex> lock(runtime->hostCallAsyncMutex);
     auto it = runtime->hostCallAsyncCallbacks.find(call_id);
     if (it == runtime->hostCallAsyncCallbacks.end()) return;
     resolve = std::move(it->second.resolve);
     reject = std::move(it->second.reject);
     runtime->hostCallAsyncCallbacks.erase(it);
+  });
+  if (!extracted || !resolve || !reject) {
+    exactUnpinRuntimeNativeWorker(target);
+    return;
   }
-  if (!resolve || !reject) return;
 
   std::string payloadCopy = payload ? payload : "";
   pushRuntimeCallback(
-      runtime,
+      target,
       [resolve, reject, payloadCopy](facebook::jsi::Runtime& rt) {
         try {
           facebook::jsi::Value value;
@@ -3968,6 +4149,7 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
         } catch (...) {
         }
       });
+  exactUnpinRuntimeNativeWorker(target);
 }
 
 extern "C" void ex_hermes_free_string(char* value) {
@@ -4030,6 +4212,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   int executed = 0;
   executed += pollTypedAuthorityGenerations(runtime);
   cleanupFetchCallbacks(runtime);
+  drainRuntimeFinalizers(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)
   executed += drainCallbackQueue(runtime);
@@ -4086,6 +4269,10 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   } else {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) has_referenced_work = true;
+  }
+  if (!has_referenced_work) {
+    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
+    if (!runtime->finalizerQueue.empty()) has_referenced_work = true;
   }
   if (!has_referenced_work) {
     // Check if any referenced timer exists
@@ -4250,6 +4437,10 @@ extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime) {
     std::lock_guard<std::mutex> lock(runtime->callbackMutex);
     if (!runtime->callbackQueue.empty()) return 1;
   }
+  {
+    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
+    if (!runtime->finalizerQueue.empty()) return 1;
+  }
   // Only count referenced timers as keeping the loop alive
   for (const auto& kv : runtime->timers) {
     if (kv.second.referenced) {
@@ -4264,8 +4455,17 @@ extern "C" uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime) {
     return 0;
   }
 
-  std::lock_guard<std::mutex> lock(runtime->callbackMutex);
-  return static_cast<uint32_t>(runtime->callbackQueue.size());
+  uint64_t backlog = 0;
+  {
+    std::lock_guard<std::mutex> lock(runtime->callbackMutex);
+    backlog = runtime->callbackQueue.size();
+  }
+  {
+    std::lock_guard<std::mutex> lock(runtime->finalizerMutex);
+    backlog += runtime->finalizerQueue.size();
+  }
+  return static_cast<uint32_t>(
+      std::min<uint64_t>(backlog, std::numeric_limits<uint32_t>::max()));
 }
 
 extern "C" void ex_hermes_schedule_watchdog_heartbeat(
@@ -4276,7 +4476,9 @@ extern "C" void ex_hermes_schedule_watchdog_heartbeat(
     return;
   }
 
-  pushRuntimeCallback(runtime, [callback, context](facebook::jsi::Runtime&) {
+  auto target = registeredRuntimeCallbackTarget(runtime);
+  if (!target) return;
+  pushRuntimeCallback(target, [callback, context](facebook::jsi::Runtime&) {
     callback(context);
   });
 }
