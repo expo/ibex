@@ -591,6 +591,11 @@ const generatedKeyArgument = (keyType, property, options = null) =>
     3,
     [literalArgument(keyType), literalArgument(options), literalArgument(null)],
   );
+const sqliteMemoryDatabaseArgument = () =>
+  nativeResultArgument("__exactSqliteOpen", 2, [
+    literalArgument(":memory:"),
+    literalArgument(null),
+  ]);
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -891,6 +896,14 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument(null),
       literalArgument(null),
     ]),
+  ],
+  [
+    "__exactSqliteClose",
+    nativeNoEffectTemplate(1, [sqliteMemoryDatabaseArgument()]),
+  ],
+  [
+    "__exactSqliteInTransaction",
+    nativeNoEffectTemplate(1, [sqliteMemoryDatabaseArgument()]),
   ],
   [
     "__exactStringToUtf8Bytes",

@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(173);
+    expect(nativePublicFixtures).toHaveLength(175);
     expect(
       nativePublicFixtures
         .filter(
@@ -122,7 +122,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(129);
+    ).toHaveLength(131);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -847,6 +847,46 @@ describe("exact-target CapSec executable recipes", () => {
       expect(
         recipe.publicSurfaceProbe.invocation.setup[1].sourceDescriptorDigest,
       ).toMatch(/^sha256-/u);
+    }
+  });
+
+  test("uses exact in-memory SQLite databases for zero-decision status and release", () => {
+    for (const globalName of [
+      "__exactSqliteClose",
+      "__exactSqliteInTransaction",
+    ]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        scenario: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [
+              {
+                kind: "native-global-result",
+                globalName: "__exactSqliteOpen",
+                arguments: [
+                  { kind: "json-literal", value: ":memory:" },
+                  { kind: "json-literal", value: null },
+                ],
+                sourceDescriptor: {
+                  arity: 2,
+                  globalName: "__exactSqliteOpen",
+                  kind: "native-global-function",
+                },
+              },
+            ],
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
     }
   });
 

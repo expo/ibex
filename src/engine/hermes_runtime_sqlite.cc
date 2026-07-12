@@ -49,7 +49,10 @@ static std::unordered_map<uint64_t, SqliteHandleEntry> g_sqlite_dbs;
 static std::unordered_map<uint64_t, SqliteStatementEntry> g_sqlite_statements;
 
 bool sqliteMemoryPath(const std::string& path) {
-  return path == ":memory:" || path.rfind("file::memory:", 0) == 0;
+  // The host does not opt into SQLite URI filename parsing. Treating a
+  // `file::memory:` prefix as memory here could exempt a literal disk filename
+  // from filesystem authorization.
+  return path == ":memory:";
 }
 
 bool objectBoolProperty(
@@ -103,13 +106,17 @@ bool sqliteOpenNeedsWrite(
 std::vector<std::string> sqliteOpenCapabilities(
     const std::string& path,
     bool needsWrite) {
+  // @ref LLP 0021#typed-resources-and-initial-vocabulary — an exact in-memory
+  // database is computation. The host authorizer independently denies ATTACH,
+  // DETACH, and load_extension so it cannot acquire filesystem authority later.
+  if (sqliteMemoryPath(path)) {
+    return {};
+  }
   std::vector<std::string> capabilities;
   capabilities.push_back(needsWrite ? "sqlite:write" : "sqlite:read");
-  if (!sqliteMemoryPath(path)) {
-    capabilities.push_back("fs:read:" + path);
-    if (needsWrite) {
-      capabilities.push_back("fs:write:" + path);
-    }
+  capabilities.push_back("fs:read:" + path);
+  if (needsWrite) {
+    capabilities.push_back("fs:write:" + path);
   }
   return capabilities;
 }
@@ -660,8 +667,9 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string path = args[0].toString(runtime).utf8(runtime);
         bool needsWrite = sqliteOpenNeedsWrite(runtime, args, count);
         auto capabilities = sqliteOpenCapabilities(path, needsWrite);
-        // @ref LLP 0013#policy — SQLite is a native host boundary: opening a
-        // database needs both sqlite:* authority and path-scoped fs:* grants.
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — file-backed
+        // SQLite decomposes into filesystem effects; exact in-memory SQLite is
+        // computation and intentionally retains no positive authority.
         SqliteHandleEntry authorization{
             exactCurrentRuntimeNonce(), currentPrincipalId(),
             std::move(capabilities), 0, {}};

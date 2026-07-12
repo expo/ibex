@@ -3668,6 +3668,67 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_memory_sqlite_is_a_zero_decision_non_capability() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let prefixed_uri = engine
+            .eval_immediate(
+                r#"(function() {
+                  try { __exactSqliteOpen('file::memory:?cache=shared', null); }
+                  catch (_) { return 'denied'; }
+                  return 'allowed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            prefixed_uri.as_deref(),
+            Some("denied"),
+            "a URI-looking disk filename must not inherit the :memory: exemption"
+        );
+
+        let typed_before = crate::host::abi::installed_typed_decision_count();
+        let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.sqlite.memory.non-capability"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  var db = __exactSqliteOpen(':memory:', null);
+                  var inTransaction = __exactSqliteInTransaction(db);
+                  __exactSqliteClose(db);
+                  return typeof inTransaction + '/' + String(inTransaction);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("boolean/false"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "in-memory SQLite must not consult the legacy oracle"
+        );
+        assert!(
+            typed.is_empty(),
+            "in-memory SQLite must not emit a typed decision"
+        );
+        assert_eq!(
+            crate::host::abi::installed_legacy_authorization_check_count() - legacy_before,
+            0
+        );
+        assert_eq!(
+            crate::host::abi::installed_typed_decision_count() - typed_before,
+            0
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
         let _lock = hermes_engine_test_lock().lock().await;

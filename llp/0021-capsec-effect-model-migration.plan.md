@@ -304,6 +304,9 @@ journal/WAL/SHM objects; `sqlite:*` is not canonical authority. Unix sockets
 decompose `network:local` into connect or listen plus the applicable filesystem
 effects. Ordinary randomness, pure in-memory cryptography, ordinary/high-
 resolution clocks, and status-only attenuations are reasoned non-capabilities.
+Exact SQLite `:memory:` databases are likewise computation because the host
+authorizer denies attach/detach and extension loading. URI-looking or empty
+filenames are not covered by that exemption and remain file-backed effects.
 
 Location, camera, microphone, and clipboard are authorable target-specific
 definitions. Their cells remain unsupported until native gates and broker/
