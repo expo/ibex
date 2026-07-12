@@ -2910,6 +2910,38 @@ pub extern "C" fn ex_host_module_resolve(
     module_resolve_cstring(&payload)
 }
 
+/// Loader-private resolver for trusted builtin implementation fan-out. The
+/// host method accepts only exact generated-manifest specifiers and can never
+/// enter package/path resolution. The corresponding JSI global is captured and
+/// deleted by the bootstrap loader before package code can execute.
+/// @ref LLP 0013#policy
+#[no_mangle]
+pub extern "C" fn ex_host_resolve_manifest_builtin_internal(
+    specifier: *const c_char,
+) -> *mut c_char {
+    if specifier.is_null() {
+        return ptr::null_mut();
+    }
+    let spec = unsafe { CStr::from_ptr(specifier) }
+        .to_string_lossy()
+        .to_string();
+    let resolved = with_host(
+        |host| host.resolve_manifest_builtin_internal(&spec),
+        Err(anyhow::anyhow!("Host not initialized")),
+    );
+    let payload = match resolved {
+        Ok(module) => {
+            let mut record = module_meta_json(&module);
+            record["source"] = json!(module.source.unwrap_or_default());
+            record
+        }
+        Err(err) => json!({
+            "error": format!("{err:#}")
+        }),
+    };
+    module_resolve_cstring(&payload)
+}
+
 /// Metadata-only resolve: returns just the resolution record (id/kind/path/pkg
 /// fields, no `source`) so `require.resolve` can get the resolved path without
 /// the full-resolve bridge reading + transpiling + JSON-escaping the entire

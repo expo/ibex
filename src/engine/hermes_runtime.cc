@@ -317,6 +317,8 @@ extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
 extern "C" char* ex_host_module_resolve(uint64_t requester_module_id,
                                          const char* specifier,
                                          const char* referrer);
+extern "C" char* ex_host_resolve_manifest_builtin_internal(
+    const char* specifier);
 // Metadata-only resolve for require.resolve: resolved path + package fields, no
 // module body read/transpile. (ENG-23007)
 extern "C" char* ex_host_module_resolve_meta(uint64_t requester_module_id,
@@ -1948,6 +1950,39 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactModuleResolve", resolveModuleValue);
   rt.global().setProperty(rt, "__exactNativeModuleResolve", resolveModuleValue);
 
+  // Loader-private resolution path for a manifest builtin's synchronous
+  // implementation dependencies. It cannot resolve packages or paths, and the
+  // bootstrap loader captures then deletes this global before package code can
+  // execute. @ref LLP 0013#policy
+  auto resolveManifestBuiltinInternalFn =
+      facebook::jsi::Function::createFromHostFunction(
+          rt,
+          facebook::jsi::PropNameID::forAscii(
+              rt, "__exactResolveManifestBuiltinInternal"),
+          1,
+          [](facebook::jsi::Runtime& runtime,
+             const facebook::jsi::Value&,
+             const facebook::jsi::Value* args,
+             size_t count) -> facebook::jsi::Value {
+            if (count == 0 || !args[0].isString()) {
+              return facebook::jsi::Value::null();
+            }
+            auto spec = args[0].toString(runtime).utf8(runtime);
+            char* json =
+                ex_host_resolve_manifest_builtin_internal(spec.c_str());
+            if (!json) {
+              return facebook::jsi::Value::null();
+            }
+            auto result =
+                facebook::jsi::String::createFromUtf8(runtime, json);
+            ex_host_free_string(json);
+            return result;
+          });
+  rt.global().setProperty(
+      rt,
+      "__exactResolveManifestBuiltinInternal",
+      std::move(resolveManifestBuiltinInternalFn));
+
   // Metadata-only resolve for require.resolve: returns the resolved path +
   // package fields WITHOUT reading/transpiling/JSON-escaping the module body,
   // which the full bridge above does and require.resolve then discards.
@@ -2403,7 +2438,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   }
   var hatches = ['__exactSetActiveModuleId', '__exactGrantCapability',
                  '__exactSetPendingPackageId', '__exactRegisterPackage',
-                 '__exactCheckImport', '__exactSetCompartmentFor'];
+                 '__exactCheckImport', '__exactSetCompartmentFor',
+                 '__exactResolveManifestBuiltinInternal'];
   if (!keepBareNameHelper) hatches.push('__ibexBarePackageName');
   for (var j = 0; j < hatches.length; j++) {
     try { delete g[hatches[j]]; } catch (e) {}
@@ -2947,7 +2983,9 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
     return locked.isBool() && locked.getBool() && compartments.isObject() &&
         require.isObject() && require.asObject(rt).isFunction(rt) && tamed &&
         !rt.global().hasProperty(rt, "__exactRegisterPackage") &&
-        !rt.global().hasProperty(rt, "__exactSetPendingPackageId");
+        !rt.global().hasProperty(rt, "__exactSetPendingPackageId") &&
+        !rt.global().hasProperty(
+            rt, "__exactResolveManifestBuiltinInternal");
   } catch (...) {
     return false;
   }

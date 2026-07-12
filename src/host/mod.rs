@@ -1790,6 +1790,31 @@ impl Host {
         self.load_authenticated_module_source(meta)
     }
 
+    /// Resolve one dependency of a manifest-authored builtin without treating
+    /// that private implementation edge as a package import. Both the requested
+    /// spelling and the resolved record must belong to the generated builtin
+    /// manifest; package/path resolution is never reachable through this path.
+    /// The engine exposes this only to the module loader's captured bootstrap
+    /// closure while an exact builtin body is synchronously evaluating.
+    /// @ref LLP 0013#policy — package-facing imports remain graph-gated while
+    /// trusted builtin implementation fan-out is not a package-authored edge.
+    pub fn resolve_manifest_builtin_internal(
+        &self,
+        specifier: &str,
+    ) -> anyhow::Result<ResolvedModule> {
+        if self.unarmed_closed {
+            anyhow::bail!("unarmed host cannot resolve executable modules");
+        }
+        if !self.module_loader.is_builtin_specifier(specifier) {
+            anyhow::bail!("internal builtin resolution requires an exact manifest specifier");
+        }
+        let meta = self.module_loader.resolve_meta(specifier, None)?;
+        if meta.kind != crate::module_loader::ModuleKind::Builtin {
+            anyhow::bail!("internal builtin resolution escaped the generated manifest");
+        }
+        self.load_authenticated_module_source(meta)
+    }
+
     fn load_authenticated_module_source(
         &self,
         meta: ResolvedModule,
@@ -3773,6 +3798,24 @@ mod tests {
         );
         for specifier in allowed {
             assert!(!denied.check_import("7", specifier), "{specifier}");
+        }
+    }
+
+    #[test]
+    fn internal_builtin_resolver_cannot_escape_the_generated_manifest() {
+        let host = example_armed_host_with(|_| {});
+        let resolved = host
+            .resolve_manifest_builtin_internal("node:util")
+            .expect("exact manifest builtin should resolve internally");
+        assert_eq!(resolved.kind, crate::module_loader::ModuleKind::Builtin);
+        assert!(resolved.path.is_none());
+        assert!(resolved.source.is_some());
+
+        for specifier in ["image-lib", "./node:util", "/tmp/node:util", "node:made-up"] {
+            assert!(
+                host.resolve_manifest_builtin_internal(specifier).is_err(),
+                "{specifier}"
+            );
         }
     }
 

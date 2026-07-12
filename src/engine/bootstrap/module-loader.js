@@ -33,6 +33,14 @@
   var __privCheckImport = (typeof g.__exactCheckImport === 'function')
     ? g.__exactCheckImport
     : null;
+  // Exact-manifest-only resolver for trusted builtin implementation fan-out.
+  // Capture and remove it immediately: package code must never be able to call
+  // this import-policy exemption directly. @ref LLP 0013#policy
+  var __privResolveManifestBuiltinInternal =
+    (typeof g.__exactResolveManifestBuiltinInternal === 'function')
+      ? g.__exactResolveManifestBuiltinInternal
+      : null;
+  try { delete g.__exactResolveManifestBuiltinInternal; } catch (e) {}
   // @ref LLP 0013#mechanism-2 — (Phase 3) — native compartment binder. Sets a
   // compiled function's Domain compartment global so bare-global references in a
   // package resolve natively through its compartment (no build-time rewrite).
@@ -101,6 +109,9 @@
   // Hermes' CapabilityAttribution.cpp): builtin modules (node:fs, node:path, …)
   // are trusted deputies whose Domains attribution sees through to the caller.
   var __runtimePrincipal = 0xFFFFFFFF;
+  // Detached/no-user sentinel. A leaked builtin require closure must fail
+  // closed on fallback engines where the native gate still consumes the hint.
+  var __noUserPrincipal = 0xFFFFFFFE;
   var __pkgChunkPrefix = '__ibexpkg__';
   // Whether a module path's basename claims to be a per-package bundle chunk
   // (`__ibexpkg__*`). The claim is only *trusted* when the file also lives in
@@ -5094,7 +5105,7 @@
     __builtinCanonicalByAlias[id] = canonical;
     return canonical;
   }
-  function load(specifier, referrer, parent) {
+  function load(specifier, referrer, parent, manifestBuiltinInternal) {
     __exactPinProcessStreams();
 
     // @ref LLP 0013#mechanism-3 — per-package chunk requires (`__ibexpkg__*`)
@@ -5179,7 +5190,7 @@
       var fsModule = cache.fs || cache['node:fs'] || cache['fs/promises'] || cache['node:fs/promises'];
       var fsExports = fsModule && fsModule.exports ? fsModule.exports : fsModule;
       if (!fsExports || !fsExports.promises) {
-        fsExports = load('fs', referrer, parent);
+        fsExports = load('fs', referrer, parent, manifestBuiltinInternal);
       }
       if (fsExports && fsExports.promises) {
         var cachedFsPromises = {
@@ -5213,7 +5224,12 @@
       }
       return cache[normalized].exports;
     }
-    const json = __exactModuleResolve(resolvedSpecifier, referrer || "");
+    if (manifestBuiltinInternal && !__privResolveManifestBuiltinInternal) {
+      throw new Error("Internal builtin resolver is unavailable");
+    }
+    const json = manifestBuiltinInternal
+      ? __privResolveManifestBuiltinInternal(resolvedSpecifier)
+      : __exactModuleResolve(resolvedSpecifier, referrer || "");
     if (!json) {
       throw new Error("Module not found: " + specifier);
     }
@@ -5225,6 +5241,9 @@
     }
     if (record.error) {
       throw new Error(record.error);
+    }
+    if (manifestBuiltinInternal && record.kind !== 'builtin') {
+      throw new Error("Internal builtin resolution escaped the generated manifest");
     }
     // Import policy (Policy surface 3) for BARE specifiers is enforced at the
     // package-facing entry points via checkImportGate(), not here: load() is also
@@ -5308,6 +5327,15 @@
       children: [],
       paths: modulePaths,
     };
+    // A manifest-authored builtin's own synchronous module evaluation may load
+    // implementation dependencies that are not package-authored import edges.
+    // Scope that exemption to the actual body invocation: `record.kind` comes
+    // from the native manifest resolver, and a `require`/`module.require`
+    // closure leaked through exports becomes package-gated again as soon as the
+    // body returns (including exceptional returns). Never infer trust from an
+    // id/path prefix. @ref LLP 0013#policy
+    const isManifestBuiltinRecord = record.kind === 'builtin';
+    var manifestBuiltinEvaluationActive = false;
     cache[cacheKey] = module;
     if (!parent && !mainModule) {
       mainModule = module;
@@ -5381,11 +5409,24 @@
     };
     var localRequire = function(next) {
       // Pass the enclosing module's principal as the fallback hint so the gate
-      // still enforces on non-frame-attribution builds. (ENG-22618 review)
-      checkImportGate(next, module && module.__exactPackageId);
+      // still enforces on non-frame-attribution builds. A manifest builtin's
+      // closure is never a package identity; outside its scoped evaluation use
+      // the fail-closed no-user sentinel instead of the trusted runtime id.
+      // (ENG-22618 review, ENG-24233)
+      if (!manifestBuiltinEvaluationActive) {
+        checkImportGate(
+          next,
+          isManifestBuiltinRecord ? __noUserPrincipal : module && module.__exactPackageId
+        );
+      }
       var internal = loadInternal(next);
       if (internal) return internal;
-      var exports = load(next, filename, module);
+      var exports = load(
+        next,
+        filename,
+        module,
+        manifestBuiltinEvaluationActive
+      );
       // Skip interop for ESM-shimmed modules — the shim's generated
       // import bindings already handle default/named/namespace access.
       if (exports && exports.__esmShimmed) {
@@ -5430,6 +5471,14 @@
     const previousNodeDirname = g.__dirname;
     const moduleDynamicImport = function(specifier, options) {
       return importImpl(specifier, options, filename, module);
+    };
+    const invokeModuleBody = function(moduleBody) {
+      manifestBuiltinEvaluationActive = isManifestBuiltinRecord;
+      try {
+        moduleBody(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+      } finally {
+        manifestBuiltinEvaluationActive = false;
+      }
     };
     try {
       const splitDirectivePrologue = function(text) {
@@ -5578,7 +5627,7 @@
         const invokeFallbackSource = function(fallbackFn) {
           g.__filename = filename;
           g.__dirname = dir;
-          fallbackFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+          invokeModuleBody(fallbackFn);
         };
         if (reason === "await-syntax") {
           runtimeSource = wrapAsyncModule(runtimeSource);
@@ -5670,7 +5719,7 @@
           g.__filename = filename;
           g.__dirname = dir;
           try {
-            directFn(localRequire, module, module.exports, filename, dir, moduleDynamicImport);
+            invokeModuleBody(directFn);
           } catch (err) {
             if (!isOwnBodyAwaitReferenceError(err)) {
               throw err;
