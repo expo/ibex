@@ -1060,12 +1060,19 @@ green.
 Builtin public-surface evidence follows the same rule at value granularity.
 The source scanner records whether an export is data, a readable accessor, a
 callable, or unresolved, plus source-derived platform availability where the
-builtin authors conditional tables. A generic read recipe is valid only for a
-root data property or readable root accessor on the selected target; the
-loaded runtime must match the authored property descriptor, and accessor
-evidence actually invokes the getter. Retrieving a function, constructor, or
-prototype method is presence evidence rather than execution evidence, so those
-surfaces remain residual until a bounded call/setup recipe is authored.
+builtin authors conditional tables. It also distinguishes manifest-importable
+aliases from bootstrap-internal names that preempt a same-named manifest
+source. Registry-only names remain executable when an authenticated import
+policy grants their exact spelling, even when they are neither advertised nor
+bundler-external. Bootstrap-shadowed and unaliased manifest exports remain in
+the completeness inventory, but receive an explicit reachability residual
+rather than a public invocation recipe. A generic read recipe is valid only for
+a publicly reachable root data property or readable root accessor on the
+selected target; the loaded runtime must match the authored property
+descriptor, and accessor evidence actually invokes the getter. Retrieving a
+function, constructor, or prototype method is presence evidence rather than
+execution evidence, so those surfaces remain residual until a bounded
+call/setup recipe is authored.
 Manifest-builtin initialization may resolve exact manifest-owned private
 builtin dependencies without creating package import edges, but that exemption
 is scoped to synchronous body evaluation and does not suppress capability

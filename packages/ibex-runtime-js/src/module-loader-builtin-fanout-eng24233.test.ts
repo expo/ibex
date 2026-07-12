@@ -40,6 +40,11 @@ const records: Record<string, Record<string, unknown>> = {
     kind: 'builtin',
     source: "module.exports = { value: 'SECRET' };",
   },
+  'internal/fs/utils': {
+    id: 'internal/fs/utils',
+    kind: 'builtin',
+    source: 'module.exports = { manifestOnly: true };',
+  },
   // A package-controlled record whose id looks builtin-like must not receive
   // the exemption. Trust comes only from the native resolver's exact kind.
   'node:forged-looking-package': {
@@ -56,8 +61,13 @@ const records: Record<string, Record<string, unknown>> = {
 function makeHarness() {
   const checked: Array<{ hint: number; specifier: string }> = [];
   const internallyResolved: string[] = [];
+  const nativelyResolved: string[] = [];
   let terminalCalls = 0;
-  const packageAllowed = new Set(['node:outer', 'node:forged-looking-package']);
+  const packageAllowed = new Set([
+    'internal/fs/utils',
+    'node:outer',
+    'node:forged-looking-package',
+  ]);
   const sandbox: any = {};
   sandbox.globalThis = sandbox;
   sandbox.console = console;
@@ -73,6 +83,7 @@ function makeHarness() {
     throw new Error('CAPABILITY-DENIED');
   };
   sandbox.__exactModuleResolve = function (specifier: string) {
+    nativelyResolved.push(specifier);
     const record = records[specifier];
     return JSON.stringify(
       record ?? { error: `Module not found: ${specifier}` },
@@ -89,9 +100,13 @@ function makeHarness() {
   };
   vm.createContext(sandbox);
   vm.runInContext(loaderSource, sandbox, { filename: 'module-loader.js' });
+  // Bootstrap may make optional resolver probes while installing globals; the
+  // assertions below care only about package-facing loads after installation.
+  nativelyResolved.length = 0;
   return {
     checked,
     internallyResolved,
+    nativelyResolved,
     internalResolverReachable:
       typeof sandbox.__exactResolveManifestBuiltinInternal === 'function',
     get terminalCalls() {
@@ -108,6 +123,18 @@ test('manifest builtin initialization can load its authored private dependency',
   expect(harness.checked.map((row) => row.specifier)).toEqual(['node:outer']);
   expect(harness.internallyResolved).toEqual(['node:util']);
   expect(harness.internalResolverReachable).toBe(false);
+});
+
+test('bootstrap-internal modules shadow same-named manifest sources', () => {
+  const harness = makeHarness();
+  const internalFsUtils = harness.require('internal/fs/utils');
+
+  expect(internalFsUtils.isFd(0)).toBe(true);
+  expect(internalFsUtils.manifestOnly).toBeUndefined();
+  expect(harness.checked.map((row) => row.specifier)).toEqual([
+    'internal/fs/utils',
+  ]);
+  expect(harness.nativelyResolved).not.toContain('internal/fs/utils');
 });
 
 test('a package cannot spell the dependency or reuse leaked builtin require closures', () => {

@@ -493,7 +493,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ).toThrow(/duplicate public ABI definition ex_hermes_duplicate/);
   });
 
-  test("module specifier aliases preserve their authored source key and defaults", () => {
+  test("module specifier aliases preserve exposure flags while remaining importable", () => {
     const rows = scanModuleSpecifierEntries(
       {
         meta: { defaults: { bundleExternal: true, moduleBuiltin: true } },
@@ -522,11 +522,36 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(rows.find((row) => row.name === "node:fs").metadata).toEqual({
       sourceKey: "node_fs",
       bundleExternal: true,
+      importReachability: "public",
       moduleBuiltin: true,
     });
     expect(rows.find((row) => row.name === "exact:sqlite").metadata).toEqual({
       sourceKey: "exact_sqlite",
       bundleExternal: false,
+      importReachability: "public",
+      moduleBuiltin: false,
+    });
+  });
+
+  test("bootstrap internal aliases are distinct from their manifest source", () => {
+    const rows = scanModuleSpecifierEntries({
+      bootstrapInternalModules: ["internal/fs/utils"],
+      sources: { internal_fs_utils: { kind: "inline", code: "" } },
+      specifiers: [
+        {
+          names: ["internal/fs/utils"],
+          source: "internal_fs_utils",
+          bundleExternal: false,
+          moduleBuiltin: false,
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].metadata).toEqual({
+      sourceKey: "internal_fs_utils",
+      bundleExternal: false,
+      importReachability: "bootstrap-internal",
       moduleBuiltin: false,
     });
   });
@@ -541,6 +566,17 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         ],
       }),
     ).toThrow(/duplicate builtin specifier "node:fs"/);
+  });
+
+  test("builtin export reachability classifications fail closed on overlap", () => {
+    expect(() =>
+      scanStaticBuiltinExports("module.exports = {};", {
+        bootstrapInternalModuleSpecifiers: ["internal/example"],
+        moduleSpecifiers: ["internal/example"],
+        publicModuleSpecifiers: ["internal/example"],
+        sourcePath: "overlap.js",
+      }),
+    ).toThrow(/cannot be both public and bootstrap-internal/);
   });
 
   test("builtin exports are parsed from code without comment or string false positives", () => {
@@ -572,7 +608,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows.find((row) => row.name.endsWith(":read")).metadata,
     ).toMatchObject({
       exportName: "read",
+      importReachability: "public",
       moduleSpecifiers: ["node:synthetic", "synthetic"],
+      publicModuleSpecifiers: ["node:synthetic", "synthetic"],
       sourceKey: "node_synthetic",
       surfaceType: "export",
       valueShape: "callable",
@@ -3240,6 +3278,36 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(
       exports.some((row) => row.name === "export:node_constants:O_RDONLY"),
     ).toBe(true);
+    expect(
+      exports.find(
+        (row) =>
+          row.name === "export:internal_fs_utils:toPathIfFileURL",
+      )?.metadata,
+    ).toMatchObject({
+      bootstrapInternalModuleSpecifiers: ["internal/fs/utils"],
+      importReachability: "bootstrap-internal",
+      moduleSpecifiers: ["internal/fs/utils"],
+      publicModuleSpecifiers: [],
+    });
+    expect(
+      exports.find(
+        (row) => row.name === "export:node_fs_promises:readFile",
+      )?.metadata,
+    ).toMatchObject({
+      importReachability: "public",
+      moduleSpecifiers: [
+        "bun:fs/promises",
+        "fs/promises",
+        "internal/fs/promises",
+        "node:fs/promises",
+      ],
+      publicModuleSpecifiers: [
+        "bun:fs/promises",
+        "fs/promises",
+        "internal/fs/promises",
+        "node:fs/promises",
+      ],
+    });
     expect(
       exports.find(
         (row) =>

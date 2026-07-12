@@ -13,7 +13,9 @@ function probeFor({
   sourceKey = "node_constants",
   exportName = "ENOENT",
   exportIdioms = ["object-binding", "object-source"],
+  importReachability = "public",
   moduleSpecifiers = ["constants", "node:constants"],
+  publicModuleSpecifiers = moduleSpecifiers,
   platformAvailability,
   target = "aarch64-apple-darwin",
   valueShape = "data",
@@ -40,7 +42,9 @@ function probeFor({
             sourceKey,
             exportName,
             exportIdioms,
+            importReachability,
             moduleSpecifiers,
+            publicModuleSpecifiers,
             platformAvailability,
             surfaceType: "export",
             valueShape,
@@ -439,6 +443,72 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("keeps non-public manifest sources as explicit residuals", () => {
+    const surfaceObservedKey =
+      "builtin:export:internal_fs_utils:toPathIfFileURL";
+    const route = {
+      surfaceObservedKeys: [surfaceObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: surfaceObservedKey,
+          proofPaths: [surfaceObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    };
+    const liveByObservedKey = new Map([
+      [
+        surfaceObservedKey,
+        {
+          observedKey: surfaceObservedKey,
+          sourceRefs: [
+            "modules.ts#sources:internal_fs_utils:exports:toPathIfFileURL",
+          ],
+          metadata: {
+            bootstrapInternalModuleSpecifiers: ["internal/fs/utils"],
+            exportName: "toPathIfFileURL",
+            exportIdioms: ["module-exports-object"],
+            importReachability: "bootstrap-internal",
+            moduleSpecifiers: ["internal/fs/utils"],
+            publicModuleSpecifiers: [],
+            sourceKey: "internal_fs_utils",
+            surfaceType: "export",
+            valueShape: "callable",
+          },
+        },
+      ],
+    ]);
+
+    expect(
+      authoredNonCapabilityBuiltinProbe({
+        plan,
+        scenario: "non-capability",
+        route,
+        liveByObservedKey,
+        target: "aarch64-apple-darwin",
+      }),
+    ).toBeNull();
+    expect(
+      nonCapabilityBuiltinProbeResidualReason({
+        route,
+        liveByObservedKey,
+        target: "aarch64-apple-darwin",
+      }),
+    ).toBe("builtin-export-resolves-to-bootstrap-internal");
+
+    const metadata = liveByObservedKey.get(surfaceObservedKey).metadata;
+    metadata.bootstrapInternalModuleSpecifiers = [];
+    metadata.importReachability = "private-manifest";
+    metadata.moduleSpecifiers = [];
+    expect(
+      nonCapabilityBuiltinProbeResidualReason({
+        route,
+        liveByObservedKey,
+        target: "aarch64-apple-darwin",
+      }),
+    ).toBe("builtin-export-not-publicly-importable");
+  });
+
   test("keeps source-proven target-absent constants explicitly residual", () => {
     const surfaceObservedKey = "builtin:export:node_constants:EDQUOT";
     const liveByObservedKey = new Map([
@@ -451,7 +521,9 @@ describe("source-bound builtin public probes", () => {
             sourceKey: "node_constants",
             exportName: "EDQUOT",
             exportIdioms: ["object-binding", "object-source", "table-copy"],
+            importReachability: "public",
             moduleSpecifiers: ["constants", "node:constants"],
+            publicModuleSpecifiers: ["constants", "node:constants"],
             platformAvailability: ["android", "linux"],
             surfaceType: "export",
             valueShape: "data",

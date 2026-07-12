@@ -1302,6 +1302,7 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   const targetPlatform = platformForTarget(target);
   if (
     metadata?.surfaceType !== "export" ||
+    metadata.importReachability !== "public" ||
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
     metadata.sourceKey === "node_os" ||
@@ -1312,13 +1313,13 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
     metadata.exportIdioms.length === 0 ||
     canonicalJson(metadata.exportIdioms) !==
       canonicalJson(canonicalSet(metadata.exportIdioms)) ||
-    !Array.isArray(metadata.moduleSpecifiers) ||
-    metadata.moduleSpecifiers.length === 0 ||
-    !metadata.moduleSpecifiers.every(
+    !Array.isArray(metadata.publicModuleSpecifiers) ||
+    metadata.publicModuleSpecifiers.length === 0 ||
+    !metadata.publicModuleSpecifiers.every(
       (specifier) => typeof specifier === "string" && specifier.length > 0,
     ) ||
-    canonicalJson(metadata.moduleSpecifiers) !==
-      canonicalJson(canonicalSet(metadata.moduleSpecifiers)) ||
+    canonicalJson(metadata.publicModuleSpecifiers) !==
+      canonicalJson(canonicalSet(metadata.publicModuleSpecifiers)) ||
     availability === false ||
     (availability &&
       (!targetPlatform || !availability.includes(targetPlatform))) ||
@@ -1330,7 +1331,9 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   const expectedObservedKey = `builtin:export:${metadata.sourceKey}:${metadata.exportName}`;
   if (surface.observedKey !== expectedObservedKey) return null;
   const access = exportAccess(metadata.exportName, metadata.exportIdioms);
-  const moduleSpecifier = canonicalModuleSpecifier(metadata.moduleSpecifiers);
+  const moduleSpecifier = canonicalModuleSpecifier(
+    metadata.publicModuleSpecifiers,
+  );
   if (!access || !moduleSpecifier) {
     return null;
   }
@@ -1339,7 +1342,7 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
     sourceKey: metadata.sourceKey,
     exportName: metadata.exportName,
     exportIdioms: [...metadata.exportIdioms],
-    moduleSpecifiers: [...metadata.moduleSpecifiers],
+    moduleSpecifiers: [...metadata.publicModuleSpecifiers],
     sourceRef: surface.sourceRefs[0],
     valueShape: metadata.valueShape,
     access,
@@ -1452,6 +1455,18 @@ export function nonCapabilityBuiltinProbeResidualReason({
 }) {
   if (route.surfaceObservedKeys.length !== 1) return null;
   const surface = liveByObservedKey.get(route.surfaceObservedKeys[0]);
+  if (
+    surface?.metadata?.surfaceType === "export" &&
+    surface.metadata.importReachability === "bootstrap-internal"
+  ) {
+    return "builtin-export-resolves-to-bootstrap-internal";
+  }
+  if (
+    surface?.metadata?.surfaceType === "export" &&
+    surface.metadata.importReachability === "private-manifest"
+  ) {
+    return "builtin-export-not-publicly-importable";
+  }
   const availability = platformAvailability(surface?.metadata);
   const targetPlatform = platformForTarget(target);
   if (

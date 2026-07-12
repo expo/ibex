@@ -1791,10 +1791,12 @@ function javascriptFunctionDefinitions(program) {
 export function scanStaticBuiltinExports(
   text,
   {
+    bootstrapInternalModuleSpecifiers = [],
     sourceKey = "synthetic",
     sourceKind = "generated",
     sourcePath = "<builtin-source>",
     moduleSpecifiers = [],
+    publicModuleSpecifiers = moduleSpecifiers,
   } = {},
 ) {
   if (!/^[A-Za-z0-9_]+$/u.test(sourceKey)) {
@@ -4877,6 +4879,35 @@ export function scanStaticBuiltinExports(
   }
 
   const specifiers = uniqueSorted(moduleSpecifiers);
+  const publicSpecifiers = uniqueSorted(publicModuleSpecifiers);
+  const bootstrapInternalSpecifiers = uniqueSorted(
+    bootstrapInternalModuleSpecifiers,
+  );
+  const specifierSet = new Set(specifiers);
+  const bootstrapInternalSpecifierSet = new Set(bootstrapInternalSpecifiers);
+  if (
+    [...publicSpecifiers, ...bootstrapInternalSpecifiers].some(
+      (specifier) => !specifierSet.has(specifier),
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: builtin import reachability names an unknown module specifier`,
+    );
+  }
+  if (
+    publicSpecifiers.some((specifier) =>
+      bootstrapInternalSpecifierSet.has(specifier),
+    )
+  ) {
+    throw new Error(
+      `${sourcePath}: a builtin module specifier cannot be both public and bootstrap-internal`,
+    );
+  }
+  const importReachability = publicSpecifiers.length
+    ? "public"
+    : bootstrapInternalSpecifiers.length
+      ? "bootstrap-internal"
+      : "private-manifest";
   const prototypeExportIdioms = new Set([
     "exported-constructor-inherited-prototype",
     "exported-constructor-prototype",
@@ -4921,7 +4952,10 @@ export function scanStaticBuiltinExports(
         paths: enforcementRoute.paths,
         terminals: enforcementRoute.terminals,
       },
+      bootstrapInternalModuleSpecifiers: bootstrapInternalSpecifiers,
+      importReachability,
       moduleSpecifiers: specifiers,
+      publicModuleSpecifiers: publicSpecifiers,
       sourceKey,
       sourceKind,
       surfaceType: "export",
@@ -9795,7 +9829,8 @@ export function scanModuleSpecifierEntries(
   moduleExports,
   sourcePath = "modules.ts",
 ) {
-  const { meta, sources, specifiers } = moduleExports ?? {};
+  const { bootstrapInternalModules = [], meta, sources, specifiers } =
+    moduleExports ?? {};
   if (!Array.isArray(specifiers) || specifiers.length === 0) {
     throw new Error(
       `${sourcePath}: exported specifiers must be a non-empty array`,
@@ -9805,6 +9840,18 @@ export function scanModuleSpecifierEntries(
     throw new Error(`${sourcePath}: exported sources map is missing`);
   }
   const defaults = meta?.defaults ?? {};
+  if (
+    !Array.isArray(bootstrapInternalModules) ||
+    bootstrapInternalModules.some(
+      (name) => typeof name !== "string" || name.length === 0,
+    ) ||
+    new Set(bootstrapInternalModules).size !== bootstrapInternalModules.length
+  ) {
+    throw new Error(
+      `${sourcePath}: bootstrapInternalModules must be a unique string array`,
+    );
+  }
+  const bootstrapInternalSet = new Set(bootstrapInternalModules);
   const rows = [];
   const names = new Set();
 
@@ -9836,6 +9883,17 @@ export function scanModuleSpecifierEntries(
         );
       }
       names.add(name);
+      const bundleExternal =
+        group.bundleExternal ?? defaults.bundleExternal ?? true;
+      const moduleBuiltin =
+        group.moduleBuiltin ?? defaults.moduleBuiltin ?? true;
+      // @ref LLP 0004#one-source-many-specifiers — every registry alias remains
+      // package-importable under an exact policy grant even when it is neither
+      // advertised nor bundler-external. A same-named bootstrap internal is the
+      // exception: loadInternal() preempts the manifest source.
+      const importReachability = bootstrapInternalSet.has(name)
+        ? "bootstrap-internal"
+        : "public";
       rows.push(
         makeSurface(
           "builtin",
@@ -9844,10 +9902,9 @@ export function scanModuleSpecifierEntries(
           {
             metadata: {
               sourceKey: group.source,
-              bundleExternal:
-                group.bundleExternal ?? defaults.bundleExternal ?? true,
-              moduleBuiltin:
-                group.moduleBuiltin ?? defaults.moduleBuiltin ?? true,
+              bundleExternal,
+              importReachability,
+              moduleBuiltin,
             },
           },
         ),
@@ -9875,15 +9932,15 @@ export async function scanBuiltinSurfaces(
 ) {
   const moduleExports = await import(pathToFileURL(modulePath).href);
   const aliases = scanModuleSpecifierEntries(moduleExports, sourcePath);
-  const specifiersBySource = new Map();
+  const aliasesBySource = new Map();
   for (const alias of aliases) {
     const sourceKey = alias.metadata.sourceKey;
-    let names = specifiersBySource.get(sourceKey);
-    if (!names) {
-      names = [];
-      specifiersBySource.set(sourceKey, names);
+    let sourceAliases = aliasesBySource.get(sourceKey);
+    if (!sourceAliases) {
+      sourceAliases = [];
+      aliasesBySource.set(sourceKey, sourceAliases);
     }
-    names.push(alias.name);
+    sourceAliases.push(alias);
   }
 
   const exports = [];
@@ -9920,12 +9977,22 @@ export async function scanBuiltinSurfaces(
         `${sourcePath}: source ${sourceKey} has unknown kind ${JSON.stringify(source.kind)}`,
       );
     }
+    const sourceAliases = aliasesBySource.get(sourceKey) ?? [];
     exports.push(
       ...scanStaticBuiltinExports(text, {
+        bootstrapInternalModuleSpecifiers: sourceAliases
+          .filter(
+            (alias) =>
+              alias.metadata.importReachability === "bootstrap-internal",
+          )
+          .map((alias) => alias.name),
         sourceKey,
         sourceKind: source.kind,
         sourcePath: authoredPath,
-        moduleSpecifiers: specifiersBySource.get(sourceKey) ?? [],
+        moduleSpecifiers: sourceAliases.map((alias) => alias.name),
+        publicModuleSpecifiers: sourceAliases
+          .filter((alias) => alias.metadata.importReachability === "public")
+          .map((alias) => alias.name),
       }),
     );
   }

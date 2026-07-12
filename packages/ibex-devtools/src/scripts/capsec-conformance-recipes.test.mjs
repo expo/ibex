@@ -889,6 +889,24 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("keeps bootstrap-internal manifest exports out of public probes", () => {
+    const recipe = recipes.recipes.find(
+      (candidate) =>
+        candidate.scenario === "non-capability" &&
+        candidate.route.surfaceObservedKeys.includes(
+          "builtin:export:internal_fs_utils:toPathIfFileURL",
+        ),
+    );
+    expect(recipe).toBeDefined();
+    expect(recipe.publicSurfaceProbe).toBeNull();
+    expect(recipe.residualReasons).toContain(
+      "builtin-export-resolves-to-bootstrap-internal",
+    );
+    expect(recipe.residualReasons).not.toContain(
+      "non-capability-no-decision-probe-not-authored",
+    );
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>

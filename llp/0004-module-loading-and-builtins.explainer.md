@@ -113,6 +113,20 @@ of embedded sources `[observed]` (`modules.ts:693-699, 728-729`).
 `[inferred: the single-source-many-aliases design lets Ibex present a Node- and
 Bun-compatible import surface without maintaining separate implementations.]`
 
+Not every registry entry is an advertised alias. Groups authored with both
+`moduleBuiltin: false` and `bundleExternal: false` appear in neither
+`module.builtinModules` nor the bundler's external set. Those flags do not,
+however, remove an exact name from the generated registry or authenticated
+import gate: a package whose policy lists the name can still resolve it. The
+source inventory therefore retains such registry-only names as package-facing
+probe entry points. `internal/fs/utils` is the stricter exception: it is also
+named in `bootstrapInternalModules`, and the JS loader's `loadInternal()`
+returns the bootstrap-owned object before consulting the generated manifest.
+Consequently the inline `internal_fs_utils` manifest source cannot be evidenced
+by importing that same-named specifier
+`[observed]` (`modules.ts`; `src/engine/bootstrap/module-loader.js`;
+`packages/ibex-devtools/src/scripts/capsec-surface-inventory.mjs`).
+
 The LLP 0021 capability inventory uses the same source-key boundary: it records
 each specifier alias, then statically inventories exported APIs once per source
 key rather than treating `fs`, `node:fs`, and `bun:fs` as three independent
