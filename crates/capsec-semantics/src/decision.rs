@@ -263,7 +263,7 @@ pub enum TargetCellDisposition {
     Incomplete,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectGate {
     pub coverage_edge_id: StableId,

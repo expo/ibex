@@ -177,6 +177,8 @@ pub struct Host {
     typed_decision_count: Arc<AtomicUsize>,
     #[cfg(test)]
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
+    #[cfg(test)]
+    conformance_typed_observer: Arc<RwLock<TypedConformanceObserver>>,
     typed_imports: Arc<
         BTreeMap<
             capsec_semantics::model::Principal,
@@ -194,6 +196,23 @@ pub struct Host {
 pub struct TypedDecisionResult {
     pub decision: capsec_semantics::decision::Decision,
     pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+}
+
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObservedTypedDecision {
+    pub terminal_branch_id: String,
+    pub decision_set: capsec_semantics::model::DecisionSet,
+    pub gates: Vec<capsec_semantics::decision::EffectGate>,
+    pub evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct TypedConformanceObserver {
+    terminal_branch_id: Option<String>,
+    decisions: Vec<ObservedTypedDecision>,
 }
 
 impl Host {
@@ -241,6 +260,8 @@ impl Host {
             typed_evidence: Arc::new(RwLock::new(VecDeque::with_capacity(
                 MAX_TYPED_EVIDENCE_ENTRIES,
             ))),
+            #[cfg(test)]
+            conformance_typed_observer: Arc::new(RwLock::new(TypedConformanceObserver::default())),
             typed_imports: Arc::new(BTreeMap::new()),
             typed_module_principals: Arc::new(RwLock::new(HashMap::new())),
             target_cells: Arc::new(BTreeMap::new()),
@@ -770,12 +791,7 @@ impl Host {
         {
             let evidence =
                 capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
-            if let Ok(mut rows) = self.typed_evidence.write() {
-                if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
-                    rows.pop_front();
-                }
-                rows.push_back(evidence);
-            }
+            self.record_typed_decision_for_tests(set, gates, evidence);
         }
         Ok(decision)
     }
@@ -807,13 +823,35 @@ impl Host {
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
         #[cfg(test)]
+        self.record_typed_decision_for_tests(set, gates, evidence.clone());
+        Ok(TypedDecisionResult { decision, evidence })
+    }
+
+    #[cfg(test)]
+    fn record_typed_decision_for_tests(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+        evidence: capsec_semantics::decision::StructuredDecisionEvidence,
+    ) {
         if let Ok(mut rows) = self.typed_evidence.write() {
             if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
                 rows.pop_front();
             }
             rows.push_back(evidence.clone());
         }
-        Ok(TypedDecisionResult { decision, evidence })
+        let Ok(mut observer) = self.conformance_typed_observer.write() else {
+            return;
+        };
+        let Some(terminal_branch_id) = observer.terminal_branch_id.clone() else {
+            return;
+        };
+        observer.decisions.push(ObservedTypedDecision {
+            terminal_branch_id,
+            decision_set: set.clone(),
+            gates: gates.to_vec(),
+            evidence,
+        });
     }
 
     /// Strict JSON ingress for engine/host adapters. Duplicate keys and unsafe
@@ -1623,11 +1661,24 @@ impl Host {
     pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
         self.capability_manager
             .begin_conformance_observation(terminal_branch_id);
+        if let Ok(mut observer) = self.conformance_typed_observer.write() {
+            observer.terminal_branch_id = Some(terminal_branch_id.to_string());
+            observer.decisions.clear();
+        }
     }
 
     #[cfg(test)]
     pub fn take_conformance_observations(&self) -> Vec<capability::ObservedCapabilityDecision> {
         self.capability_manager.take_conformance_observations()
+    }
+
+    #[cfg(test)]
+    pub fn take_typed_conformance_observations(&self) -> Vec<ObservedTypedDecision> {
+        let Ok(mut observer) = self.conformance_typed_observer.write() else {
+            return Vec::new();
+        };
+        observer.terminal_branch_id = None;
+        std::mem::take(&mut observer.decisions)
     }
 
     /// Resolve and load a module (basic loader).
@@ -3077,6 +3128,7 @@ mod tests {
         }]))
         .unwrap();
 
+        host.begin_conformance_observation("enforcement.test.fs.read");
         let allowed = host
             .evaluate_typed_decision(&decision("photo.jpg"), &gates)
             .unwrap();
@@ -3123,6 +3175,20 @@ mod tests {
             evidence[5].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
+        let observed = host.take_typed_conformance_observations();
+        assert_eq!(observed.len(), 2);
+        assert!(observed
+            .iter()
+            .all(|row| row.terminal_branch_id == "enforcement.test.fs.read"));
+        assert_eq!(
+            observed[0].decision_set.operation_id.as_str(),
+            "read-photo.jpg"
+        );
+        assert_eq!(observed[0].gates, gates);
+        assert_eq!(observed[0].evidence.outcome, DecisionOutcome::Allow);
+        assert_eq!(observed[1].decision_set, denied_set);
+        assert_eq!(observed[1].evidence.outcome, DecisionOutcome::Deny);
+        assert!(host.take_typed_conformance_observations().is_empty());
     }
 
     #[test]
