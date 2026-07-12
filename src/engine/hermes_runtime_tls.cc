@@ -55,6 +55,30 @@ uint64_t requireTlsEngineId(
   return static_cast<uint64_t>(value);
 }
 
+size_t requireTlsReadLimit(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value* args,
+    size_t count,
+    const char* fnName) {
+  constexpr double kDefaultReadLimit = 65536.0;
+  if (count < 2 || args[1].isUndefined()) {
+    return static_cast<size_t>(kDefaultReadLimit);
+  }
+  if (!args[1].isNumber()) {
+    throw facebook::jsi::JSError(
+        runtime, (std::string(fnName) + ": maxBytes must be a number").c_str());
+  }
+  const double value = args[1].asNumber();
+  if (!std::isfinite(value) || value < 1.0 || value > kDefaultReadLimit ||
+      std::floor(value) != value) {
+    throw facebook::jsi::JSError(
+        runtime,
+        (std::string(fnName) + ": maxBytes must be an integer from 1 to 65536")
+            .c_str());
+  }
+  return static_cast<size_t>(value);
+}
+
 // Rust returns an owned C string; copy into std::string and free the original.
 std::string takeRustString(char* s) {
   if (s == nullptr) {
@@ -119,12 +143,9 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
       [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
          const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         uint64_t id = requireTlsEngineId(runtime, args, count, "__exactTlsEngineReadTls");
-        int maxBytes = 65536;
-        if (count > 1 && args[1].isNumber()) {
-          maxBytes = static_cast<int>(args[1].asNumber());
-          if (maxBytes <= 0) maxBytes = 65536;
-        }
-        std::vector<uint8_t> buf(static_cast<size_t>(maxBytes));
+        const size_t maxBytes =
+            requireTlsReadLimit(runtime, args, count, "__exactTlsEngineReadTls");
+        std::vector<uint8_t> buf(maxBytes);
         int64_t n = ibex_tls_read_tls(id, buf.data(), buf.size());
         if (n <= 0) {
           return facebook::jsi::String::createFromUtf8(runtime, "");
@@ -159,12 +180,9 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
       [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
          const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         uint64_t id = requireTlsEngineId(runtime, args, count, "__exactTlsEngineReadPlain");
-        int maxBytes = 65536;
-        if (count > 1 && args[1].isNumber()) {
-          maxBytes = static_cast<int>(args[1].asNumber());
-          if (maxBytes <= 0) maxBytes = 65536;
-        }
-        std::vector<uint8_t> buf(static_cast<size_t>(maxBytes));
+        const size_t maxBytes =
+            requireTlsReadLimit(runtime, args, count, "__exactTlsEngineReadPlain");
+        std::vector<uint8_t> buf(maxBytes);
         int64_t n = ibex_tls_read_plain(id, buf.data(), buf.size());
         if (n > 0) {
           buf.resize(static_cast<size_t>(n));

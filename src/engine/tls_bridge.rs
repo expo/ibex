@@ -71,7 +71,10 @@ struct OwnedEngine {
     /// Principal that minted the numeric handle. Permissive policy does not
     /// make native handles ambient across package compartments.
     owner: u64,
-    engine: Engine,
+    // Engine operations can perform certificate parsing and rustls record
+    // processing. Keep that work off the process-global registry mutex so an
+    // unrelated runtime's TLS connection cannot serialize behind it.
+    engine: Arc<Mutex<Engine>>,
 }
 
 fn engines() -> &'static Mutex<HashMap<u64, OwnedEngine>> {
@@ -504,12 +507,16 @@ fn with_engine<R>(id: u64, f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
     if runtime_nonce == 0 {
         return None;
     }
-    let mut map = engines().lock().unwrap();
-    let owned = map.get_mut(&id)?;
-    if owned.runtime_nonce != runtime_nonce || owned.owner != principal {
-        return None;
-    }
-    Some(f(&mut owned.engine))
+    let engine = {
+        let map = engines().lock().unwrap();
+        let owned = map.get(&id)?;
+        if owned.runtime_nonce != runtime_nonce || owned.owner != principal {
+            return None;
+        }
+        Arc::clone(&owned.engine)
+    };
+    let mut engine = engine.lock().unwrap();
+    Some(f(&mut engine))
 }
 
 fn to_owned_cstring(value: String) -> *mut c_char {
@@ -554,7 +561,7 @@ pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 
                 OwnedEngine {
                     runtime_nonce,
                     owner,
-                    engine,
+                    engine: Arc::new(Mutex::new(engine)),
                 },
             );
             debug_assert!(

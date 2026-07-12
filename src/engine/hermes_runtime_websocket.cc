@@ -149,7 +149,12 @@ bool webSocketCallbackIsCurrent(
     NativeWebSocketCallbackContext* context) {
   if (ws_id == 0 || !context) return false;
   std::unique_lock<std::mutex> lock(g_websocket_mutex);
-  g_websocket_cv.wait_for(lock, std::chrono::seconds(1), [&] {
+  // A callback can win the race with runtime-thread registration while the
+  // latter is stalled after native_ws_connect. Registration is guaranteed for
+  // every nonzero connect result, so an arbitrary timeout only drops a valid
+  // open/message event and strands JS in CONNECTING. Terminal callbacks wake
+  // this wait as well, preventing a failed connection from hanging here.
+  g_websocket_cv.wait(lock, [&] {
     return context->websocket_registered || context->websocket_terminal;
   });
   if (!context->websocket_registered || context->websocket_terminal) return false;

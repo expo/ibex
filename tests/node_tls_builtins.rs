@@ -169,6 +169,28 @@ console.log(JSON.stringify(out));
 }
 
 #[tokio::test]
+async fn node_tls_native_read_limits_reject_unbounded_allocations() {
+    let script = r#"
+require('tls');
+var id = __exactTlsEngineNew(JSON.stringify({ host: 'localhost', servername: 'localhost' }));
+var bad = [NaN, Infinity, 65537, 1.5, 0, '64'];
+var out = [];
+for (var i = 0; i < bad.length; i++) {
+  try { __exactTlsEngineReadTls(id, bad[i]); out.push(false); } catch (_) { out.push(true); }
+  try { __exactTlsEngineReadPlain(id, bad[i]); out.push(false); } catch (_) { out.push(true); }
+}
+__exactTlsEngineClose(id);
+console.log(JSON.stringify(out));
+"#;
+    let v = run_script(script, 5).await;
+    assert_eq!(
+        v,
+        serde_json::json!([true, true, true, true, true, true, true, true, true, true, true, true]),
+        "native TLS read limits must reject invalid or oversized allocations"
+    );
+}
+
+#[tokio::test]
 async fn node_tls_socket_prototype_chain_extends_net_socket() {
     // ENG-23448 finding 3: setPrototypeOf was applied to the constructor only,
     // so `new tls.TLSSocket(sock) instanceof net.Socket` was false and none of
