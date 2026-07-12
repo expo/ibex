@@ -20,6 +20,30 @@ const digest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+function validateLoadedEngineBinding(engine, target) {
+  const object = engine?.object;
+  if (
+    engine?.kind !== "hermes" ||
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(engine.binaryDigest ?? "") ||
+    !object ||
+    canonicalJson(Object.keys(object).sort()) !==
+      canonicalJson(["file", "platform", "volume"]) ||
+    !["android", "apple", "unix", "windows"].includes(object.platform) ||
+    typeof object.volume !== "string" ||
+    object.volume.length === 0 ||
+    typeof object.file !== "string" ||
+    object.file.length === 0 ||
+    typeof engine.targetArchitecture !== "string" ||
+    !Array.isArray(engine.structuralFeatures) ||
+    engine.targetArchitecture !== target?.triple?.split("-")[0] ||
+    canonicalJson(engine.structuralFeatures) !== canonicalJson(target.features)
+  ) {
+    throw new Error(
+      "conformance bindings require the exact loaded Hermes object for the target",
+    );
+  }
+}
+
 function fixturePlans(catalog) {
   const accumulated = new Map();
   for (const cell of catalog) {
@@ -275,6 +299,7 @@ export function buildConformanceReport({
   bindings,
   digestContract,
 }) {
+  validateLoadedEngineBinding(bindings.engine, target);
   const catalog = fixtureCatalogForTarget({ coverage, implementation, target });
   const expected = new Set(catalog.flatMap((cell) => cell.requiredFixtures));
   const plans = fixturePlans(catalog);

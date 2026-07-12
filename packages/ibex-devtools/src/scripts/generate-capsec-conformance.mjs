@@ -10,7 +10,8 @@ import {
   buildConformanceReport,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
-import { readJsonStrict } from "./capsec-contract.mjs";
+import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
+import { validateLoadedEngineIdentity } from "./capsec-engine-identity.mjs";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -36,7 +37,24 @@ const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
 const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
 if (!fs.existsSync(enginePath))
-  throw new Error(`patched Hermes binary not found: ${enginePath}`);
+  throw new Error(`Hermes engine artifact not found: ${enginePath}`);
+if (git("status", "--porcelain").toString("utf8").trim()) {
+  throw new Error("conformance generation requires a clean committed source tree");
+}
+if (!executionsPath) {
+  throw new Error(
+    "conformance generation requires executions from the exact loaded-engine runner",
+  );
+}
+const executionArtifact = readJsonStrict(path.resolve(repoRoot, executionsPath));
+if (
+  executionArtifact.executionArtifactSchema !== "ibex/capsec-executions/1" ||
+  !Array.isArray(executionArtifact.executions)
+) {
+  throw new Error("execution artifact is malformed");
+}
+const loadedEngineIdentity = executionArtifact.loadedEngineIdentity;
+const engineDigest = taggedDigest(fs.readFileSync(enginePath));
 
 const manifest = readJsonStrict(path.join(capsecRoot, "contract-files.json"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -61,6 +79,23 @@ const digestVectors = readJsonStrict(
 );
 const target = rules.initialProfile.candidateTargets[0];
 if (!target) throw new Error("no candidate target is declared");
+const engineBinding = validateLoadedEngineIdentity({
+  identity: loadedEngineIdentity,
+  canonicalArtifactPath: fs.realpathSync(enginePath),
+  binaryDigest: engineDigest,
+  target,
+});
+if (
+  executionArtifact.sourceRevision !==
+    git("rev-parse", "HEAD").toString("utf8").trim() ||
+  executionArtifact.sourceTreeDigest !==
+    taggedDigest(git("rev-parse", "HEAD^{tree}")) ||
+  canonicalJson(executionArtifact.engine) !== canonicalJson(engineBinding)
+) {
+  throw new Error(
+    "execution artifact source or engine binding differs from this checkout",
+  );
+}
 const vocabularyDigest = registryBundle.members.find(
   (member) => member.logicalName === "vocab-digest",
 )?.document?.digest;
@@ -70,11 +105,7 @@ const registryDigest = digestVectors.vectors.find(
 if (!vocabularyDigest || !registryDigest)
   throw new Error("semantic digest identities are unavailable");
 
-const executions = executionsPath
-  ? readJsonStrict(path.resolve(repoRoot, executionsPath)).executions
-  : [];
-if (!Array.isArray(executions))
-  throw new Error("execution artifact must contain an executions array");
+const executions = executionArtifact.executions;
 
 const report = buildConformanceReport({
   coverage,
@@ -85,8 +116,7 @@ const report = buildConformanceReport({
     sourceRevision: git("rev-parse", "HEAD").toString("utf8").trim(),
     sourceTreeDigest: taggedDigest(git("rev-parse", "HEAD^{tree}")),
     engine: {
-      kind: "patched-hermes",
-      binaryDigest: taggedDigest(fs.readFileSync(enginePath)),
+      ...engineBinding,
     },
     vocabularyDigest,
     registryDigest,

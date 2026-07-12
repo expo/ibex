@@ -36,12 +36,26 @@
         },
         "engine": {
           "type": "object",
-          "required": ["kind", "binaryDigest"],
+          "required": [
+            "kind",
+            "binaryDigest",
+            "object",
+            "targetArchitecture",
+            "structuralFeatures"
+          ],
           "properties": {
-            "kind": { "const": "patched-hermes" },
+            "kind": { "const": "hermes" },
             "binaryDigest": {
               "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
-            }
+            },
+            "object": {
+              "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/objectIdentity"
+            },
+            "targetArchitecture": {
+              "type": "string",
+              "pattern": "^[a-z0-9_]+$"
+            },
+            "structuralFeatures": { "$ref": "#/$defs/idSet" }
           },
           "additionalProperties": false
         },

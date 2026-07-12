@@ -2011,6 +2011,58 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_root);
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn capsec_loaded_engine_identity_attestation() {
+        let Ok(output_path) = std::env::var("IBEX_CAPSEC_ENGINE_IDENTITY_OUTPUT") else {
+            // The normal unit suite still compiles and exercises all helpers;
+            // the conformance runner supplies this path for the exact-artifact
+            // execution and requires the resulting record.
+            return;
+        };
+        let expected_path = std::fs::canonicalize(
+            std::env::var("IBEX_CAPSEC_ENGINE_ARTIFACT")
+                .expect("conformance attestation requires the named engine artifact"),
+        )
+        .expect("named conformance engine artifact must be canonicalizable");
+        let expected_digest = std::env::var("IBEX_CAPSEC_ENGINE_DIGEST")
+            .expect("conformance attestation requires the named artifact digest");
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let identity = HermesEngine::loaded_engine_identity()
+            .expect("the linked Hermes object must expose a loaded identity");
+        assert_eq!(identity.engine_artifact_path, expected_path);
+        assert_eq!(identity.binary_digest, expected_digest);
+
+        let engine = HermesEngine::new().expect("exact Hermes engine must initialize");
+        engine
+            .load_runtime()
+            .await
+            .expect("exact Hermes runtime bundle must load");
+        let marker = engine
+            .eval_immediate("'IBEX_CAPSEC_EXACT_ENGINE_EXECUTED'")
+            .await
+            .expect("exact Hermes artifact must evaluate the attestation program");
+        assert_eq!(marker.as_deref(), Some("IBEX_CAPSEC_EXACT_ENGINE_EXECUTED"));
+        let verified = ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity)
+            .expect("loaded Hermes object changed during exact-artifact execution");
+        assert_eq!(verified, identity);
+
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output_path)
+            .expect("identity output must be a new runner-owned file");
+        serde_json::to_writer(&mut output, &verified)
+            .expect("loaded engine identity must serialize");
+        use std::io::Write as _;
+        output
+            .write_all(b"\n")
+            .expect("loaded engine identity must be written completely");
+        output
+            .sync_all()
+            .expect("loaded engine identity must be durable before success");
+    }
+
     #[test]
     fn eof_drain_stops_on_future_or_perpetual_timer() {
         let now = 1_000u64;

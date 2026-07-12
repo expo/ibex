@@ -40,7 +40,13 @@ const implementation = {
 const bindings = {
   sourceRevision: "0".repeat(40),
   sourceTreeDigest: `sha256-${"A".repeat(43)}`,
-  engine: { kind: "patched-hermes", binaryDigest: `sha256-${"B".repeat(43)}` },
+  engine: {
+    kind: "hermes",
+    binaryDigest: `sha256-${"B".repeat(43)}`,
+    object: { platform: "apple", volume: "dev:test", file: "ino:test" },
+    targetArchitecture: "aarch64",
+    structuralFeatures: [...target.features],
+  },
   vocabularyDigest: `sha256-${"D".repeat(43)}`,
   registryDigest: `sha256-${"E".repeat(43)}`,
 };
@@ -208,6 +214,19 @@ describe("capsec target conformance", () => {
   });
 
   test("rejects unknown, duplicate, and unbound execution claims", () => {
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [],
+        bindings: {
+          ...bindings,
+          engine: { ...bindings.engine, structuralFeatures: [] },
+        },
+        digestContract,
+      }),
+    ).toThrow(/exact loaded Hermes object/);
     expect(() =>
       buildConformanceReport({
         coverage,
