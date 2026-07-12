@@ -483,10 +483,14 @@ async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> 
     suppress_runtime_banner(&runtime).await?;
     runtime.load_runtime().await?;
     runtime.run_file_with_args(file, args).await?;
+    let exit_code = read_process_exit_code(&runtime).await;
     if let Some(report) = crate::host::abi::current_audit_report() {
         if !report.is_empty() {
             eprintln!("{report}");
         }
+    }
+    if let Some(code) = exit_code {
+        std::process::exit(code);
     }
     Ok(())
 }

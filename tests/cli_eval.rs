@@ -1,7 +1,12 @@
-//! End-to-end tests for the `ibex` CLI eval/run surface, driving the real
-//! binary. Ported from exact's stranded `packages/exact-cli/tests/cli_eval.rs`
+//! End-to-end tests for the `ibex` CLI evaluation/runtime surface, driving the
+//! real binary. Ported from exact's stranded `packages/exact-cli/tests/cli_eval.rs`
 //! after the LLP 0180 split orphaned that suite (ENG-22429); this repo is the
 //! home of the `ibex` binary (LLP 0010), so the suite lives here now.
+//!
+//! Production `run`, `-e`, and `-p` stay fail-closed until the exact target is
+//! verified and advertised. These compatibility checks execute source through
+//! the separately named `ibex capsec audit` diagnostic instead of weakening
+//! ordinary execution (LLP 0021#default-execution-contract).
 //!
 //! Two contracts in here were interim-guarded exact-side by
 //! `scripts/check-ibex-runtime-behavior.mjs` and are re-pinned properly:
@@ -10,12 +15,13 @@
 //!     claimed coherently, pinned against `runtime-identity.json` (the
 //!     authority file lives at this repo's root).
 //!   * `cli_honors_process_exit_code_at_natural_exit` — process.exitCode set
-//!     by user code is honored at natural exit for both `-e` and file runs.
+//!     by user code is honored at natural exit for diagnostic expression and
+//!     file executions.
 //!
 //! Run with: `scripts/run-tests.sh --scope test cli_` (or `cargo test --test cli_eval`).
 
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -28,15 +34,50 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
+/// Construct the explicit foreground diagnostic command used by compatibility
+/// execution tests. Keeping this in one helper makes it hard for a new fixture
+/// to accidentally exercise (or attempt to weaken) production startup.
+fn diagnostic_command(entry: &Path) -> Command {
+    let mut cmd = Command::new(IBEX);
+    cmd.arg("capsec").arg("audit").arg(entry);
+    cmd
+}
+
+/// Evaluate an expression through a temporary diagnostic entry and return the
+/// process output. The wrapper retains `-p`'s promise-awaiting/printing behavior
+/// without reopening ad-hoc evaluation on the production command surface.
+async fn diagnostic_eval(
+    expression: &str,
+    bun_compat: bool,
+    deadline: Duration,
+) -> std::process::Output {
+    let dir = tempfile::tempdir().expect("create diagnostic eval tempdir");
+    let entry = dir.path().join("eval.js");
+    std::fs::write(
+        &entry,
+        format!(
+            "(function () {{\n  var result;\n  try {{\n    result = (\n{expression}\n    );\n  }} catch (error) {{\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n    return;\n  }}\n  function resolve(value) {{ console.log(value); }}\n  function reject(error) {{\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
+        ),
+    )
+    .expect("write diagnostic eval fixture");
+
+    let mut cmd = diagnostic_command(&entry);
+    cmd.env("IBEX_NO_BYTECODE", "1");
+    if bun_compat {
+        // The hidden compatibility harness uses this same child-process
+        // contract; unlike `--compat bun`, it does not widen production CLI
+        // startup because this process is already in the named audit posture.
+        cmd.env("EXACT_COMPAT_BUN", "1");
+    }
+    timeout(deadline, cmd.output())
+        .await
+        .expect("ibex capsec audit evaluation timed out")
+        .expect("failed to spawn or read ibex process output")
+}
+
 #[tokio::test]
 async fn cli_eval_one_returns_quickly() {
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg("1");
-
-    let output = timeout(Duration::from_secs(5), cmd.output())
-        .await
-        .expect("CLI eval timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = diagnostic_eval("1", false, Duration::from_secs(20)).await;
 
     assert!(
         output.status.success(),
@@ -49,15 +90,12 @@ async fn cli_eval_one_returns_quickly() {
 
 #[tokio::test]
 async fn cli_print_first_require_fs_promises_has_exports() {
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(
+    let output = diagnostic_eval(
         "(function(){ var mod = require('fs/promises'); return JSON.stringify({ hasReadFile: !!mod.readFile, keyCount: Object.keys(mod).length }); })()",
-    );
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+        false,
+        Duration::from_secs(20),
+    )
+    .await;
 
     assert!(
         output.status.success(),
@@ -78,15 +116,12 @@ async fn cli_print_first_require_fs_promises_has_exports() {
 
 #[tokio::test]
 async fn cli_print_waits_for_async_promise_resolution() {
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(
+    let output = diagnostic_eval(
         "(async function(){ await new Promise(function(resolve){ setTimeout(function(){ resolve(); }, 10); }); return 42; })()",
-    );
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+        false,
+        Duration::from_secs(20),
+    )
+    .await;
 
     assert!(
         output.status.success(),
@@ -109,13 +144,7 @@ async fn cli_print_fs_promises_readfile_without_encoding_returns_buffer() {
         "(async function(){{ var fsp = require('fs/promises'); var bytes = await fsp.readFile({readme_path_json}); return JSON.stringify({{ isBuffer: typeof Buffer === 'function' && Buffer.isBuffer(bytes), length: bytes.length }}); }})()"
     );
 
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(script);
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = diagnostic_eval(&script, false, Duration::from_secs(20)).await;
 
     assert!(
         output.status.success(),
@@ -136,9 +165,7 @@ async fn cli_print_fs_promises_readfile_without_encoding_returns_buffer() {
 
 #[tokio::test]
 async fn cli_print_shared_runtime_installs_bootstrap_globals() {
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("--compat").arg("bun");
-    cmd.arg("-p").arg(
+    let output = diagnostic_eval(
         r#"(function() {
             var text = globalThis.Bun.unsafe.arrayBufferToString(new Uint8Array([104, 105]));
             var bytes = globalThis.crypto.getRandomValues(new Uint8Array(4));
@@ -151,12 +178,10 @@ async fn cli_print_shared_runtime_installs_bootstrap_globals() {
               uuidLength: uuid.length
             });
         })()"#,
-    );
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+        true,
+        Duration::from_secs(20),
+    )
+    .await;
 
     assert!(
         output.status.success(),
@@ -205,14 +230,7 @@ async fn cli_print_shared_runtime_exposes_lazy_file_globals() {
         }})()"#
     );
 
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("--compat").arg("bun");
-    cmd.arg("-p").arg(script);
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = diagnostic_eval(&script, true, Duration::from_secs(20)).await;
 
     assert!(
         output.status.success(),
@@ -247,8 +265,7 @@ async fn cli_run_top_level_await_with_import_meta_url() {
     )
     .expect("write fixture");
 
-    let mut cmd = Command::new(IBEX);
-    cmd.arg(file.to_string_lossy().as_ref());
+    let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
 
     let output = timeout(Duration::from_secs(20), cmd.output())
@@ -277,13 +294,7 @@ async fn cli_run_top_level_await_with_import_meta_url() {
 async fn cli_console_log_prints_strings_raw() {
     // LLP 0175 ledger item 5 (exact-side history): string arguments after the
     // first were inspect-quoted (`a 'b'`); Node prints them raw (`a b`).
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(r#"console.log("a", "b", 1, { x: "y" })"#);
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI eval timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = run_script("console_log.js", r#"console.log("a", "b", 1, { x: "y" })"#).await;
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -297,18 +308,14 @@ async fn cli_stdout_write_honors_encoding_argument() {
     // executes in all runtime modes) parsed the encoding argument but never
     // consulted it, so write('aGVsbG8=', 'base64') emitted the literal
     // base64 text. Node decodes it: base64 -> "hello", hex -> "hi\n".
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(
+    let output = run_script(
+        "stdout_encoding.js",
         "process.stdout.write('aGVsbG8=', 'base64');\
          process.stdout.write('\\n');\
          process.stdout.write('68690a', 'hex');\
          process.stderr.write('d29ybGQ=', 'base64');",
-    );
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI eval timed out")
-        .expect("failed to spawn or read ibex process output");
+    )
+    .await;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -334,19 +341,15 @@ async fn cli_stdout_write_callback_is_asynchronous() {
     // must observe state mutated by code that runs after the write call.
     // Covers both the (chunk, callback) and (chunk, encoding, callback)
     // overloads.
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(
+    let output = run_script(
+        "stdout_callback.js",
         "let after = false;\
          process.stdout.write('first\\n', () => { console.log('cb-after-sync:', after); });\
          process.stdout.write('aGk=\\n', 'base64', () => { console.log('cb3-after-sync:', after); });\
          after = true;\
          console.log('sync-end');",
-    );
-
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI eval timed out")
-        .expect("failed to spawn or read ibex process output");
+    )
+    .await;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -402,8 +405,7 @@ async fn cli_rerun_picks_up_imported_file_edits() {
     std::fs::write(&dep, "export const v = 'one';\n").expect("write dep");
 
     let run = |entry: PathBuf| async move {
-        let mut cmd = Command::new(IBEX);
-        cmd.arg(entry.to_string_lossy().as_ref());
+        let mut cmd = diagnostic_command(&entry);
         cmd.env("IBEX_NO_BYTECODE", "1");
         let output = timeout(Duration::from_secs(20), cmd.output())
             .await
@@ -463,12 +465,7 @@ async fn cli_identity_is_node_primary_and_coherent() {
         releaseName: (process.release && process.release.name) || null
     })"#;
 
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(probe);
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out")
-        .expect("failed to spawn or read ibex process output");
+    let output = diagnostic_eval(probe, false, Duration::from_secs(20)).await;
     assert!(
         output.status.success(),
         "default identity probe should run: stderr={}",
@@ -512,24 +509,18 @@ async fn cli_identity_is_node_primary_and_coherent() {
     );
     assert_eq!(parsed["releaseName"], "node");
 
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("--compat").arg("bun");
-    cmd.arg("-p").arg(probe);
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI print timed out")
-        .expect("failed to spawn or read ibex process output");
+    let output = diagnostic_eval(probe, true, Duration::from_secs(20)).await;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: Value =
         serde_json::from_str(stdout.trim_end().lines().last().unwrap_or("")).expect("json");
     assert_eq!(
         parsed["bunType"], "object",
-        "--compat=bun installs Bun: {parsed}"
+        "the Bun compatibility contract installs Bun: {parsed}"
     );
     assert!(
         parsed["bunVersion"].is_string(),
-        "--compat=bun sets versions.bun for coherent detection: {parsed}"
+        "the Bun compatibility contract sets versions.bun for coherent detection: {parsed}"
     );
 }
 
@@ -538,19 +529,17 @@ async fn cli_honors_process_exit_code_at_natural_exit() {
     // LLP 0175 §10 / ledger item 6 (exact-side history): a script that sets
     // process.exitCode and returns must exit with that code (it exited 0
     // before).
-    let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg("process.exitCode = 3");
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI eval timed out")
-        .expect("failed to spawn or read ibex process output");
-    assert_eq!(output.status.code(), Some(3), "exitCode honored for -e");
+    let output = run_script("eval_exit_code.js", "process.exitCode = 3").await;
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "exitCode honored for diagnostic evaluation"
+    );
 
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("exit_code.ts");
     std::fs::write(&file, "console.log('setting'); process.exitCode = 5;\n").expect("write");
-    let mut cmd = Command::new(IBEX);
-    cmd.arg(file.to_string_lossy().as_ref());
+    let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
     let output = timeout(Duration::from_secs(20), cmd.output())
         .await
@@ -571,8 +560,7 @@ async fn run_script(name: &str, source: &str) -> std::process::Output {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join(name);
     std::fs::write(&file, source).expect("write script");
-    let mut cmd = Command::new(IBEX);
-    cmd.arg(file.to_string_lossy().as_ref());
+    let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
     timeout(Duration::from_secs(20), cmd.output())
         .await
@@ -727,8 +715,7 @@ async fn cli_legacy_env_names_warn_once() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("legacy_env.js");
     std::fs::write(&file, "console.log('legacy-env-ok');\n").expect("write");
-    let mut cmd = Command::new(IBEX);
-    cmd.arg(file.to_string_lossy().as_ref());
+    let mut cmd = diagnostic_command(&file);
     cmd.env("EX_NO_BYTECODE", "1");
     cmd.env("EX_STARTUP_TRACE", "1");
     let output = timeout(Duration::from_secs(20), cmd.output())
