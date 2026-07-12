@@ -105,6 +105,10 @@ describe("source-bound builtin public probes", () => {
         expectedTypedStages: [],
         allowedCoverageEdgeIds: [],
         expectedActionIds: [],
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
         sourceDescriptor: {
           access: { kind: "export-property", path: ["ENOENT"] },
           valueShape: "data",
@@ -152,6 +156,10 @@ describe("source-bound builtin public probes", () => {
         bodyEntryProof: {
           kind: "normal-return-from-source-call",
           resultType: "string",
+        },
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
         },
         expectedResult: "normal-return",
       },

@@ -41,6 +41,10 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
 
 const READ_INVOCATION_SCHEMA = "ibex/capsec-builtin-export-invocation/1";
 const CALL_INVOCATION_SCHEMA = "ibex/capsec-builtin-call-invocation/1";
+const EVENT_LOOP_COMPLETION = Object.freeze({
+  kind: "event-loop-quiescence",
+  timeoutMilliseconds: 1_000,
+});
 
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
@@ -1695,6 +1699,7 @@ export function authoredNonCapabilityBuiltinProbe({
         sourceDescriptorDigest: taggedDigest(descriptor),
         arguments: [],
         setup: { kind: "none" },
+        completion: { ...EVENT_LOOP_COMPLETION },
         requiredAuthority: [],
         expectedResult: "return",
         expectedTypedDecisionCount: 0,
@@ -1719,6 +1724,7 @@ export function authoredNonCapabilityBuiltinProbe({
       arguments: callTemplate.arguments,
       setup: callTemplate.setup,
       bodyEntryProof: callTemplate.bodyEntryProof,
+      completion: { ...EVENT_LOOP_COMPLETION },
       requiredAuthority: [],
       expectedResult: "normal-return",
       expectedTypedDecisionCount: 0,

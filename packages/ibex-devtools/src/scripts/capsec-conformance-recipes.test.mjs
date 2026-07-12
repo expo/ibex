@@ -502,6 +502,10 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
             0 &&
+          recipe.publicSurfaceProbe.invocation.completion.kind ===
+            "event-loop-quiescence" &&
+          recipe.publicSurfaceProbe.invocation.completion
+            .timeoutMilliseconds === 1_000 &&
           new Set(["accessor", "data"]).has(
             recipe.publicSurfaceProbe.invocation.sourceDescriptor.valueShape,
           ) &&
@@ -940,7 +944,12 @@ describe("exact-target CapSec executable recipes", () => {
             "normal-return" &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
             "normal-return-from-source-call" &&
-          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.completion.kind ===
+            "event-loop-quiescence" &&
+          recipe.publicSurfaceProbe.invocation.completion
+            .timeoutMilliseconds === 1_000,
       ),
     ).toBe(true);
     expect(

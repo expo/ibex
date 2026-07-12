@@ -296,6 +296,10 @@ function completeNoncapBuiltinCallCatalog() {
           kind: "normal-return-from-source-call",
           resultType: "string",
         },
+        completion: {
+          kind: "event-loop-quiescence",
+          timeoutMilliseconds: 1_000,
+        },
         requiredAuthority: [],
         expectedResult: "normal-return",
         expectedTypedDecisionCount: 0,
@@ -336,6 +340,11 @@ function noncapBuiltinCallObservation(recipe) {
       moduleSpecifier: invocation.moduleSpecifier,
       exportName: invocation.exportName,
       sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      completion: {
+        kind: invocation.completion.kind,
+        timeoutMilliseconds: invocation.completion.timeoutMilliseconds,
+        status: "quiescent",
+      },
       result: {
         kind: "return",
         moduleSpecifier: invocation.moduleSpecifier,
@@ -1432,6 +1441,28 @@ describe("CapSec public-surface promotion evidence", () => {
           value.invocation.result.synthetic = true;
         },
         /unknown or missing fields/,
+      ],
+      [
+        "missing completion",
+        (value) => {
+          delete value.invocation.completion;
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        "unsettled completion",
+        (value) => {
+          value.invocation.completion.status = "pending";
+        },
+        /escaped its observation session/,
+      ],
+      [
+        "caller-selected completion timeout",
+        (_value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.completion.timeoutMilliseconds =
+            5_000;
+        },
+        /escaped its observation session/,
       ],
       [
         "unknown setup",

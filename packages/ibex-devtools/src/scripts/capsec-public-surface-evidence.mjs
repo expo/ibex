@@ -617,9 +617,15 @@ function validateRuntimeInvocation(observation, recipe) {
   } else if (
     BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(invocation?.invocationSchema)
   ) {
+    const requiresCompletion = recipe.classification === "non-capability";
     exactKeys(
       invocation,
-      [...commonKeys, "moduleSpecifier", "exportName"],
+      [
+        ...commonKeys,
+        "moduleSpecifier",
+        "exportName",
+        ...(requiresCompletion ? ["completion"] : []),
+      ],
       `${recipe.fixtureId}: builtin runtime invocation`,
     );
     const expectedKind =
@@ -642,6 +648,30 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(
         `${recipe.fixtureId}: builtin runtime invocation descriptor drift`,
       );
+    }
+    if (requiresCompletion) {
+      exactKeys(
+        authored.completion,
+        ["kind", "timeoutMilliseconds"],
+        `${recipe.fixtureId}: authored builtin completion`,
+      );
+      exactKeys(
+        invocation.completion,
+        ["kind", "status", "timeoutMilliseconds"],
+        `${recipe.fixtureId}: builtin runtime completion`,
+      );
+      if (
+        authored.completion.kind !== "event-loop-quiescence" ||
+        authored.completion.timeoutMilliseconds !== 1_000 ||
+        invocation.completion.kind !== authored.completion.kind ||
+        invocation.completion.timeoutMilliseconds !==
+          authored.completion.timeoutMilliseconds ||
+        invocation.completion.status !== "quiescent"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin work escaped its observation session`,
+        );
+      }
     }
   } else if (
     invocation?.invocationSchema ===

@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::io::Write as _;
 
+const EVENT_LOOP_COMPLETION_KIND: &str = "event-loop-quiescence";
+const EVENT_LOOP_COMPLETION_TIMEOUT_MS: u64 = 1_000;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RecipeCatalog {
@@ -65,6 +68,7 @@ struct BuiltinInvocation {
     setup: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     body_entry_proof: Option<BodyEntryProof>,
+    completion: CompletionExpectation,
     required_authority: Vec<serde_json::Value>,
     expected_result: String,
     expected_typed_decision_count: usize,
@@ -78,6 +82,13 @@ struct BuiltinInvocation {
 struct BodyEntryProof {
     kind: String,
     result_type: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompletionExpectation {
+    kind: String,
+    timeout_milliseconds: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -556,6 +567,11 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     assert!(invocation.allowed_coverage_edge_ids.is_empty());
     assert!(invocation.expected_action_ids.is_empty());
     assert!(invocation.required_authority.is_empty());
+    assert_eq!(invocation.completion.kind, EVENT_LOOP_COMPLETION_KIND);
+    assert_eq!(
+        invocation.completion.timeout_milliseconds,
+        EVENT_LOOP_COMPLETION_TIMEOUT_MS
+    );
 
     let descriptor: BuiltinSourceDescriptor =
         serde_json::from_value(invocation.source_descriptor.clone())
@@ -640,12 +656,24 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
 }
 
 fn public_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
+    if recipe.classification != "non-capability"
+        || recipe.scenario != "non-capability"
+        || !recipe.action_ids.is_empty()
+    {
+        return None;
+    }
     let value = recipe.public_surface_probe.as_ref()?;
     let schema = value["invocation"]["invocationSchema"].as_str()?;
+    let kind = value["invocation"]["kind"].as_str()?;
     if !matches!(
-        schema,
-        "ibex/capsec-builtin-export-invocation/1"
-            | "ibex/capsec-builtin-call-invocation/1"
+        (schema, kind),
+        (
+            "ibex/capsec-builtin-export-invocation/1",
+            "builtin-export-read"
+        ) | (
+            "ibex/capsec-builtin-call-invocation/1",
+            "builtin-export-call"
+        )
     ) {
         return None;
     }
@@ -660,22 +688,7 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .recipes
         .iter()
         .filter(|recipe| {
-            recipe.status == "fully-executable"
-                && public_probe(recipe).as_ref().is_some_and(|probe| {
-                    matches!(
-                        (
-                            probe.invocation.invocation_schema.as_str(),
-                            probe.invocation.kind.as_str()
-                        ),
-                        (
-                            "ibex/capsec-builtin-export-invocation/1",
-                            "builtin-export-read"
-                        ) | (
-                            "ibex/capsec-builtin-call-invocation/1",
-                            "builtin-export-call"
-                        )
-                    )
-                })
+            recipe.status == "fully-executable" && public_probe(recipe).is_some()
         })
         .inspect(|recipe| validate_probe(recipe, &public_probe(recipe).unwrap()))
         .collect()
@@ -698,6 +711,27 @@ fn export_module_preload_script(invocation: &BuiltinInvocation) -> String {
     )
 }
 
+async fn drive_invocation_to_quiescence(
+    engine: &HermesEngine,
+    completion: &CompletionExpectation,
+    fixture_id: &str,
+) -> std::result::Result<(), String> {
+    if completion.kind != EVENT_LOOP_COMPLETION_KIND
+        || completion.timeout_milliseconds != EVENT_LOOP_COMPLETION_TIMEOUT_MS
+    {
+        return Err(format!(
+            "{fixture_id}: public builtin completion expectation is not the reviewed bound"
+        ));
+    }
+    tokio::time::timeout(
+        std::time::Duration::from_millis(completion.timeout_milliseconds),
+        engine.drive_event_loop(),
+    )
+    .await
+    .map_err(|_| format!("{fixture_id}: public builtin probe did not reach event-loop quiescence"))?
+    .map_err(|error| format!("{fixture_id}: public builtin event-loop completion failed: {error:#}"))
+}
+
 async fn execute_recipe(
     engine: &HermesEngine,
     recipe: &Recipe,
@@ -706,9 +740,10 @@ async fn execute_recipe(
     let probe = public_probe(recipe)
         .expect("builtin recipe has no public probe");
     // Import-only and exported-operation obligations are distinct. Load the
-    // exact public module before opening an export observer so initialization
-    // decisions cannot be attributed to every later read/call; the invocation
-    // still performs a real authenticated public require against that cache.
+    // exact public module and settle its event loop before opening an export
+    // observer so synchronous or deferred initialization cannot be attributed
+    // to every later read/call; the invocation still performs a real
+    // authenticated public require against that cache.
     // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
     let preloaded = engine
         .eval_immediate(&export_module_preload_script(&probe.invocation))
@@ -731,6 +766,12 @@ async fn execute_recipe(
             recipe.fixture_id
         ));
     }
+    drive_invocation_to_quiescence(
+        engine,
+        &probe.invocation.completion,
+        &format!("{}: module preload", recipe.fixture_id),
+    )
+    .await?;
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -741,7 +782,17 @@ async fn execute_recipe(
         .await
         .expect("execute public builtin probe")
         .expect("public builtin probe returned no result");
+    // Keep the observer open across all ready/future work owned by this call.
+    // A bounded failure stops the batch before a later fixture can inherit it.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    let quiescence = drive_invocation_to_quiescence(
+        engine,
+        &probe.invocation.completion,
+        &recipe.fixture_id,
+    )
+    .await;
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    quiescence?;
     let invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("public builtin returned invalid JSON");
     if invocation_result["kind"] != "return" {
@@ -792,6 +843,11 @@ async fn execute_recipe(
             "moduleSpecifier": probe.invocation.module_specifier,
             "exportName": probe.invocation.export_name,
             "sourceDescriptorDigest": probe.invocation.source_descriptor_digest,
+            "completion": {
+                "kind": probe.invocation.completion.kind,
+                "timeoutMilliseconds": probe.invocation.completion.timeout_milliseconds,
+                "status": "quiescent",
+            },
             "result": invocation_result,
         },
         "legacyObservationCount": 0,
@@ -872,7 +928,10 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     for (index, recipe) in recipes.iter().enumerate() {
         match execute_recipe(&engine, recipe, &identity_before.binary_digest).await {
             Ok(execution) => executions.push(execution),
-            Err(error) => failures.push(error),
+            Err(error) => {
+                failures.push(error);
+                break;
+            }
         }
         if index % 256 == 255 {
             eprintln!(
@@ -936,6 +995,10 @@ fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocati
             kind: "normal-return-from-source-call".to_owned(),
             result_type: "string".to_owned(),
         }),
+        completion: CompletionExpectation {
+            kind: EVENT_LOOP_COMPLETION_KIND.to_owned(),
+            timeout_milliseconds: EVENT_LOOP_COMPLETION_TIMEOUT_MS,
+        },
         required_authority: Vec::new(),
         expected_result: "normal-return".to_owned(),
         expected_typed_decision_count: 0,
@@ -961,6 +1024,18 @@ fn mixed_public_catalog_selects_before_strict_builtin_decode() {
         status: "fully-executable".to_owned(),
         public_surface_probe: Some(public_surface_probe),
     };
+    let mut effect_probe = residual_recipe(
+        "fixture.unrelated.effect-builtin",
+        serde_json::json!({
+            "invocation": {
+                "invocationSchema": "ibex/capsec-builtin-export-invocation/1",
+                "kind": "builtin-effect-call"
+            }
+        }),
+    );
+    effect_probe.classification = "effects".to_owned();
+    effect_probe.scenario = "allow".to_owned();
+    effect_probe.action_ids = vec!["fs:read".to_owned()];
     let catalog = RecipeCatalog {
         recipe_catalog_schema: "ibex/capsec-executable-recipes/1".to_owned(),
         recipe_catalog_digest: "test-only".to_owned(),
@@ -983,9 +1058,54 @@ fn mixed_public_catalog_selects_before_strict_builtin_decode() {
                     }
                 }),
             ),
+            effect_probe,
         ],
     };
     assert!(noncap_builtin_recipes(&catalog).is_empty());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn noncap_observer_covers_ready_work_before_completion() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    let _reset = HostResetGuard;
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
+        .expect("create exact completion-proof engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact completion-proof runtime");
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        "public.noncap.ready-work-completion"
+    ));
+    assert_eq!(
+        engine
+            .eval_immediate(
+                "setTimeout(function(){try{void process.env.PATH;}catch(_error){}},0);'scheduled'",
+            )
+            .await
+            .expect("schedule completion-proof work")
+            .as_deref(),
+        Some("scheduled")
+    );
+    drive_invocation_to_quiescence(
+        &engine,
+        &CompletionExpectation {
+            kind: EVENT_LOOP_COMPLETION_KIND.to_owned(),
+            timeout_milliseconds: EVENT_LOOP_COMPLETION_TIMEOUT_MS,
+        },
+        "fixture.test.ready-work-completion",
+    )
+    .await
+    .expect("drain completion-proof work");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(
+        !typed.is_empty(),
+        "the observer must remain open while scheduled work reaches its typed gate"
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
