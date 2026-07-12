@@ -598,6 +598,14 @@ impl Host {
             OccurrenceResource, SelectorResource, StableId,
         };
 
+        if !matches!(
+            stage,
+            capsec_semantics::model::Stage::Requested | capsec_semantics::model::Stage::Commit
+        ) {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "system information supports only requested and commit stages".into(),
+            ));
+        }
         let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
                 "system-information read has no authenticated typed principal".into(),

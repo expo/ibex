@@ -517,10 +517,10 @@ inline bool checkCapabilityNoFollowFinal(const std::string& capability) {
 // to transfer a raw fd, while fs.cc owns the registry that keeps raw integers
 // from becoming ambient authority. These helpers are implemented in
 // hermes_runtime_fs.cc and intentionally expose only narrow checked operations.
-// Windows compiles hermes_runtime_fs_windows.cc instead, which provides only
-// exactRegisterProcessIpcFd (as a no-op — no SCM_RIGHTS on Windows); the other
-// helpers are declared here but must not be referenced from TUs that build on
-// Windows (hermes_runtime_net.cc / hermes_runtime_process.cc are POSIX-only).
+// Windows compiles hermes_runtime_fs_windows.cc instead. Both implementations
+// provide exactCollectTypedPrincipalStack for common typed adapters; the raw-fd
+// transfer helpers remain POSIX-only except for the Windows IPC-registration
+// no-op.
 void exactRegisterTransferableFd(int fd, uint64_t owner);
 void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);

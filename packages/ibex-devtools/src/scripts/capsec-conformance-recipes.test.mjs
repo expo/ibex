@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(80);
+    expect(nativePublicFixtures).toHaveLength(96);
     expect(
       nativePublicFixtures
         .filter(
@@ -595,6 +595,45 @@ describe("exact-target CapSec executable recipes", () => {
         invocation: { expectedResult: "absent" },
       },
     });
+  });
+
+  test("binds OS-info calls to exact typed selectors and stages", () => {
+    const hostname = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactGetHostname",
+    );
+    expect(hostname).toHaveLength(2);
+    expect(hostname.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+    ]);
+    for (const recipe of hostname) {
+      expect(recipe).toMatchObject({
+        actionIds: ["sys:read"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            requiredFloor: [
+              {
+                cap: "sys:read",
+                resource: { kind: "system-info", name: "hostname" },
+              },
+            ],
+            expectedActionIds: ["sys:read"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "commit"]
+          : ["requested"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(recipe.scenario === "allow" ? 2 : 1);
+    }
   });
 
   test("preserves multiple argument-selected terminal routes", () => {

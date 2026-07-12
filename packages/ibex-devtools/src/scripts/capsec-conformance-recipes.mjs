@@ -573,6 +573,25 @@ const nativeNoEffectTemplate = (
     requiredSourceArity,
     setup,
   });
+const nativeSystemInfoTemplate = (name) =>
+  Object.freeze({
+    actionIds: ["sys:read"],
+    arguments: [],
+    expectedDecisionCounts: { allow: 2, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "sys:read",
+        resource: { kind: "system-info", name },
+      },
+    ],
+    requiredSourceArity: 0,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -731,6 +750,17 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument("ibex"),
     ]),
   ],
+  ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
+  ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
+  ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
+  ["__exactGetLoadAvg", nativeSystemInfoTemplate("load-average")],
+  [
+    "__exactGetNetworkInterfaces",
+    nativeSystemInfoTemplate("network-interfaces"),
+  ],
+  ["__exactGetTotalMem", nativeSystemInfoTemplate("memory")],
+  ["__exactGetUptime", nativeSystemInfoTemplate("uptime")],
+  ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
@@ -920,6 +950,7 @@ function nativePublicProbeForPlan({
         arguments: template.arguments.map((argument) =>
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
+        requiredFloor: clone(template.requiredFloor ?? []),
         setup: clone(template.setup),
         expectedResult: template.expectedResults[scenario],
         expectedTypedStages: clone(template.expectedStages[scenario]),

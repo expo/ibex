@@ -176,6 +176,10 @@ does not accumulate zombies; Windows closes its process handle without calling
 platform user APIs. This pass changed network interface reporting to read real
 link-layer MAC addresses from `AF_PACKET` on Linux and `AF_LINK` on Apple
 instead of returning `00:00:00:00:00:00` for every interface.
+Armed POSIX/Apple and Windows runtimes now authorize the eight native `os`
+backing functions through exact typed `sys:read` requested/commit stages before
+calling those platform APIs; public `node:os` allow and deny fixtures verify
+the common contract without a legacy capability check (ENG-24450).
 
 ## Crypto
 

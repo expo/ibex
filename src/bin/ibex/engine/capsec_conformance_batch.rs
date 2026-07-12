@@ -92,6 +92,8 @@ struct NativePublicInvocation {
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     arguments: Vec<NativeProbeArgument>,
+    #[serde(default)]
+    required_floor: Vec<serde_json::Value>,
     setup: Vec<NativeProbeSetup>,
     expected_result: String,
     expected_typed_stages: Vec<String>,
@@ -597,20 +599,31 @@ fn native_public_floor(port: u16) -> serde_json::Value {
 }
 
 fn install_native_public_test_host(
+    invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
     deny: bool,
 ) -> (HostResetGuard, String) {
-    let authority = listener_port.map(native_public_floor);
-    let floor = authority.iter().cloned().collect::<Vec<_>>();
+    let floor = if invocation.required_floor.is_empty() {
+        listener_port
+            .map(native_public_floor)
+            .into_iter()
+            .collect::<Vec<_>>()
+    } else {
+        assert!(
+            listener_port.is_none(),
+            "a static native public floor cannot also use a listener selector"
+        );
+        invocation.required_floor.clone()
+    };
     assert!(
-        !deny || listener_port.is_some(),
+        !deny || !floor.is_empty(),
         "an explicit native public denial requires an exact selector"
     );
-    let denial = deny.then(|| authority.clone().expect("denial selector checked above"));
+    let denials = deny.then(|| floor.clone()).unwrap_or_default();
     let (host, digest) =
         build_armed_test_host_custom(None, false, false, false, floor, None, move |value| {
-            if let Some(denial) = denial {
-                value["principals"][0]["denials"] = serde_json::json!([denial]);
+            if !denials.is_empty() {
+                value["principals"][0]["denials"] = serde_json::Value::Array(denials);
             }
         });
     assert_ne!(
@@ -1177,7 +1190,7 @@ async fn capsec_public_native_recipe_batch() {
             .as_ref()
             .map(|listener| listener.local_addr().unwrap().port());
         let (_reset, snapshot_digest) =
-            install_native_public_test_host(listener_port, recipe.scenario == "deny");
+            install_native_public_test_host(invocation, listener_port, recipe.scenario == "deny");
         let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
             .expect("create isolated native public recipe engine");
         engine
