@@ -116,6 +116,26 @@ pub struct CapabilityManager {
     allowed_hosts: Option<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
+    #[cfg(test)]
+    conformance_observer: RwLock<ConformanceObserver>,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedCapabilityDecision {
+    pub terminal_branch_id: String,
+    pub module_id: String,
+    pub capability: String,
+    pub decision: bool,
+    pub allowed: bool,
+    pub fence: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct ConformanceObserver {
+    terminal_branch_id: Option<String>,
+    decisions: Vec<ObservedCapabilityDecision>,
 }
 
 /// An entry in the capability audit log.
@@ -196,6 +216,8 @@ impl CapabilityManager {
             fs_root: None,
             allowed_hosts: None,
             audit_log: RwLock::new(VecDeque::with_capacity(MAX_AUDIT_LOG_ENTRIES)),
+            #[cfg(test)]
+            conformance_observer: RwLock::new(ConformanceObserver::default()),
         }
     }
 
@@ -539,6 +561,8 @@ impl CapabilityManager {
             allowed: false,
             mode: self.mode,
         });
+        #[cfg(test)]
+        self.record_conformance_decision(module_id, normalized, false, false, Some(fence));
         true
     }
 
@@ -561,14 +585,41 @@ impl CapabilityManager {
                 timestamp: std::time::SystemTime::now(),
                 module_id: module_id.to_string(),
                 package: self.principal_for(module_id),
-                capability,
+                capability: capability.clone(),
                 constraint: None,
                 decision,
                 allowed,
                 mode: self.mode,
             });
         }
+        #[cfg(test)]
+        self.record_conformance_decision(module_id, &capability, decision, allowed, None);
         allowed
+    }
+
+    #[cfg(test)]
+    fn record_conformance_decision(
+        &self,
+        module_id: &str,
+        capability: &str,
+        decision: bool,
+        allowed: bool,
+        fence: Option<&str>,
+    ) {
+        let Ok(mut observer) = self.conformance_observer.write() else {
+            return;
+        };
+        let Some(terminal_branch_id) = observer.terminal_branch_id.clone() else {
+            return;
+        };
+        observer.decisions.push(ObservedCapabilityDecision {
+            terminal_branch_id,
+            module_id: module_id.to_string(),
+            capability: capability.to_string(),
+            decision,
+            allowed,
+            fence: fence.map(str::to_string),
+        });
     }
 
     fn record(&self, entry: AuditEntry) {
@@ -940,6 +991,23 @@ impl CapabilityManager {
         if let Ok(mut log) = self.audit_log.write() {
             log.clear();
         }
+    }
+
+    #[cfg(test)]
+    pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
+        if let Ok(mut observer) = self.conformance_observer.write() {
+            observer.terminal_branch_id = Some(terminal_branch_id.to_string());
+            observer.decisions.clear();
+        }
+    }
+
+    #[cfg(test)]
+    pub fn take_conformance_observations(&self) -> Vec<ObservedCapabilityDecision> {
+        let Ok(mut observer) = self.conformance_observer.write() else {
+            return Vec::new();
+        };
+        observer.terminal_branch_id = None;
+        std::mem::take(&mut observer.decisions)
     }
 
     /// Summarize would-deny decisions for operator-facing audit output.
@@ -1460,6 +1528,33 @@ fn path_prefix_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conformance_observer_records_every_gate_result_under_the_expected_terminal() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.grant("7", "fs:read:/tmp/allowed", None);
+        manager.begin_conformance_observation("terminal.fs.read");
+        assert!(manager.check("7", "fs:read:/tmp/allowed"));
+        assert!(!manager.check("7", "fs:read:/tmp/denied"));
+        let observations = manager.take_conformance_observations();
+        assert_eq!(observations.len(), 2);
+        assert!(observations.iter().all(|row| {
+            row.terminal_branch_id == "terminal.fs.read"
+                && row.module_id == "7"
+                && row.fence.is_none()
+        }));
+        assert!(observations[0].capability.ends_with("/allowed"));
+        assert_eq!(
+            (observations[0].decision, observations[0].allowed),
+            (true, true)
+        );
+        assert!(observations[1].capability.ends_with("/denied"));
+        assert_eq!(
+            (observations[1].decision, observations[1].allowed),
+            (false, false)
+        );
+        assert!(manager.take_conformance_observations().is_empty());
+    }
 
     #[test]
     fn retained_resource_generation_tracks_every_authority_mutation() {

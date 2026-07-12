@@ -1619,6 +1619,17 @@ impl Host {
         self.capability_manager.audit_report()
     }
 
+    #[cfg(test)]
+    pub fn begin_conformance_observation(&self, terminal_branch_id: &str) {
+        self.capability_manager
+            .begin_conformance_observation(terminal_branch_id);
+    }
+
+    #[cfg(test)]
+    pub fn take_conformance_observations(&self) -> Vec<capability::ObservedCapabilityDecision> {
+        self.capability_manager.take_conformance_observations()
+    }
+
     /// Resolve and load a module (basic loader).
     pub fn resolve_module(
         &self,
