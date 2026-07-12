@@ -35,6 +35,13 @@ extern "C" int32_t exact_get_layout(
 extern "C" int32_t exact_get_absolute_layout(
     void* handle, uint32_t view_id,
     float* out_x, float* out_y, float* out_width, float* out_height);
+extern "C" uint32_t exact_kernel_node_count(void* handle);
+extern "C" int32_t exact_get_layout_tree_buffer_v1(
+    void* handle,
+    uint32_t root_view_id,
+    uint8_t* out_buffer,
+    uint32_t capacity,
+    uint32_t* out_required);
 extern "C" uint32_t exact_get_layout_generation(void* handle);
 extern "C" int32_t exact_hit_test(void* handle, float x, float y);
 extern "C" int32_t exact_node_exists(void* handle, uint32_t view_id);
@@ -464,6 +471,53 @@ extern "C" void ex_hermes_set_kernel_handle(
         return facebook::jsi::Value(std::move(frame));
       });
 
+  // Whole-subtree EXLT v1 export. The Exact renderer decodes this fixed-width
+  // byte schema once per frame-index cache miss, replacing one JSI object call
+  // per node while retaining getLayout/getAbsoluteLayout as sparse/debug
+  // compatibility reads (ENG-24390).
+  auto getLayoutTreeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "getLayoutTree"),
+      1,
+      [runtime](facebook::jsi::Runtime& rt,
+                const facebook::jsi::Value&,
+                const facebook::jsi::Value* args,
+                size_t count) -> facebook::jsi::Value {
+        if (!runtime->kernel_handle || count == 0 || !args[0].isNumber()) {
+          return facebook::jsi::Value::null();
+        }
+
+        double rawRootViewId = args[0].asNumber();
+        if (rawRootViewId < 0 ||
+            rawRootViewId > static_cast<double>(UINT32_MAX)) {
+          return facebook::jsi::Value::null();
+        }
+
+        constexpr uint64_t kHeaderBytes = 32;
+        constexpr uint64_t kRowBytes = 32;
+        uint64_t capacity64 = kHeaderBytes +
+            static_cast<uint64_t>(exact_kernel_node_count(runtime->kernel_handle)) *
+                kRowBytes;
+        if (capacity64 > UINT32_MAX) {
+          return facebook::jsi::Value::null();
+        }
+
+        std::vector<uint8_t> bytes(static_cast<size_t>(capacity64));
+        uint32_t required = 0;
+        int32_t status = exact_get_layout_tree_buffer_v1(
+            runtime->kernel_handle,
+            static_cast<uint32_t>(rawRootViewId),
+            bytes.data(),
+            static_cast<uint32_t>(bytes.size()),
+            &required);
+        if (status != 0 || required > bytes.size()) {
+          return facebook::jsi::Value::null();
+        }
+
+        bytes.resize(required);
+        return makeUint8Array(rt, std::move(bytes));
+      });
+
   auto getLayoutGenerationFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "getLayoutGeneration"),
@@ -557,6 +611,7 @@ extern "C" void ex_hermes_set_kernel_handle(
   exactObj.setProperty(rt, "getModuleStateOffset", std::move(getModuleStateOffsetFn));
   exactObj.setProperty(rt, "getLayout", std::move(getLayoutFn));
   exactObj.setProperty(rt, "getAbsoluteLayout", std::move(getAbsoluteLayoutFn));
+  exactObj.setProperty(rt, "getLayoutTree", std::move(getLayoutTreeFn));
   exactObj.setProperty(rt, "getLayoutGeneration", std::move(getLayoutGenerationFn));
   exactObj.setProperty(rt, "hitTest", std::move(hitTestFn));
   exactObj.setProperty(rt, "nodeExists", std::move(nodeExistsFn));
