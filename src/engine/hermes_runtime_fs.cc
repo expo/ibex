@@ -179,6 +179,14 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.reserve(count + 1);
     for (size_t index = 0; index < count; ++index) {
       auto id = static_cast<uint64_t>(ids[index]);
+      // VM/runtime-only frames are not authority principals. Preserve the
+      // explicit truncation sentinel appended below, but do not let a normal
+      // Promise/internal frame make an otherwise attributed callback fail as
+      // an unknown principal. This matches the Windows stack walker.
+      if (id == static_cast<uint64_t>(kRuntimePrincipalId) ||
+          id == static_cast<uint64_t>(kNoUserPrincipalId)) {
+        continue;
+      }
       if (principals.empty() || principals.back() != id) principals.push_back(id);
     }
     if (count == kMaxStack) {

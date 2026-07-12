@@ -1510,12 +1510,28 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 else {
                     return -1;
                 };
-                match host.validate_typed_parent_fd_ancestry(&principal, &path, parent_fd) {
-                    Ok(true) => {}
-                    Ok(false) => return 0,
+                let requested = match host.typed_logical_path(&principal, &path) {
+                    Ok(requested) => requested,
                     Err(error) => {
-                        eprintln!("error: retained filesystem parent ancestry refused: {error}");
+                        eprintln!("error: typed filesystem path refused: {error}");
                         return -1;
+                    }
+                };
+                // Opening a logical root necessarily retains its parent, which
+                // is outside that root. The decision below binds the discovered
+                // final object to the authenticated root object; descendants
+                // still require the retained parent itself to descend from it.
+                // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution
+                if !requested.components.is_empty() {
+                    match host.validate_typed_parent_fd_ancestry(&principal, &path, parent_fd) {
+                        Ok(true) => {}
+                        Ok(false) => return 0,
+                        Err(error) => {
+                            eprintln!(
+                                "error: retained filesystem parent ancestry refused: {error}"
+                            );
+                            return -1;
+                        }
                     }
                 }
             }

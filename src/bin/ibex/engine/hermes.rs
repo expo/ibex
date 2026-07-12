@@ -3306,37 +3306,6 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn install_armed_test_host_with_control(
-        project_root: Option<&std::path::Path>,
-        allow_write: bool,
-        allow_read: bool,
-        allow_list: bool,
-        extra_floor: Vec<serde_json::Value>,
-        extra_escalation_ceiling: Vec<serde_json::Value>,
-        deny_ungranted_fs: bool,
-        fs_principal_index: usize,
-    ) -> (HostResetGuard, String, crate::host::Host) {
-        let (host, digest) = build_armed_test_host_control(
-            project_root,
-            allow_write,
-            allow_read,
-            allow_list,
-            extra_floor,
-            extra_escalation_ceiling,
-            deny_ungranted_fs,
-            fs_principal_index,
-            None,
-            |_| {},
-        );
-        assert_ne!(
-            crate::host::abi::install_host(host.clone()),
-            0,
-            "test Host context token allocation"
-        );
-        (HostResetGuard, digest, host)
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn build_armed_test_host_control(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -4518,7 +4487,7 @@ cp \"$input\" \"$out\"\n";
         let root = std::fs::canonicalize(root).unwrap();
         let large = root.join("large.bin");
         std::fs::write(&large, vec![0x5a; 4 * 1024 * 1024]).unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, false, vec![]);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let before = crate::host::abi::installed_typed_decision_count();
@@ -4538,12 +4507,13 @@ cp \"$input\" \"$out\"\n";
             assert_eq!(outcome.as_deref(), Some(expected));
         }
         let decisions = crate::host::abi::installed_typed_decision_count() - before;
-        // Each descriptor performs one commit and one repeat decision. The 64
-        // chunks then recheck only generations. A lease must not survive into
-        // the second descriptor operation, hence the lower bound as well.
-        assert!(
-            (4..=6).contains(&decisions),
-            "two 4 MiB reads performed {decisions} full decisions"
+        // Each descriptor performs the four staged list/read decisions plus
+        // one full repeat decision. The 64 chunks then recheck only
+        // generations, and the lease does not survive into the second
+        // descriptor operation.
+        assert_eq!(
+            decisions, 10,
+            "two 4 MiB reads performed an unexpected number of full decisions"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -4576,8 +4546,7 @@ cp \"$input\" \"$out\"\n";
         std::fs::write(
             package.join("index.js"),
             r#"module.exports = function(path) {
-                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
-                try { __exactReadFile(path); return 'completed'; }
+                try { require('node:fs').readFileSync(path); return 'completed'; }
                 catch (error) { return String(error && error.message || error); }
             };"#,
         )
@@ -4604,24 +4573,69 @@ cp \"$input\" \"$out\"\n";
             "cap":"fs:read",
             "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
         });
-        let (_reset, digest, host) = install_armed_test_host_with_control(
-            Some(&root),
-            false,
-            false,
-            false,
-            Vec::new(),
-            vec![read_authority.clone()],
-            false,
-            1,
-        );
+        let integrity = crate::module_loader::package_tree_integrity(&package).unwrap();
         let principal: capsec_semantics::model::Principal =
             serde_json::from_value(serde_json::json!({
                 "kind":"package",
                 "name":"image-lib",
-                "integrity":"sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+                "integrity": integrity,
                 "locator":"image-lib@2.4.1"
             }))
             .unwrap();
+        let package_components = package
+            .components()
+            .filter_map(|component| match component {
+                std::path::Component::Normal(value) => Some(serde_json::json!({
+                    "encoding": "utf8",
+                    "value": value.to_str().unwrap(),
+                })),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        use std::os::unix::fs::MetadataExt;
+        let package_metadata = std::fs::metadata(&package).unwrap();
+        let principal_for_snapshot = serde_json::to_value(&principal).unwrap();
+        let (host, digest) = build_armed_test_host_control(
+            Some(&root),
+            false,
+            false,
+            true,
+            Vec::new(),
+            vec![read_authority.clone()],
+            false,
+            1,
+            None,
+            move |value| {
+                value["principals"][1]["principal"] = principal_for_snapshot.clone();
+                value["packageGraph"]["nodes"][0]["principal"] = principal_for_snapshot.clone();
+                value["packageGraph"]["importEdges"][0]["imported"] =
+                    principal_for_snapshot.clone();
+                value["rootBindings"][0] = serde_json::json!({
+                    "logicalRoot": "package",
+                    "owner": principal_for_snapshot,
+                    "hostPath": {
+                        "root": "absolute",
+                        "components": package_components,
+                        "hostBound": true,
+                    },
+                    "object": {
+                        "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                            "apple"
+                        } else {
+                            "unix"
+                        },
+                        "volume": format!("dev:{}", package_metadata.dev()),
+                        "file": format!("ino:{}", package_metadata.ino()),
+                    },
+                });
+            },
+        );
+        assert_ne!(
+            crate::host::abi::install_host(host.clone()),
+            0,
+            "test Host context token allocation"
+        );
+        let _reset = HostResetGuard;
         let selector: capsec_semantics::model::AuthoritySelector =
             serde_json::from_value(read_authority).unwrap();
         let grant_id = capsec_semantics::model::NonEmptyString::new("stream-read-grant").unwrap();
@@ -4635,10 +4649,13 @@ cp \"$input\" \"$out\"\n";
         let (sent, received) = std::sync::mpsc::sync_channel(1);
         let revoker = std::thread::spawn(move || {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while control.typed_decision_count() <= before {
+            // Wait through request/discovery/commit and the first repeat. The
+            // read lease then covers chunks only while authority generations
+            // remain unchanged, so revocation must stop a later chunk.
+            while control.typed_decision_count() < before + 5 {
                 assert!(
                     std::time::Instant::now() < deadline,
-                    "read never reached its first typed decision"
+                    "read never reached its first repeat decision"
                 );
                 std::thread::yield_now();
             }
@@ -4662,7 +4679,7 @@ cp \"$input\" \"$out\"\n";
             outcome.contains("Permission denied"),
             "read continued after authority revocation: {outcome}"
         );
-        assert!(host.typed_decision_count() >= before + 2);
+        assert!(host.typed_decision_count() >= before + 6);
         drop(cwd);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -4701,8 +4718,6 @@ cp \"$input\" \"$out\"\n";
                 var denied = 0;
                 try {{ __exactFsOpen({existing:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({absent:?}, 'w'); }} catch (_) {{ denied++; }}
-                try {{ __exactFsOpenAsync({existing:?}, 'w'); }} catch (_) {{ denied++; }}
-                try {{ __exactFsOpenAsync({absent:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactReadFile({existing:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactFsReadFileAsync({existing:?}, 'r', 0); }} catch (_) {{ denied++; }}
                 try {{ __exactWriteFile({existing:?}, 'lost'); }} catch (_) {{ denied++; }}
@@ -4736,7 +4751,7 @@ cp \"$input\" \"$out\"\n";
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("24"));
+        assert_eq!(outcome.as_deref(), Some("22"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         assert!(!absent_directory.exists());
@@ -4745,6 +4760,34 @@ cp \"$input\" \"$out\"\n";
         assert!(!copied.exists());
         assert!(!symlinked.exists());
         assert!(!hard_linked.exists());
+
+        let async_open_script = format!(
+            r#"globalThis.__armedDeniedAsyncOpen = 'pending';
+               var denied = 0;
+               Promise.all([
+                 __exactFsOpenAsync({existing:?}, 'w').then(function() {{
+                   throw new Error('existing async open unexpectedly allowed');
+                 }}, function() {{ denied++; }}),
+                 __exactFsOpenAsync({absent:?}, 'w').then(function() {{
+                   throw new Error('absent async open unexpectedly allowed');
+                 }}, function() {{ denied++; }})
+               ]).then(function() {{
+                 globalThis.__armedDeniedAsyncOpen = String(denied);
+               }}, function(error) {{
+                 globalThis.__armedDeniedAsyncOpen = 'error:' + error.message;
+               }});"#,
+            existing = existing.to_str().unwrap(),
+            absent = absent.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_open_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_open_outcome = engine
+            .eval_immediate("globalThis.__armedDeniedAsyncOpen")
+            .await
+            .unwrap();
+        assert_eq!(async_open_outcome.as_deref(), Some("2"));
+        assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
+        assert!(!absent.exists());
 
         let async_script = format!(
             r#"globalThis.__armedDeniedAsyncMkdir = 'pending';

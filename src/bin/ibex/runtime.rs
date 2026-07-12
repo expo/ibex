@@ -2958,7 +2958,12 @@ fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<Strin
             .ok()
             .and_then(|target| target.to_str().map(|value| sha256_bytes(value.as_bytes()))),
         "missing" => match std::fs::symlink_metadata(path) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                ) =>
+            {
                 Some(sha256_bytes(b"missing"))
             }
             _ => None,
@@ -3990,12 +3995,21 @@ fn compute_bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
 }
 
 fn bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
-    static CACHED: std::sync::OnceLock<BundlerToolchainIdentity> = std::sync::OnceLock::new();
-    if let Some(identity) = CACHED.get() {
+    // Computing this identity authenticates the runner plus thousands of
+    // installed tool files. Serialize the cold path so concurrent bundle
+    // publishers do not all repeat that scan before one of them fills the
+    // cache. Failed scans remain retryable.
+    static CACHED: std::sync::OnceLock<std::sync::Mutex<Option<BundlerToolchainIdentity>>> =
+        std::sync::OnceLock::new();
+    let mut cached = CACHED
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Bundler toolchain identity cache is poisoned"))?;
+    if let Some(identity) = cached.as_ref() {
         return Ok(identity.clone());
     }
     let identity = compute_bundler_toolchain_identity()?;
-    let _ = CACHED.set(identity.clone());
+    *cached = Some(identity.clone());
     Ok(identity)
 }
 
@@ -5778,6 +5792,24 @@ mod tests {
         assert_ne!(before_digest, after_digest);
     }
 
+    #[test]
+    fn bundle_resolution_witness_treats_a_child_of_a_file_as_missing() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("entry.js");
+        std::fs::write(&file, "module.exports = 1;").unwrap();
+        let impossible_child = file.join("index.js");
+        let witness = BundleResolutionInput {
+            kind: "missing".into(),
+            path: impossible_child.to_string_lossy().into_owned(),
+            sha256: sha256_bytes(b"missing"),
+        };
+
+        assert_eq!(
+            bundle_resolution_input_digest(&witness),
+            Some(witness.sha256.clone())
+        );
+    }
+
     #[tokio::test]
     async fn bytecode_cache_rejects_same_length_source_and_output_tampering() {
         let dir = tempdir().expect("tempdir");
@@ -5939,14 +5971,18 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn bundle_rejects_source_mutation_after_rolldown_capture() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
         let barrier_dir = tempdir().unwrap();
         let entry = source_dir.path().join("entry.js");
         let artifact_root = cache_dir.path().join("cache-key");
         std::fs::write(&entry, "module.exports = 'before';\n").unwrap();
-        // The hook is entry-scoped, so concurrently running bundler tests are
-        // unaffected even though subprocess environment is process-global.
+        // The shared test lock owns these process-global hook variables until
+        // the child has exited and they have been removed.
         unsafe {
             std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &entry);
             std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
@@ -5958,21 +5994,26 @@ mod tests {
                 async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
             );
         let captured = barrier_dir.path().join("captured");
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(
-            captured.exists(),
-            "bundler never reached source capture barrier"
-        );
-        std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
+        }
+        // Always unblock and join the child before asserting so a timeout
+        // cannot strand a subprocess or leak the process-global test hook.
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
         unsafe {
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
         }
+        assert!(
+            reached_barrier,
+            "bundler never reached source capture barrier: {result:?}"
+        );
         assert!(result.is_err(), "mixed-version bundle must not publish");
         assert!(
             std::fs::read_dir(&artifact_root)
@@ -5988,6 +6029,7 @@ mod tests {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let source_dir = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
         let barrier_dir = tempdir().unwrap();
@@ -6008,18 +6050,24 @@ mod tests {
                 async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
             );
         let captured = barrier_dir.path().join("captured");
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(captured.exists(), "bundler never resolved/captured dep.ts");
-        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
         unsafe {
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
         }
+        assert!(
+            reached_barrier,
+            "bundler never resolved/captured dep.ts: {result:?}"
+        );
         assert!(
             result.is_err(),
             "a build whose resolution precedence changed must not publish"
@@ -6035,6 +6083,7 @@ mod tests {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let workspace = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
         let barrier_dir = tempdir().unwrap();
@@ -6064,33 +6113,39 @@ mod tests {
                 async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
             );
         let captured = barrier_dir.path().join("captured");
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(captured.exists(), "bundler never resolved hoisted package");
+        let reached_barrier = captured.exists();
 
         // Node lookup ignores the nested .git boundary. This newly-created
         // package is closer to the importer than the package selected above,
         // so publication must fail even though the selected source is intact.
         let closer_package = workspace.path().join("apps/node_modules/pkg");
-        std::fs::create_dir_all(&closer_package).unwrap();
-        std::fs::write(
-            closer_package.join("package.json"),
-            r#"{"name":"pkg","main":"index.js"}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            closer_package.join("index.js"),
-            "exports.value = 'closer';\n",
-        )
-        .unwrap();
+        if reached_barrier {
+            std::fs::create_dir_all(&closer_package).unwrap();
+            std::fs::write(
+                closer_package.join("package.json"),
+                r#"{"name":"pkg","main":"index.js"}"#,
+            )
+            .unwrap();
+            std::fs::write(
+                closer_package.join("index.js"),
+                "exports.value = 'closer';\n",
+            )
+            .unwrap();
+        }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
         unsafe {
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
         }
+        assert!(
+            reached_barrier,
+            "bundler never resolved hoisted package: {result:?}"
+        );
         assert!(
             result.is_err(),
             "a closer hoisted package added mid-build must prevent publication"
@@ -6106,6 +6161,7 @@ mod tests {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
         let barrier_dir = tempdir().unwrap();
@@ -6135,18 +6191,24 @@ mod tests {
                 async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
             );
         let captured = barrier_dir.path().join("captured");
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(captured.exists(), "bundler never resolved package subpath");
-        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
         unsafe {
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
         }
+        assert!(
+            reached_barrier,
+            "bundler never resolved package subpath: {result:?}"
+        );
         assert!(
             result.is_err(),
             "adding a higher-precedence package subpath candidate must prevent publication"
@@ -6162,6 +6224,7 @@ mod tests {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
+        bundler_toolchain_identity().expect("authenticate bundler before timed barrier");
         let project = tempdir().unwrap();
         let cache_dir = tempdir().unwrap();
         let barrier_dir = tempdir().unwrap();
@@ -6191,21 +6254,24 @@ mod tests {
                 async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
             );
         let captured = barrier_dir.path().join("captured");
-        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
         while !captured.exists() && std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        assert!(
-            captured.exists(),
-            "bundler never resolved package main target"
-        );
-        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        let reached_barrier = captured.exists();
+        if reached_barrier {
+            std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        }
         std::fs::write(barrier_dir.path().join("release"), []).unwrap();
         let result = task.await.unwrap();
         unsafe {
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
             std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
         }
+        assert!(
+            reached_barrier,
+            "bundler never resolved package main target: {result:?}"
+        );
         assert!(
             result.is_err(),
             "adding a higher-precedence package main candidate must prevent publication"
