@@ -2231,6 +2231,11 @@ export function scanStaticBuiltinExports(
         routes.push(routeForCallable(`${owner}.${methodName}`));
       }
     }
+    if (routes.length === 0) {
+      for (const owner of bindings.get(ROOT_EXPORT_OBJECT)?.get("default") ?? []) {
+        routes.push(routeForCallable(`${owner}.${exportName}`));
+      }
+    }
     const terminals = uniqueSorted(routes.flatMap((route) => route.terminals));
     const ambiguous = uniqueSorted(routes.flatMap((route) => route.ambiguous));
     const paths = uniqueSorted(

@@ -800,6 +800,28 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       terminals: ["__exactReadFile"],
     });
     expect(evidence("read").terminals).not.toContain("__exactWriteFile");
+
+    const defaultObjectRows = scanStaticBuiltinExports(
+      String.raw`
+        const api = {};
+        api.read = function read() { return globalThis.__exactReadFile('/tmp/input'); };
+        module.exports = api;
+      `,
+      {
+        sourceKey: "node_object_routes",
+        sourcePath: "src/builtins/object-routes.js",
+      },
+    );
+    expect(
+      defaultObjectRows.find(
+        (row) => row.name === "export:node_object_routes:read",
+      ).metadata.enforcementRouteEvidence,
+    ).toEqual({
+      ambiguousCallees: [],
+      kind: "static-builtin-call-graph",
+      paths: ["export:read -> api.read -> __exactReadFile"],
+      terminals: ["__exactReadFile"],
+    });
   });
 
   test("builtin enforcement routes reject shadowed, computed, and dynamic call ambiguity", () => {
