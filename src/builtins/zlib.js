@@ -115,9 +115,16 @@ function toBuffer(uint8) {
 }
 
 function copyBytesForNative(data) {
-  // The JSI bridge consumes the typed-array bytes synchronously before it
-  // returns; retaining a second per-chunk copy only doubles allocation cost.
-  return toBytes(data);
+  var bytes = toBytes(data);
+  // @ref LLP 0004#the-zlib-builtin — the stateful JSI bridge consumes bytes
+  // synchronously, so whole-buffer views can remain zero-copy. Normalize
+  // sliced views, though: Buffer subarrays can expose backing-store geometry
+  // that Hermes reports inconsistently across an async Transform turn, which
+  // otherwise trips the bridge's mandatory bounds check.
+  if (bytes.byteOffset !== 0 || bytes.byteLength !== bytes.buffer.byteLength) {
+    return new Uint8Array(bytes);
+  }
+  return bytes;
 }
 
 function countBytesForChunk(chunk, encoding) {

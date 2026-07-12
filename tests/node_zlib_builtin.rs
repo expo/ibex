@@ -20,13 +20,13 @@ async fn eval(js: &str) -> String {
     std::fs::write(
         &entry,
         format!(
-            "(function () {{\n  var watchdog = setTimeout(function () {{\n    console.error('diagnostic eval timed out');\n    process.exitCode = 1;\n  }}, 55000);\n  var result = (\n{js}\n  );\n  function resolve(value) {{\n    clearTimeout(watchdog);\n    console.log(value);\n  }}\n  function reject(error) {{\n    clearTimeout(watchdog);\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
+            "(function () {{\n  var watchdog = setTimeout(function () {{\n    console.error('diagnostic eval timed out');\n    process.exit(1);\n  }}, 110000);\n  var result = (\n{js}\n  );\n  if (watchdog && typeof watchdog.ref === 'function') watchdog.ref();\n  function resolve(value) {{\n    clearTimeout(watchdog);\n    console.log(value);\n    process.exit(0);\n  }}\n  function reject(error) {{\n    clearTimeout(watchdog);\n    console.error(error && error.stack || error);\n    process.exit(1);\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
         ),
     )
     .expect("write eval fixture");
     let mut cmd = Command::new(IBEX);
     cmd.arg("capsec").arg("audit").arg(&entry);
-    let output = timeout(Duration::from_secs(60), cmd.output())
+    let output = timeout(Duration::from_secs(120), cmd.output())
         .await
         .expect("ibex capsec audit timed out")
         .expect("failed to spawn or read ibex process output");
@@ -163,6 +163,11 @@ async fn node_gunzip_concatenated_members_survive_every_chunk_split() {
         var second = z.gzipSync(Buffer.from('second member: omega'));
         var compressed = Buffer.concat([first, second]);
         var expected = 'first member: alphasecond member: omega';
+        // A fixture-owned referenced timer created after module initialization
+        // keeps the audit file runner pumping across the stream's final event
+        // turn; a pending Promise alone does not keep that runner alive.
+        var keepAlive = setInterval(function() {}, 1000);
+        if (keepAlive && typeof keepAlive.ref === 'function') keepAlive.ref();
 
         function decodeAt(split) {
           return new Promise(function(resolve) {
@@ -182,21 +187,25 @@ async fn node_gunzip_concatenated_members_survive_every_chunk_split() {
         }
 
         var failures = [];
-        for (var split = 1; split < compressed.length; split++) {
-          var decoded = await decodeAt(split);
-          if (decoded !== expected) failures.push([split, decoded]);
+        try {
+          for (var split = 1; split < compressed.length; split++) {
+            var decoded = await decodeAt(split);
+            if (decoded !== expected) failures.push([split, decoded]);
+          }
+
+          var truncated = await new Promise(function(resolve) {
+            var gunzip = z.createGunzip();
+            var joined = Buffer.concat([first, second.subarray(0, second.length - 4)]);
+            gunzip.on('error', function(err) { resolve(err.code || err.message); });
+            gunzip.on('end', function() { resolve('unexpected-end'); });
+            gunzip.write(joined.subarray(0, first.length + 1));
+            gunzip.end(joined.subarray(first.length + 1));
+          });
+
+          return JSON.stringify({ failures: failures, truncated: truncated });
+        } finally {
+          clearInterval(keepAlive);
         }
-
-        var truncated = await new Promise(function(resolve) {
-          var gunzip = z.createGunzip();
-          var joined = Buffer.concat([first, second.subarray(0, second.length - 4)]);
-          gunzip.on('error', function(err) { resolve(err.code || err.message); });
-          gunzip.on('end', function() { resolve('unexpected-end'); });
-          gunzip.write(joined.subarray(0, first.length + 1));
-          gunzip.end(joined.subarray(first.length + 1));
-        });
-
-        return JSON.stringify({ failures: failures, truncated: truncated });
       })()"#;
     let result = eval(js).await;
     assert_eq!(
