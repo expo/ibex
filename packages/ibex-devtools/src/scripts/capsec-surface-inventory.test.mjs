@@ -877,6 +877,32 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
   });
 
+  test("member aliases inherit source-proven callable value shapes", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        const methods = {};
+        methods.read = function read() {};
+        methods.readAlias = methods.read;
+        function Base() {}
+        Base.prototype.close = function close() {};
+        function Public() {}
+        Public.prototype.closeAlias = Base.prototype.close;
+        Public.prototype.readAlias = methods.readAlias;
+        module.exports = { Public };
+      `,
+      {
+        sourceKey: "node_member_alias",
+        sourcePath: "src/builtins/member-alias.js",
+      },
+    );
+    for (const exportName of ["Public.closeAlias", "Public.readAlias"]) {
+      expect(
+        rows.find((row) => row.metadata.exportName === exportName)?.metadata
+          .valueShape,
+      ).toBe("callable");
+    }
+  });
+
   test("builtin exports retain exact transitive routes to native enforcement calls", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`

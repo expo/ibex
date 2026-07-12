@@ -213,6 +213,10 @@ function streamRootCallSpecs() {
     [streamInstanceArgument("Readable", true), noopArgument()],
     "function",
   );
+  specs.getDefaultHighWaterMark = rootCall(
+    [jsonArgument(false)],
+    "number",
+  );
   for (const exportName of [
     "isDisturbed",
     "isErrored",
@@ -333,6 +337,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     ),
   }),
   node_path: Object.freeze({
+    _makeLong: rootCall([jsonArgument("/ibex")], "string"),
     basename: rootCall([jsonArgument("/ibex/file.txt")], "string"),
     dirname: rootCall([jsonArgument("/ibex/file.txt")], "string"),
     extname: rootCall([jsonArgument("/ibex/file.txt")], "string"),
@@ -358,6 +363,11 @@ const ROOT_CALL_SPECS = Object.freeze({
     toNamespacedPath: rootCall([jsonArgument("/ibex")], "string"),
   }),
   node_querystring: Object.freeze({
+    decode: rootCall([jsonArgument("a=1&a=2&b=ibex")], "object"),
+    encode: rootCall(
+      [jsonArgument({ a: ["1", "2"], b: "ibex" })],
+      "string",
+    ),
     escape: rootCall([jsonArgument("ibex probe")], "string"),
     parse: rootCall([jsonArgument("a=1&a=2&b=ibex")], "object"),
     stringify: rootCall(
@@ -631,6 +641,8 @@ const EVENT_EMITTER_METHOD_SPECS = Object.freeze({
   getMaxListeners: [[], "number"],
   listenerCount: [[jsonArgument("ibex")], "number"],
   listeners: [[jsonArgument("ibex")], "object"],
+  off: [[jsonArgument("ibex"), noopArgument()], "object"],
+  on: [[jsonArgument("ibex"), noopArgument()], "object"],
   once: [[jsonArgument("ibex"), noopArgument()], "object"],
   prependListener: [[jsonArgument("ibex"), noopArgument()], "object"],
   prependOnceListener: [[jsonArgument("ibex"), noopArgument()], "object"],
@@ -810,6 +822,28 @@ const BUFFER_METHOD_SPECS = Object.freeze({
   ],
 });
 
+const BUFFER_METHOD_ALIASES = Object.freeze({
+  readBigUint64BE: "readBigUInt64BE",
+  readBigUint64LE: "readBigUInt64LE",
+  readUint16BE: "readUInt16BE",
+  readUint16LE: "readUInt16LE",
+  readUint32BE: "readUInt32BE",
+  readUint32LE: "readUInt32LE",
+  readUint8: "readUInt8",
+  readUintBE: "readUIntBE",
+  readUintLE: "readUIntLE",
+  toLocaleString: "toString",
+  writeBigUint64BE: "writeBigUInt64BE",
+  writeBigUint64LE: "writeBigUInt64LE",
+  writeUint16BE: "writeUInt16BE",
+  writeUint16LE: "writeUInt16LE",
+  writeUint32BE: "writeUInt32BE",
+  writeUint32LE: "writeUInt32LE",
+  writeUint8: "writeUInt8",
+  writeUintBE: "writeUIntBE",
+  writeUintLE: "writeUIntLE",
+});
+
 function bufferPrototypeSpec(exportName) {
   const [ownerExportName, methodName] = exportName.split(".");
   if (
@@ -819,7 +853,9 @@ function bufferPrototypeSpec(exportName) {
   ) {
     return null;
   }
-  const method = ownValue(BUFFER_METHOD_SPECS, methodName);
+  const canonicalMethodName =
+    ownValue(BUFFER_METHOD_ALIASES, methodName) ?? methodName;
+  const method = ownValue(BUFFER_METHOD_SPECS, canonicalMethodName);
   if (!method) return null;
   return callSpec(
     {

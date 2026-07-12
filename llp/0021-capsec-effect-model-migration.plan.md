@@ -1090,7 +1090,9 @@ not inferred from `typeof value === "function"`. The first authored families
 cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
 `querystring`, `zlib`, `stream`, `string_decoder`, `url`, and `util`: each
 recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
-type. Prototype
+type. Direct member-to-member aliases inherit a callable shape only from the
+already observed source member, and reuse that member family's bounded
+arguments rather than weakening the template allowlist. Prototype
 recipes construct the declared owner (with dedicated bounded Buffer,
 CallTracker, zlib-transform, string-decoder, and configured
 readable/writable/duplex stream fixtures), then dispatch the exact
@@ -1105,9 +1107,10 @@ callback; constructor, query, mutation, and explicitly disconnected observer
 recipes have bounded lifetimes. Evidence requires a normal return from the
 selected dispatch; an
 argument/receiver binding error or any other throw fails the recipe and cannot
-stand in for body entry. On the macOS/aarch64 candidate this adds 650 callable
-executions (101 root calls, 47 constructions, and 502 prototype calls) to the
-336 data/accessor executions, all against the same mapped Hermes identity.
+stand in for body entry. On the macOS/aarch64 candidate this adds 697 callable
+executions (105 root calls, 47 constructions, and 545 prototype calls), 334
+data/accessor reads, and 33 exact module imports, all against the same mapped
+Hermes identity.
 Loaded execution also exposed lazy builtin assignments that were swallowed by
 locked inherited primordial properties; those Buffer, AssertionError, and
 StringDecoder prototype members

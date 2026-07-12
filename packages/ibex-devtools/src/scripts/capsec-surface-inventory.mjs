@@ -2640,6 +2640,26 @@ export function scanStaticBuiltinExports(
     if (expression.type === "SequenceExpression") {
       return expressionValueShape(expression.expressions.at(-1), activeNames);
     }
+    if (expression.type === "MemberExpression") {
+      const shapes = new Set();
+      const member = memberTargetAndNames(expression, new Map(), staticArrays);
+      if (member) {
+        for (const name of member.names) {
+          for (const shape of valueShapeFacts.get(member.target)?.get(name) ?? []) {
+            shapes.add(shape);
+          }
+        }
+      }
+      const owner = prototypeOwner(expression.object);
+      const name = directMemberName(expression);
+      if (owner && name) {
+        for (const shape of
+          prototypeValueShapeFacts.get(owner)?.get(name) ?? []) {
+          shapes.add(shape);
+        }
+      }
+      return resolvedValueShape(shapes);
+    }
     if (
       expression.type === "CallExpression" &&
       new Set(["freeze", "seal"]).has(callName(expression)) &&

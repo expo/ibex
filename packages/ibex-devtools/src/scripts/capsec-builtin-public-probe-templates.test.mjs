@@ -204,6 +204,27 @@ describe("source-bound builtin public probes", () => {
         bodyEntryProof: { resultType: "number" },
       },
     });
+    expect(
+      probeFor({
+        sourceKey: "node_buffer",
+        exportName: "SlowBuffer.writeBigUint64BE",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["buffer", "node:buffer"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        arguments: [
+          { kind: "bigint", value: "1" },
+          { kind: "json", value: 0 },
+        ],
+        setup: {
+          kind: "buffer-owner",
+          ownerExportName: "SlowBuffer",
+        },
+        bodyEntryProof: { resultType: "number" },
+      },
+    });
   });
 
   test("authors format-correct zlib roots and inherited transform receivers", () => {
