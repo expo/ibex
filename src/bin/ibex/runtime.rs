@@ -3648,9 +3648,158 @@ fn bundler_cache_input_paths() -> Result<Vec<PathBuf>> {
     .collect()
 }
 
+#[derive(Clone)]
+struct BundlerToolchainIdentity {
+    runner: PathBuf,
+    runner_name: &'static str,
+    digest: [u8; 32],
+}
+
+fn collect_authenticated_tool_files(
+    path: &Path,
+    package_store_root: &Path,
+    visited_dirs: &mut std::collections::HashSet<PathBuf>,
+    visited_files: &mut std::collections::HashSet<PathBuf>,
+    files: &mut Vec<PathBuf>,
+) -> Result<()> {
+    const MAX_TOOL_FILES: usize = 4096;
+    let canonical = std::fs::canonicalize(path).with_context(|| {
+        format!(
+            "Failed to authenticate bundler dependency {}",
+            path.display()
+        )
+    })?;
+    if !canonical.starts_with(package_store_root) {
+        anyhow::bail!(
+            "Bundler dependency {} escapes authenticated package store {}",
+            canonical.display(),
+            package_store_root.display()
+        );
+    }
+    let metadata = std::fs::metadata(&canonical)?;
+    if metadata.is_file() {
+        if visited_files.insert(canonical.clone()) {
+            if files.len() >= MAX_TOOL_FILES {
+                anyhow::bail!("Bundler dependency tree exceeds {MAX_TOOL_FILES} files");
+            }
+            files.push(canonical);
+        }
+        return Ok(());
+    }
+    if !metadata.is_dir() || !visited_dirs.insert(canonical.clone()) {
+        return Ok(());
+    }
+    let mut entries = std::fs::read_dir(&canonical)?.collect::<std::result::Result<Vec<_>, _>>()?;
+    entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+    for entry in entries {
+        collect_authenticated_tool_files(
+            &entry.path(),
+            package_store_root,
+            visited_dirs,
+            visited_files,
+            files,
+        )?;
+    }
+    Ok(())
+}
+
+fn compute_bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
+    const MAX_TOOL_BYTES: u64 = 512 * 1024 * 1024;
+    let root = repo_root()?;
+    let (runner, runner_name) = find_js_runner()?;
+    let runner = std::fs::canonicalize(&runner)
+        .with_context(|| format!("Failed to authenticate JS runner {}", runner.display()))?;
+    let runner_bytes = std::fs::read(&runner)
+        .with_context(|| format!("Failed to read JS runner {}", runner.display()))?;
+    if runner_bytes.len() as u64 > MAX_TOOL_BYTES {
+        anyhow::bail!("JS runner exceeds the authenticated tool size limit");
+    }
+
+    let mut hasher = Sha256::new();
+    digest_field(&mut hasher, "identity-version", b"bundler-toolchain-v1");
+    digest_field(&mut hasher, "runner-name", runner_name.as_bytes());
+    digest_field(
+        &mut hasher,
+        "runner-path",
+        runner.to_string_lossy().as_bytes(),
+    );
+    digest_field(&mut hasher, "runner-content", &runner_bytes);
+
+    let mut inputs = bundler_cache_input_paths()?;
+    for relative in ["package.json", "bun.lock"] {
+        let candidate = root.join(relative);
+        if candidate.is_file() {
+            inputs.push(authenticated_repo_file(&root, Path::new(relative))?);
+        }
+    }
+
+    // Rolldown's JS package loads a platform-specific native binding and
+    // helper packages from the enclosing installation node_modules directory.
+    // Bind that exact resolved tree, not just package.json/lockfile metadata.
+    let package_store_root = std::fs::canonicalize(root.join("node_modules"))
+        .context("Failed to authenticate the installed package store")?;
+    let rolldown = std::fs::canonicalize(root.join("node_modules/rolldown"))
+        .context("Failed to authenticate the installed rolldown package")?;
+    let install_root = rolldown
+        .parent()
+        .context("Installed rolldown package has no dependency root")?;
+    let mut tool_files = Vec::new();
+    collect_authenticated_tool_files(
+        install_root,
+        &package_store_root,
+        &mut std::collections::HashSet::new(),
+        &mut std::collections::HashSet::new(),
+        &mut tool_files,
+    )?;
+    inputs.extend(tool_files);
+    inputs.sort();
+    inputs.dedup();
+
+    let mut total = runner_bytes.len() as u64;
+    for input in inputs {
+        let bytes = std::fs::read(&input)
+            .with_context(|| format!("Failed to read bundler input {}", input.display()))?;
+        total = total
+            .checked_add(bytes.len() as u64)
+            .context("Bundler tooling size overflow")?;
+        if total > MAX_TOOL_BYTES {
+            anyhow::bail!("Bundler dependency tree exceeds the authenticated tool size limit");
+        }
+        digest_field(&mut hasher, "tool-path", input.to_string_lossy().as_bytes());
+        digest_field(&mut hasher, "tool-content", &bytes);
+    }
+
+    Ok(BundlerToolchainIdentity {
+        runner,
+        runner_name,
+        digest: hasher.finalize().into(),
+    })
+}
+
+fn bundler_toolchain_identity() -> Result<BundlerToolchainIdentity> {
+    static CACHED: std::sync::OnceLock<BundlerToolchainIdentity> = std::sync::OnceLock::new();
+    if let Some(identity) = CACHED.get() {
+        return Ok(identity.clone());
+    }
+    let identity = compute_bundler_toolchain_identity()?;
+    let _ = CACHED.set(identity.clone());
+    Ok(identity)
+}
+
+fn verify_bundler_toolchain_identity(expected: &BundlerToolchainIdentity) -> Result<()> {
+    let current = compute_bundler_toolchain_identity()?;
+    if current.runner != expected.runner
+        || current.runner_name != expected.runner_name
+        || current.digest != expected.digest
+    {
+        anyhow::bail!("Bundler runner or dependency tree changed during this process");
+    }
+    Ok(())
+}
+
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
     let mut hasher = Sha256::new();
-    digest_field(&mut hasher, "cache-version", b"bundle-cache-v7-sha256");
+    digest_field(&mut hasher, "cache-version", b"bundle-cache-v8-sha256");
     digest_field(&mut hasher, "format", bundle_format.as_str().as_bytes());
     // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
     // `__compartments` registry, which only exists under lockdown/compartments.
@@ -3682,20 +3831,16 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
         &std::fs::read(&canonical_entry)?,
     );
 
-    for bundler_input in bundler_cache_input_paths()? {
-        digest_field(
-            &mut hasher,
-            "bundler-input-path",
-            bundler_input.to_string_lossy().as_bytes(),
-        );
-        digest_field(
-            &mut hasher,
-            "bundler-input-content",
-            &std::fs::read(&bundler_input).with_context(|| {
-                format!("Failed to read bundler input {}", bundler_input.display())
-            })?,
-        );
+    // Outside a checkout (or when no runner is installed), bundling is
+    // unavailable and the loader falls back to its in-process path. Preserve
+    // that fallback while ensuring every actually runnable bundler cache key
+    // includes the exact runner, Rolldown JS/native packages, lockfile, and
+    // transform scripts that will produce the artifact.
+    match bundler_toolchain_identity() {
+        Ok(identity) => digest_field(&mut hasher, "bundler-toolchain", &identity.digest),
+        Err(_) => digest_field(&mut hasher, "bundler-toolchain", b"unavailable"),
     }
+
     Ok(format!("{:x}", hasher.finalize()))
 }
 
@@ -4295,7 +4440,10 @@ async fn run_bundler(
             artifact_root.display()
         );
     }
-    let (runner, runner_name) = find_js_runner()?;
+    let toolchain = bundler_toolchain_identity()?;
+    verify_bundler_toolchain_identity(&toolchain)?;
+    let runner = toolchain.runner.clone();
+    let runner_name = toolchain.runner_name;
     let script = bundler_script_path()?;
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
@@ -4344,6 +4492,11 @@ async fn run_bundler(
             return Err(error);
         }
     };
+
+    if let Err(error) = verify_bundler_toolchain_identity(&toolchain) {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        return Err(error).context("Bundler toolchain changed while producing cache output");
+    }
 
     if !cmd_output.status.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr);
@@ -5659,6 +5812,121 @@ mod tests {
             .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_bare_package_subpath_extension_precedence() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let project = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let package = project.path().join("node_modules/pkg");
+        let nested = package.join("lib");
+        std::fs::create_dir_all(&nested).unwrap();
+        let entry = project.path().join("entry.js");
+        let selected = nested.join("value.ts");
+        let higher_precedence = nested.join("value.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(&entry, "module.exports = require('pkg/lib/value').value;\n").unwrap();
+        std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(captured.exists(), "bundler never resolved package subpath");
+        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            result.is_err(),
+            "adding a higher-precedence package subpath candidate must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_package_main_target_extension_precedence() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let project = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let package = project.path().join("node_modules/pkg");
+        let nested = package.join("lib");
+        std::fs::create_dir_all(&nested).unwrap();
+        let entry = project.path().join("entry.js");
+        let selected = nested.join("value.json");
+        let higher_precedence = nested.join("value.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(
+            package.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0","main":"lib/value"}"#,
+        )
+        .unwrap();
+        std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
+        std::fs::write(&selected, r#"{"value":"json"}"#).unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            captured.exists(),
+            "bundler never resolved package main target"
+        );
+        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            result.is_err(),
+            "adding a higher-precedence package main candidate must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
     #[test]
     fn bundle_cache_quota_evicts_old_graphs_but_keeps_current() {
         let dir = tempdir().unwrap();
@@ -5794,6 +6062,22 @@ mod tests {
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));
         assert!(paths.iter().all(|path| path.exists()));
+    }
+
+    #[test]
+    fn bundler_toolchain_identity_authenticates_selected_runner_and_install() {
+        if find_js_runner().is_err() {
+            return;
+        }
+        let identity = compute_bundler_toolchain_identity().unwrap();
+        assert!(identity.runner.is_absolute());
+        assert!(identity.runner.is_file());
+        assert_ne!(identity.digest, [0; 32]);
+        assert_eq!(
+            identity.digest,
+            bundler_toolchain_identity().unwrap().digest,
+            "the cached identity must describe the same captured toolchain"
+        );
     }
 
     #[tokio::test]

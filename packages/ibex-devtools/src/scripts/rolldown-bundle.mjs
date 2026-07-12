@@ -170,6 +170,14 @@ const addSymlinkComponents = async (file) => {
   }
 };
 const extensionCandidates = ['', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'];
+const snapshotFileResolutionCandidates = async (candidate) => {
+  await snapshotPathState(path.dirname(candidate));
+  for (const extension of extensionCandidates) {
+    await snapshotPathState(candidate + extension);
+    if (extension) await snapshotPathState(path.join(candidate, 'index' + extension));
+  }
+  await addSymlinkComponents(candidate);
+};
 const snapshotResolutionRequest = async (source, importer) => {
   if (typeof source !== 'string' || source.startsWith('\0')) return;
   const importerPath = importer && !importer.startsWith('\0') ? importer : entry;
@@ -189,17 +197,13 @@ const snapshotResolutionRequest = async (source, importer) => {
 
   if (source.startsWith('.') || path.isAbsolute(source)) {
     const candidate = path.isAbsolute(source) ? source : path.resolve(base, source);
-    await snapshotPathState(path.dirname(candidate));
-    for (const extension of extensionCandidates) {
-      await snapshotPathState(`${candidate}${extension}`);
-      if (extension) await snapshotPathState(path.join(candidate, `index${extension}`));
-    }
-    await addSymlinkComponents(candidate);
+    await snapshotFileResolutionCandidates(candidate);
     return;
   }
 
   const parts = source.split('/');
   const packageName = source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  const packageSubpathParts = source.startsWith('@') ? parts.slice(2) : parts.slice(1);
   // Node package lookup does not stop at `.git` or the nearest package
   // metadata boundary. Witness every ancestor node_modules candidate so a
   // newly-created, closer hoisted package cannot make an old bundle resolve to
@@ -210,6 +214,18 @@ const snapshotResolutionRequest = async (source, importer) => {
     await snapshotPathState(nodeModules);
     await snapshotPathState(packageRoot);
     await snapshotPathState(path.join(packageRoot, 'package.json'));
+    if (packageSubpathParts.length > 0) {
+      const subpath = path.resolve(packageRoot, ...packageSubpathParts);
+      // Reject pkg/../outside-style escape spellings rather than using an
+      // import string to make the witness collector scan unrelated paths.
+      if (subpath === packageRoot || subpath.startsWith(packageRoot + path.sep)) {
+        await snapshotFileResolutionCandidates(subpath);
+      }
+    } else {
+      // package.json main/exports is itself digest-bound above; witness the
+      // legacy/default index extension precedence as well.
+      await snapshotFileResolutionCandidates(path.join(packageRoot, 'index'));
+    }
     if (path.dirname(current) === current) break;
     current = path.dirname(current);
   }
@@ -239,7 +255,22 @@ const sourceCapturePlugin = {
   name: 'ibex-cache-source-capture',
   async resolveId(source, importer) {
     if (opts.cacheManifest) await snapshotResolutionRequest(source, importer);
-    return null;
+    // Resolve through the remaining plugin/default resolver exactly once and
+    // return that decision. Capturing the selected module's parent directory
+    // closes package.json main/exports remapping holes that cannot be inferred
+    // from the bare specifier (for example pkg -> ./lib/entry). A new
+    // higher-precedence sibling then changes this first-observed witness even
+    // though the selected file and package.json bytes are unchanged.
+    const resolved = await this.resolve(source, importer, { skipSelf: true });
+    const resolvedId = typeof resolved === 'string' ? resolved : resolved?.id;
+    if (opts.cacheManifest && resolved && !resolved.external &&
+        typeof resolvedId === 'string' && !resolvedId.startsWith('\0') &&
+        path.isAbsolute(resolvedId)) {
+      await snapshotPathState(path.dirname(resolvedId));
+      await snapshotPathState(resolvedId);
+      await addSymlinkComponents(resolvedId);
+    }
+    return resolved;
   },
   async transform(code, id) {
     if (!id.startsWith('\0') && path.isAbsolute(id)) {
