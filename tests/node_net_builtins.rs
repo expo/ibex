@@ -383,7 +383,9 @@ console.log(JSON.stringify({
 }));
 "#;
 
-    let parsed = run_script(script, 10).await;
+    // Foreground audit performs a full bundle/authentication pass before the
+    // fixture starts, so leave headroom beyond production's old startup time.
+    let parsed = run_script(script, 45).await;
     assert_eq!(parsed["range"], Value::Bool(true), "IPv4 range: {parsed}");
     assert_eq!(
         parsed["rangeFalse"],
