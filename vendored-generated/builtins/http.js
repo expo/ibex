@@ -1703,7 +1703,7 @@ function ClientRequest(options, callback) {
 		_setClientRequestHeaderState(this, "Host", _getClientRequestHostHeaderValue(this), false);
 		this._implicitHostHeader = true;
 	}
-	if (!this._headersIsArray && this.options && this.options.auth && !_clientRequestHasHeader(this, "authorization")) _setClientRequestHeaderState(this, "Authorization", "Basic " + Buffer.from(String(this.options.auth)).toString("base64"), false);
+	if (this.options && this.options.auth && !_clientRequestHasHeader(this, "authorization")) _setClientRequestHeaderState(this, "Authorization", "Basic " + Buffer.from(String(this.options.auth)).toString("base64"), false);
 	if (this.agent) if (this.options && this.options.agent === false) {
 		this._last = true;
 		this.shouldKeepAlive = false;

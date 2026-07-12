@@ -3744,8 +3744,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
           "global:process.env.[[dynamic-table:env-obj-properties]]",
       ),
     ).toBe(true);
-    expect(iosRows.some((row) => row.name === "global:exact.getLayout")).toBe(
-      true,
+    expect(iosRows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "global:exact.getLayout",
+        "global:exact.getLayoutTree",
+      ]),
     );
     expect(workletRows.map((row) => row.name)).toEqual(
       expect.arrayContaining([

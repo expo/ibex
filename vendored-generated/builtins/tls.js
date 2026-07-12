@@ -1416,29 +1416,34 @@ TLSSocket.prototype.setEncoding = function(enc) {
 };
 TLSSocket.prototype.read = function(size) {
 	if (this._bridged) {
-		_tlsBridgeDrainPlain(this);
-		var queue = this._bridgeReadQueue || [];
-		if (!queue.length) {
-			if (this._bridgeDecodedTail !== null && this._bridgeDecodedTail !== void 0) {
-				var decoderTail = this._bridgeDecodedTail;
-				this._bridgeDecodedTail = null;
-				_tlsBridgeMaybeEmitEnd(this);
-				return decoderTail;
+		this._bridgeReadDepth = (this._bridgeReadDepth || 0) + 1;
+		try {
+			_tlsBridgeDrainPlain(this);
+			var queue = this._bridgeReadQueue || [];
+			if (!queue.length) {
+				if (this._bridgeDecodedTail !== null && this._bridgeDecodedTail !== void 0) {
+					var decoderTail = this._bridgeDecodedTail;
+					this._bridgeDecodedTail = null;
+					_tlsBridgeMaybeEmitEnd(this);
+					return decoderTail;
+				}
+				return null;
 			}
-			return null;
+			var available = this._bridgeReadQueueBytes || 0;
+			if (typeof size === "number" && size > available && !this._bridgeNativeEnded) return null;
+			var wanted = typeof size === "number" && size > 0 ? Math.min(size, available) : available;
+			var combined = typeof Buffer !== "undefined" && Buffer.concat ? Buffer.concat(queue, available) : queue[0];
+			var result = wanted === available ? combined : combined.slice(0, wanted);
+			var remainder = wanted === available ? null : combined.slice(wanted);
+			this._bridgeReadQueue = remainder && remainder.length ? [remainder] : [];
+			this._bridgeReadQueueBytes = available - wanted;
+			var encodedResult = _tlsBridgeEncode(this, result);
+			_tlsBridgeMaybeResumeInput(this);
+			_tlsBridgeMaybeEmitEnd(this);
+			return encodedResult;
+		} finally {
+			this._bridgeReadDepth = Math.max(0, (this._bridgeReadDepth || 1) - 1);
 		}
-		var available = this._bridgeReadQueueBytes || 0;
-		if (typeof size === "number" && size > available && !this._bridgeNativeEnded) return null;
-		var wanted = typeof size === "number" && size > 0 ? Math.min(size, available) : available;
-		var combined = typeof Buffer !== "undefined" && Buffer.concat ? Buffer.concat(queue, available) : queue[0];
-		var result = wanted === available ? combined : combined.slice(0, wanted);
-		var remainder = wanted === available ? null : combined.slice(wanted);
-		this._bridgeReadQueue = remainder && remainder.length ? [remainder] : [];
-		this._bridgeReadQueueBytes = available - wanted;
-		var encodedResult = _tlsBridgeEncode(this, result);
-		_tlsBridgeMaybeResumeInput(this);
-		_tlsBridgeMaybeEmitEnd(this);
-		return encodedResult;
 	}
 	return _callSocketMethod(this, "read", [size], null);
 };
@@ -2093,8 +2098,22 @@ function _finalizeBridgedHandshake(socket) {
 	socket._bridgePendingWrites = null;
 	_tlsBridgeFail(socket, socket._authorizationErrorObject || _createError("UNABLE_TO_VERIFY_CERT", "certificate verification failed"));
 }
+function _tlsBridgeScheduleEnd(socket) {
+	if (socket._bridgeEndScheduled || socket._bridgeEndEmitted || socket.destroyed) return;
+	socket._bridgeEndScheduled = true;
+	var finish = function() {
+		socket._bridgeEndScheduled = false;
+		if (!socket.destroyed) _tlsBridgeMaybeEmitEnd(socket);
+	};
+	if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(finish);
+	else setTimeout(finish, 0);
+}
 function _tlsBridgeMaybeEmitEnd(socket) {
 	if (!socket._bridgeNativeEnded || socket._bridgeEndEmitted || (socket._bridgeReadQueueBytes || 0) > 0) return;
+	if ((socket._bridgeReadDepth || 0) > 0) {
+		_tlsBridgeScheduleEnd(socket);
+		return;
+	}
 	if (socket._bridgeDecoder && !socket._bridgeDecoderFinalized && typeof socket._bridgeDecoder.end === "function") {
 		socket._bridgeDecoderFinalized = true;
 		var trailing = socket._bridgeDecoder.end();
@@ -2107,6 +2126,7 @@ function _tlsBridgeMaybeEmitEnd(socket) {
 	}
 	if (socket._bridgeDecodedTail !== null && socket._bridgeDecodedTail !== void 0) return;
 	socket._bridgeEndEmitted = true;
+	socket._bridgeEndScheduled = false;
 	socket.readable = false;
 	if (typeof socket.emit === "function") socket.emit("end");
 }
@@ -2243,6 +2263,8 @@ function _startTlsBridge(socket, netSocket, options, host, port) {
 	socket._bridgeTransportEnded = false;
 	socket._bridgeTransportEofApplied = false;
 	socket._bridgeNativeEnded = false;
+	socket._bridgeReadDepth = 0;
+	socket._bridgeEndScheduled = false;
 	socket._bridgeDecoderFinalized = false;
 	socket._bridgeDecodedTail = null;
 	socket._bridgeShutdownQueued = false;

@@ -2265,6 +2265,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
   });
 
   test("global APIs use exact reviewed keys and close shared Cache namespaces", () => {
+    const layoutTree = classifyObservedSurface(
+      globalApi("exact", "getLayoutTree"),
+      context,
+    );
+    expect(layoutTree.edge).toMatchObject({
+      classification: "closed",
+      cap: "ipc:channel",
+    });
+
     for (const [globalName, memberName, expectedAction] of [
       ["Cache", null, "storage:persist"],
       ["Cache", "add", "storage:write"],

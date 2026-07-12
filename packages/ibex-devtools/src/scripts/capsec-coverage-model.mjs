@@ -4695,6 +4695,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "getAbsoluteLayout",
     "getLayout",
     "getLayoutGeneration",
+    "getLayoutTree",
     "getModuleStateOffset",
     "getRootViewId",
     "getStateMirror",

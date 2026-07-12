@@ -124030,14 +124030,15 @@
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-15",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
@@ -124050,7 +124051,7 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
@@ -124716,14 +124717,15 @@
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-15",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
@@ -124736,7 +124738,7 @@
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-2",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
@@ -125409,14 +125411,15 @@
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
-        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-15",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:eq_ignore_ascii_case:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
@@ -125429,7 +125432,7 @@
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-2",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
@@ -184876,6 +184879,38 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.global.exact.getlayoutgeneration.0um8zd0.ios.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.getlayouttree.1kmyr1i",
+      "observedKey": "native-op:global:exact.getLayoutTree",
+      "branchId": "surface.native.op.global.exact.getlayouttree.1kmyr1i.ios",
+      "enforcementBranchId": "surface.native.op.global.exact.getlayouttree.1kmyr1i.ios",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:exact.getLayoutTree"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.getLayoutTree"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_ios.cc#jsi-global:exact.getLayoutTree"
+        ],
+        "terminalObservedKey": "native-op:global:exact.getLayoutTree"
+      },
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#jsi-global:exact.getLayoutTree"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.exact.getlayouttree.1kmyr1i.ios.closed"
       ]
     },
     {
@@ -248252,17 +248287,19 @@
       "edgeId": "surface.startup.env.dynamic.cpp.getenv.1kddphg",
       "observedKey": "startup:env:<dynamic>:cpp:getenv",
       "branchId": "surface.startup.env.dynamic.cpp.getenv.1kddphg.main",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:<dynamic>:cpp:getenv"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#getenv:dynamic:read"
+          "src/engine/hermes_runtime.cc#getenv:dynamic:read",
+          "src/engine/hermes_runtime_osinfo.cc#getenv:dynamic:read"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#getenv:dynamic:read"
+          "src/engine/hermes_runtime.cc#getenv:dynamic:read",
+          "src/engine/hermes_runtime_osinfo.cc#getenv:dynamic:read"
         ],
         "terminalObservedKey": "startup:env:<dynamic>:cpp:getenv"
       },
@@ -248272,15 +248309,16 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#getenv:dynamic:read"
+        "src/engine/hermes_runtime.cc#getenv:dynamic:read",
+        "src/engine/hermes_runtime_osinfo.cc#getenv:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr.allow",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr.deny",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr.malformed",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0segdjr.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.allow",
+        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.deny",
+        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.malformed",
+        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.cc.getenv.dynamic.read.0effbcy.wrong-principal"
       ]
     },
     {
@@ -248549,7 +248587,7 @@
       "edgeId": "surface.startup.env.dynamic.javascript.process.env.1cbcogv",
       "observedKey": "startup:env:<dynamic>:javascript:process.env",
       "branchId": "surface.startup.env.dynamic.javascript.process.env.1cbcogv.main",
-      "enforcementBranchId": "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9",
+      "enforcementBranchId": "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -248569,7 +248607,6 @@
           "src/builtins/cluster.js#process.env:dynamic:read",
           "src/builtins/events.js#process.env:dynamic:read",
           "src/builtins/http.js#process.env:dynamic:read",
-          "src/builtins/os.js#process.env:dynamic:read",
           "src/builtins/process.js#process.env:dynamic:read",
           "src/builtins/stream.js#process.env:dynamic:read",
           "src/builtins/tty.js#process.env:dynamic:read",
@@ -248595,7 +248632,6 @@
           "src/builtins/cluster.js#process.env:dynamic:read",
           "src/builtins/events.js#process.env:dynamic:read",
           "src/builtins/http.js#process.env:dynamic:read",
-          "src/builtins/os.js#process.env:dynamic:read",
           "src/builtins/process.js#process.env:dynamic:read",
           "src/builtins/stream.js#process.env:dynamic:read",
           "src/builtins/tty.js#process.env:dynamic:read",
@@ -248628,7 +248664,6 @@
         "src/builtins/cluster.js#process.env:dynamic:read",
         "src/builtins/events.js#process.env:dynamic:read",
         "src/builtins/http.js#process.env:dynamic:read",
-        "src/builtins/os.js#process.env:dynamic:read",
         "src/builtins/process.js#process.env:dynamic:read",
         "src/builtins/stream.js#process.env:dynamic:read",
         "src/builtins/tty.js#process.env:dynamic:read",
@@ -248642,11 +248677,11 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9.allow",
-        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9.deny",
-        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9.malformed",
-        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9.missing-attribution",
-        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.062tri9.wrong-principal"
+        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao.allow",
+        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao.deny",
+        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao.malformed",
+        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao.missing-attribution",
+        "enforcement.ckages.ibex.runtime.js.src.bootstrap.ts.process.env.dynamic.read.0de1xao.wrong-principal"
       ]
     },
     {
@@ -251726,7 +251761,7 @@
       "edgeId": "surface.startup.env.home.1aw1qfo",
       "observedKey": "startup:env:HOME",
       "branchId": "surface.startup.env.home.1aw1qfo.main",
-      "enforcementBranchId": "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr",
+      "enforcementBranchId": "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -251735,15 +251770,15 @@
         "proofSourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#process.env:HOME:read",
           "packages/ibex-runtime-js/src/indexeddb/IDBFactory.ts#process.env:HOME:read",
-          "src/builtins/os.js#process.env:HOME:read",
           "src/engine/bootstrap/web-storage.js#process.env:HOME:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:HOME:read",
           "src/engine/native_android_networking.cc#setenv:HOME:write"
         ],
         "sourceRefs": [
           "packages/ibex-runtime-js/src/bootstrap.ts#process.env:HOME:read",
           "packages/ibex-runtime-js/src/indexeddb/IDBFactory.ts#process.env:HOME:read",
-          "src/builtins/os.js#process.env:HOME:read",
           "src/engine/bootstrap/web-storage.js#process.env:HOME:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:HOME:read",
           "src/engine/native_android_networking.cc#setenv:HOME:write"
         ],
         "terminalObservedKey": "startup:env:HOME"
@@ -251756,30 +251791,30 @@
       "sourceRefs": [
         "packages/ibex-runtime-js/src/bootstrap.ts#process.env:HOME:read",
         "packages/ibex-runtime-js/src/indexeddb/IDBFactory.ts#process.env:HOME:read",
-        "src/builtins/os.js#process.env:HOME:read",
         "src/engine/bootstrap/web-storage.js#process.env:HOME:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:HOME:read",
         "src/engine/native_android_networking.cc#setenv:HOME:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.allow",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.branch-selection",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.deny",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.malformed",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.missing-attribution",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.absent.wrong-principal",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.allow",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.branch-selection",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.deny",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.malformed",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.missing-attribution",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.present.wrong-principal",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.allow",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.branch-selection",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.deny",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.malformed",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.missing-attribution",
-        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.18yamsr.logical.propagated.wrong-principal"
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.allow",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.branch-selection",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.deny",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.malformed",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.missing-attribution",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.absent.wrong-principal",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.allow",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.branch-selection",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.deny",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.malformed",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.missing-attribution",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.present.wrong-principal",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.allow",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.branch-selection",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.deny",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.malformed",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.missing-attribution",
+        "enforcement.packages.ibex.runtime.js.src.bootstrap.ts.process.env.home.read.02qy4p5.logical.propagated.wrong-principal"
       ]
     },
     {
@@ -252026,10 +252061,12 @@
           "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read",
+          "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read",
+          "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT"
       },
@@ -252039,7 +252076,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+        "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read",
+        "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -252058,11 +252096,13 @@
         ],
         "proofSourceRefs": [
           "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
-          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
+          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+          "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
         ],
         "sourceRefs": [
           "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
-          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
+          "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+          "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_CAPSEC_RECIPE_CATALOG"
       },
@@ -252073,7 +252113,8 @@
       },
       "sourceRefs": [
         "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
-        "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
+        "src/bin/ibex/engine/capsec_public_noncap_builtin_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read",
+        "src/bin/ibex/engine/capsec_public_startup_batch.rs#env::var:IBEX_CAPSEC_RECIPE_CATALOG:read"
       ],
       "implementationOwner": "WP9",
       "fixtureObligations": [
@@ -253303,18 +253344,18 @@
       "edgeId": "surface.startup.env.temp.1wag4vd",
       "observedKey": "startup:env:TEMP",
       "branchId": "surface.startup.env.temp.1wag4vd.main",
-      "enforcementBranchId": "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg",
+      "enforcementBranchId": "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:TEMP"
         ],
         "proofSourceRefs": [
-          "src/builtins/os.js#process.env:TEMP:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TEMP:read",
           "src/engine/native_android_networking.cc#setenv:TEMP:write"
         ],
         "sourceRefs": [
-          "src/builtins/os.js#process.env:TEMP:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TEMP:read",
           "src/engine/native_android_networking.cc#setenv:TEMP:write"
         ],
         "terminalObservedKey": "startup:env:TEMP"
@@ -253325,29 +253366,29 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/builtins/os.js#process.env:TEMP:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:TEMP:read",
         "src/engine/native_android_networking.cc#setenv:TEMP:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.allow",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.deny",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.malformed",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.absent.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.allow",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.deny",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.malformed",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.present.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.allow",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.deny",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.malformed",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.temp.read.0qjdfxg.logical.propagated.wrong-principal"
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.absent.wrong-principal",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.present.wrong-principal",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.temp.read.0v2utsa.logical.propagated.wrong-principal"
       ]
     },
     {
@@ -253399,18 +253440,18 @@
       "edgeId": "surface.startup.env.tmp.0lxnsz0",
       "observedKey": "startup:env:TMP",
       "branchId": "surface.startup.env.tmp.0lxnsz0.main",
-      "enforcementBranchId": "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4",
+      "enforcementBranchId": "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:TMP"
         ],
         "proofSourceRefs": [
-          "src/builtins/os.js#process.env:TMP:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMP:read",
           "src/engine/native_android_networking.cc#setenv:TMP:write"
         ],
         "sourceRefs": [
-          "src/builtins/os.js#process.env:TMP:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMP:read",
           "src/engine/native_android_networking.cc#setenv:TMP:write"
         ],
         "terminalObservedKey": "startup:env:TMP"
@@ -253421,47 +253462,47 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/builtins/os.js#process.env:TMP:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMP:read",
         "src/engine/native_android_networking.cc#setenv:TMP:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.allow",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.deny",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.absent.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.allow",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.deny",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.present.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.allow",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.deny",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmp.read.1ig4ec4.logical.propagated.wrong-principal"
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.absent.wrong-principal",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.present.wrong-principal",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.allow",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.branch-selection",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.deny",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.malformed",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.missing-attribution",
+        "enforcement.engine.hermes.runtime.platform.windows.cc.getenvstring.tmp.read.0rfv8wy.logical.propagated.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.startup.env.tmpdir.1crsfhf",
       "observedKey": "startup:env:TMPDIR",
       "branchId": "surface.startup.env.tmpdir.1crsfhf.main",
-      "enforcementBranchId": "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0",
+      "enforcementBranchId": "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:TMPDIR"
         ],
         "proofSourceRefs": [
-          "src/builtins/os.js#process.env:TMPDIR:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMPDIR:read",
           "src/engine/native_android_networking.cc#setenv:TMPDIR:write"
         ],
         "sourceRefs": [
-          "src/builtins/os.js#process.env:TMPDIR:read",
+          "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMPDIR:read",
           "src/engine/native_android_networking.cc#setenv:TMPDIR:write"
         ],
         "terminalObservedKey": "startup:env:TMPDIR"
@@ -253472,29 +253513,29 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/builtins/os.js#process.env:TMPDIR:read",
+        "src/engine/hermes_runtime_platform_windows.cc#getenvString:TMPDIR:read",
         "src/engine/native_android_networking.cc#setenv:TMPDIR:write"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.allow",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.deny",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.absent.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.allow",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.deny",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.present.wrong-principal",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.allow",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.branch-selection",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.deny",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.malformed",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.tmpdir.read.0adsyh0.logical.propagated.wrong-principal"
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.allow",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.branch-selection",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.deny",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.malformed",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.missing-attribution",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.absent.wrong-principal",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.allow",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.branch-selection",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.deny",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.malformed",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.missing-attribution",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.present.wrong-principal",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.allow",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.branch-selection",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.deny",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.malformed",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.missing-attribution",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.getenvstring.tmpdir.read.1dv0ibq.logical.propagated.wrong-principal"
       ]
     },
     {
@@ -253578,18 +253619,16 @@
       "edgeId": "surface.startup.env.userprofile.1sxunkp",
       "observedKey": "startup:env:USERPROFILE",
       "branchId": "surface.startup.env.userprofile.1sxunkp.main",
-      "enforcementBranchId": "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6",
+      "enforcementBranchId": "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:USERPROFILE"
         ],
         "proofSourceRefs": [
-          "src/builtins/os.js#process.env:USERPROFILE:read",
           "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read"
         ],
         "sourceRefs": [
-          "src/builtins/os.js#process.env:USERPROFILE:read",
           "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read"
         ],
         "terminalObservedKey": "startup:env:USERPROFILE"
@@ -253600,16 +253639,15 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/builtins/os.js#process.env:USERPROFILE:read",
         "src/engine/hermes_runtime_platform_windows.cc#getenvString:USERPROFILE:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6.allow",
-        "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6.deny",
-        "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6.malformed",
-        "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6.missing-attribution",
-        "enforcement.src.builtins.os.js.process.env.userprofile.read.0qp4gh6.wrong-principal"
+        "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u.allow",
+        "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u.deny",
+        "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u.malformed",
+        "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u.missing-attribution",
+        "enforcement.hermes.runtime.platform.windows.cc.getenvstring.userprofile.read.038sv1u.wrong-principal"
       ]
     },
     {
@@ -256428,10 +256466,10 @@
           "startup:runtime-create"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime.cc#ex_hermes_create"
+          "src/engine/hermes_runtime.cc#ex_hermes_create_armed"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime.cc#ex_hermes_create"
+          "src/engine/hermes_runtime.cc#ex_hermes_create_armed"
         ],
         "terminalObservedKey": "startup:runtime-create"
       },
@@ -256441,7 +256479,7 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#ex_hermes_create"
+        "src/engine/hermes_runtime.cc#ex_hermes_create_armed"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
@@ -259073,6 +259111,7 @@
         "surface.native.op.global.exact.getabsolutelayout.1su4n8b",
         "surface.native.op.global.exact.getlayout.1egshbe",
         "surface.native.op.global.exact.getlayoutgeneration.0um8zd0",
+        "surface.native.op.global.exact.getlayouttree.1kmyr1i",
         "surface.native.op.global.exact.getmodulestateoffset.0s3igpa",
         "surface.native.op.global.exact.getrootviewid.0gcfi7s",
         "surface.native.op.global.exact.getstatemirror.1r65bcm",
@@ -259125,7 +259164,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 204 observed surface edges."
+      "rationale": "Closed by 205 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -261551,44 +261590,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-Sko44jZS1575U5fEXlCka--wbWq0mGEu57zDBu4irQA"
+      "rawContentDigest": "sha256-jaHbgXTxZmYlVVpiW7T9dQmvhssRKSmszr79ScSm5Dg"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-z0hMleHGp_rG_IJcdpK_ZvZtJg4b64KuC9u4Spo18_4"
+      "rawContentDigest": "sha256-IKrrcopSUurqCV8pIQ3B_MoqzAbfw6uQeRuvk30XnHo"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-yqJSR0vR4pCjjOnXTjAuvS66eCKFDVk20VsQPkemlng"
+      "rawContentDigest": "sha256-84GbrJuADdinv27WZcWoBi1ey6M0lg4aXnzgWy7DdNw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-axnY4RZVnpxFRwALXSXomEuzYKNcxbxtIVkLzzIR69E"
+      "rawContentDigest": "sha256-tnKKd0zCE6nzouZ4bsaZfNAtTBvsat1WBQx2ItaRw_g"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-iA4W06tAiaBhkbc1_OMA3F30oOavaaLrmzfJmDxdfMM"
+      "rawContentDigest": "sha256-CtpSc9SMOkMgocMIDmALtaR7eIt32vDVQfU8XcHthNM"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-nZ08_A_d3e0GskUC53x_Uj_nRERlscpotljYVbXkOvY"
+      "rawContentDigest": "sha256-RyfQ8hBZ-x4eQ-_QFgVQixvippajsA0iCq3dFE5oiB0"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-rGIFXeuMiV8jKytJg2c-Fh653Xw4VIhVtHJm72ody9c"
+      "rawContentDigest": "sha256-fq4Iv97MggThvN_SZ87VN1pVfAReZT9ClFvQ5UA0Qbs"
     }
   ],
   "counts": {
-    "observedReferences": 12693,
-    "logicalSurfaces": 7032,
-    "enforcementBranches": 7225,
-    "coverageEdges": 7032,
-    "targetCells": 7032
+    "observedReferences": 12696,
+    "logicalSurfaces": 7033,
+    "enforcementBranches": 7226,
+    "coverageEdges": 7033,
+    "targetCells": 7033
   }
 }

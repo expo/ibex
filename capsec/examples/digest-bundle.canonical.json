@@ -209692,6 +209692,16 @@
             "rationale": "Exact layout, state-mirror, module-dispatch, and hit-test calls are ambient embedder channels."
           },
           {
+            "id": "surface.native.op.global.exact.getlayouttree.1kmyr1i",
+            "classification": "closed",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:exact.getLayoutTree"
+            },
+            "cap": "ipc:channel",
+            "rationale": "Exact layout, state-mirror, module-dispatch, and hit-test calls are ambient embedder channels."
+          },
+          {
             "id": "surface.native.op.global.exact.getmodulestateoffset.0s3igpa",
             "classification": "closed",
             "surface": {
