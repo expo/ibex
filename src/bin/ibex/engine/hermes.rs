@@ -6215,9 +6215,47 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[cfg(unix)]
+    async fn run_bounded_owner_thread_teardown_probe(
+        child_env: &str,
+        exact_test_name: &str,
+    ) -> bool {
+        if std::env::var(child_env).as_deref() == Ok("1") {
+            return false;
+        }
+
+        let mut command = Command::new(std::env::current_exe().expect("current test binary"));
+        command
+            .arg(exact_test_name)
+            .arg("--exact")
+            .arg("--nocapture")
+            .arg("--test-threads=1")
+            .env(child_env, "1")
+            .env_remove("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        let label = format!("owner-thread teardown probe {exact_test_name}");
+        let output = output_with_timeout(&mut command, std::time::Duration::from_secs(10), &label)
+            .await
+            .unwrap_or_else(|error| panic!("{error:#}"));
+        assert!(
+            output.status.success(),
+            "{label} failed with {}\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        true
+    }
+
+    #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn concurrent_destroy_waits_for_an_inflight_fs_worker_pin() {
         use std::io::Write as _;
+
+        const CHILD_ENV: &str = "IBEX_TEST_INFLIGHT_FS_PIN_TEARDOWN_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::concurrent_destroy_waits_for_an_inflight_fs_worker_pin";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
 
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();
@@ -6245,25 +6283,27 @@ cp \"$input\" \"$out\"\n";
         let fifo_for_writer = fifo.clone();
         let shutdown_returned = Arc::new(AtomicBool::new(false));
         let shutdown_returned_for_writer = Arc::clone(&shutdown_returned);
-        let (begin_tx, begin_rx) = std::sync::mpsc::channel();
+        let shared_for_writer = Arc::clone(&shared);
         let writer = std::thread::spawn(move || {
-            begin_rx.recv().unwrap();
+            while !shared_for_writer.raw.load(Ordering::Acquire).is_null() {
+                std::thread::yield_now();
+            }
             std::thread::sleep(std::time::Duration::from_millis(100));
-            assert!(
-                !shutdown_returned_for_writer.load(Ordering::Acquire),
-                "owner-thread destroy returned while the worker still held a runtime lifetime pin"
-            );
+            let returned_before_release = shutdown_returned_for_writer.load(Ordering::Acquire);
             let mut writer = std::fs::OpenOptions::new()
                 .write(true)
                 .open(fifo_for_writer)
                 .unwrap();
             writer.write_all(b"release").unwrap();
+            assert!(
+                !returned_before_release,
+                "owner-thread destroy returned while the worker still held a runtime lifetime pin"
+            );
         });
 
         // JSI/Hermes destruction is owner-thread-only. Release the blocked
         // worker from another thread while shutdown waits on this thread.
         let started_waiting = std::time::Instant::now();
-        begin_tx.send(()).unwrap();
         assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
         shutdown_returned.store(true, Ordering::Release);
         writer.join().unwrap();
@@ -6276,6 +6316,13 @@ cp \"$input\" \"$out\"\n";
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn fs_enqueue_exception_releases_runtime_pin_before_destroy() {
+        const CHILD_ENV: &str = "IBEX_TEST_FS_ENQUEUE_SHUTDOWN_CHILD";
+        const TEST_NAME: &str =
+            "engine::hermes::tests::fs_enqueue_exception_releases_runtime_pin_before_destroy";
+        if run_bounded_owner_thread_teardown_probe(CHILD_ENV, TEST_NAME).await {
+            return;
+        }
+
         struct EnvReset;
         impl Drop for EnvReset {
             fn drop(&mut self) {
@@ -6313,15 +6360,9 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
         std::env::remove_var("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
         let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
-        // Shutdown must execute on the runtime owner thread. A leaked worker
-        // pin would make this call exceed the bound (and eventually the test
-        // harness timeout) instead of being hidden by off-thread destruction.
-        let started = std::time::Instant::now();
+        // Shutdown executes on the runtime owner thread. The parent test
+        // process supplies the deadline so a leaked pin cannot hang this suite.
         assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
-        assert!(
-            started.elapsed() < std::time::Duration::from_secs(2),
-            "enqueue failure must not leave destroy waiting on a leaked worker pin"
-        );
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
