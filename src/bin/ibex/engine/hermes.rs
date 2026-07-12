@@ -4890,7 +4890,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(&received[16..], &[b'b'; 16]);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_unported_network_surfaces_refuse_before_external_effects() {
         let _lock = hermes_engine_test_lock().lock().await;
