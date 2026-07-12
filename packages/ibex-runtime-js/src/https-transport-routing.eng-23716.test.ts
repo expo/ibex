@@ -82,6 +82,34 @@ describe('https transport routing (ENG-23716)', () => {
     req.destroy();
   });
 
+  test('win32: an overridden custom-agent createConnection takes the socket path', () => {
+    const custom = new https.Agent({ keepAlive: true });
+    const inherited = custom.createConnection;
+    custom.createConnection = function (this: any, ...args: any[]) {
+      return inherited.apply(this, args);
+    };
+    https.request({ hostname: 'localhost', port: 4443, agent: custom }, () => {});
+    expect(httpRequestCalls.length).toBe(1);
+  });
+
+  test('win32: request createConnection takes the socket path', () => {
+    https.request(
+      { hostname: 'localhost', port: 4443, createConnection: () => ({}) },
+      () => {},
+    );
+    expect(httpRequestCalls.length).toBe(1);
+  });
+
+  test.each([
+    ['auth', { auth: 'alice:secret' }],
+    ['timeout', { timeout: 50 }],
+    ['signal', { signal: new AbortController().signal }],
+    ['array headers', { headers: [['X-Test', 'one']] }],
+  ])('win32: %s forces the option-preserving socket path', (_name, extra) => {
+    https.request({ hostname: 'localhost', port: 4443, ...extra }, () => {});
+    expect(httpRequestCalls.length).toBe(1);
+  });
+
   test('win32: option-free request keeps the WinHTTP fetch fast path', () => {
     const req = https.request({ hostname: 'example.com' }, () => {});
     expect(httpRequestCalls.length).toBe(0);

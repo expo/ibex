@@ -558,6 +558,8 @@ function _pemSourceToString(source) {
   return String(source);
 }
 
+var _maxClientIdentityBytes = 16 * 1024 * 1024;
+
 function _normalizePfxIdentity(source, fallbackPassphrase) {
   if (source === undefined || source === null) return null;
   var selected = source;
@@ -586,12 +588,29 @@ function _normalizePfxIdentity(source, fallbackPassphrase) {
 
   var bytes;
   if (typeof selected === 'string') {
+    if (selected.length > _maxClientIdentityBytes) {
+      throw _createError(
+        'ERR_TLS_PFX_TOO_LARGE',
+        'The "pfx" client identity exceeds the 16 MiB limit'
+      );
+    }
     bytes = typeof Uint8Array !== 'undefined' ? new Uint8Array(selected.length) : [];
     for (var i = 0; i < selected.length; i++) bytes[i] = selected.charCodeAt(i) & 255;
   } else if (
     _isArrayBufferView(selected) ||
     (typeof ArrayBuffer !== 'undefined' && selected instanceof ArrayBuffer)
   ) {
+    var selectedLength = typeof selected.byteLength === 'number'
+      ? selected.byteLength
+      : (typeof selected.length === 'number' ? selected.length : 0);
+    // @ref LLP 0004#the-tls-builtin — reject before base64/JSON amplification;
+    // the native decoder independently enforces the same bound.
+    if (selectedLength > _maxClientIdentityBytes) {
+      throw _createError(
+        'ERR_TLS_PFX_TOO_LARGE',
+        'The "pfx" client identity exceeds the 16 MiB limit'
+      );
+    }
     bytes = selected;
   } else {
     throw _createError(
@@ -1965,6 +1984,11 @@ TLSSocket.prototype.setEncoding = function(enc) {
 // constructor state (_readBuffer, _handle, ...) that this wrapper never has;
 // data flows through the wrapped raw socket, so delegate there instead.
 TLSSocket.prototype.read = function(size) {
+  // A connect-created wrapper is undecided until TCP connect. Never delegate
+  // read() to the raw socket in that window: if the peer wins the race, those
+  // bytes are TLS ciphertext. Once the loopback path is selected _writeHeld is
+  // cleared and the raw socket becomes a valid plaintext delegate.
+  if (this._writeHeld && !this._bridged) return null;
   if (this._bridged) {
     this._bridgeReadDepth = (this._bridgeReadDepth || 0) + 1;
     try {
@@ -2178,7 +2202,10 @@ TLSSocket.prototype.on = function(eventName, listener) {
 TLSSocket.prototype.addListener = TLSSocket.prototype.on;
 
 TLSSocket.prototype.pipe = function(dest, options) {
-  if (this._bridged) {
+  // `tls.connect(...).pipe(dest)` is normally called before TCP connect, while
+  // the loopback-vs-wire-TLS path is still undecided. Pipe from wrapper data in
+  // that window so a later bridged connection can never expose raw ciphertext.
+  if (this._bridged || this._writeHeld) {
     var source = this;
     var shouldEnd = !options || options.end !== false;
     function onData(chunk) {
@@ -3087,40 +3114,39 @@ function _startTlsBridge(socket, netSocket, options, host, port) {
   socket._bridgeShutdownQueued = false;
   socket.pending = true;
   socket._secureEstablished = false;
-  // Writes held since connect() move into the bridged pre-secure queue so
-  // they are encrypted after the handshake, in order.
-  _tlsReleaseHeldWrites(socket, 'bridge');
-
-  var servername = options.servername || options.sni || null;
-  var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
-  var config = {
-    // Measured Node v25.9.0: SNI is only sent when servername was explicitly
-    // provided (bare tls.connect({host}) sends none). ibex https.js always
-    // sets servername, so https clients get SNI.
-    servername: servername ? String(servername) : null,
-    host: host ? String(host) : null,
-    alpn: _alpnProtocolsToList(options.ALPNProtocols),
-    ca: options.ca !== undefined && options.ca !== null ? _pemSourceToString(options.ca) : null,
-    cert: options.cert !== undefined && options.cert !== null ? _pemSourceToString(options.cert) : null,
-    key: options.key !== undefined && options.key !== null ? _pemSourceToString(options.key) : null,
-    passphrase: pfxIdentity
-      ? pfxIdentity.passphrase
-      : (options.passphrase !== undefined && options.passphrase !== null ? String(options.passphrase) : null),
-    pfx: pfxIdentity ? pfxIdentity.encoded : null,
-    hasSession: options.session !== undefined && options.session !== null,
-    cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, 'client'),
-    minVersion: options.minVersion || null,
-    maxVersion: options.maxVersion || null
-  };
-
   var engineId;
   try {
+    var servername = options.servername || options.sni || null;
+    var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
+    var config = {
+      // Measured Node v25.9.0: SNI is only sent when servername was explicitly
+      // provided (bare tls.connect({host}) sends none). ibex https.js always
+      // sets servername, so https clients get SNI.
+      servername: servername ? String(servername) : null,
+      host: host ? String(host) : null,
+      alpn: _alpnProtocolsToList(options.ALPNProtocols),
+      ca: options.ca !== undefined && options.ca !== null ? _pemSourceToString(options.ca) : null,
+      cert: options.cert !== undefined && options.cert !== null ? _pemSourceToString(options.cert) : null,
+      key: options.key !== undefined && options.key !== null ? _pemSourceToString(options.key) : null,
+      passphrase: pfxIdentity
+        ? pfxIdentity.passphrase
+        : (options.passphrase !== undefined && options.passphrase !== null ? String(options.passphrase) : null),
+      pfx: pfxIdentity ? pfxIdentity.encoded : null,
+      hasSession: options.session !== undefined && options.session !== null,
+      cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, 'client'),
+      minVersion: options.minVersion || null,
+      maxVersion: options.maxVersion || null
+    };
     engineId = __exactTlsEngineNew(JSON.stringify(config));
   } catch (engineErr) {
     socket.destroy(engineErr);
     return;
   }
   socket._tlsEngineId = engineId;
+  // Writes held since connect() move into the bridged pre-secure queue only
+  // after identity/config parsing succeeds, so a fail-loud construction error
+  // cannot strand callbacks or partially transition the write state.
+  _tlsReleaseHeldWrites(socket, 'bridge');
   // Send the ClientHello.
   _tlsBridgePumpOut(socket);
 }

@@ -79,6 +79,42 @@ size_t requireTlsReadLimit(
   return static_cast<size_t>(value);
 }
 
+void requireTlsBytes(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value* args,
+    size_t count,
+    const char* fnName,
+    const uint8_t*& data,
+    size_t& length) {
+  if (count < 2 || !args[1].isObject() ||
+      !extractArrayBufferView(runtime, args[1].asObject(runtime), data, length)) {
+    throw facebook::jsi::JSError(
+        runtime, (std::string(fnName) + ": byte buffer required").c_str());
+  }
+}
+
+facebook::jsi::Object makeTlsReadBuffer(
+    facebook::jsi::Runtime& runtime,
+    size_t size) {
+  return runtime.global()
+      .getPropertyAsFunction(runtime, "ArrayBuffer")
+      .callAsConstructor(runtime, static_cast<double>(size))
+      .getObject(runtime);
+}
+
+facebook::jsi::Value makeTlsReadView(
+    facebook::jsi::Runtime& runtime,
+    facebook::jsi::Object arrayBuffer,
+    size_t length) {
+  return runtime.global()
+      .getPropertyAsFunction(runtime, "Uint8Array")
+      .callAsConstructor(
+          runtime,
+          arrayBuffer,
+          0,
+          static_cast<double>(length));
+}
+
 // Rust returns an owned C string; copy into std::string and free the original.
 std::string takeRustString(char* s) {
   if (s == nullptr) {
@@ -129,9 +165,11 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactTlsEngineWriteTls: data required");
         }
-        std::vector<uint8_t> bytes = extractBytes(runtime, args[1]);
-        int64_t consumed =
-            ibex_tls_write_tls(id, bytes.empty() ? nullptr : bytes.data(), bytes.size());
+        const uint8_t* data = nullptr;
+        size_t length = 0;
+        requireTlsBytes(
+            runtime, args, count, "__exactTlsEngineWriteTls", data, length);
+        int64_t consumed = ibex_tls_write_tls(id, data, length);
         return facebook::jsi::Value(static_cast<double>(consumed));
       });
   rt.global().setProperty(rt, "__exactTlsEngineWriteTls", std::move(tlsWriteTlsFn));
@@ -145,13 +183,13 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
         uint64_t id = requireTlsEngineId(runtime, args, count, "__exactTlsEngineReadTls");
         const size_t maxBytes =
             requireTlsReadLimit(runtime, args, count, "__exactTlsEngineReadTls");
-        std::vector<uint8_t> buf(maxBytes);
-        int64_t n = ibex_tls_read_tls(id, buf.data(), buf.size());
+        auto bufferObject = makeTlsReadBuffer(runtime, maxBytes);
+        auto buffer = bufferObject.getArrayBuffer(runtime);
+        int64_t n = ibex_tls_read_tls(id, buffer.data(runtime), maxBytes);
         if (n <= 0) {
           return facebook::jsi::String::createFromUtf8(runtime, "");
         }
-        buf.resize(static_cast<size_t>(n));
-        return makeUint8Array(runtime, std::move(buf));
+        return makeTlsReadView(runtime, std::move(bufferObject), static_cast<size_t>(n));
       });
   rt.global().setProperty(rt, "__exactTlsEngineReadTls", std::move(tlsReadTlsFn));
 
@@ -166,9 +204,11 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactTlsEngineWritePlain: data required");
         }
-        std::vector<uint8_t> bytes = extractBytes(runtime, args[1]);
-        int64_t accepted =
-            ibex_tls_write_plain(id, bytes.empty() ? nullptr : bytes.data(), bytes.size());
+        const uint8_t* data = nullptr;
+        size_t length = 0;
+        requireTlsBytes(
+            runtime, args, count, "__exactTlsEngineWritePlain", data, length);
+        int64_t accepted = ibex_tls_write_plain(id, data, length);
         return facebook::jsi::Value(static_cast<double>(accepted));
       });
   rt.global().setProperty(rt, "__exactTlsEngineWritePlain", std::move(tlsWritePlainFn));
@@ -182,11 +222,11 @@ void installTlsHostFunctions(ExactHermesRuntime* handle) {
         uint64_t id = requireTlsEngineId(runtime, args, count, "__exactTlsEngineReadPlain");
         const size_t maxBytes =
             requireTlsReadLimit(runtime, args, count, "__exactTlsEngineReadPlain");
-        std::vector<uint8_t> buf(maxBytes);
-        int64_t n = ibex_tls_read_plain(id, buf.data(), buf.size());
+        auto bufferObject = makeTlsReadBuffer(runtime, maxBytes);
+        auto buffer = bufferObject.getArrayBuffer(runtime);
+        int64_t n = ibex_tls_read_plain(id, buffer.data(runtime), maxBytes);
         if (n > 0) {
-          buf.resize(static_cast<size_t>(n));
-          return makeUint8Array(runtime, std::move(buf));
+          return makeTlsReadView(runtime, std::move(bufferObject), static_cast<size_t>(n));
         }
         if (n == 0) {
           return facebook::jsi::String::createFromUtf8(runtime, "");

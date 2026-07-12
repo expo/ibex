@@ -244,7 +244,9 @@ native engine:
   Node's bundled-roots philosophy. Desktop builds use vendored OpenSSL only as
   a bounded decoder for the PKCS#12 and encrypted-PKCS#8 client-identity
   containers required by Node's `pfx` / `passphrase` options; no system TLS
-  implementation or trust behavior enters the wire path. Node's `ca` option
+  implementation or trust behavior enters the wire path. PFX input is capped
+  at 16 MiB before JS base64/JSON expansion and independently at the native
+  decoder; its base64 and DER envelopes must be canonical. Node's `ca` option
   **replaces** the root store, as in Node. The iOS reduced profile rejects
   those two container formats explicitly until a hermetic iOS decoder lands.
 - **Trust-evaluation split.** Chain trust (signatures, validity window,
@@ -289,9 +291,14 @@ not negotiate records or evaluate peer trust.
 Known divergences, accepted deliberately: `getPeerCertificate(true)`'s
 `issuerCertificate` chain reflects the chain **as presented on the wire**
 (rustls `peer_certificates()`), while Node/OpenSSL completes it from the
-local trust store; session resumption is not implemented
-(`isSessionReused()` always false); TLS < 1.2 is not supported (rustls), so
-requested minimums below 1.2 clamp to 1.2.
+local trust store; session resumption is an explicit fail-loud reduced profile
+(`getSession()` returns null, `isSessionReused()` is false, and a non-null
+`session` option throws `ERR_TLS_SESSION_UNSUPPORTED`). rustls does not expose
+a supported serialization/import API for its sensitive client-session values,
+and Node's input is an incompatible OpenSSL `SSL_SESSION` blob; silently
+accepting it or inventing a process-local lookalike would misreport security
+state and weaken runtime/principal isolation. TLS < 1.2 is not supported
+(rustls), so requested minimums below 1.2 clamp to 1.2.
 
 **Windows:** ENG-23526 enables the same native bridge through the Winsock TCP
 host functions in `src/engine/hermes_runtime_platform_windows.cc`. The shared

@@ -713,6 +713,44 @@ mod tls_bridge_support {
         });
         port
     }
+
+    /// Send a complete large HTTP response over real TLS. The client can delay
+    /// attaching a body consumer so TcpIncomingMessage fills its readable HWM,
+    /// pauses the TLSSocket, and must later resume the underlying raw input.
+    pub fn spawn_tls_http_body_server(payload: Vec<u8>) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let mut request = Vec::new();
+            let mut buf = [0u8; 2048];
+            loop {
+                match tls.read(&mut buf) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => {
+                        request.extend_from_slice(&buf[..n]);
+                        if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            let _ = tls.write_all(head.as_bytes());
+            let _ = tls.write_all(&payload);
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
 }
 
 #[tokio::test]
@@ -853,6 +891,43 @@ sock.on('error', function (e) {{
 }
 
 #[tokio::test]
+async fn node_tls_bridge_pipe_before_connect_never_exposes_ciphertext() {
+    let payload = b"decrypted-pipe-only".repeat(4096);
+    let expected_len = payload.len();
+    let port = tls_bridge_support::spawn_tls_push_server(payload);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var EventEmitter = require('events');
+var out = {{ bytes: 0, prefix: '', ended: false }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 10000);
+var dest = new EventEmitter();
+dest.write = function (chunk) {{
+  var bytes = Buffer.from(chunk);
+  if (!out.prefix) out.prefix = bytes.slice(0, 24).toString();
+  out.bytes += bytes.length;
+  return true;
+}};
+dest.end = function () {{
+  out.ended = true;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}};
+var socket = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+// This is intentionally before TCP connect / secureConnect. Delegating to the
+// raw socket here would pipe ClientHello and encrypted records to `dest`.
+socket.pipe(dest);
+socket.on('error', function (error) {{ out.error = error.code || error.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["bytes"], expected_len, "pipe leaked or lost bytes: {v}");
+    assert_eq!(v["prefix"], "decrypted-pipe-onlydecry", "{v}");
+    assert_eq!(v["ended"], true, "pipe destination did not end: {v}");
+}
+
+#[tokio::test]
 async fn node_tls_bridge_set_encoding_preserves_utf8_split_across_tls_chunks() {
     let mut payload = vec![b'a'; 16 * 1024 - 1];
     payload.extend_from_slice("€z".as_bytes());
@@ -976,6 +1051,53 @@ sock.on('error', function (e) {{
     assert_eq!(v["hasRawDer"], true, "{v}");
     assert_eq!(v["status"], "HTTP/1.1 200 OK", "{v}");
     assert_eq!(v["gotBody"], true, "application data over real TLS: {v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_applies_cipher_and_protocol_bounds_and_rejects_sessions_loudly() {
+    let port = tls_bridge_support::spawn_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+try {{
+  tls.connect({{ host: '127.0.0.1', port: {port}, session: Buffer.from([1, 2, 3]) }});
+  out.session = 'accepted';
+}} catch (error) {{
+  out.session = error.code;
+}}
+try {{
+  tls.connect({{ host: '127.0.0.1', port: {port}, maxVersion: 'TLSv1.1' }});
+  out.lowMax = 'accepted';
+}} catch (error) {{
+  out.lowMax = error.code;
+}}
+var socket = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2',
+  ciphers: 'ECDHE-RSA-AES128-GCM-SHA256'
+}}, function () {{
+  out.protocol = socket.getProtocol();
+  out.cipher = socket.getCipher().name;
+  out.getSession = socket.getSession();
+  out.reused = socket.isSessionReused();
+  socket.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+socket.on('data', function () {{}});
+socket.on('end', function () {{ console.log(JSON.stringify(out)); process.exit(0); }});
+socket.on('error', function (error) {{ out.error = error.code || error.message; console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["session"], "ERR_TLS_SESSION_UNSUPPORTED", "{v}");
+    assert_eq!(v["lowMax"], "ERR_TLS_INVALID_PROTOCOL_VERSION", "{v}");
+    assert_eq!(v["protocol"], "TLSv1.2", "version bounds were ignored: {v}");
+    assert_eq!(
+        v["cipher"], "ECDHE-RSA-AES128-GCM-SHA256",
+        "cipher option was ignored: {v}"
+    );
+    assert_eq!(v["getSession"], Value::Null, "reduced session profile: {v}");
+    assert_eq!(v["reused"], false, "reduced session profile: {v}");
 }
 
 #[tokio::test]
@@ -1133,6 +1255,37 @@ https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
 }
 
 #[tokio::test]
+async fn node_https_large_paused_response_resumes_without_loss() {
+    let payload_len = 1024 * 1024;
+    let port = tls_bridge_support::spawn_tls_http_body_server(vec![b'h'; payload_len]);
+    let script = format!(
+        r#"
+var https = require('https');
+var out = {{ bytes: 0 }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 12000);
+https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (response) {{
+  // Leave the response unread long enough to fill its readable HWM. The HTTP
+  // layer pauses the TLSSocket; attaching the consumer must resume raw input.
+  setTimeout(function () {{
+    response.on('data', function (chunk) {{ out.bytes += chunk.length; }});
+    response.on('end', function () {{
+      clearTimeout(watchdog);
+      console.log(JSON.stringify(out));
+      process.exit(0);
+    }});
+    response.resume();
+  }}, 200);
+}}).on('error', function (error) {{ out.error = error.code || error.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["bytes"], payload_len,
+        "HTTPS resume lost or stranded body: {v}"
+    );
+}
+
+#[tokio::test]
 async fn node_tls_bridge_mutual_tls_requires_a_matching_cert_and_key() {
     let port = tls_bridge_support::spawn_mutual_tls_http_server();
     let wrong_key = serde_json::to_string(WRONG_CLIENT_KEY).unwrap();
@@ -1223,8 +1376,9 @@ async fn node_tls_bridge_mutual_tls_accepts_password_protected_pfx() {
         r#"
 var tls = require('tls');
 var out = {{}};
-var pending = 3;
+var pending = 5;
 var pfx = Buffer.from({encoded:?}, 'base64');
+var originalToString = pfx.toString;
 var watchdog = setTimeout(function () {{
   out.watchdog = 'fired';
   console.log(JSON.stringify(out));
@@ -1255,6 +1409,20 @@ var wrong = tls.connect({{
 }});
 wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
 
+var trailing = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: Buffer.concat([pfx, Buffer.from([0])]), passphrase: 'correct horse battery staple'
+}});
+trailing.on('error', function (e) {{ out.trailing = String(e.message); done(); }});
+
+var oversizedPfx = Buffer.alloc(16 * 1024 * 1024 + 1);
+oversizedPfx.toString = function () {{ out.oversizedEncoded = true; return originalToString.apply(this, arguments); }};
+var oversized = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: oversizedPfx, passphrase: 'irrelevant'
+}});
+oversized.on('error', function (e) {{ out.oversized = (e.code || '') + ':' + e.message; done(); }});
+
 var encrypted = tls.connect({{
   port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
   cert: CERT, key: {encrypted_key}, passphrase: 'encrypted key passphrase'
@@ -1268,6 +1436,13 @@ var encrypted = tls.connect({{
   encrypted.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
 }});
 encrypted.on('error', function (e) {{ out.encryptedKeyError = e.message; done(); }});
+
+try {{
+  __exactTlsEngineNew(JSON.stringify({{ host: 'localhost', pfx: '/x==', passphrase: '' }}));
+  out.noncanonicalBase64 = 'accepted';
+}} catch (e) {{
+  out.noncanonicalBase64 = String(e.message);
+}}
 "#
     );
     let v = run_script(&with_fixture_pems(&script), 30).await;
@@ -1284,6 +1459,28 @@ encrypted.on('error', function (e) {{ out.encryptedKeyError = e.message; done();
             .as_str()
             .is_some_and(|message| message.contains("passphrase")),
         "wrong pfx passphrase must fail before handshake: {v}"
+    );
+    assert!(
+        v["trailing"]
+            .as_str()
+            .is_some_and(|message| message.contains("trailing or noncanonical DER")),
+        "PFX trailing data must fail closed: {v}"
+    );
+    assert!(
+        v["oversized"]
+            .as_str()
+            .is_some_and(|message| message.contains("ERR_TLS_PFX_TOO_LARGE")),
+        "oversized PFX must fail before native decoding: {v}"
+    );
+    assert!(
+        v.get("oversizedEncoded").is_none(),
+        "oversized PFX was base64-expanded before rejection: {v}"
+    );
+    assert!(
+        v["noncanonicalBase64"]
+            .as_str()
+            .is_some_and(|message| message.contains("canonical base64")),
+        "native PFX base64 boundary must be canonical: {v}"
     );
 }
 

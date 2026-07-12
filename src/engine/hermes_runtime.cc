@@ -98,7 +98,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #endif
-#if defined(__APPLE__) && TARGET_OS_OSX
+#if defined(__APPLE__)
 #include <mach/mach.h>
 #include <mach/mach_host.h>
 #include <mach-o/dyld.h>
@@ -2948,7 +2948,7 @@ extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
 extern "C" int32_t ex_hermes_engine_mapped_object(
     uint64_t* out_device, uint64_t* out_inode) {
   if (out_device == nullptr || out_inode == nullptr) return -1;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && TARGET_OS_OSX
   using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
       const ::hermes::vm::RuntimeConfig&);
   auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
