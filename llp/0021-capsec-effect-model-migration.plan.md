@@ -661,7 +661,10 @@ descriptor and presented bearer ID, and every armed read or write re-authorizes
 at `repeat` against fresh identities and current authority generations. Async
 commit runs on the worker before the descriptor is delivered to JavaScript;
 registry publication remains on the attributed runtime thread. The remaining
-filesystem operations are still pending.
+descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
+mode, and times, including their worker-backed forms) reuse the retained
+descriptor and typed repeat checks. The remaining path-based filesystem
+operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 

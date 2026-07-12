@@ -2286,6 +2286,9 @@ mod tests {
                 __exactFsClose(existing);
                 var created = __exactFsOpen({created:?}, 'w+');
                 __exactFsWrite(created, 'made', -1);
+                JSON.parse(__exactFsFstatSync(created));
+                __exactFsFtruncateSync(created, 2);
+                __exactFsFsyncSync(created);
                 __exactFsClose(created);
                 return 'ok';
             }})()"#,
@@ -2296,14 +2299,16 @@ mod tests {
 
         assert_eq!(outcome.as_deref(), Some("ok"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"new");
-        assert_eq!(std::fs::read(&created).unwrap(), b"made");
+        assert_eq!(std::fs::read(&created).unwrap(), b"ma");
 
         let async_script = format!(
             r#"globalThis.__armedAsyncOpen = 'pending';
                __exactFsOpenAsync({path:?}, 'w+').then(function(fd) {{
                  __exactFsWrite(fd, 'async', -1);
-                 __exactFsClose(fd);
-                 globalThis.__armedAsyncOpen = 'ok';
+                 return __exactFsFdAsync('fsync', fd, 0, 0).then(function() {{
+                   __exactFsClose(fd);
+                   globalThis.__armedAsyncOpen = 'ok';
+                 }});
                }}, function(error) {{
                  globalThis.__armedAsyncOpen = 'error:' + error.message;
                }});"#,

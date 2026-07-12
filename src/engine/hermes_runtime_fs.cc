@@ -217,11 +217,22 @@ static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* 
 }
 
 static void requireFdMetadataWrite(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
+  requireFdWrite(runtime, fd, syscall);
+}
+
+static void requireFdList(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
+  if (isAllowAll()) return;
   auto entry = requireOwnedFd(runtime, fd, syscall);
-  if (!checkCapability("fs:write:" + entry.path)) {
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 5,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 0, handle) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+  } else if (!checkCapability("fs:list:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
@@ -2980,7 +2991,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFstatSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        requireFdRead(runtime, fd, "fstat");
+        requireFdList(runtime, fd, "fstat");
         struct stat sb;
         if (::fstat(fd, &sb) != 0) {
           throwFsError(runtime, "fstat", "");
@@ -2998,16 +3009,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFsyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          auto entry = requireOwnedFd(runtime, fd, "fsync");
-          if (entry.canWrite) {
-            if (!checkCapability("fs:write:" + entry.path)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          } else if (!checkCapability("fs:read:" + entry.path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
+        requireFdMetadataWrite(runtime, fd, "fsync");
         if (::fsync(fd) != 0) {
           throwFsError(runtime, "fsync", "");
         }
@@ -3024,16 +3026,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsFdatasyncSync: fd required");
         }
         int fd = static_cast<int>(args[0].asNumber());
-        if (!isAllowAll()) {
-          auto entry = requireOwnedFd(runtime, fd, "fdatasync");
-          if (entry.canWrite) {
-            if (!checkCapability("fs:write:" + entry.path)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          } else if (!checkCapability("fs:read:" + entry.path)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-        }
+        requireFdMetadataWrite(runtime, fd, "fdatasync");
 #if defined(__APPLE__)
         // macOS doesn't have fdatasync, use fsync instead
         if (::fsync(fd) != 0) {
@@ -3599,13 +3592,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (op == "fchmod" || op == "fchown" || op == "ftruncate" || op == "futimes") {
           requireFdMetadataWrite(runtime, fd, op.c_str());
         } else if (op == "fsync" || op == "fdatasync") {
-          if (!isAllowAll()) {
-            auto entry = requireOwnedFd(runtime, fd, op.c_str());
-            auto cap = std::string(entry.canWrite ? "fs:write:" : "fs:read:") + entry.path;
-            if (!checkCapability(cap)) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
-          }
+          requireFdMetadataWrite(runtime, fd, op.c_str());
         } else {
           throw facebook::jsi::JSError(runtime, "__exactFsFdAsync: unsupported op");
         }

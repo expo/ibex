@@ -983,7 +983,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{NonEmptyString, Stage};
 
-    if path.is_null() || !matches!(stage, 0..=4) {
+    if path.is_null() || !matches!(stage, 0..=5) {
         return -1;
     }
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
@@ -1071,7 +1071,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
                         Stage::Repeat
                     },
                     capsec_semantics::model::ObjectState::Existing,
-                    false,
+                    stage == 5,
                     Some(parent_object),
                     Some(final_object),
                     Some(retained),

@@ -302,7 +302,8 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
 
 /// Authorize requested (stage=0), retained-fd commit (stage=1), repeated
 /// descriptor use (stage=2), path disclosure (stage=3), or pre-open effects
-/// (stage=4) for fs.open. Stages after requested require `parent_fd`.
+/// (stage=4), or repeated descriptor metadata disclosure (stage=5) for
+/// fs.open. Stages after requested require `parent_fd`.
 int ex_host_authorize_typed_fs_open(uint64_t module_id,
                                     const char* path,
                                     uint32_t stage,
