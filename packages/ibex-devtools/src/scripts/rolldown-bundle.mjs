@@ -90,47 +90,86 @@ const directoryDigest = async (directory) => {
 };
 
 const resolutionInputMap = new Map();
+const resolutionInputTasks = new Map();
 const rememberResolutionInput = (record) => {
-  const key = `${record.kind}\0${record.path}`;
   // First observation wins: later hooks run after a resolver decision and
   // must never bless a mutation that changed that decision's precedence.
-  if (!resolutionInputMap.has(key)) resolutionInputMap.set(key, record);
+  if (!resolutionInputMap.has(record.path)) resolutionInputMap.set(record.path, record);
 };
 const snapshotPathState = async (candidate) => {
   const absolute = path.resolve(candidate);
-  try {
-    const stat = await fs.lstat(absolute);
-    if (stat.isSymbolicLink()) {
-      rememberResolutionInput({
-        kind: 'symlink',
-        path: absolute,
-        sha256: createHash('sha256').update(await fs.readlink(absolute)).digest('hex'),
-      });
-    } else if (stat.isDirectory()) {
-      rememberResolutionInput({ kind: 'directory', path: absolute, sha256: await directoryDigest(absolute) });
-    } else if (stat.isFile()) {
-      rememberResolutionInput({ kind: 'file', path: absolute, sha256: await digestFile(absolute) });
+  // Rolldown may resolve thousands of imports from the same directory. The
+  // first pre-resolution observation is the security witness; recomputing its
+  // full directory/file digest for every import is both redundant and O(graph
+  // size × directory size). Reserve the path before awaiting so concurrent
+  // resolve hooks cannot duplicate that work or replace the first witness.
+  if (resolutionInputMap.has(absolute)) return;
+  const inFlight = resolutionInputTasks.get(absolute);
+  if (inFlight) return inFlight;
+  const capture = (async () => {
+    let record;
+    try {
+      const stat = await fs.lstat(absolute);
+      if (stat.isSymbolicLink()) {
+        record = {
+          kind: 'symlink',
+          path: absolute,
+          sha256: createHash('sha256').update(await fs.readlink(absolute)).digest('hex'),
+        };
+      } else if (stat.isDirectory()) {
+        record = { kind: 'directory', path: absolute, sha256: await directoryDigest(absolute) };
+      } else if (stat.isFile()) {
+        record = { kind: 'file', path: absolute, sha256: await digestFile(absolute) };
+      } else {
+        record = { kind: 'missing', path: absolute, sha256: missingDigest };
+      }
+    } catch {
+      record = { kind: 'missing', path: absolute, sha256: missingDigest };
     }
-  } catch {
-    rememberResolutionInput({ kind: 'missing', path: absolute, sha256: missingDigest });
+    resolutionInputMap.set(absolute, record);
+  })();
+  resolutionInputTasks.set(absolute, capture);
+  try {
+    await capture;
+  } finally {
+    resolutionInputTasks.delete(absolute);
   }
 };
+const checkedSymlinkComponents = new Set();
+const symlinkComponentTasks = new Map();
 const addSymlinkComponents = async (file) => {
   const absolute = path.resolve(file);
   const parsed = path.parse(absolute);
   let current = parsed.root;
   for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
     current = path.join(current, component);
-    try {
-      const stat = await fs.lstat(current);
-      if (stat.isSymbolicLink()) {
-        rememberResolutionInput({
-          kind: 'symlink',
-          path: current,
-          sha256: createHash('sha256').update(await fs.readlink(current)).digest('hex'),
-        });
+    if (checkedSymlinkComponents.has(current)) continue;
+    const existing = symlinkComponentTasks.get(current);
+    if (existing) {
+      await existing;
+      continue;
+    }
+    const componentPath = current;
+    const capture = (async () => {
+      try {
+        const stat = await fs.lstat(componentPath);
+        if (stat.isSymbolicLink()) {
+          rememberResolutionInput({
+            kind: 'symlink',
+            path: componentPath,
+            sha256: createHash('sha256').update(await fs.readlink(componentPath)).digest('hex'),
+          });
+        }
+        return true;
+      } catch {
+        return false;
       }
-    } catch { break; }
+    })();
+    symlinkComponentTasks.set(componentPath, capture);
+    const exists = await capture;
+    symlinkComponentTasks.delete(componentPath);
+    checkedSymlinkComponents.add(componentPath);
+    if (!exists) break;
   }
 };
 const findProjectRoot = async (file) => {
