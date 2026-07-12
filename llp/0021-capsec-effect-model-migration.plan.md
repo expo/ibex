@@ -726,6 +726,11 @@ wake the runtime. Each event-loop poll compares the authenticated negative,
 dynamic, and handle generations; changes emit a frozen generation tuple through
 `Ibex.authority.onChange`, including mutations initiated by an embedder rather
 than JavaScript itself.
+Every typed decision context carries a canonical sorted `presentedHandleIds`
+set. The bearer stratum considers only those IDs, and rejects duplicate,
+unsorted, unknown, or wrong-holder presentation as invalid attribution. Merely
+minting a handle for a principal therefore never turns possession into ambient
+principal authority.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

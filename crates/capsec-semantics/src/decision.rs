@@ -384,6 +384,27 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
             None,
         ));
     }
+    if set
+        .context
+        .presented_handle_ids
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
+        || set.context.presented_handle_ids.iter().any(|presented| {
+            !context.authority.handles.iter().any(|handle| {
+                &handle.handle_id == presented
+                    && set.context.constrained_principals.contains(&handle.holder)
+            })
+        })
+    {
+        return Ok(hard_decision(
+            DecisionOutcome::Deny,
+            DecisionStratumId::Attribution,
+            0,
+            None,
+            DecisionReason::InvalidAttribution,
+            None,
+        ));
+    }
     let occurrences = set.occurrences();
 
     // 2. Attribution — validate the factored context across every effect.
@@ -674,7 +695,8 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
         let occurrence = &occurrences[pending_row.effect_index];
         for handle in &context.authority.handles {
-            if handle.holder != pending_row.principal
+            if !set.context.presented_handle_ids.contains(&handle.handle_id)
+                || handle.holder != pending_row.principal
                 || handle.observed_negative_generation != context.authority.generations.negative
                 || handle.published_handle_generation != context.authority.generations.handle
                 || handle
@@ -1319,6 +1341,7 @@ mod tests {
                 stage: occurrence.stage,
                 actor: occurrence.actor.clone(),
                 constrained_principals: occurrence.constrained_principals.clone(),
+                presented_handle_ids: Vec::new(),
             },
             effects: vec![Effect {
                 action: occurrence.action.clone(),

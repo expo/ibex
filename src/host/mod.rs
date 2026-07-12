@@ -1463,7 +1463,7 @@ mod tests {
             }
         }))
         .unwrap();
-        let decision: DecisionSet = serde_json::from_value(serde_json::json!({
+        let mut decision: DecisionSet = serde_json::from_value(serde_json::json!({
             "decisionSetSchema": "ibex/capsec-decision-set/1",
             "operationId": "delegated-photo-read",
             "atomicityGroup": "test.handle.fs.read",
@@ -1518,12 +1518,30 @@ mod tests {
             host.evaluate_typed_decision(&decision, &gates)
                 .unwrap()
                 .outcome,
+            DecisionOutcome::Deny,
+            "an unpresented bearer must not become ambient holder authority"
+        );
+        decision.context.presented_handle_ids = vec![parent.clone()];
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
             DecisionOutcome::Allow
         );
         let child = host
             .mint_typed_handle(holder.clone(), holder.clone(), photo, Some(&parent), None)
             .unwrap();
         assert_ne!(parent, child);
+        decision.context.presented_handle_ids = vec![parent.clone(), child];
+        decision.context.presented_handle_ids.sort();
+        decision.context.presented_handle_ids.reverse();
+        let unsorted = host.evaluate_typed_decision(&decision, &gates).unwrap();
+        assert_eq!(unsorted.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            unsorted.evidence[0].reason,
+            capsec_semantics::decision::DecisionReason::InvalidAttribution
+        );
+        decision.context.presented_handle_ids = vec![parent.clone()];
         assert!(host
             .revoke_typed_handle_json(serde_json::to_string(parent.as_str()).unwrap().as_bytes())
             .unwrap());

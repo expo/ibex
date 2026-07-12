@@ -3095,7 +3095,9 @@ export function loadAndValidateContract() {
   );
   validateWith(ajv, SCHEMA_IDS.effect, effectSet, "effect-set example");
   effectSet.effects.forEach((effect, index) => {
-    const occurrence = { ...effect, ...effectSet.context };
+    const { presentedHandleIds: _presentedHandleIds, ...occurrenceContext } =
+      effectSet.context;
+    const occurrence = { ...effect, ...occurrenceContext };
     validateWith(
       ajv,
       SCHEMA_IDS.occurrence,

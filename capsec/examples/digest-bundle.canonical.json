@@ -245466,7 +245466,8 @@
             "required": [
               "stage",
               "actor",
-              "constrainedPrincipals"
+              "constrainedPrincipals",
+              "presentedHandleIds"
             ],
             "properties": {
               "stage": {
@@ -245489,6 +245490,14 @@
                 "uniqueItems": true,
                 "items": {
                   "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/principal"
+                }
+              },
+              "presentedHandleIds": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
                 }
               }
             },

@@ -1479,6 +1479,8 @@ pub struct DecisionContext {
     pub stage: Stage,
     pub actor: Principal,
     pub constrained_principals: Vec<Principal>,
+    #[serde(default)]
+    pub presented_handle_ids: Vec<NonEmptyString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
