@@ -24,14 +24,14 @@ pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
 use anyhow::Context as _;
-#[cfg(test)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "capsec-conformance-observer"))]
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
 /// Reject every startup environment input classified `closed` by the checked
@@ -175,7 +175,7 @@ pub struct Host {
     /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
     decision_context: Option<Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>>,
     typed_decision_count: Arc<AtomicUsize>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
     #[cfg(any(test, feature = "capsec-conformance-observer"))]
     conformance_typed_observer: Arc<RwLock<TypedConformanceObserver>>,
@@ -256,7 +256,7 @@ impl Host {
             armed_snapshot: None,
             decision_context: None,
             typed_decision_count: Arc::new(AtomicUsize::new(0)),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
             typed_evidence: Arc::new(RwLock::new(VecDeque::with_capacity(
                 MAX_TYPED_EVIDENCE_ENTRIES,
             ))),
@@ -791,7 +791,7 @@ impl Host {
         {
             let evidence =
                 capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
-            #[cfg(test)]
+            #[cfg(any(test, feature = "capsec-conformance-observer"))]
             self.record_typed_decision_for_tests(evidence.clone());
             self.record_typed_conformance_decision(set, gates, evidence);
         }
@@ -824,14 +824,14 @@ impl Host {
         let evidence =
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
         self.typed_decision_count.fetch_add(1, Ordering::Relaxed);
-        #[cfg(test)]
+        #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_typed_decision_for_tests(evidence.clone());
         #[cfg(any(test, feature = "capsec-conformance-observer"))]
         self.record_typed_conformance_decision(set, gates, evidence.clone());
         Ok(TypedDecisionResult { decision, evidence })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     fn record_typed_decision_for_tests(
         &self,
         evidence: capsec_semantics::decision::StructuredDecisionEvidence,
@@ -909,7 +909,7 @@ impl Host {
         self.evaluate_typed_decision_with_evidence(&set, &gates)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     pub fn typed_evidence(&self) -> Vec<capsec_semantics::decision::StructuredDecisionEvidence> {
         self.typed_evidence
             .read()
