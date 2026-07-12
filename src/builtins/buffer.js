@@ -2116,7 +2116,16 @@ Buffer.prototype = Object.create(Uint8Array.prototype, {
 });
 for (var _bk in BufferProto) {
   if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) {
-    Buffer.prototype[_bk] = BufferProto[_bk];
+    // Lazy builtin evaluation can run after Uint8Array.prototype is locked
+    // down. An assignment cannot shadow an inherited non-writable method in
+    // sloppy CommonJS, so define each intended Buffer override directly.
+    // @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+    Object.defineProperty(Buffer.prototype, _bk, {
+      value: BufferProto[_bk],
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
   }
 }
 Object.defineProperty(Buffer.prototype, "parent", {
