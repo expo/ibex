@@ -1967,8 +1967,10 @@ fn bytecode_versions_compatible() -> bool {
         .ok()
         .and_then(|v| extract_hbc_version(&v));
 
-    // Get the standalone hermes HBC bytecode version (proxy for embedded runtime)
-    let hermes_hbc = get_version().ok().and_then(|v| extract_hbc_version(&v));
+    // Query the root API exported by the engine binary that is actually mapped
+    // into this process. A neighboring `hermes --version` executable can be a
+    // different build and is never runtime compatibility truth.
+    let hermes_hbc = ibex_runtime::engine::loaded_engine_bytecode_version().ok();
 
     match (hermesc_hbc, hermes_hbc) {
         (Some(compiler), Some(runtime)) => compiler == runtime,
@@ -2123,6 +2125,9 @@ fn verified_bytecode_source_map(
     bytecode: &Path,
     source_map: &Path,
 ) -> Option<std::sync::Arc<super::sourcemap::SourceMap>> {
+    // No attestation means no generated-code trust, irrespective of what a
+    // cache manifest claims its toolchain identity was.
+    ibex_runtime::engine::loaded_engine_binary_identity().ok()?;
     let Ok(raw) = std::fs::read(bytecode_manifest_path(bytecode)) else {
         return None;
     };
@@ -2181,18 +2186,49 @@ pub(crate) fn bytecode_cache_identity() -> String {
 }
 
 fn bytecode_cache_identity_for(compiler: Option<&HermesToolIdentity>) -> String {
-    // TODO(ENG-24254/runtime-context integration): replace this external
-    // runtime-version probe with the loaded embedded-engine attestation once
-    // the runtime-context batch lands. The compiler half is already bound to
-    // the canonical selected file object and full binary digest.
-    let runtime = get_version().unwrap_or_else(|_| "runtime-version-unavailable".into());
+    // Bind generated HBC to the engine artifact that is actually mapped, not a
+    // separately discovered `hermes` executable. Path/inode are deliberately
+    // excluded: identical verified engine bytes may move between installs,
+    // while digest + architecture + structural features capture every input
+    // that changes the runtime's bytecode contract.
+    let runtime =
+        match ibex_runtime::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg) {
+            Ok(identity) => {
+                let mut structural_features = identity.structural_features;
+                structural_features.sort();
+                structural_features.dedup();
+                serde_json::to_vec(&(
+                    "ibex-loaded-hermes-v1",
+                    identity.kind,
+                    identity.binary_digest,
+                    identity.target_architecture,
+                    structural_features,
+                ))
+                .expect("loaded Hermes identity contains only serializable strings")
+            }
+            Err(error) => {
+                // Cache consumers independently require mapped-engine
+                // attestation. Keep fallback keys distinct within this process
+                // as a second guard and to avoid converging failed publishers.
+                static UNATTESTED_SEQUENCE: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let sequence = UNATTESTED_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+                format!(
+                    "ibex-unattested-hermes\0{}\0{sequence}\0{error}",
+                    std::process::id()
+                )
+                .into_bytes()
+            }
+        };
     let compiler = compiler
         .map(HermesToolIdentity::cache_fingerprint)
         .unwrap_or_else(|| "compiler-identity-unavailable".into());
-    format!(
-        "{:x}",
-        Sha256::digest(format!("{runtime}\0{compiler}").as_bytes())
-    )
+    let mut digest = Sha256::new();
+    digest.update(b"ibex-hbc-toolchain-v3\0");
+    digest.update(runtime);
+    digest.update(b"\0");
+    digest.update(compiler.as_bytes());
+    format!("{:x}", digest.finalize())
 }
 
 pub(crate) struct VerifiedBytecodeArtifact {
@@ -2204,6 +2240,9 @@ pub(crate) async fn load_verified_bytecode_artifact(
     expected_source: Option<&Path>,
     bytecode: &Path,
 ) -> Result<VerifiedBytecodeArtifact> {
+    ibex_runtime::engine::loaded_engine_binary_identity()
+        .map_err(anyhow::Error::msg)
+        .context("cannot authenticate the loaded Hermes engine for bytecode cache use")?;
     let Ok(raw) = tokio::fs::read(bytecode_manifest_path(bytecode)).await else {
         anyhow::bail!("bytecode cache manifest is missing");
     };
@@ -2383,6 +2422,9 @@ async fn compile_source_to_bytecode_with_compiler(
     source_map: Option<&Path>,
     compiler_identity: &HermesToolIdentity,
 ) -> Result<()> {
+    ibex_runtime::engine::loaded_engine_binary_identity()
+        .map_err(anyhow::Error::msg)
+        .context("cannot authenticate the loaded Hermes engine for bytecode compilation")?;
     // Select/canonicalize the source identity before any async compile work.
     // Callers read the exact bytes through this canonical path, so the
     // manifest never canonicalizes a different pathname object after compile.
@@ -2434,7 +2476,7 @@ async fn compile_source_to_bytecode_with_compiler(
     let source_digest = format!("{:x}", Sha256::digest(source));
     wait_for_hbc_test_barrier("input-staged", output).await?;
 
-    let runtime_hbc = get_version().ok().and_then(|v| extract_hbc_version(&v));
+    let runtime_hbc = ibex_runtime::engine::loaded_engine_bytecode_version().ok();
     let compiler_hbc = get_hermesc_version_at(&staged_compiler)
         .ok()
         .and_then(|v| extract_hbc_version(&v));
@@ -2893,28 +2935,26 @@ mod tests {
         assert!(first.verify_selected_path().is_err());
     }
 
-    /// The live gate must agree with the parsed fixtures: with the checked-in
-    /// toolchain present, `compile_to_bytecode`'s version gate compares the
-    /// two tools' real `--version` outputs via `extract_hbc_version` and must
-    /// find them compatible (ENG-23495 regression: the old last-token parse
-    /// compared "input" vs "99" and bailed on every call).
+    /// The live gate must compare the checked-in compiler to the HBC version
+    /// reported by the mapped engine's root API. The standalone `hermes`
+    /// executable is intentionally not consulted: it may be a different build.
     #[test]
     fn checked_in_toolchain_gates_as_compatible() {
-        let (Ok(runtime_out), Ok(compiler_out)) = (get_version(), get_hermesc_version()) else {
+        let (Ok(runtime), Ok(compiler_out)) = (
+            ibex_runtime::engine::loaded_engine_bytecode_version(),
+            get_hermesc_version(),
+        ) else {
             // Toolchain not present in this environment; the fixture tests
             // above still cover the parse.
             return;
         };
-        let runtime = extract_hbc_version(&runtime_out);
         let compiler = extract_hbc_version(&compiler_out);
-        assert!(
-            runtime.is_some(),
-            "hermes --version must expose an HBC bytecode version line: {runtime_out:?}"
-        );
         assert_eq!(
-            runtime, compiler,
+            Some(runtime),
+            compiler,
             "checked-in hermes/hermesc HBC versions must match"
         );
+        assert!(bytecode_versions_compatible());
     }
 
     #[tokio::test]
