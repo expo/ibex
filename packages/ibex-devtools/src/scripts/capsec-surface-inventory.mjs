@@ -1099,9 +1099,14 @@ function lexCpp(text, label) {
 }
 
 function matchingToken(tokens, start, open, close) {
-  if (tokens[start]?.value !== open) return -1;
+  if (
+    tokens[start]?.type !== "punctuation" ||
+    tokens[start]?.value !== open
+  )
+    return -1;
   let depth = 0;
   for (let index = start; index < tokens.length; index += 1) {
+    if (tokens[index].type !== "punctuation") continue;
     if (tokens[index].value === open) depth += 1;
     if (tokens[index].value === close) depth -= 1;
     if (depth === 0) return index;
@@ -7748,6 +7753,7 @@ function cppStatementRanges(tokens) {
   let parenDepth = 0;
   let braceDepth = 0;
   for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index].type !== "punctuation") continue;
     const value = tokens[index].value;
     if (value === "(") parenDepth += 1;
     if (value === ")") parenDepth -= 1;
@@ -7838,7 +7844,11 @@ export function scanEvaluatedCppGlobalScripts(
     )
       continue;
     const open =
-      tokens.slice(index + 1).findIndex((token) => token.value === "(") +
+      tokens
+        .slice(index + 1)
+        .findIndex(
+          (token) => token.type === "punctuation" && token.value === "(",
+        ) +
       index +
       1;
     if (open <= index) continue;
@@ -7850,6 +7860,7 @@ export function scanEvaluatedCppGlobalScripts(
     let comma = close;
     let depth = 0;
     for (let cursor = open + 1; cursor < close; cursor += 1) {
+      if (tokens[cursor].type !== "punctuation") continue;
       if (tokens[cursor].value === "(" || tokens[cursor].value === "<")
         depth += 1;
       if (tokens[cursor].value === ")" || tokens[cursor].value === ">")

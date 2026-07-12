@@ -1652,6 +1652,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const source = String.raw`
       static const char* unused = R"JS(globalThis.Fake = function Fake() {})JS";
       // rt.evaluateJavaScript(fakeBuffer, "<comment-fake>");
+      const char* punctuationLookalike = ")";
       static const char* live = R"JS((function (g) {
         function Thing() {}
         Thing.prototype.run = function () {};

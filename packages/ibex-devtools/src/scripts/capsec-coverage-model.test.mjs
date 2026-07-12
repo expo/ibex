@@ -1662,6 +1662,15 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(edgeActions(spawnPoll)).toEqual(["process:spawn"]);
     expect(spawnPoll.edge.lifetimeContract).toBe("child-process");
     expect(spawnPoll.edge.effectOwnerSource).toBe("descriptor-owner");
+    expect(
+      classifyObservedSurface(
+        surface("native-op", "__exactSpawnSetReferenced"),
+        context,
+      ).edge,
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
 
     for (const globalName of [
       "clearImmediate",
@@ -1852,7 +1861,47 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
         name,
       ).toEqual(["fs:list", "fs:write"]);
+      expect(
+        classifyObservedSurface(
+          surface("loader", `operation:${category}:from_raw_fd`),
+          context,
+        ).edge,
+      ).toMatchObject({
+        classification: "non-capability",
+        rationaleId: "unbound-owned-resource",
+      });
+      expect(
+        classifyObservedSurface(
+          surface("loader", `operation:${category}:last_os_error`),
+          context,
+        ).edge.rationaleId,
+      ).toBe("internal-data-transform");
+      expect(
+        edgeActions(
+          classifyObservedSurface(
+            surface("loader", `operation:${category}:symlink_metadata`),
+            context,
+          ),
+        ),
+      ).toEqual(["fs:list"]);
     }
+
+    expect(
+      edgeActions(
+        classifyObservedSurface(
+          surface("loader", "route:load:rust:digest_file"),
+          context,
+        ),
+      ),
+    ).toEqual(["fs:list", "fs:read"]);
+    expect(
+      edgeActions(
+        classifyObservedSurface(
+          surface("loader", "route:load:rust:drop"),
+          context,
+        ),
+      ),
+    ).toEqual(["fs:list", "fs:write"]);
 
     for (const category of [
       "cache",

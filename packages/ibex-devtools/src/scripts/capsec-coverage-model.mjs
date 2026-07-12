@@ -246,6 +246,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactSpawnRead",
   "__exactSpawnRecvMsg",
   "__exactSpawnSendMsg",
+  "__exactSpawnSetReferenced",
   "__exactSpawnSync",
   "__exactSpawnWrite",
   "__exactSqliteAll",
@@ -5993,9 +5994,12 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "native-resolve",
     "operation:cache:canonicalize",
     "operation:cache:command-new",
+    "operation:cache:create_dir",
     "operation:cache:create_dir_all",
     "operation:cache:env-temp_dir",
     "operation:cache:env-var",
+    "operation:cache:from_raw_fd",
+    "operation:cache:last_os_error",
     "operation:cache:metadata",
     "operation:cache:new",
     "operation:cache:process-id",
@@ -6006,12 +6010,16 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:cache:remove_file",
     "operation:cache:rename",
     "operation:cache:status",
+    "operation:cache:symlink_metadata",
     "operation:cache:write",
     "operation:load:canonicalize",
     "operation:load:command-new",
+    "operation:load:create_dir",
     "operation:load:create_dir_all",
     "operation:load:env-temp_dir",
     "operation:load:env-var",
+    "operation:load:from_raw_fd",
+    "operation:load:last_os_error",
     "operation:load:metadata",
     "operation:load:new",
     "operation:load:process-id",
@@ -6022,13 +6030,17 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:load:remove_file",
     "operation:load:rename",
     "operation:load:status",
+    "operation:load:symlink_metadata",
     "operation:load:write",
     "operation:resolution:canonicalize",
     "operation:resolution:command-new",
+    "operation:resolution:create_dir",
     "operation:resolution:create_dir_all",
     "operation:resolution:env-current_dir",
     "operation:resolution:env-temp_dir",
     "operation:resolution:env-var",
+    "operation:resolution:from_raw_fd",
+    "operation:resolution:last_os_error",
     "operation:resolution:metadata",
     "operation:resolution:new",
     "operation:resolution:process-id",
@@ -6039,14 +6051,18 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:resolution:remove_file",
     "operation:resolution:rename",
     "operation:resolution:status",
+    "operation:resolution:symlink_metadata",
     "operation:resolution:write",
     "operation:subprocess:command-new",
     "operation:subprocess:status",
     "operation:transform:canonicalize",
     "operation:transform:command-new",
+    "operation:transform:create_dir",
     "operation:transform:create_dir_all",
     "operation:transform:env-temp_dir",
     "operation:transform:env-var",
+    "operation:transform:from_raw_fd",
+    "operation:transform:last_os_error",
     "operation:transform:metadata",
     "operation:transform:new",
     "operation:transform:process-id",
@@ -6057,6 +6073,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "operation:transform:remove_file",
     "operation:transform:rename",
     "operation:transform:status",
+    "operation:transform:symlink_metadata",
     "operation:transform:write",
     "oxc-on-disk-resolution",
     "package-compile",
@@ -6064,8 +6081,13 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "private-package-import",
     "require-resolve",
     "route:cache:rust:cache_tag",
+    "route:cache:rust:capture_transpile_tool_directory",
+    "route:cache:rust:compute_transpile_override_identity",
     "route:cache:rust:compute_transpile_tooling_hash",
+    "route:cache:rust:digest_file",
+    "route:cache:rust:directory_names",
     "route:cache:rust:directory_size",
+    "route:cache:rust:drop",
     "route:cache:rust:enforce_transpile_cache_quota",
     "route:cache:rust:ensure_transpile_cache_dir",
     "route:cache:rust:find_js_runner",
@@ -6085,6 +6107,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:selected_engine_cache_tag",
     "route:cache:rust:selected_transform_engine",
     "route:cache:rust:sha256_hex",
+    "route:cache:rust:stamp",
     "route:cache:rust:touch_transpile_artifact",
     "route:cache:rust:transpile_cache_dir",
     "route:cache:rust:transpile_cache_is_valid",
@@ -6097,11 +6120,18 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:cache:rust:transpile_with_swc",
     "route:cache:rust:unique_staged_transpile_input",
     "route:cache:rust:unique_tmp_path",
+    "route:cache:rust:verify_transpile_override_identity",
     "route:cache:rust:wait_for_transpile_test_barrier",
+    "route:cache:rust:walk",
     "route:load:rust:cache_tag",
+    "route:load:rust:capture_transpile_tool_directory",
+    "route:load:rust:compute_transpile_override_identity",
     "route:load:rust:compute_transpile_tooling_hash",
     "route:load:rust:contains_using_keyword",
+    "route:load:rust:digest_file",
+    "route:load:rust:directory_names",
     "route:load:rust:directory_size",
+    "route:load:rust:drop",
     "route:load:rust:enforce_transpile_cache_quota",
     "route:load:rust:ensure_transpile_cache_dir",
     "route:load:rust:find_js_runner",
@@ -6132,6 +6162,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:source_needs_downlevel",
     "route:load:rust:source_needs_for_of_scoping_fix",
     "route:load:rust:source_needs_loop_scope_downlevel",
+    "route:load:rust:stamp",
     "route:load:rust:touch_transpile_artifact",
     "route:load:rust:transpile_cache_dir",
     "route:load:rust:transpile_cache_is_valid",
@@ -6146,11 +6177,18 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:transpile_with_swc",
     "route:load:rust:unique_staged_transpile_input",
     "route:load:rust:unique_tmp_path",
+    "route:load:rust:verify_transpile_override_identity",
     "route:load:rust:wait_for_transpile_test_barrier",
+    "route:load:rust:walk",
     "route:resolution:rust:cache_tag",
+    "route:resolution:rust:capture_transpile_tool_directory",
+    "route:resolution:rust:compute_transpile_override_identity",
     "route:resolution:rust:compute_transpile_tooling_hash",
     "route:resolution:rust:contains_using_keyword",
+    "route:resolution:rust:digest_file",
+    "route:resolution:rust:directory_names",
     "route:resolution:rust:directory_size",
+    "route:resolution:rust:drop",
     "route:resolution:rust:enforce_transpile_cache_quota",
     "route:resolution:rust:ensure_transpile_cache_dir",
     "route:resolution:rust:find_js_runner",
@@ -6196,6 +6234,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:source_needs_downlevel",
     "route:resolution:rust:source_needs_for_of_scoping_fix",
     "route:resolution:rust:source_needs_loop_scope_downlevel",
+    "route:resolution:rust:stamp",
     "route:resolution:rust:touch_transpile_artifact",
     "route:resolution:rust:transpile_cache_dir",
     "route:resolution:rust:transpile_cache_is_valid",
@@ -6210,12 +6249,18 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:transpile_with_swc",
     "route:resolution:rust:unique_staged_transpile_input",
     "route:resolution:rust:unique_tmp_path",
+    "route:resolution:rust:verify_transpile_override_identity",
     "route:resolution:rust:wait_for_transpile_test_barrier",
-    "route:subprocess:rust:find_js_runner",
+    "route:resolution:rust:walk",
     "route:subprocess:rust:run_transpile_subprocess",
     "route:transform:rust:cache_tag",
+    "route:transform:rust:capture_transpile_tool_directory",
+    "route:transform:rust:compute_transpile_override_identity",
     "route:transform:rust:compute_transpile_tooling_hash",
+    "route:transform:rust:digest_file",
+    "route:transform:rust:directory_names",
     "route:transform:rust:directory_size",
+    "route:transform:rust:drop",
     "route:transform:rust:enforce_transpile_cache_quota",
     "route:transform:rust:ensure_transpile_cache_dir",
     "route:transform:rust:find_js_runner",
@@ -6235,6 +6280,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:selected_engine_cache_tag",
     "route:transform:rust:selected_transform_engine",
     "route:transform:rust:sha256_hex",
+    "route:transform:rust:stamp",
     "route:transform:rust:touch_transpile_artifact",
     "route:transform:rust:transpile_cache_dir",
     "route:transform:rust:transpile_cache_is_valid",
@@ -6248,7 +6294,9 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:transpile_with_swc",
     "route:transform:rust:unique_staged_transpile_input",
     "route:transform:rust:unique_tmp_path",
+    "route:transform:rust:verify_transpile_override_identity",
     "route:transform:rust:wait_for_transpile_test_barrier",
+    "route:transform:rust:walk",
     "transform-engine:oxc",
     "transform-engine:swc",
     "unknown-exact-rejection",
@@ -6419,7 +6467,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
     "evaluation:translation-unit-fallback:capability-hardening",
-    "evaluation:translation-unit-fallback:cdp",
     "evaluation:translation-unit-fallback:compartment-registry",
     "evaluation:translation-unit-fallback:eager-install-seal",
     "evaluation:translation-unit-fallback:form-data",
@@ -9143,14 +9190,14 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
-    if (/^(?:canonicalize|metadata|read_dir)$/u.test(operation)) {
+    if (/^(?:canonicalize|metadata|read_dir|symlink_metadata)$/u.test(operation)) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (/^(?:read|read_to_string)$/u.test(operation)) {
       return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:create|create_dir_all|remove_dir_all|remove_file|rename|write)$/u.test(
+      /^(?:create|create_dir|create_dir_all|remove_dir_all|remove_file|rename|write)$/u.test(
         operation,
       )
     ) {
@@ -9167,8 +9214,11 @@ function loaderClassification(surface) {
     if (/^(?:env-current_dir|env-temp_dir|process-id)$/u.test(operation)) {
       return effectSpec(["sys:read"], "system", "WP7");
     }
-    if (/^(?:command-new|new)$/u.test(operation)) {
+    if (/^(?:command-new|from_raw_fd|new)$/u.test(operation)) {
       return nonCapabilitySpec("unbound-owned-resource", "WP7");
+    }
+    if (operation === "last_os_error") {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (operation === "status") {
       return fullLoaderEffects(
@@ -9209,7 +9259,7 @@ function loaderClassification(surface) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
-      /^(?:compute_transpile_tooling_hash|module_cache_key|transpile_override_identity|transpile_tooling_hash)$/u.test(
+      /^(?:compute_transpile_override_identity|compute_transpile_tooling_hash|module_cache_key|transpile_override_identity|transpile_tooling_hash|verify_transpile_override_identity)$/u.test(
         functionName,
       )
     ) {
@@ -9237,6 +9287,29 @@ function loaderClassification(surface) {
     }
     if (functionName === "read_transpile_cache") {
       return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (
+      /^(?:capture_transpile_tool_directory|digest_file|directory_names|walk)$/u.test(
+        functionName,
+      )
+    ) {
+      return effectSpec(
+        ["fs:list", "fs:read"],
+        "loader",
+        "WP7",
+        loaderOptions,
+      );
+    }
+    if (functionName === "drop") {
+      return effectSpec(
+        ["fs:list", "fs:write"],
+        "loader",
+        "WP7",
+        loaderOptions,
+      );
+    }
+    if (functionName === "stamp") {
+      return nonCapabilitySpec("internal-data-transform", "WP1");
     }
     if (functionName === "touch_transpile_artifact") {
       return effectSpec(["fs:write"], "loader", "WP7", loaderOptions);
@@ -12141,6 +12214,10 @@ function classifyConcreteSurface(surface) {
       "network:connect",
       "network.native-operation.websocket-close-kind",
     );
+  }
+
+  if (/spawnsetreferenced/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
 
   // Release/cancel paths do not acquire new authority. This check comes after
