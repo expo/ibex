@@ -2509,6 +2509,44 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_unported_network_surfaces_refuse_before_external_effects() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let socket_path = std::env::temp_dir().join(format!(
+            "ibex-capsec-closed-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureNet();
+                var denied = 0;
+                try {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }} catch (_) {{ denied++; }}
+                try {{ __exactDnsLookup('localhost', 4); }} catch (_) {{ denied++; }}
+                try {{ __exactWsConnect('ws://127.0.0.1:9/', '', {{}}); }} catch (_) {{ denied++; }}
+                try {{ __exactTcpListen('127.0.0.1', 0, 1, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactHttpServe(0, '127.0.0.1'); }} catch (_) {{ denied++; }}
+                try {{ __exactUnixConnect({socket_path:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactUnixListen({socket_path:?}, 1); }} catch (_) {{ denied++; }}
+                var udp = __exactUdpSocket('udp4');
+                try {{ __exactUdpBind(udp, '127.0.0.1', 0); }} catch (_) {{ denied++; }}
+                __exactUdpClose(udp);
+                return String(denied);
+            }})()"#,
+            socket_path = socket_path.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("8"));
+        assert!(!socket_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(

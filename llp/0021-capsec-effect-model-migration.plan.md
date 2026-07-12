@@ -732,6 +732,13 @@ destination facts are checked immediately before `sendto`. A live fixture
 delivers an authorized loopback datagram and proves a metadata datagram is
 rejected before transmission. UDP bind/receive/listen authority remains
 unmigrated and closed in armed execution.
+One live armed closure fixture exercises the remaining transport families at
+their native boundaries: fetch, standalone DNS, WebSocket, TCP listen, HTTP
+serve, Unix connect/listen, and UDP bind all refuse before an external effect;
+the Unix socket path remains absent. Together with the positive TCP-connect
+and per-datagram UDP fixtures, the initial advertised network profile is thus
+either typed end to end or explicitly closed rather than falling back to the
+legacy capability oracle.
 
 Acceptance:
 
