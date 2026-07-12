@@ -24,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -523,11 +524,19 @@ uint32_t parseJsonUintProperty(const std::string& json, const char* key, uint32_
   }
 }
 
-std::vector<std::string> parseEnvFromOptionsJson(const std::string& optsJson) {
-  std::vector<std::string> env;
+struct WindowsEnvironmentOptions {
+  bool present = false;
+  std::vector<std::string> entries;
+};
+
+WindowsEnvironmentOptions parseEnvFromOptionsJson(
+    const std::string& optsJson) {
+  WindowsEnvironmentOptions env;
   size_t pos = 0;
-  if (!findTopLevelJsonValue(optsJson, "env", pos) ||
-      pos >= optsJson.size() || optsJson[pos] != '{') return env;
+  env.present = findTopLevelJsonValue(optsJson, "env", pos);
+  if (!env.present || pos >= optsJson.size() || optsJson[pos] != '{') {
+    return env;
+  }
   ++pos;
   while (pos < optsJson.size()) {
     skipJsonWhitespace(optsJson, pos);
@@ -544,12 +553,25 @@ std::vector<std::string> parseEnvFromOptionsJson(const std::string& optsJson) {
     skipJsonWhitespace(optsJson, pos);
     if (pos < optsJson.size() && optsJson[pos] == '"') {
       std::string val = parseJsonString(optsJson, pos);
-      env.push_back(key + "=" + val);
+      env.entries.push_back(key + "=" + val);
     } else {
       while (pos < optsJson.size() && optsJson[pos] != ',' && optsJson[pos] != '}') ++pos;
     }
   }
   return env;
+}
+
+std::optional<std::string> windowsEnvironmentValue(
+    const std::vector<std::string>& entries,
+    const char* key) {
+  for (const auto& entry : entries) {
+    const size_t equals = entry.find('=');
+    if (equals != std::string::npos &&
+        _stricmp(entry.substr(0, equals).c_str(), key) == 0) {
+      return entry.substr(equals + 1);
+    }
+  }
+  return std::nullopt;
 }
 
 std::vector<std::string> parseArgsJson(const std::string& argsJson) {
@@ -629,8 +651,10 @@ std::wstring buildCommandLine(
   return commandLine;
 }
 
-std::wstring buildEnvironmentBlock(std::vector<std::string> envEntries) {
-  if (envEntries.empty()) return std::wstring();
+std::wstring buildEnvironmentBlock(
+    std::vector<std::string> envEntries,
+    bool envPresent) {
+  if (!envPresent) return std::wstring();
   bool hasQuiet = false;
   for (const auto& entry : envEntries) {
     if (_strnicmp(entry.c_str(), "EXACT_QUIET=", 12) == 0) {
@@ -651,6 +675,83 @@ std::wstring buildEnvironmentBlock(std::vector<std::string> envEntries) {
   }
   block.push_back(L'\0');
   return block;
+}
+
+bool windowsRegularFileExists(const std::wstring& path) {
+  DWORD attributes = GetFileAttributesW(path.c_str());
+  return attributes != INVALID_FILE_ATTRIBUTES &&
+      (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+std::wstring windowsJoinPath(
+    const std::wstring& directory,
+    const std::wstring& leaf) {
+  if (directory.empty()) return leaf;
+  std::wstring joined = directory;
+  if (joined.back() != L'\\' && joined.back() != L'/') joined.push_back(L'\\');
+  joined += leaf;
+  return joined;
+}
+
+std::wstring windowsChildCwd(const std::string& cwd) {
+  if (!cwd.empty()) return utf8ToWide(cwd);
+  DWORD required = GetCurrentDirectoryW(0, nullptr);
+  if (required == 0) return std::wstring();
+  std::vector<wchar_t> buffer(required);
+  DWORD written = GetCurrentDirectoryW(required, buffer.data());
+  if (written == 0 || written >= required) return std::wstring();
+  return std::wstring(buffer.data(), written);
+}
+
+std::wstring resolveWindowsExecutableForEnvironment(
+    const std::string& file,
+    const std::string& cwd,
+    const WindowsEnvironmentOptions& environment) {
+  if (!environment.present) return std::wstring();
+
+  const std::wstring wideFile = utf8ToWide(file);
+  const std::wstring childCwd = windowsChildCwd(cwd);
+  const bool hasDirectory = file.find('/') != std::string::npos ||
+      file.find('\\') != std::string::npos || file.find(':') != std::string::npos;
+  if (hasDirectory) {
+    if (wideFile.size() >= 2 && wideFile[1] == L':') return wideFile;
+    if (!wideFile.empty() && (wideFile[0] == L'\\' || wideFile[0] == L'/')) {
+      return wideFile;
+    }
+    return windowsJoinPath(childCwd, wideFile);
+  }
+
+  // Node resolves through the supplied environment's PATH when present. A
+  // missing PATH falls back to the parent search path; an explicitly empty
+  // PATH searches only the child cwd. Keeping those states distinct prevents
+  // `env: { PATH: '' }` from accidentally executing a parent-installed tool.
+  auto configuredPath = windowsEnvironmentValue(environment.entries, "PATH");
+  std::string search = configuredPath.value_or(getenvString("PATH"));
+  std::vector<std::wstring> directories;
+  directories.push_back(childCwd);
+  size_t start = 0;
+  while (start <= search.size()) {
+    size_t end = search.find(';', start);
+    if (end == std::string::npos) end = search.size();
+    std::string component = search.substr(start, end - start);
+    if (!component.empty()) directories.push_back(utf8ToWide(component));
+    start = end + 1;
+  }
+
+  std::vector<std::wstring> names = {wideFile};
+  if (file.find('.') == std::string::npos) {
+    names.push_back(wideFile + L".com");
+    names.push_back(wideFile + L".exe");
+  }
+  for (const auto& directory : directories) {
+    for (const auto& name : names) {
+      std::wstring candidate = windowsJoinPath(directory, name);
+      if (windowsRegularFileExists(candidate)) return candidate;
+    }
+  }
+  // Supplying a concrete, not-found application path makes CreateProcessW
+  // fail instead of silently repeating its parent-environment search.
+  return windowsJoinPath(childCwd, wideFile);
 }
 
 std::string windowsErrorMessage(DWORD error) {
@@ -781,7 +882,7 @@ std::string spawnSyncWindowsJson(
   }
   uint32_t timeoutMs = parseJsonUintProperty(optsJson, "timeout", 0);
   uint32_t maxBuffer = parseJsonUintProperty(optsJson, "maxBuffer", 1024 * 1024);
-  auto envEntries = parseEnvFromOptionsJson(optsJson);
+  auto environment = parseEnvFromOptionsJson(optsJson);
   auto stdioModes = parseWindowsStdioModes(optsJson);
 
   SECURITY_ATTRIBUTES sa{};
@@ -882,18 +983,21 @@ std::string spawnSyncWindowsJson(
   std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
   mutableCommandLine.push_back(L'\0');
   std::wstring wideCwd = cwd.empty() ? std::wstring() : utf8ToWide(cwd);
-  std::wstring envBlock = buildEnvironmentBlock(envEntries);
+  std::wstring envBlock =
+      buildEnvironmentBlock(environment.entries, environment.present);
+  std::wstring applicationName =
+      resolveWindowsExecutableForEnvironment(file, cwd, environment);
 
   DWORD flags = CREATE_NO_WINDOW;
-  if (!envBlock.empty()) flags |= CREATE_UNICODE_ENVIRONMENT;
+  if (environment.present) flags |= CREATE_UNICODE_ENVIRONMENT;
   BOOL created = CreateProcessW(
-      nullptr,
+      environment.present ? applicationName.c_str() : nullptr,
       mutableCommandLine.data(),
       nullptr,
       nullptr,
       TRUE,
       flags,
-      envBlock.empty() ? nullptr : const_cast<wchar_t*>(envBlock.data()),
+      environment.present ? const_cast<wchar_t*>(envBlock.data()) : nullptr,
       wideCwd.empty() ? nullptr : wideCwd.c_str(),
       &startup,
       &processInfo);
@@ -1314,7 +1418,8 @@ std::shared_ptr<WindowsSpawnedProcess> tryWindowsSpawnProcess(
 std::string buildWindowsSpawnCommandLine(
     const std::string& file,
     const std::vector<std::string>& spawnArgs,
-    const std::string& optsJson) {
+    const std::string& optsJson,
+    const std::string& launchFile) {
   std::string argv0;
   parseJsonStringProperty(optsJson, "argv0", argv0);
 
@@ -1327,13 +1432,7 @@ std::string buildWindowsSpawnCommandLine(
     return wideToUtf8(buildCommandLine(file, spawnArgs, argv0));
   }
 
-  std::string shell = shellPath;
-  if (shell.empty()) {
-    shell = getenvString("ComSpec");
-  }
-  if (shell.empty()) {
-    shell = "cmd.exe";
-  }
+  std::string shell = launchFile;
   std::wstring childCommand = buildCommandLine(file, spawnArgs, argv0);
   std::wstring commandLine = quoteWindowsArg(utf8ToWide(shell));
   std::string lowerShell = shell;
@@ -1351,13 +1450,31 @@ std::string buildWindowsSpawnCommandLine(
   return wideToUtf8(commandLine);
 }
 
+std::string windowsSpawnLaunchFile(
+    const std::string& file,
+    const std::string& optsJson,
+    const WindowsEnvironmentOptions& environment) {
+  bool useShell = parseJsonBoolProperty(optsJson, "shell", false);
+  std::string shell;
+  if (parseJsonStringProperty(optsJson, "shell", shell)) useShell = true;
+  if (!useShell) return file;
+  if (!shell.empty()) return shell;
+  auto configured = windowsEnvironmentValue(environment.entries, "ComSpec");
+  if (configured && !configured->empty()) return *configured;
+  if (!configured) {
+    shell = getenvString("ComSpec");
+    if (!shell.empty()) return shell;
+  }
+  return "cmd.exe";
+}
+
 std::string spawnAsyncWindowsJson(
     const std::string& file,
     const std::vector<std::string>& spawnArgs,
     const std::string& optsJson) {
   std::string cwd;
   parseJsonStringProperty(optsJson, "cwd", cwd);
-  auto envEntries = parseEnvFromOptionsJson(optsJson);
+  auto environment = parseEnvFromOptionsJson(optsJson);
   auto stdioModes = parseWindowsStdioModes(optsJson);
   if (stdioModes.size() > 3 && stdioModes[3] == "ipc") {
     return spawnErrorJson(
@@ -1492,26 +1609,31 @@ std::string spawnAsyncWindowsJson(
   startup.hStdError = childStdErr;
 
   PROCESS_INFORMATION processInfo{};
-  std::string commandLineUtf8 = buildWindowsSpawnCommandLine(file, spawnArgs, optsJson);
+  std::string launchFile = windowsSpawnLaunchFile(file, optsJson, environment);
+  std::string commandLineUtf8 =
+      buildWindowsSpawnCommandLine(file, spawnArgs, optsJson, launchFile);
   std::wstring commandLine = utf8ToWide(commandLineUtf8);
   std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
   mutableCommandLine.push_back(L'\0');
   std::wstring wideCwd = cwd.empty() ? std::wstring() : utf8ToWide(cwd);
-  std::wstring envBlock = buildEnvironmentBlock(envEntries);
+  std::wstring envBlock =
+      buildEnvironmentBlock(environment.entries, environment.present);
+  std::wstring applicationName =
+      resolveWindowsExecutableForEnvironment(launchFile, cwd, environment);
 
   DWORD flags = CREATE_NO_WINDOW;
   if (parseJsonBoolProperty(optsJson, "detached", false)) {
     flags |= CREATE_NEW_PROCESS_GROUP;
   }
-  if (!envBlock.empty()) flags |= CREATE_UNICODE_ENVIRONMENT;
+  if (environment.present) flags |= CREATE_UNICODE_ENVIRONMENT;
   BOOL created = CreateProcessW(
-      nullptr,
+      environment.present ? applicationName.c_str() : nullptr,
       mutableCommandLine.data(),
       nullptr,
       nullptr,
       TRUE,
       flags,
-      envBlock.empty() ? nullptr : const_cast<wchar_t*>(envBlock.data()),
+      environment.present ? const_cast<wchar_t*>(envBlock.data()) : nullptr,
       wideCwd.empty() ? nullptr : wideCwd.c_str(),
       &startup,
       &processInfo);

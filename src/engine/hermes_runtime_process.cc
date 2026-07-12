@@ -578,17 +578,22 @@ static std::vector<std::string> s_parseEnvAt(
   return envVec;
 }
 
-static std::vector<std::string> s_parseEnvFromOpts(const std::string& optsJson) {
+static std::vector<std::string> s_parseEnvFromOpts(
+    const std::string& optsJson,
+    bool& envPresent) {
   size_t pos = 0;
-  if (!s_findTopLevelJsonValue(optsJson, "env", pos)) return {};
+  envPresent = s_findTopLevelJsonValue(optsJson, "env", pos);
+  if (!envPresent) return {};
   return s_parseEnvAt(optsJson, pos);
 }
 
 static std::vector<std::string> s_parseIndexedEnvFromOpts(
     const std::string& optsJson,
-    const TopLevelJsonIndex& index) {
+    const TopLevelJsonIndex& index,
+    bool& envPresent) {
   size_t pos = 0;
-  if (!s_indexedTopLevelJsonValue(index, "env", pos)) return {};
+  envPresent = s_indexedTopLevelJsonValue(index, "env", pos);
+  if (!envPresent) return {};
   return s_parseEnvAt(optsJson, pos);
 }
 
@@ -627,15 +632,16 @@ static void s_removeEnvEntry(
       entries.end());
 }
 
-static std::string s_envValue(const std::vector<std::string>& entries,
-                              const std::string& key) {
+static std::optional<std::string> s_envValue(
+    const std::vector<std::string>& entries,
+    const std::string& key) {
   const std::string prefix = key + "=";
   for (const auto& entry : entries) {
     if (entry.compare(0, prefix.size(), prefix) == 0) {
       return entry.substr(prefix.size());
     }
   }
-  return {};
+  return std::nullopt;
 }
 
 static std::optional<size_t> s_parseExtraStreamName(
@@ -684,8 +690,14 @@ static std::string s_resolveExecutable(const std::string& file,
   if (file.find('/') != std::string::npos) {
     return s_absoluteChildPath(file, cwd);
   }
-  std::string search = s_envValue(env, "PATH");
-  if (search.empty()) search = "/usr/local/bin:/usr/bin:/bin";
+  auto configuredSearch = s_envValue(env, "PATH");
+  // A missing PATH gets the platform's deterministic default search path.
+  // An explicitly empty PATH is different: it contains one empty component,
+  // so only the child's working directory is searched. Falling back for both
+  // cases lets `env: { PATH: '' }` unexpectedly execute a parent-installed
+  // binary.
+  std::string search =
+      configuredSearch.value_or("/usr/local/bin:/usr/bin:/bin");
   size_t start = 0;
   while (start <= search.size()) {
     size_t end = search.find(':', start);
@@ -721,9 +733,12 @@ static SpawnExecPlan s_buildSpawnExecPlan(
     const std::string& shellPath,
     const std::string& cwd,
     const std::vector<std::string>& customEnv,
+    bool customEnvPresent,
     int ipcFd) {
   SpawnExecPlan plan;
-  if (customEnv.empty()) {
+  // Presence, not entry count, selects inheritance. `env: {}` is a deliberate
+  // empty environment and must not inherit parent secrets.
+  if (!customEnvPresent) {
     for (char** current = s_processEnvironment(); current && *current; ++current) {
       plan.envEntries.emplace_back(*current);
     }
@@ -1257,6 +1272,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         bool max_buffer_unlimited = false;
         int kill_signal = 15;
         std::vector<std::string> envEntries;
+        bool envPresent = false;
         std::string stdinInput;
         bool hasStdinInput = false;
         bool inputIsBase64 = false;
@@ -1299,7 +1315,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             if (parsedSig > 0) kill_signal = parsedSig;
           }
           s_parseIndexedSpawnCredentials(optsJson, optsIndex, spawnUid, spawnGid);
-          envEntries = s_parseIndexedEnvFromOpts(optsJson, optsIndex);
+          envEntries =
+              s_parseIndexedEnvFromOpts(optsJson, optsIndex, envPresent);
           // Parse stdio: string form ("inherit"/"pipe"/"ignore") sets all three
           // fds; (ENG-23025) array form ["ignore","inherit","inherit"] sets them
           // per-index. JS serializes mixed modes as a JSON array, but this path
@@ -1542,7 +1559,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         // Precompute argv/env/PATH resolution while every runtime thread and
         // allocator lock is still valid. The child must not allocate.
         auto execPlan = s_buildSpawnExecPlan(
-            file, spawnArgs, argv0, useShell, shellPath, cwd, envEntries, -1);
+            file, spawnArgs, argv0, useShell, shellPath, cwd, envEntries,
+            envPresent, -1);
 
         pid_t pid = fork();
         if (pid < 0) {
@@ -2002,6 +2020,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         long spawnGid = -1;
         std::vector<std::string> stdioModes = {"pipe", "pipe", "pipe", "pipe"};
         std::vector<std::string> envEntries;
+        bool envPresent = false;
 
         auto normalizeStdioMode = [](const std::string& value) {
           if (value == "ignore") return std::string("ignore");
@@ -2078,7 +2097,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               }
             }
           }
-          envEntries = s_parseEnvFromOpts(optsJson);
+          envEntries = s_parseEnvFromOpts(optsJson, envPresent);
         }
 
         const bool stdinPipeRequested = stdioModes[0] == "pipe";
@@ -2328,7 +2347,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               runtime, "{\"error\":\"Failed to reserve child descriptors\"}"));
         }
         auto execPlan = s_buildSpawnExecPlan(
-            file, spawnArgs, "", useShell, shellPath, cwd, envEntries, ipcFd);
+            file, spawnArgs, "", useShell, shellPath, cwd, envEntries,
+            envPresent, ipcFd);
 
         pid_t pid = fork();
         if (pid < 0) {

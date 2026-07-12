@@ -40,3 +40,41 @@ fn windows_spawn_sync_host_registration_has_one_name_and_one_arity() {
     );
     assert!(registration.contains("\"__exactSpawnSync\"),\n      3,"));
 }
+
+#[test]
+fn windows_spawn_distinguishes_omitted_and_explicitly_empty_environment() {
+    for required in [
+        "struct WindowsEnvironmentOptions",
+        "bool present = false",
+        "env.present = findTopLevelJsonValue(optsJson, \"env\", pos)",
+        "buildEnvironmentBlock(environment.entries, environment.present)",
+        "environment.present ? applicationName.c_str() : nullptr",
+        "environment.present ? const_cast<wchar_t*>(envBlock.data()) : nullptr",
+    ] {
+        assert!(
+            WINDOWS_PROCESS.contains(required),
+            "Windows spawn lost explicit environment presence: {required}"
+        );
+    }
+    assert_eq!(
+        WINDOWS_PROCESS
+            .matches("environment.present ? applicationName.c_str() : nullptr")
+            .count(),
+        2,
+        "sync and async CreateProcessW calls must both avoid inheriting env: {{}}"
+    );
+}
+
+#[test]
+fn windows_spawn_does_not_fallback_for_an_explicitly_empty_path() {
+    for required in [
+        "auto configuredPath = windowsEnvironmentValue(environment.entries, \"PATH\")",
+        "std::string search = configuredPath.value_or(getenvString(\"PATH\"))",
+        "return windowsJoinPath(childCwd, wideFile)",
+    ] {
+        assert!(
+            WINDOWS_PROCESS.contains(required),
+            "Windows child executable lookup lost PATH presence semantics: {required}"
+        );
+    }
+}

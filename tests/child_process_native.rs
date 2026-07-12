@@ -60,6 +60,7 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .env("IBEX_PARENT_ONLY_SECRET", "must-not-reach-explicit-env")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -130,6 +131,98 @@ fn result_line(run: &AppRun) -> &str {
                 run.stdout, run.stderr
             )
         })
+}
+
+// ENG-24262 follow-up -------------------------------------------------------
+
+/// An explicitly supplied empty environment is not the same as an omitted
+/// environment. The native bridge used the parsed vector's emptiness as its
+/// inheritance sentinel, so `{ env: {} }` silently restored every parent
+/// variable. PATH had the same lossy representation: an explicit empty value
+/// fell back to the default binary search path instead of searching only cwd.
+#[test]
+fn spawn_sync_preserves_empty_environment_and_path_presence() {
+    let app = r#"
+const cp = require('child_process');
+const empty = cp.spawnSync('/usr/bin/env', [], { env: {}, encoding: 'utf8' });
+const missingPath = cp.spawnSync('sh', ['-c', 'printf "$IBEX_CHILD_ONLY"'], {
+  env: { IBEX_CHILD_ONLY: 'missing-path-used-default' }, encoding: 'utf8'
+});
+const emptyPath = cp.spawnSync('sh', ['-c', 'printf should-not-run'], {
+  env: { PATH: '' }, encoding: 'utf8'
+});
+const leaked = String(empty.stdout || '').indexOf('IBEX_PARENT_ONLY_SECRET=') !== -1;
+console.log('RESULT|leaked=' + leaked +
+  '|missing=' + String(missingPath.stdout || '') +
+  '|emptyPathFailed=' + Boolean(emptyPath.error));
+"#;
+    let run = run_app("explicit-empty-env-sync", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "leaked="),
+        Some("false"),
+        "parent secret leaked: {line}"
+    );
+    assert_eq!(
+        field(line, "missing="),
+        Some("missing-path-used-default"),
+        "missing PATH did not use the deterministic default: {line}"
+    );
+    assert_eq!(
+        field(line, "emptyPathFailed="),
+        Some("true"),
+        "explicit empty PATH unexpectedly used the default search path: {line}"
+    );
+}
+
+#[test]
+fn async_spawn_preserves_empty_environment_and_path_presence() {
+    let app = r#"
+const cp = require('child_process');
+let envOutput = '';
+const empty = cp.spawn('/usr/bin/env', [], { env: {} });
+empty.stdout.on('data', function (chunk) { envOutput += chunk.toString(); });
+empty.on('error', function (error) {
+  console.log('RESULT|unexpected=' + (error.code || error.message));
+});
+empty.on('close', function () {
+  let missingOutput = '';
+  const missing = cp.spawn('sh', ['-c', 'printf "$IBEX_CHILD_ONLY"'], {
+    env: { IBEX_CHILD_ONLY: 'missing-path-used-default' }
+  });
+  missing.stdout.on('data', function (chunk) { missingOutput += chunk.toString(); });
+  missing.on('error', function (error) {
+    console.log('RESULT|unexpected=' + (error.code || error.message));
+  });
+  missing.on('close', function () {
+    let sawEmptyPathError = false;
+    const blocked = cp.spawn('sh', ['-c', 'printf should-not-run'], { env: { PATH: '' } });
+    blocked.on('error', function () { sawEmptyPathError = true; });
+    blocked.on('close', function () {
+      const leaked = envOutput.indexOf('IBEX_PARENT_ONLY_SECRET=') !== -1;
+      console.log('RESULT|leaked=' + leaked + '|missing=' + missingOutput +
+        '|emptyPathFailed=' + sawEmptyPathError);
+    });
+  });
+});
+"#;
+    let run = run_app("explicit-empty-env-async", app, Duration::from_secs(20));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "leaked="),
+        Some("false"),
+        "parent secret leaked: {line}"
+    );
+    assert_eq!(
+        field(line, "missing="),
+        Some("missing-path-used-default"),
+        "missing PATH did not use the deterministic default: {line}"
+    );
+    assert_eq!(
+        field(line, "emptyPathFailed="),
+        Some("true"),
+        "explicit empty PATH unexpectedly used the default search path: {line}"
+    );
 }
 
 // ENG-23023 -----------------------------------------------------------------

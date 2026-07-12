@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-12 (ENG-24278 bounds POSIX TCP/UDP repeat work with socket-identity, exact-peer/destination, principal-set, and mutable-generation leases); 2026-07-12 (post-cutover security review hardened WP3–WP5: exact package content/graph roots and import edges, checked digest/set invariants, actual-engine and runtime-scoped arming, complete closed-startup controls, race-safe retained filesystem objects, analysis-byte/package-tree joining, and content-addressed report-derived target advertisements; the current registry still advertises no executable target — ENG-24232 through ENG-24281); 2026-07-12 (ENG-24233/24239/24247/24249–24253 remediate conformance evidence, policy identity, selector constraints, generation publication, atomic evidence, drift classification, package-root ceilings, and descriptor authorization leases); 2026-07-12 (ENG-24267/24268/24273/24276/24278/24280 align canonical ordering and mapped-IP semantics, harden generators, correct RFC 8785 numbers and staged decisions, and bound repeat-stage work); 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -819,22 +819,30 @@ The synchronous POSIX TCP adapter now uses that ABI end to end: it authorizes
 the request before resolution, submits the canonically sorted complete
 `getaddrinfo` candidate set, authorizes each attempted address, verifies
 `getpeername` at commit, retains the candidate/peer/connection facts with the
-socket handle, and rechecks the actual peer and current principal stack on
-every later handle use. Retained socket use reuses a full repeat decision only
+socket handle. The first later I/O, and each generation-lease renewal, verifies
+the immutable connected peer with `getpeername`; stable later I/O pins the exact
+socket registry identity through the syscall without copying the retained
+candidate/peer strings. Retained socket use reuses a full repeat decision only
 for the exact peer and principal set while all mutable authority generations
 remain unchanged; a generation or deputy-set change forces a stable
-before/after redecision. The nonblocking POSIX path applies the same request and
+before/after redecision and another peer verification. The nonblocking POSIX path applies the same request and
 candidate gates, registers only a pending handle, and withholds read/write
 authority until poll observes successful `SO_ERROR`, verifies `getpeername`,
 and commits the peer. Pending handles may only be polled or closed. Armed
 local-bind options remain closed pending their own typed effects. Windows, TLS,
 WebSocket, and the remaining UDP adapters are not yet migrated. POSIX unconnected UDP sends
-are gated per datagram under their own registry edge: only canonical literal
-IPv4/IPv6 destinations are accepted, and requested, candidate, and committed
-destination facts are checked immediately before `sendto` through one parsed
-and attributed ABI call. A live fixture
-delivers an authorized loopback datagram and proves a metadata datagram is
-rejected before transmission. UDP bind/receive/listen authority remains
+are gated under their own registry edge: only canonical literal IPv4/IPv6
+destinations are accepted, and the first datagram authorizes requested,
+candidate, and committed destination facts immediately before `sendto` through
+one parsed and attributed ABI call. Repeated datagrams reuse that complete
+decision only for the same socket identity, literal host/port, canonical
+principal set, and unchanged negative/dynamic/handle generations. Endpoint,
+principal, revocation, or handle-generation changes force a stable
+before/after three-stage redecision; the registry lock pins the fd through
+`sendto`, so close/reuse cannot consume the lease. A bounded live fixture proves
+sixteen identical datagrams require only one three-stage decision, revocation
+forces exactly one renewal, and a metadata destination is rejected before
+transmission. UDP bind/receive/listen authority remains
 unmigrated and closed in armed execution.
 One live armed closure fixture exercises the remaining transport families at
 their native boundaries: fetch, standalone DNS, WebSocket, TCP listen, HTTP

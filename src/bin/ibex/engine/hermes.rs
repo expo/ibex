@@ -4683,6 +4683,125 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_udp_repeat_lease_is_bounded_and_generation_checked() {
+        use std::net::UdpSocket;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let port = receiver.local_addr().unwrap().port();
+        let udp_floor = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "udp",
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let unrelated_dynamic = serde_json::json!({
+            "cap": "device:location",
+            "resource": {
+                "kind": "device-location",
+                "usage": "foreground",
+                "precision": "coarse"
+            }
+        });
+        let (host, digest) = build_armed_test_host_control(
+            None,
+            false,
+            false,
+            false,
+            vec![udp_floor],
+            vec![unrelated_dynamic.clone()],
+            true,
+            0,
+            None,
+            |_| {},
+        );
+        let control = host.clone();
+        let root = control.typed_principal_for_module("0").unwrap();
+        let grant_id =
+            capsec_semantics::model::NonEmptyString::new("udp-lease-generation").unwrap();
+        let selector: capsec_semantics::model::AuthoritySelector =
+            serde_json::from_value(unrelated_dynamic).unwrap();
+        assert!(control
+            .grant_typed_dynamic(grant_id.clone(), root, selector)
+            .unwrap());
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let before = control.typed_decision_count();
+
+        let first = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                    if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                    var socket = __exactUdpSocket('udp4');
+                    for (var i = 0; i < 16; i++) {{
+                      if (__exactUdpSend(socket, 'a', {port}, '127.0.0.1') !== 1) {{
+                        throw new Error('first send batch');
+                      }}
+                    }}
+                    globalThis.__udpLeaseSocket = socket;
+                    return 'first';
+                }})()"#
+            ))
+            .await
+            .unwrap();
+        assert_eq!(first.as_deref(), Some("first"));
+        assert_eq!(
+            control.typed_decision_count() - before,
+            3,
+            "sixteen identical datagrams must share one three-stage decision lease"
+        );
+
+        assert!(control.revoke_typed_dynamic(&grant_id).unwrap());
+        let second = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                    for (var i = 0; i < 16; i++) {{
+                      if (__exactUdpSend(globalThis.__udpLeaseSocket, 'b', {port}, '127.0.0.1') !== 1) {{
+                        throw new Error('second send batch');
+                      }}
+                    }}
+                    __exactUdpClose(globalThis.__udpLeaseSocket);
+                    delete globalThis.__udpLeaseSocket;
+                    return 'second';
+                }})()"#
+            ))
+            .await
+            .unwrap();
+        assert_eq!(second.as_deref(), Some("second"));
+        assert_eq!(
+            control.typed_decision_count() - before,
+            6,
+            "revocation generation change must force exactly one lease renewal"
+        );
+
+        let mut received = [0u8; 32];
+        for expected in received.iter_mut().take(16) {
+            let mut byte = [0u8; 1];
+            let (amount, _) = receiver.recv_from(&mut byte).unwrap();
+            assert_eq!(amount, 1);
+            *expected = byte[0];
+        }
+        for expected in received.iter_mut().skip(16) {
+            let mut byte = [0u8; 1];
+            let (amount, _) = receiver.recv_from(&mut byte).unwrap();
+            assert_eq!(amount, 1);
+            *expected = byte[0];
+        }
+        assert_eq!(&received[..16], &[b'a'; 16]);
+        assert_eq!(&received[16..], &[b'b'; 16]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_unported_network_surfaces_refuse_before_external_effects() {
         let _lock = hermes_engine_test_lock().lock().await;
         let (_reset, digest) = install_armed_test_host();

@@ -44,6 +44,7 @@ namespace {
 
 struct SocketEntry {
   int fd = -1;
+  uint64_t identity = 0;
   uint64_t runtimeNonce = 0;
   uint64_t owner = 0;
   std::string capability;
@@ -60,10 +61,18 @@ struct SocketEntry {
   uint64_t typedDynamicGeneration = 0;
   uint64_t typedHandleGeneration = 0;
   std::vector<uint64_t> typedAuthorizationPrincipals;
+  bool typedUdpAuthorizationGenerationsInitialized = false;
+  std::string typedUdpHost;
+  uint16_t typedUdpPort = 0;
+  uint64_t typedUdpNegativeGeneration = 0;
+  uint64_t typedUdpDynamicGeneration = 0;
+  uint64_t typedUdpHandleGeneration = 0;
+  std::vector<uint64_t> typedUdpAuthorizationPrincipals;
 };
 
 static std::unordered_map<int, SocketEntry> g_socket_handles;
 static int g_next_socket_handle = 1;
+static uint64_t g_next_socket_identity = 1;
 static std::mutex g_socket_mutex;
 
 void cleanupRuntimeSockets(uint64_t runtimeNonce) {
@@ -127,6 +136,7 @@ int registerSocketHandle(int fd, const std::string& capability, uint64_t owner =
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.identity = g_next_socket_identity++;
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.capability = capability;
@@ -136,6 +146,7 @@ int registerSocketHandle(int fd, const std::string& capability, uint64_t owner =
 
 int registerTypedConnectHandle(
     int fd,
+    uint64_t identity,
     uint64_t owner,
     const std::string& host,
     uint16_t port,
@@ -147,6 +158,7 @@ int registerTypedConnectHandle(
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.identity = identity;
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
@@ -171,6 +183,7 @@ int registerTypedPendingConnectHandle(
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.identity = g_next_socket_identity++;
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
@@ -181,6 +194,11 @@ int registerTypedPendingConnectHandle(
   entry.typedSelected = std::move(selected);
   g_socket_handles[handle] = std::move(entry);
   return handle;
+}
+
+uint64_t reserveSocketIdentity() {
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  return g_next_socket_identity++;
 }
 
 bool authorizeTypedNetwork(
@@ -232,15 +250,205 @@ bool readNetworkAuthorizationGenerations(
              &generations.handle) == 1;
 }
 
+std::vector<uint64_t> collectCanonicalTypedPrincipalStack() {
+  auto principals = exactCollectTypedPrincipalStack();
+  std::sort(principals.begin(), principals.end());
+  principals.erase(
+      std::unique(principals.begin(), principals.end()), principals.end());
+  return principals;
+}
+
+std::optional<std::string> socketPeerText(int fd);
+
+struct LockedSocketIo {
+  std::unique_lock<std::mutex> registryLock;
+  int fd = -1;
+
+  LockedSocketIo(std::unique_lock<std::mutex> lock, int socketFd)
+      : registryLock(std::move(lock)), fd(socketFd) {}
+};
+
+LockedSocketIo requireSocketIo(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* syscall) {
+  NetworkAuthorizationGenerations observedGenerations;
+  const bool haveGenerations =
+      ex_host_is_armed() == 1 &&
+      readNetworkAuthorizationGenerations(observedGenerations);
+  std::vector<uint64_t> principals = haveGenerations
+      ? collectCanonicalTypedPrincipalStack()
+      : std::vector<uint64_t>();
+
+  std::unique_lock<std::mutex> lock(g_socket_mutex);
+  auto live = g_socket_handles.find(handle);
+  if (live == g_socket_handles.end()) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
+  }
+  SocketEntry& entry = live->second;
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if (isAllowAll()) return LockedSocketIo(std::move(lock), entry.fd);
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if (!entry.typedConnect) {
+    if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    return LockedSocketIo(std::move(lock), entry.fd);
+  }
+  if (entry.typedPending || !haveGenerations) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+
+  // @ref LLP 0021#handles-dynamic-authority-and-generations — the hot TCP
+  // path reuses a peer-bound decision only for this registry identity, exact
+  // principal set, and unchanged negative/dynamic/handle generations.
+  if (entry.typedAuthorizationGenerationsInitialized &&
+      entry.typedNegativeGeneration == observedGenerations.negative &&
+      entry.typedDynamicGeneration == observedGenerations.dynamic &&
+      entry.typedHandleGeneration == observedGenerations.handle &&
+      entry.typedAuthorizationPrincipals == principals) {
+    return LockedSocketIo(std::move(lock), entry.fd);
+  }
+
+  // A TCP peer is immutable after connect. Probe it when establishing or
+  // renewing the generation lease, then pin the map entry while the I/O syscall
+  // runs. This removes per-I/O SocketEntry string/vector copies and
+  // getpeername calls without allowing close/fd reuse to race the syscall.
+  auto actualPeer = socketPeerText(entry.fd);
+  if (!actualPeer || *actualPeer != entry.typedPeer) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  const int fd = entry.fd;
+  const uint64_t identity = entry.identity;
+  const uint64_t owner = entry.owner;
+  const std::string typedHost = entry.typedHost;
+  const uint16_t typedPort = entry.typedPort;
+  const std::string typedCandidates = entry.typedCandidates;
+  const std::string typedSelected = entry.typedSelected;
+  const std::string typedConnectionId = entry.typedConnectionId;
+  lock.unlock();
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    NetworkAuthorizationGenerations before;
+    NetworkAuthorizationGenerations after;
+    if (!readNetworkAuthorizationGenerations(before) ||
+        !authorizeTypedTcp(
+            owner, typedHost, typedPort, 4, typedCandidates,
+            typedSelected.c_str(), actualPeer->c_str(),
+            typedConnectionId.c_str()) ||
+        !readNetworkAuthorizationGenerations(after)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (!(before == after)) continue;
+
+    lock.lock();
+    auto current = g_socket_handles.find(handle);
+    if (current == g_socket_handles.end() ||
+        current->second.identity != identity || current->second.fd != fd ||
+        current->second.owner != owner ||
+        current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+        current->second.typedPeer != *actualPeer ||
+        current->second.typedConnectionId != typedConnectionId) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    current->second.typedAuthorizationGenerationsInitialized = true;
+    current->second.typedNegativeGeneration = after.negative;
+    current->second.typedDynamicGeneration = after.dynamic;
+    current->second.typedHandleGeneration = after.handle;
+    current->second.typedAuthorizationPrincipals = principals;
+    return LockedSocketIo(std::move(lock), fd);
+  }
+  throw facebook::jsi::JSError(runtime, "Permission denied");
+}
+
+LockedSocketIo requireTypedUdpSendIo(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const std::string& host,
+    uint16_t port) {
+  NetworkAuthorizationGenerations observedGenerations;
+  if (!readNetworkAuthorizationGenerations(observedGenerations)) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto principals = collectCanonicalTypedPrincipalStack();
+
+  std::unique_lock<std::mutex> lock(g_socket_mutex);
+  auto live = g_socket_handles.find(handle);
+  if (live == g_socket_handles.end()) {
+    throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid handle");
+  }
+  SocketEntry& entry = live->second;
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce() ||
+      (!isAllowAll() && entry.owner != currentPrincipalId())) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+
+  // @ref LLP 0021#handles-dynamic-authority-and-generations — a UDP lease is
+  // exact to socket identity, literal destination, principal set, and all
+  // mutable authority generations. A different endpoint or any revocation
+  // re-enters the complete requested/candidate/commit decision.
+  if (entry.typedUdpAuthorizationGenerationsInitialized &&
+      entry.typedUdpHost == host && entry.typedUdpPort == port &&
+      entry.typedUdpNegativeGeneration == observedGenerations.negative &&
+      entry.typedUdpDynamicGeneration == observedGenerations.dynamic &&
+      entry.typedUdpHandleGeneration == observedGenerations.handle &&
+      entry.typedUdpAuthorizationPrincipals == principals) {
+    return LockedSocketIo(std::move(lock), entry.fd);
+  }
+
+  const int fd = entry.fd;
+  const uint64_t identity = entry.identity;
+  const uint64_t owner = entry.owner;
+  const uint64_t runtimeNonce = entry.runtimeNonce;
+  const std::string connectionId =
+      "udp:" + std::to_string(runtimeNonce) + ":" +
+      std::to_string(identity) + ":" + std::to_string(fd) + ":" + host +
+      ":" + std::to_string(port);
+  lock.unlock();
+
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    NetworkAuthorizationGenerations before;
+    NetworkAuthorizationGenerations after;
+    if (!readNetworkAuthorizationGenerations(before) ||
+        ex_host_authorize_typed_udp_datagram_stack(
+            owner, principals.data(), principals.size(), host.c_str(), port,
+            connectionId.c_str()) != 1 ||
+        !readNetworkAuthorizationGenerations(after)) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (!(before == after)) continue;
+
+    lock.lock();
+    auto current = g_socket_handles.find(handle);
+    if (current == g_socket_handles.end() ||
+        current->second.identity != identity || current->second.fd != fd ||
+        current->second.owner != owner ||
+        current->second.runtimeNonce != runtimeNonce) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    current->second.typedUdpAuthorizationGenerationsInitialized = true;
+    current->second.typedUdpHost = host;
+    current->second.typedUdpPort = port;
+    current->second.typedUdpNegativeGeneration = after.negative;
+    current->second.typedUdpDynamicGeneration = after.dynamic;
+    current->second.typedUdpHandleGeneration = after.handle;
+    current->second.typedUdpAuthorizationPrincipals = principals;
+    return LockedSocketIo(std::move(lock), fd);
+  }
+  throw facebook::jsi::JSError(runtime, "Permission denied");
+}
+
 bool authorizeTypedTcpWithLease(
     int handle,
     SocketEntry& entry,
     const std::string& actualPeer) {
   NetworkAuthorizationGenerations current;
   if (!readNetworkAuthorizationGenerations(current)) return false;
-  auto principals = exactCollectTypedPrincipalStack();
-  std::sort(principals.begin(), principals.end());
-  principals.erase(std::unique(principals.begin(), principals.end()), principals.end());
+  auto principals = collectCanonicalTypedPrincipalStack();
   if (entry.typedAuthorizationGenerationsInitialized &&
       entry.typedNegativeGeneration == current.negative &&
       entry.typedDynamicGeneration == current.dynamic &&
@@ -264,7 +472,9 @@ bool authorizeTypedTcpWithLease(
 
     std::lock_guard<std::mutex> lock(g_socket_mutex);
     auto live = g_socket_handles.find(handle);
-    if (live == g_socket_handles.end() || live->second.fd != entry.fd ||
+    if (live == g_socket_handles.end() ||
+        live->second.identity != entry.identity ||
+        live->second.fd != entry.fd ||
         live->second.owner != entry.owner ||
         live->second.typedConnectionId != entry.typedConnectionId) {
       return false;
@@ -458,7 +668,9 @@ void commitTypedPendingSocket(
     int handle,
     const SocketEntry& pending,
     const std::string& peer) {
-  std::string connectionId = "tcp:" + std::to_string(pending.fd);
+  std::string connectionId =
+      "tcp:" + std::to_string(pending.runtimeNonce) + ":" +
+      std::to_string(pending.identity) + ":" + std::to_string(pending.fd);
   if (peer != pending.typedSelected ||
       !authorizeTypedTcp(
           pending.owner, pending.typedHost, pending.typedPort, 2,
@@ -468,7 +680,9 @@ void commitTypedPendingSocket(
   }
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   auto current = g_socket_handles.find(handle);
-  if (current == g_socket_handles.end() || current->second.fd != pending.fd ||
+  if (current == g_socket_handles.end() ||
+      current->second.identity != pending.identity ||
+      current->second.fd != pending.fd ||
       current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
       current->second.owner != pending.owner || !current->second.typedPending) {
     throw facebook::jsi::JSError(runtime, "TCP pending handle changed before commit");
@@ -640,7 +854,10 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           if (armed) {
             auto peer = socketPeerText(fd);
-            std::string connectionId = "tcp:" + std::to_string(fd);
+            uint64_t socketIdentity = reserveSocketIdentity();
+            std::string connectionId =
+                "tcp:" + std::to_string(exactCurrentRuntimeNonce()) + ":" +
+                std::to_string(socketIdentity) + ":" + std::to_string(fd);
             if (!peer || *peer != selectedCandidate ||
                 !authorizeTypedTcp(
                     principal, host, static_cast<uint16_t>(port), 2,
@@ -652,7 +869,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             int flags = fcntl(fd, F_GETFL, 0);
             if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
             int socketHandle = registerTypedConnectHandle(
-                fd, principal, host, static_cast<uint16_t>(port),
+                fd, socketIdentity, principal, host, static_cast<uint16_t>(port),
                 std::move(candidatesJson), std::move(selectedCandidate),
                 std::move(*peer), std::move(connectionId));
             return facebook::jsi::Value(socketHandle);
@@ -894,19 +1111,24 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             maxBytes = static_cast<int>(args[1].asNumber());
             if (maxBytes <= 0) maxBytes = 65536;
           }
-          int fd = requireSocketHandle(runtime, handle, "__exactTcpRead").fd;
           std::vector<uint8_t> buf(maxBytes);
-          ssize_t n = ::read(fd, buf.data(), maxBytes);
+          auto socketIo = requireSocketIo(runtime, handle, "__exactTcpRead");
+          ssize_t n = ::read(socketIo.fd, buf.data(), maxBytes);
+          int readError = n < 0 ? errno : 0;
+          socketIo.registryLock.unlock();
           if (n > 0) {
             buf.resize(n);
             return makeUint8Array(runtime, std::move(buf));
           } else if (n == 0) {
             return facebook::jsi::Value::null();
           } else {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (readError == EAGAIN || readError == EWOULDBLOCK) {
               return facebook::jsi::String::createFromUtf8(runtime, "");
             }
-            throw facebook::jsi::JSError(runtime, ("__exactTcpRead error: " + std::string(strerror(errno))).c_str());
+            throw facebook::jsi::JSError(
+                runtime,
+                ("__exactTcpRead error: " + std::string(strerror(readError)))
+                    .c_str());
           }
         });
     rt.global().setProperty(rt, "__exactTcpRead", std::move(tcpReadFn));
@@ -933,28 +1155,37 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactTcpWrite: handle and data required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd = requireSocketHandle(runtime, handle, "__exactTcpWrite").fd;
-          ssize_t written;
+          std::string ownedData;
+          const uint8_t* data = nullptr;
+          size_t length = 0;
           if (args[1].isString()) {
-            std::string data = args[1].toString(runtime).utf8(runtime);
-            written = ::write(fd, data.data(), data.size());
+            ownedData = args[1].toString(runtime).utf8(runtime);
+            data = reinterpret_cast<const uint8_t*>(ownedData.data());
+            length = ownedData.size();
           } else if (args[1].isObject()) {
             auto obj = args[1].asObject(runtime);
-            const uint8_t* data = nullptr;
-            size_t length = 0;
-            if (extractArrayBufferView(runtime, obj, data, length)) {
-              written = length == 0 ? 0 : ::write(fd, data, length);
-            } else {
-              std::string text = args[1].toString(runtime).utf8(runtime);
-              written = ::write(fd, text.data(), text.size());
+            if (!extractArrayBufferView(runtime, obj, data, length)) {
+              ownedData = args[1].toString(runtime).utf8(runtime);
+              data = reinterpret_cast<const uint8_t*>(ownedData.data());
+              length = ownedData.size();
             }
           } else {
-            std::string data = args[1].toString(runtime).utf8(runtime);
-            written = ::write(fd, data.data(), data.size());
+            ownedData = args[1].toString(runtime).utf8(runtime);
+            data = reinterpret_cast<const uint8_t*>(ownedData.data());
+            length = ownedData.size();
           }
+          auto socketIo = requireSocketIo(runtime, handle, "__exactTcpWrite");
+          ssize_t written = length == 0 ? 0 : ::write(socketIo.fd, data, length);
+          int writeError = written < 0 ? errno : 0;
+          socketIo.registryLock.unlock();
           if (written < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
-            throw facebook::jsi::JSError(runtime, ("__exactTcpWrite error: " + std::string(strerror(errno))).c_str());
+            if (writeError == EAGAIN || writeError == EWOULDBLOCK) {
+              return facebook::jsi::Value(0);
+            }
+            throw facebook::jsi::JSError(
+                runtime,
+                ("__exactTcpWrite error: " + std::string(strerror(writeError)))
+                    .c_str());
           }
           return facebook::jsi::Value(static_cast<int>(written));
         });
@@ -1509,8 +1740,6 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
                 runtime,
                 "__exactUdpSend: IPv4-mapped IPv6 literals are not canonical; use IPv4");
           }
-          SocketEntry socket = requireSocketHandle(runtime, handle, "__exactUdpSend");
-          int fd = socket.fd;
           // Get data bytes
           const uint8_t* dataPtr = nullptr; size_t dataLen = 0;
           std::string strData;
@@ -1552,30 +1781,33 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             sa = reinterpret_cast<struct sockaddr*>(&addr4);
             sa_len = sizeof(addr4);
           }
+          ssize_t sent = -1;
+          int sendError = 0;
           if (ex_host_is_armed() == 1) {
-            // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — An unconnected UDP send authorizes and commits its literal destination for this datagram immediately before sendto.
-            std::string connectionId =
-                "udp:" + std::to_string(fd) + ":" + host + ":" +
-                std::to_string(port);
-            auto principal = currentPrincipalId();
-            auto principals = exactCollectTypedPrincipalStack();
-            if (ex_host_authorize_typed_udp_datagram_stack(
-                    principal, principals.data(), principals.size(),
-                    host.c_str(), static_cast<uint16_t>(port),
-                    connectionId.c_str()) != 1) {
-              throw facebook::jsi::JSError(runtime, "Permission denied");
-            }
+            // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers —
+            // The first send (and every lease renewal) authorizes requested,
+            // candidate, and committed literal destination facts immediately
+            // before sendto. Stable repeats use the exact endpoint lease.
+            auto socketIo = requireTypedUdpSendIo(
+                runtime, handle, host, static_cast<uint16_t>(port));
+            sent = ::sendto(socketIo.fd, dataPtr, dataLen, 0, sa, sa_len);
+            if (sent == -1) sendError = errno;
           } else {
+            SocketEntry socket =
+                requireSocketHandle(runtime, handle, "__exactUdpSend");
             requireNetworkCapability(
                 runtime,
                 networkEndpointCapability("network:connect", host, port),
                 "network:connect");
+            sent = ::sendto(socket.fd, dataPtr, dataLen, 0, sa, sa_len);
+            if (sent == -1) sendError = errno;
           }
-          ssize_t sent = ::sendto(fd, dataPtr, dataLen, 0, sa, sa_len);
           if (sent == -1) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return facebook::jsi::Value(0);
+            if (sendError == EAGAIN || sendError == EWOULDBLOCK) {
+              return facebook::jsi::Value(0);
+            }
             throw facebook::jsi::JSError(runtime,
-                ("sendto failed: " + std::string(strerror(errno))).c_str());
+                ("sendto failed: " + std::string(strerror(sendError))).c_str());
           }
           return facebook::jsi::Value(static_cast<int>(sent));
         });
