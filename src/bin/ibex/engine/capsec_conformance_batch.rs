@@ -17,6 +17,7 @@ struct RecipeCatalog {
 struct RecipeSummary {
     required_fixtures: usize,
     adapter_executable_fixtures: usize,
+    fully_executable_fixtures: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -24,7 +25,112 @@ struct RecipeSummary {
 struct Recipe {
     fixture_id: String,
     plan_digest: String,
+    classification: String,
+    scenario: String,
+    edge_ids: Vec<String>,
+    action_ids: Vec<String>,
+    terminal_observed_key: String,
+    expected_observation: serde_json::Value,
+    route: RecipeRoute,
     adapter_probe: Option<AdapterProbe>,
+    public_surface_probe: Option<PublicSurfaceProbe>,
+    status: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RecipeRoute {
+    alternatives: Vec<RouteAlternative>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RouteAlternative {
+    terminal_observed_key: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PublicSurfaceProbe {
+    kind: String,
+    surface_observed_key: String,
+    command: Vec<String>,
+    invocation: PublicInvocation,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "invocationSchema")]
+enum PublicInvocation {
+    #[serde(rename = "ibex/capsec-native-global-invocation/1")]
+    NativeGlobal {
+        #[serde(flatten)]
+        details: NativePublicInvocation,
+    },
+    #[serde(rename = "ibex/capsec-builtin-export-invocation/1")]
+    BuiltinExport {
+        #[serde(flatten)]
+        details: BuiltinPublicInvocation,
+    },
+}
+
+impl PublicInvocation {
+    fn native(&self) -> Option<&NativePublicInvocation> {
+        match self {
+            Self::NativeGlobal { details } => Some(details),
+            Self::BuiltinExport { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativePublicInvocation {
+    kind: String,
+    global_name: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    arguments: Vec<NativeProbeArgument>,
+    setup: Vec<NativeProbeSetup>,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuiltinPublicInvocation {
+    kind: String,
+    module_specifier: String,
+    export_name: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    arguments: Vec<serde_json::Value>,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum NativeProbeArgument {
+    JsonLiteral { value: serde_json::Value },
+    HarnessLoopbackAddress { family: String },
+    HarnessLoopbackListenerPort,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+enum NativeProbeSetup {
+    InvokeNativeGlobal {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        arguments: Vec<serde_json::Value>,
+    },
+    TcpLoopbackListener,
 }
 
 #[derive(Debug, Deserialize)]
@@ -147,6 +253,15 @@ fn load_recipe_catalog(path: &std::path::Path) -> RecipeCatalog {
     assert_eq!(
         observed_adapter_recipes, catalog.summary.adapter_executable_fixtures,
         "adapter recipe summary drift"
+    );
+    let observed_fully_executable = catalog
+        .recipes
+        .iter()
+        .filter(|recipe| recipe.status == "fully-executable")
+        .count();
+    assert_eq!(
+        observed_fully_executable, catalog.summary.fully_executable_fixtures,
+        "fully executable recipe summary drift"
     );
     catalog
 }
