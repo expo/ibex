@@ -129,19 +129,15 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
   return principals;
 }
 
-class ScopedTypedPrincipalStack {
- public:
-  explicit ScopedTypedPrincipalStack(const std::vector<uint64_t>& principals)
-      : previous_(g_typed_principal_stack) {
-    g_typed_principal_stack = &principals;
-  }
-  ~ScopedTypedPrincipalStack() { g_typed_principal_stack = previous_; }
-  ScopedTypedPrincipalStack(const ScopedTypedPrincipalStack&) = delete;
-  ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
+ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
+    const std::vector<uint64_t>& principals)
+    : previous_(g_typed_principal_stack) {
+  g_typed_principal_stack = &principals;
+}
 
- private:
-  const std::vector<uint64_t>* previous_;
-};
+ScopedTypedPrincipalStack::~ScopedTypedPrincipalStack() {
+  g_typed_principal_stack = previous_;
+}
 
 static int32_t ex_host_authorize_typed_fs_open(
     uint64_t module_id,

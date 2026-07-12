@@ -859,6 +859,11 @@ that stack on the runtime thread and installs a scoped immutable copy on the
 worker, so commit/repeat checks cannot lose an outer caller or detached
 scheduler. The evaluator intersects every constrained principal; an ungranted
 outer principal therefore denies even when the innermost actor has authority.
+Timers and next-tick queues likewise retain the complete schedule-time stack
+and restore it only for their callback invocation, so a later
+authority-bearing operation cannot shed an outer constrained deputy;
+generation checks still occur at the operation and observe intervening
+revocation rather than caching the schedule-time allow.
 A retained-operation fixture publishes ceiling-bounded dynamic filesystem
 authority, commits a descriptor use, revokes the grant, observes both negative
 and dynamic generation advances, and proves the immediately following repeat

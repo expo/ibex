@@ -2713,6 +2713,7 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
     runtime->next_tick.pop_front();
     try {
       ScopedNativePrincipal nativePrincipal(entry.principal);
+      ScopedTypedPrincipalStack typedStack(entry.principalStack);
       if (entry.args.empty()) {
         entry.callback.call(rt);
       } else {
@@ -3664,6 +3665,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
       // resolves to kNoUserPrincipal, not the owner.
       {
         ScopedNativePrincipal nativePrincipal(it->second.principal);
+        ScopedTypedPrincipalStack typedStack(it->second.principalStack);
         if (it->second.args.empty()) {
           it->second.callback.call(*runtime->runtime);
         } else {

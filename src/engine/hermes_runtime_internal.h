@@ -55,12 +55,14 @@ struct TimerEntry {
   bool repeat;
   bool referenced = true;
   uint64_t principal;
+  std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
 
 struct NextTickEntry {
   uint64_t principal;
+  std::vector<uint64_t> principalStack;
   facebook::jsi::Function callback;
   std::vector<facebook::jsi::Value> args;
 };
@@ -472,6 +474,17 @@ void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
 std::vector<uint64_t> exactCollectTypedPrincipalStack();
+
+class ScopedTypedPrincipalStack {
+ public:
+  explicit ScopedTypedPrincipalStack(const std::vector<uint64_t>& principals);
+  ~ScopedTypedPrincipalStack();
+  ScopedTypedPrincipalStack(const ScopedTypedPrincipalStack&) = delete;
+  ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
+
+ private:
+  const std::vector<uint64_t>* previous_;
+};
 void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 void exactRequireTransferableFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);
 
