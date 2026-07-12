@@ -1543,7 +1543,11 @@ mod tests {
             .err()
             .expect("run-subcommand inspector must be rejected before artifact I/O")
             .to_string();
-        assert!(error.contains("closes inspector"), "{error}");
+        assert!(
+            error.contains("closes compatibility, inspector")
+                && error.contains("runtime-fidelity overrides"),
+            "{error}"
+        );
         assert!(!error.contains("failed to read"), "{error}");
     }
 

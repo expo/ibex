@@ -5196,6 +5196,18 @@ mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let engine = crate::engine::hermes::HermesEngine::loaded_engine_identity()
+            .expect("arming fixture requires the authenticated loaded engine");
+        value["engine"]["target"] = serde_json::Value::String(exact_runtime_target());
+        value["engine"]["binaryDigest"] = serde_json::Value::String(engine.binary_digest.clone());
+        value["engine"]["features"] = serde_json::to_value(observed_structural_features()).unwrap();
+        let protected_engine = value["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|row| row["role"] == "engine-binary")
+            .unwrap();
+        protected_engine["object"] = serde_json::to_value(engine.object).unwrap();
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
@@ -5261,7 +5273,11 @@ mod tests {
             .err()
             .expect("must reject legacy overrides")
             .to_string();
-        assert!(error.contains("cannot be combined with legacy"), "{error}");
+        assert!(
+            error.contains("rejects legacy allow/deny")
+                && error.contains("environment endowment widening"),
+            "{error}"
+        );
         assert!(
             !error.contains("failed to read"),
             "override must fail before artifact I/O: {error}"
@@ -5292,7 +5308,11 @@ mod tests {
                 .err()
                 .expect("armed inspector configuration must be closed")
                 .to_string();
-            assert!(error.contains("closes inspector"), "{error}");
+            assert!(
+                error.contains("closes compatibility, inspector")
+                    && error.contains("runtime-fidelity overrides"),
+                "{error}"
+            );
             assert!(
                 !error.contains("failed to read"),
                 "inspector closure must precede artifact I/O: {error}"
@@ -5353,9 +5373,9 @@ mod tests {
     }
 
     #[test]
-    fn armed_startup_authenticates_snapshot_and_returns_engine_digest() {
+    fn armed_startup_authenticates_engine_before_refusing_unadvertised_target() {
         let directory = tempdir().unwrap();
-        let (snapshot, identity, expected_digest) = write_arming_fixture(directory.path());
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
         let cli = Cli::parse_from([
             "ibex".into(),
             "--capsec-armed-snapshot".into(),
@@ -5364,12 +5384,15 @@ mod tests {
             identity.into_os_string(),
             "app.ts".into(),
         ]);
-        let (host, digest) = build_host(&cli).expect("fixture must arm");
-        assert_eq!(digest.as_deref(), Some(expected_digest.as_str()));
-        assert_eq!(
-            host.armed_snapshot().unwrap().digest().as_str(),
-            expected_digest
+        let default_error = build_host(&cli)
+            .err()
+            .expect("unadvertised target must not arm");
+        let default_error = format!("{default_error:#}");
+        assert!(
+            default_error.contains("no unique verified advertisement"),
+            "{default_error}"
         );
+        assert!(!default_error.contains("engine object"), "{default_error}");
         let (snapshot, identity, _) = write_arming_fixture(directory.path());
         let explicit = Cli::parse_from([
             "ibex".into(),
@@ -5381,8 +5404,11 @@ mod tests {
             identity.into_os_string(),
             "app.ts".into(),
         ]);
-        let (_, explicit_digest) = build_host(&explicit).expect("explicit enforce must arm");
-        assert_eq!(explicit_digest.as_deref(), Some(expected_digest.as_str()));
+        let explicit_error = build_host(&explicit)
+            .err()
+            .expect("explicit enforce cannot bypass target advertisements");
+        let explicit_error = format!("{explicit_error:#}");
+        assert_eq!(explicit_error, default_error);
     }
 
     fn file_hash(path: &Path) -> String {
@@ -5447,30 +5473,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_and_explicit_enforce_arm_the_same_empty_typed_snapshot() {
+    async fn default_and_explicit_enforce_refuse_the_same_unadvertised_target() {
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
         let _env = ProductionEnvGuard::capture();
         let auto = Cli::parse_from(["ibex", "app.ts"]);
         let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", "app.ts"]);
-        let (auto_host, auto_digest) = build_host(&auto).unwrap();
-        let (explicit_host, explicit_digest) = build_host(&explicit).unwrap();
-        assert_eq!(auto_digest, explicit_digest);
-        let auto_snapshot = auto_host.armed_snapshot().unwrap();
-        let explicit_snapshot = explicit_host.armed_snapshot().unwrap();
-        assert_eq!(auto_snapshot.document(), explicit_snapshot.document());
-        let principals = auto_snapshot.document()["principals"].as_array().unwrap();
-        assert_eq!(principals.len(), 1);
-        assert_eq!(
-            principals[0]["principal"],
-            serde_json::json!({"kind": "root", "identity": "project-root"})
-        );
-        assert_eq!(principals[0]["floor"], serde_json::json!([]));
-        assert_eq!(principals[0]["escalationCeiling"], serde_json::json!([]));
-        assert_eq!(
-            auto_snapshot.document()["packageGraph"]["nodes"],
-            serde_json::json!([])
+        let auto_error = build_host(&auto)
+            .err()
+            .expect("default enforce must refuse an unadvertised target");
+        let explicit_error = build_host(&explicit)
+            .err()
+            .expect("explicit enforce cannot bypass target advertisements");
+        let auto_error = format!("{auto_error:#}");
+        let explicit_error = format!("{explicit_error:#}");
+        assert_eq!(auto_error, explicit_error);
+        assert!(
+            auto_error.contains("no unique verified advertisement"),
+            "{auto_error}"
         );
     }
 
@@ -5483,25 +5504,44 @@ mod tests {
         let directory = tempdir().unwrap();
         let entry = directory.path().join("app.ts");
         std::fs::write(&entry, "1 + 1").unwrap();
-        let policy = include_bytes!(concat!(
+        let package_root = directory.path().join("node_modules/image-lib");
+        std::fs::create_dir_all(&package_root).unwrap();
+        std::fs::write(
+            package_root.join("package.json"),
+            r#"{"name":"image-lib","version":"2.4.1"}"#,
+        )
+        .unwrap();
+        std::fs::write(package_root.join("index.js"), "module.exports = {};\n").unwrap();
+        let package_integrity =
+            crate::module_loader::package_tree_integrity(&package_root).unwrap();
+        let mut policy: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/examples/canonical-policy.canonical.json"
-        ));
-        std::fs::write(directory.path().join("ibex-policy.json"), policy).unwrap();
+        )))
+        .unwrap();
+        policy["principals"][0]["principal"]["integrity"] = serde_json::json!(package_integrity);
+        let policy_digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::Policy,
+            &policy,
+        )
+        .unwrap();
+        policy["policyDigest"] = serde_json::json!(policy_digest);
+        std::fs::write(
+            directory.path().join("ibex-policy.json"),
+            capsec_semantics::canonical::to_jcs_bytes(&policy).unwrap(),
+        )
+        .unwrap();
         let cli = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
-        let (host, _) = build_host(&cli).unwrap();
-        let snapshot = host.armed_snapshot().unwrap().document();
-        assert_eq!(snapshot["principals"].as_array().unwrap().len(), 2);
-        assert_eq!(
-            snapshot["packageGraph"]["nodes"].as_array().unwrap().len(),
-            1
-        );
-        assert_eq!(
-            snapshot["policyDigest"],
-            serde_json::from_slice::<serde_json::Value>(policy).unwrap()["policyDigest"]
+        let error = build_host(&cli)
+            .err()
+            .expect("valid policy and package root must reach the promotion gate");
+        let error = format!("{error:#}");
+        assert!(
+            error.contains("no unique verified advertisement"),
+            "{error}"
         );
 
-        let mut tampered: serde_json::Value = serde_json::from_slice(policy).unwrap();
+        let mut tampered = policy.clone();
         tampered["principals"][0]["floor"] = serde_json::json!([]);
         std::fs::write(
             directory.path().join("ibex-policy.json"),
@@ -5513,7 +5553,7 @@ mod tests {
         assert!(error.contains("digest is stale or tampered"), "{error}");
 
         for field in ["vocabDigest", "registryDigest"] {
-            let mut stale: serde_json::Value = serde_json::from_slice(policy).unwrap();
+            let mut stale = policy.clone();
             stale[field] = serde_json::json!("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
             let digest = capsec_semantics::digest::compute_domain_digest(
                 capsec_semantics::digest::POLICY_DOMAIN,
@@ -6589,6 +6629,10 @@ console.log("kept");
 
     #[tokio::test]
     async fn runtime_executes_hashbang_entry_files() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
         let dir = tempdir().expect("temp dir");
         let module_file = dir.path().join("module.js");
         let entry_file = dir.path().join("entry.js");
@@ -6605,7 +6649,7 @@ console.log("kept");
         .expect("write shebang entry");
 
         let cli = Cli::parse_from(["ibex".to_string(), entry_file.to_string_lossy().to_string()]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let module_json = serde_json::to_string(&module_file.to_string_lossy().to_string())
@@ -6667,7 +6711,7 @@ require("./child.js");
             "ibex".to_string(),
             parent_file.to_string_lossy().to_string(),
         ]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let parent_json = serde_json::to_string(&parent_file.to_string_lossy().to_string())
@@ -6730,7 +6774,7 @@ throw new Error("sync-throw-marker");
         .expect("write throwing module");
 
         let cli = Cli::parse_from(["ibex".to_string(), ok_file.to_string_lossy().to_string()]);
-        let runtime = Runtime::from_cli(&cli).expect("runtime");
+        let runtime = Runtime::from_audit_cli(&cli).expect("diagnostic runtime");
         runtime.load_runtime().await.expect("load runtime");
 
         let ok_json = serde_json::to_string(&ok_file.to_string_lossy().to_string())
