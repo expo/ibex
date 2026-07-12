@@ -3607,7 +3607,10 @@ bool decodeHostCallPayload(facebook::jsi::Runtime& rt,
 extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {
-  if (!runtime) return;
+  // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — the
+  // string-typed catch-all bridge is diagnostic-only; an armed runtime must
+  // expose only its dedicated, capability-aware native APIs.
+  if (!runtime || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCall (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_fn = callback;
@@ -3659,7 +3662,10 @@ extern "C" void ex_hermes_set_host_call_async(
                      uint64_t call_id,
                      const char* op,
                      const char* args_json)) {
-  if (!runtime) return;
+  // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — armed
+  // runtimes fail closed before storing a generic callback or mutating the
+  // global object, including replacement attempts made after lockdown.
+  if (!runtime || runtime->armed) return;
   // Restricted worklet runtimes never get __hostCallAsync (LLP 0297 §4.3).
   if (runtime->restricted) return;
   runtime->host_call_async_fn = callback;
@@ -3732,7 +3738,11 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
     // hostCallAsync, so there is no inversion, and the notify inside the
     // pushRuntimeCallback below fires outside this mutex.
     std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-    if (!runtimeIsRegisteredLocked(runtime)) return;
+    // @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel — an armed
+    // runtime must reject generic async completions before extracting pending
+    // callbacks. Check `armed` under the registry pin so a stale pointer is
+    // never dereferenced before the liveness check.
+    if (!runtimeIsRegisteredLocked(runtime) || runtime->armed) return;
     std::lock_guard<std::mutex> lock(runtime->hostCallAsyncMutex);
     auto it = runtime->hostCallAsyncCallbacks.find(call_id);
     if (it == runtime->hostCallAsyncCallbacks.end()) return;

@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-12 (armed runtimes expose no generic `__hostCall`/`__hostCallAsync` bridge; its setters and resolver fail closed); 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -51,19 +51,21 @@ keeps capability checks attached to the executing runtime without weakening LLP
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with
 `jsi::Function::createFromHostFunction` and set as properties on `rt.global()`
-`[observed]` (e.g. `__exactModuleResolve`, `__exactEnsure*`, and `__hostCall`,
-`src/engine/hermes_runtime.cc:1160-1283, 1754-1806`).
+`[observed]` (e.g. `__exactModuleResolve`, `__exactEnsure*`, and, on unarmed
+diagnostic runtimes only, `__hostCall`; `src/engine/hermes_runtime.cc`).
 
 ### The `__hostCall` bridge
 
-`ex_hermes_set_host_call` installs the generic `__hostCall(op, argsJson)` JSI
-host function `[observed]` (`src/engine/hermes_runtime.cc:1754-1806`). The
-protocol — a `+` (JSON success) / `-` (error) status sigil on the returned C
-string, freed by the C++ side and `JSON.parse`d — is documented in
-[LLP 0002 §The `__hostCall` bridge](./0002-host-embedding-abi.spec.md#the-hostcall-bridge--the-generic-host-channel).
-It is the catch-all native channel; higher-traffic subsystems get dedicated
-host functions instead `[inferred: dedicated functions avoid per-call JSON
-encode/parse overhead and string-typed dispatch]`.
+For an unarmed diagnostic runtime, `ex_hermes_set_host_call` installs the
+generic `__hostCall(op, argsJson)` JSI host function `[observed]`
+(`src/engine/hermes_runtime.cc`). The protocol — a `+` (JSON success) / `-`
+(error) status sigil on the returned C string, freed by the C++ side and
+`JSON.parse`d — is documented in
+[LLP 0002 §The `__hostCall` bridge](./0002-host-embedding-abi.spec.md#the-__hostcall-bridge--the-generic-host-channel).
+Armed runtimes reject both generic bridge setters and the async resolver before
+mutating bridge state or invoking callbacks; they expose only dedicated native
+functions. This removes the string-typed catch-all from the production
+authority boundary while retaining it for diagnostic embedders.
 
 ### Lazy installation of host functions
 

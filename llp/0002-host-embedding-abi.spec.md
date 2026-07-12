@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -17,8 +17,11 @@ and a **Rust host surface** (`host::{install_host, Host}` plus the `ex_host_*` C
 functions) that the engine calls back into for native capabilities. The
 "narrow, stable contract" the root document names is the subset of this surface
 treated as semver-major: the lifecycle/eval functions plus the host-call bridge
-installer. The full `ex_host_*` callback surface is broader but is an
-implementation detail of how the engine reaches native services.
+installer. The installer is executable only for explicitly unarmed diagnostic
+embedders; its symbol and void signature remain stable, while armed runtimes
+silently reject the generic channel. The full `ex_host_*` callback surface is
+broader but is an implementation detail of how the engine reaches native
+services.
 
 This doc records what is observable in the extracted repo and owns the local
 Ibex embedding contract map.
@@ -47,8 +50,9 @@ stable contract. All five are declared in
   (`include/exact_runtime.h:65`; `src/engine/hermes_runtime.cc:1809`) — frees any string the
   ABI returns; it is a thin wrapper over `free()`.
 - `void ex_hermes_set_host_call(runtime, callback)` `[observed]`
-  (`include/exact_runtime.h:154`; `src/engine/hermes_runtime.cc:1754`) — installs the
-  generic `__hostCall(op, argsJson)` JS function backed by the host callback.
+  (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`) — installs the
+  generic `__hostCall(op, argsJson)` JS function for an unarmed diagnostic
+  runtime. It is a silent no-op for an armed runtime.
 
 Treating these as the semver-major contract is asserted in LLP 0000; this doc
 does not re-derive the inherited rationale `[inferred: the five are singled out
@@ -82,9 +86,10 @@ target cell remains unsupported.
 
 ### The `__hostCall` bridge — the generic host channel
 
-`ex_hermes_set_host_call` installs a JSI host function named `__hostCall` on the
-global object `[observed]` (`src/engine/hermes_runtime.cc:1754-1806`). It is the generic,
-string-typed channel from JS to the host:
+On an unarmed diagnostic runtime, `ex_hermes_set_host_call` installs a JSI host
+function named `__hostCall` on the global object `[observed]`
+(`src/engine/hermes_runtime.cc`). It is the generic, string-typed channel from
+JS to the host:
 
 - JS calls `__hostCall(op, argsJson)` with two strings `[observed]`
   (`src/engine/hermes_runtime.cc:1773-1774`).
@@ -99,6 +104,20 @@ string-typed channel from JS to the host:
 On the JS side, the runtime wrapper calls `globalThis.__hostCall` directly and
 throws if it is not installed `[observed]`
 (`packages/ibex-runtime-js/src/core/host-call-bridge.ts:1-16`).
+
+Armed runtimes never expose `__hostCall` or `__hostCallAsync`. Both void setter
+ABIs return before storing the callback or mutating the global object, so a
+post-lockdown replacement attempt is also a silent no-op. Likewise,
+`ex_hermes_resolve_host_call` checks liveness and the armed bit while the
+runtime registry is pinned and returns before looking up, removing, or invoking
+a pending callback. These functions keep their existing void signatures: the
+fail-closed result is intentionally observable as absence/no completion, not a
+new ABI return code. Production callers must use dedicated, capability-aware
+native APIs. Existing camera and accessibility wrappers already treat an absent
+generic bridge as unavailable rather than granting fallback authority
+`[observed]` (`src/engine/hermes_runtime.cc`;
+`packages/ibex-runtime-js/src/camera/index.ts`;
+`packages/ibex-runtime-js/src/core/accessibility.ts`).
 
 ## The Rust host surface
 
@@ -215,7 +234,8 @@ allow-all production runtime.
    [LLP 0010](./0010-ibex-binary-ownership.decision.md)).
 2. `ex_hermes_create()` builds the Hermes runtime, installs globals and runs
    bootstrap (see [LLP 0003](./0003-hermes-engine-bridge.explainer.md)).
-3. `ex_hermes_set_host_call()` wires `__hostCall` so JS can reach the host.
+3. An unarmed diagnostic embedder may call `ex_hermes_set_host_call()` to wire
+   `__hostCall`; the same call on an armed runtime is a silent no-op.
 4. The host drives execution via `ex_hermes_eval` and may pump the loop with
    `ex_hermes_poll(now_ms)` `[observed]` (`include/exact_runtime.h:71-91`;
    `src/engine/hermes_runtime.cc:1815-1949`). Source comments document a

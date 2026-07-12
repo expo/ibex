@@ -221,7 +221,10 @@ void ex_hermes_set_module_sync_callback(
 
 /// Install the generic `__hostCall(op, argsJson)` bridge in JavaScript.
 /// The callback should return a malloc'd C string. Prefix with `+` for a JSON
-/// success payload or `-` for an error message.
+/// success payload or `-` for an error message. This bridge is available only
+/// to unarmed diagnostic/embedder runtimes. For an armed runtime this void
+/// function is a silent no-op: it neither stores the callback nor changes the
+/// JavaScript global object.
 void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json));
@@ -231,7 +234,9 @@ void ex_hermes_set_host_call(
 /// the owning runtime, a call id, and the op/args, and must eventually
 /// complete the call with ex_hermes_resolve_host_call — synchronously inline
 /// or later from any thread. Payload sigils match `__hostCall`: `+json`
-/// resolves with the parsed JSON, `-message` rejects with an Error.
+/// resolves with the parsed JSON, `-message` rejects with an Error. This bridge
+/// is available only to unarmed diagnostic/embedder runtimes. For an armed
+/// runtime this void function is a silent no-op.
 void ex_hermes_set_host_call_async(
     ExactHermesRuntime* runtime,
     void (*callback)(ExactHermesRuntime* runtime,
@@ -241,7 +246,9 @@ void ex_hermes_set_host_call_async(
 
 /// Complete a pending `__hostCallAsync` call. Safe to invoke from any thread;
 /// resolution is delivered on the runtime's thread via the callback queue.
-/// Unknown / already-completed call ids and dead runtimes are ignored.
+/// Unknown / already-completed call ids, dead runtimes, and all armed runtimes
+/// are silently ignored. This is a void ABI; rejection does not add a return
+/// status or change the function signature.
 void ex_hermes_resolve_host_call(
     ExactHermesRuntime* runtime,
     uint64_t call_id,

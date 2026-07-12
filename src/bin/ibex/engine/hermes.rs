@@ -268,6 +268,8 @@ fn capsec_conformance_host_call(args: &str) -> Result<String> {
     .context("conformance adapter response serialization failed")
 }
 
+/// Generic string-dispatch handler retained for unarmed diagnostic runtimes.
+/// Armed runtimes reject its installation at the native ABI boundary.
 extern "C" fn exact_agent_host_call(
     op: *const std::os::raw::c_char,
     args_json: *const std::os::raw::c_char,
@@ -299,10 +301,11 @@ extern "C" fn exact_agent_host_call(
     }
 }
 
-/// Async host-call handler (LLP 0297 W3). The CLI host has no cross-thread
-/// hop to make, so it services the same op table as the sync bridge and
-/// resolves inline; resolution still flows through the runtime callback
-/// queue, exercising the real `__hostCallAsync` promise path end to end.
+/// Async host-call handler for unarmed diagnostic runtimes (LLP 0297 W3). The
+/// CLI host has no cross-thread hop to make, so it services the same op table
+/// as the sync bridge and resolves inline; resolution still flows through the
+/// runtime callback queue. Armed runtimes reject installation and resolution
+/// at the C++ ABI boundary.
 extern "C" fn exact_agent_host_call_async(
     runtime: *mut HermesRuntimeOpaque,
     call_id: u64,
@@ -3483,6 +3486,32 @@ cp \"$input\" \"$out\"\n";
         HostResetGuard
     }
 
+    static ABI_PROBE_SYNC_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    static ABI_PROBE_ASYNC_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    extern "C" fn abi_probe_sync_host_call(
+        _op: *const std::os::raw::c_char,
+        _args_json: *const std::os::raw::c_char,
+    ) -> *mut std::os::raw::c_char {
+        ABI_PROBE_SYNC_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        host_call_response(r#"+{"bridge":"sync"}"#.to_string())
+    }
+
+    extern "C" fn abi_probe_async_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        _op: *const std::os::raw::c_char,
+        _args_json: *const std::os::raw::c_char,
+    ) {
+        ABI_PROBE_ASYNC_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let payload = b"+{\"bridge\":\"async\"}\0";
+        unsafe {
+            ex_hermes_resolve_host_call(runtime, call_id, payload.as_ptr().cast());
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_creation_requires_exact_installed_snapshot_digest() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -3505,6 +3534,113 @@ cp \"$input\" \"$out\"\n";
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
         runtime.shutdown();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        ABI_PROBE_SYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        ABI_PROBE_ASYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/undefined")
+        );
+
+        // The setters are invoked after armed creation has completed its
+        // structural lockdown checks. Both replacement attempts and a forged
+        // async completion must be silent no-ops at the native ABI boundary.
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                ex_hermes_set_host_call(raw, abi_probe_sync_host_call);
+                ex_hermes_set_host_call_async(raw, abi_probe_async_host_call);
+                let payload = b"+{\"forged\":true}\0";
+                ex_hermes_resolve_host_call(raw, u64::MAX, payload.as_ptr().cast());
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/undefined")
+        );
+        assert_eq!(
+            ABI_PROBE_SYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+        assert_eq!(
+            ABI_PROBE_ASYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn diagnostic_host_call_abi_allows_replacement_and_async_resolution() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        ABI_PROBE_SYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        ABI_PROBE_ASYNC_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                ex_hermes_set_host_call(raw, abi_probe_sync_host_call);
+                ex_hermes_set_host_call_async(raw, abi_probe_async_host_call);
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate("JSON.stringify(__hostCall('abi.sync', {value: 1}))")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(r#"{"bridge":"sync"}"#)
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "globalThis.__abiAsync = 'pending'; \
+                     __hostCallAsync('abi.async', {}).then(\
+                       function(value) { globalThis.__abiAsync = value.bridge; },\
+                       function() { globalThis.__abiAsync = 'rejected'; }); \
+                     'kicked'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("kicked")
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__abiAsync")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("async")
+        );
+        assert_eq!(
+            ABI_PROBE_SYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            ABI_PROBE_ASYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
