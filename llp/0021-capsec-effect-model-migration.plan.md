@@ -665,8 +665,10 @@ descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
 mode, and times, including their worker-backed forms) reuse the retained
 descriptor and typed repeat checks. Synchronous and worker-backed whole-file
 reads use their own registry edges, accept only retained regular files, and
-recheck authority and identity before each chunk. The remaining path-based
-filesystem operations are still pending.
+recheck authority and identity before each chunk. `stat` and directory
+enumeration likewise use retained no-follow targets and their own `fs:list`
+edges; enumeration rechecks before every disclosed entry. The remaining
+path-based filesystem operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 

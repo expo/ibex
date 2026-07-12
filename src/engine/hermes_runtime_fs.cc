@@ -450,6 +450,48 @@ static std::shared_ptr<int> retainedFd(int fd) {
   });
 }
 
+struct TypedPathDescriptors {
+  std::shared_ptr<int> parent;
+  std::shared_ptr<int> target;
+};
+
+static TypedPathDescriptors openArmedListTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    int targetFlags,
+    const std::string& presentedHandle) {
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, parentRaw, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  int targetRaw = ::openat(
+      parentRaw, name.c_str(), targetFlags | O_NOFOLLOW | O_CLOEXEC);
+  if (targetRaw < 0) throwFsError(runtime, "open", path);
+  auto target = retainedFd(targetRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, surface, parentRaw, targetRaw, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  return TypedPathDescriptors{std::move(parent), std::move(target)};
+}
+
 // Parse a Node open() flags argument (a string like "r"/"w+"/"ax", or numeric
 // POSIX flags) into POSIX open(2) flags. Shared by __exactFsOpen and the async
 // readFile/writeFile natives, which perform their own open on a worker thread.
@@ -1802,7 +1844,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto statFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactStat"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1811,6 +1853,23 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactStat: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactStat: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 3, O_RDONLY | O_NONBLOCK, presentedHandle);
+          struct stat sb = {};
+          if (::fstat(*descriptors.target, &sb) != 0) {
+            throwFsError(runtime, "fstat", path);
+          }
+          return facebook::jsi::String::createFromUtf8(runtime, statJsonFromStat(sb));
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1856,7 +1915,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto readdirFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReaddir"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1865,6 +1924,59 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactReaddir: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReaddir: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 4, O_RDONLY | O_DIRECTORY, presentedHandle);
+          int directoryFd = ::dup(*descriptors.target);
+          if (directoryFd < 0) throwFsError(runtime, "dup", path);
+          DIR* directory = ::fdopendir(directoryFd);
+          if (!directory) {
+            int savedErrno = errno;
+            ::close(directoryFd);
+            errno = savedErrno;
+            throwFsError(runtime, "scandir", path);
+          }
+          std::vector<std::string> names;
+          while (true) {
+            const char* presented = presentedHandle.empty()
+                ? nullptr
+                : presentedHandle.c_str();
+            if (ex_host_authorize_typed_fs_open(
+                    currentPrincipalId(), path.c_str(), 5, 4,
+                    *descriptors.parent, *descriptors.target, 0, 0,
+                    presented) != 1) {
+              ::closedir(directory);
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            errno = 0;
+            auto* entry = ::readdir(directory);
+            if (!entry) break;
+            std::string name(entry->d_name);
+            if (name != "." && name != "..") names.push_back(std::move(name));
+          }
+          int readErrno = errno;
+          ::closedir(directory);
+          if (readErrno != 0) {
+            errno = readErrno;
+            throwFsError(runtime, "scandir", path);
+          }
+          facebook::jsi::Array array(runtime, names.size());
+          for (size_t index = 0; index < names.size(); ++index) {
+            array.setValueAtIndex(
+                runtime, index,
+                facebook::jsi::String::createFromUtf8(runtime, names[index]));
+          }
+          auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+          return json.getPropertyAsFunction(runtime, "stringify").call(runtime, array);
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");

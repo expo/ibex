@@ -2124,13 +2124,14 @@ mod tests {
     }
 
     fn install_armed_test_host() -> (HostResetGuard, String) {
-        install_armed_test_host_at(None, false, false)
+        install_armed_test_host_at(None, false, false, false)
     }
 
     fn install_armed_test_host_at(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
         allow_read: bool,
+        allow_list: bool,
     ) -> (HostResetGuard, String) {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
@@ -2158,13 +2159,33 @@ mod tests {
                 "components": components,
                 "hostBound": true,
             });
-            let mut floor = serde_json::json!([
-                {"cap":"fs:list","resource":{"kind":"path-tree","path":{"root":"project","components":[]}}}
-            ])
-            .as_array()
-            .unwrap()
-            .clone();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let metadata = std::fs::metadata(project_root).unwrap();
+                value["rootBindings"][1]["object"] = serde_json::json!({
+                    "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                        "apple"
+                    } else {
+                        "unix"
+                    },
+                    "volume": format!("dev:{}", metadata.dev()),
+                    "file": format!("ino:{}", metadata.ino()),
+                });
+            }
+            let mut floor = Vec::new();
             let mut denials = Vec::new();
+            if allow_list {
+                floor.push(serde_json::json!({
+                    "cap":"fs:list",
+                    "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
+                }));
+            } else {
+                denials.push(serde_json::json!({
+                    "cap":"fs:list",
+                    "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
+                }));
+            }
             if allow_read {
                 floor.push(serde_json::json!({
                     "cap":"fs:read",
@@ -2288,7 +2309,7 @@ mod tests {
         let created = root.join("created.txt");
         let async_created = root.join("async-created.txt");
         std::fs::write(&existing, b"old contents").unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2305,10 +2326,13 @@ mod tests {
                 __exactFsClose(created);
                 var reread = __exactReadFile({existing:?});
                 if (String.fromCharCode.apply(null, reread) !== 'new') throw new Error('readFile');
+                if (!JSON.parse(__exactStat({existing:?})).is_file) throw new Error('stat');
+                if (JSON.parse(__exactReaddir({root:?})).indexOf('existing.txt') < 0) throw new Error('readdir');
                 return 'ok';
             }})()"#,
             existing = existing.to_str().unwrap(),
             created = created.to_str().unwrap(),
+            root = root.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
@@ -2373,7 +2397,7 @@ mod tests {
         let existing = root.join("existing.txt");
         let absent = root.join("absent.txt");
         std::fs::write(&existing, b"must survive").unwrap();
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2396,6 +2420,44 @@ mod tests {
         assert_eq!(outcome.as_deref(), Some("6"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_fs_list_denial_prevents_metadata_and_directory_disclosure() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-list-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let directory = root.join("directory");
+        std::fs::create_dir_all(&directory).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let directory = root.join("directory");
+        let file = directory.join("secret.txt");
+        std::fs::write(&file, b"secret").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, false);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureFs();
+                var denied = 0;
+                try {{ __exactStat({file:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactReaddir({directory:?}); }} catch (_) {{ denied++; }}
+                return String(denied);
+            }})()"#,
+            file = file.to_str().unwrap(),
+            directory = directory.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+
+        assert_eq!(outcome.as_deref(), Some("2"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2425,7 +2487,7 @@ mod tests {
         symlink(&outside_file, root.join("final-link")).unwrap();
         let parent_escape = root.join("parent-link/protected.txt");
         let final_escape = root.join("final-link");
-        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true);
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
         let script = format!(
@@ -2438,6 +2500,8 @@ mod tests {
                 try {{ __exactReadFile({final_escape:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactFsReadFileAsync({parent_escape:?}, 'r', 0); }} catch (_) {{ denied++; }}
                 try {{ __exactFsReadFileAsync({final_escape:?}, 'r', 0); }} catch (_) {{ denied++; }}
+                try {{ __exactStat({final_escape:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactReaddir({parent_escape:?}); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             parent_escape = parent_escape.to_str().unwrap(),
@@ -2445,7 +2509,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("6"));
+        assert_eq!(outcome.as_deref(), Some("8"));
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);

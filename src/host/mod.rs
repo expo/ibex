@@ -363,10 +363,32 @@ impl Host {
         })?;
         let requested = self.typed_logical_path(&principal, path)?;
         if let Some(resolved_parent_path) = resolved_parent_path {
-            let mut expected_parent = requested.clone();
-            if expected_parent.components.pop().is_none()
-                || self.typed_logical_path(&principal, resolved_parent_path)? != expected_parent
-            {
+            let parent_matches = if requested.components.is_empty() {
+                self.armed_snapshot
+                    .as_deref()
+                    .ok_or_else(|| {
+                        capsec_semantics::Error::ArmRefused(
+                            "root-object validation requires an armed snapshot".into(),
+                        )
+                    })?
+                    .root_bindings()?
+                    .into_iter()
+                    .any(|binding| {
+                        binding.logical_root == requested.root
+                            && match binding.logical_root {
+                                capsec_semantics::model::LogicalRoot::Package => {
+                                    binding.owner.as_ref() == Some(&principal)
+                                }
+                                _ => binding.owner.is_none(),
+                            }
+                            && final_object.as_ref() == Some(&binding.object)
+                    })
+            } else {
+                let mut expected_parent = requested.clone();
+                expected_parent.components.pop();
+                self.typed_logical_path(&principal, resolved_parent_path)? == expected_parent
+            };
+            if !parent_matches {
                 return Err(capsec_semantics::Error::ArmRefused(
                     "retained filesystem parent escaped its authenticated logical root".into(),
                 ));
