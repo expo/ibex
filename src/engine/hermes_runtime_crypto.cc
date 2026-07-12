@@ -2581,6 +2581,21 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         parseRsaSignScheme(runtime, args, count, 3, 4, usePss, saltLen);
         auto key = adoptCF(importPemKey(keyText, kSecItemTypePrivateKey));
         if (!key) {
+#if !defined(EXACT_NO_OPENSSL)
+          // Security.framework does not import Node's ordinary PKCS#8 EC
+          // private keys on every macOS version. Use the already-linked,
+          // asymmetric OpenSSL parser as a strict fallback; malformed or
+          // non-asymmetric keys still fail here and can never reach HMAC.
+          // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+          const EVP_MD* digest = openSslDigestForAlgorithm(hashName);
+          std::vector<uint8_t> signature;
+          std::string error;
+          if (digest && opensslSignMessageCore(
+                            dataBytes, keyText, digest, usePss, saltLen,
+                            signature, error)) {
+            return makeUint8Array(runtime, std::move(signature));
+          }
+#endif
           throw facebook::jsi::JSError(runtime, "__exactSignSync: invalid PEM private key");
         }
 
@@ -2656,6 +2671,22 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         parseRsaSignScheme(runtime, args, count, 4, 5, usePss, saltLen);
         auto key = adoptCF(importPemKey(keyText, kSecItemTypePublicKey));
         if (!key) {
+#if !defined(EXACT_NO_OPENSSL)
+          // Match the private-key path above for SPKI EC public keys while
+          // retaining a strict asymmetric parser and an explicit error on
+          // malformed key material.
+          // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+          const EVP_MD* digest = openSslDigestForAlgorithm(hashName);
+          std::string error;
+          if (digest) {
+            int result = opensslVerifyMessageCore(
+                dataBytes, signatureBytes, keyText, digest, usePss, saltLen,
+                error);
+            if (result >= 0) {
+              return facebook::jsi::Value(result == 1);
+            }
+          }
+#endif
           throw facebook::jsi::JSError(runtime, "__exactVerifySync: invalid PEM public key");
         }
 

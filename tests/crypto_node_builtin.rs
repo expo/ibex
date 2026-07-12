@@ -71,12 +71,13 @@ async fn eval(js: &str) -> String {
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8_lossy(&output.stdout)
-        .trim_end()
-        .lines()
-        .last()
-        .unwrap_or("")
-        .to_string()
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "ibex capsec audit returned no result: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout.trim_end().lines().last().unwrap_or("").to_string()
 }
 
 /// JS prologue loading the fixture RSA key pair. The private key is the
@@ -718,8 +719,8 @@ process.stdout.write(JSON.stringify(vectors));
         eprintln!("skipping: asymmetric crypto bridge unavailable ({ibex_result})");
         return;
     }
-    let ibex_signatures: serde_json::Value =
-        serde_json::from_str(&ibex_result).expect("Ibex P1363 result JSON");
+    let ibex_signatures: serde_json::Value = serde_json::from_str(&ibex_result)
+        .unwrap_or_else(|error| panic!("Ibex P1363 result JSON {ibex_result:?}: {error}"));
     let expected_lengths = [64_u64, 96, 132];
     for (index, expected) in expected_lengths.into_iter().enumerate() {
         assert_eq!(
