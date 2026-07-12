@@ -336,6 +336,8 @@ impl Host {
     pub fn authorize_typed_fs_open_stage(
         &self,
         module_id: &str,
+        operation_key: &str,
+        coverage_edge_id: &str,
         path: &std::path::Path,
         stage: capsec_semantics::model::Stage,
         object_state: capsec_semantics::model::ObjectState,
@@ -412,14 +414,14 @@ impl Host {
             })
             .collect::<capsec_semantics::Result<Vec<_>>>()?;
         let operation_id = capsec_semantics::model::NonEmptyString::new(format!(
-            "fs-open:{}:{}",
-            module_id, operation_resource
+            "{}:{}:{}",
+            operation_key, module_id, operation_resource
         ))
         .map_err(capsec_semantics::Error::InvalidModel)?;
         let set = DecisionSet {
             decision_set_schema: DecisionSetSchema::V1,
             operation_id,
-            atomicity_group: StableId::new("surface.native.op.exactfsopen.05ao6wa.decision")
+            atomicity_group: StableId::new(format!("{coverage_edge_id}.decision"))
                 .map_err(capsec_semantics::Error::InvalidModel)?,
             combination: EffectCombination::Conjunction,
             context: DecisionContext {
@@ -434,7 +436,7 @@ impl Host {
             .iter()
             .map(|_| {
                 Ok(EffectGate {
-                    coverage_edge_id: StableId::new("surface.native.op.exactfsopen.05ao6wa")
+                    coverage_edge_id: StableId::new(coverage_edge_id)
                         .map_err(capsec_semantics::Error::InvalidModel)?,
                     target_cell: TargetCellDisposition::Complete,
                     definition_and_edge_predicates_satisfied: true,
@@ -1401,6 +1403,8 @@ mod tests {
         let requested_open = host
             .authorize_typed_fs_open_stage(
                 "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
                 open_path,
                 capsec_semantics::model::Stage::Requested,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1426,6 +1430,8 @@ mod tests {
         let discovered_open = host
             .authorize_typed_fs_open_stage(
                 "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
                 open_path,
                 capsec_semantics::model::Stage::Discovery,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1446,6 +1452,8 @@ mod tests {
         let committed_open = host
             .authorize_typed_fs_open_stage(
                 "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
                 open_path,
                 capsec_semantics::model::Stage::Commit,
                 capsec_semantics::model::ObjectState::Existing,
@@ -1466,6 +1474,8 @@ mod tests {
         let repeated_open = host
             .authorize_typed_fs_open_stage(
                 "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
                 open_path,
                 capsec_semantics::model::Stage::Repeat,
                 capsec_semantics::model::ObjectState::Existing,

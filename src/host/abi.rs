@@ -974,6 +974,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     module_id: u64,
     path: *const c_char,
     stage: u32,
+    surface: u32,
     parent_fd: i32,
     fd: i32,
     needs_read: i32,
@@ -986,6 +987,15 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     if path.is_null() || !matches!(stage, 0..=5) {
         return -1;
     }
+    let (operation_key, coverage_edge_id) = match surface {
+        0 => ("fs-open", "surface.native.op.exactfsopen.05ao6wa"),
+        1 => ("fs-read-file", "surface.native.op.exactreadfile.1cmzco7"),
+        2 => (
+            "fs-read-file-async",
+            "surface.native.op.exactfsreadfileasync.0fw3fo0",
+        ),
+        _ => return -1,
+    };
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
     #[cfg(unix)]
     let path = {
@@ -1093,6 +1103,8 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     with_host(
         |host| match host.authorize_typed_fs_open_stage(
             &module_id.to_string(),
+            operation_key,
+            coverage_edge_id,
             &path,
             stage,
             object_state,
@@ -1118,7 +1130,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             }
             Ok(_) => 0,
             Err(error) => {
-                eprintln!("error: typed fs.open authorization refused: {error}");
+                eprintln!("error: typed filesystem authorization refused: {error}");
                 -1
             }
         },

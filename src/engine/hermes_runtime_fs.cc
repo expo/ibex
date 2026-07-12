@@ -63,6 +63,7 @@ extern "C" int32_t ex_host_authorize_typed_fs_open(
     uint64_t module_id,
     const char* path,
     uint32_t stage,
+    uint32_t surface,
     int32_t parent_fd,
     int32_t fd,
     int32_t needs_read,
@@ -185,7 +186,7 @@ static void requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* s
         ? nullptr
         : entry.presentedHandleId.c_str();
     if (ex_host_authorize_typed_fs_open(
-            entry.owner, entry.path.c_str(), 2,
+            entry.owner, entry.path.c_str(), 2, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 1, 0, handle) != 1) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
@@ -207,7 +208,7 @@ static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* 
         ? nullptr
         : entry.presentedHandleId.c_str();
     if (ex_host_authorize_typed_fs_open(
-            entry.owner, entry.path.c_str(), 2,
+            entry.owner, entry.path.c_str(), 2, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 1, handle) != 1) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
@@ -228,7 +229,7 @@ static void requireFdList(facebook::jsi::Runtime& runtime, int fd, const char* s
         ? nullptr
         : entry.presentedHandleId.c_str();
     if (ex_host_authorize_typed_fs_open(
-            entry.owner, entry.path.c_str(), 5,
+            entry.owner, entry.path.c_str(), 5, 0,
             entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 0, handle) != 1) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
@@ -960,6 +961,50 @@ static FsAsyncResult fsReadFilePathWork(
   return fsReadWholeFdWork(fd, true, path);
 }
 
+static FsAsyncResult fsReadFileArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    const std::shared_ptr<int>& fd) {
+  struct stat sb = {};
+  if (::fstat(*fd, &sb) != 0) return fsAsyncError(errno, "fstat", path);
+  if (!S_ISREG(sb.st_mode)) return fsAsyncError(EACCES, "open", path);
+  if (static_cast<double>(sb.st_size) > kMaxReadFileBytes) {
+    FsAsyncResult result;
+    result.tooLarge = true;
+    result.tooLargeSize = static_cast<double>(sb.st_size);
+    return result;
+  }
+  std::vector<uint8_t> data;
+  if (sb.st_size > 0) data.reserve(static_cast<size_t>(sb.st_size));
+  std::array<uint8_t, 64 * 1024> chunk = {};
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  while (true) {
+    if (ex_host_authorize_typed_fs_open(
+            principal, path.c_str(), 2, 2, *parent, *fd, 1, 0,
+            presented) != 1) {
+      return fsAsyncError(EACCES, "read", path);
+    }
+    ssize_t amount;
+    do {
+      amount = ::read(*fd, chunk.data(), chunk.size());
+    } while (amount < 0 && errno == EINTR);
+    if (amount < 0) return fsAsyncError(errno, "read", path);
+    if (amount == 0) break;
+    data.insert(data.end(), chunk.begin(), chunk.begin() + amount);
+    if (static_cast<double>(data.size()) > kMaxReadFileBytes) {
+      FsAsyncResult result;
+      result.tooLarge = true;
+      result.tooLargeSize = static_cast<double>(data.size());
+      return result;
+    }
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Bytes);
+  result.bytes = std::move(data);
+  return result;
+}
+
 // Write all bytes to an already-open fd at its current position. Mirrors
 // _writeAllSync + __exactFsWrite: EINTR retries, RLIMIT_FSIZE errno
 // normalization, zero-byte write treated as EIO.
@@ -1483,7 +1528,7 @@ static FsAsyncResult fsOpenWorkArmed(
   auto fdGuard = retainedFd(fd);
   const char* handle = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
   if (ex_host_authorize_typed_fs_open(
-          principal, path.c_str(), 1, *parent, fd,
+          principal, path.c_str(), 1, 0, *parent, fd,
           canRead ? 1 : 0, canWrite ? 1 : 0, handle) != 1) {
     return fsAsyncError(EACCES, "open", path);
   }
@@ -1536,7 +1581,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto readFileFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactReadFile"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1545,6 +1590,63 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Whole-file reads retain and recheck the actual object for every chunk.
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactReadFile: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+          auto parentAndName = splitParentAndName(path);
+          auto parentPath = std::move(parentAndName.first);
+          auto name = std::move(parentAndName.second);
+          int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+          if (parentRaw < 0) throwFsError(runtime, "open", path);
+          auto parent = retainedFd(parentRaw);
+          int fdRaw = name.empty()
+              ? -1
+              : ::openat(
+                    parentRaw, name.c_str(),
+                    O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+          if (fdRaw < 0) throwFsError(runtime, "open", path);
+          auto fd = retainedFd(fdRaw);
+          struct stat sb = {};
+          if (::fstat(fdRaw, &sb) != 0) throwFsError(runtime, "fstat", path);
+          if (!S_ISREG(sb.st_mode)) {
+            errno = EACCES;
+            throwFsError(runtime, "open", path);
+          }
+          uint64_t principal = currentPrincipalId();
+          if (ex_host_authorize_typed_fs_open(
+                  principal, path.c_str(), 1, 1, parentRaw, fdRaw, 1, 0,
+                  presented) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::vector<uint8_t> data;
+          if (sb.st_size > 0 && static_cast<uint64_t>(sb.st_size) <= data.max_size()) {
+            data.reserve(static_cast<size_t>(sb.st_size));
+          }
+          std::array<uint8_t, 64 * 1024> chunk = {};
+          while (true) {
+            if (ex_host_authorize_typed_fs_open(
+                    principal, path.c_str(), 2, 1, parentRaw, fdRaw, 1, 0,
+                    presented) != 1) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            ssize_t amount;
+            do {
+              amount = ::read(fdRaw, chunk.data(), chunk.size());
+            } while (amount < 0 && errno == EINTR);
+            if (amount < 0) throwFsError(runtime, "read", path);
+            if (amount == 0) break;
+            data.insert(data.end(), chunk.begin(), chunk.begin() + amount);
+          }
+          return makeUint8Array(runtime, std::move(data));
+        }
         if (!isAllowAll()) {
           std::string cap = "fs:read:" + path;
           if (!checkCapability(cap)) {
@@ -2054,7 +2156,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (armed) {
           classifyOpenAccess(posixFlags, needsRead, needsWrite);
           if (ex_host_authorize_typed_fs_open(
-                  currentPrincipalId(), path.c_str(), 0, -1, -1,
+                  currentPrincipalId(), path.c_str(), 0, 0, -1, -1,
                   needsRead ? 1 : 0, needsWrite ? 1 : 0,
                   presentedHandlePtr) != 1) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -2078,11 +2180,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           retainedParent = retainedFd(parentFd);
           if (name.empty() ||
               ex_host_authorize_typed_fs_open(
-                  currentPrincipalId(), path.c_str(), 3, parentFd, -1,
+                  currentPrincipalId(), path.c_str(), 3, 0, parentFd, -1,
                   needsRead ? 1 : 0, needsWrite ? 1 : 0,
                   presentedHandlePtr) != 1 ||
               ex_host_authorize_typed_fs_open(
-                  currentPrincipalId(), path.c_str(), 4, parentFd, -1,
+                  currentPrincipalId(), path.c_str(), 4, 0, parentFd, -1,
                   needsRead ? 1 : 0, needsWrite ? 1 : 0,
                   presentedHandlePtr) != 1) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -2098,7 +2200,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throwFsError(runtime, "open", path);
         }
         if (armed && ex_host_authorize_typed_fs_open(
-                         currentPrincipalId(), path.c_str(), 1,
+                         currentPrincipalId(), path.c_str(), 1, 0,
                          *retainedParent, fd,
                          needsRead ? 1 : 0, needsWrite ? 1 : 0,
                          presentedHandlePtr) != 1) {
@@ -3232,7 +3334,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         uint64_t principal = currentPrincipalId();
         const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
         if (ex_host_authorize_typed_fs_open(
-                principal, path.c_str(), 0, -1, -1,
+                principal, path.c_str(), 0, 0, -1, -1,
                 canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
@@ -3244,10 +3346,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto parent = retainedFd(parentFd);
         if (name.empty() ||
             ex_host_authorize_typed_fs_open(
-                principal, path.c_str(), 3, parentFd, -1,
+                principal, path.c_str(), 3, 0, parentFd, -1,
                 canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1 ||
             ex_host_authorize_typed_fs_open(
-                principal, path.c_str(), 4, parentFd, -1,
+                principal, path.c_str(), 4, 0, parentFd, -1,
                 canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
@@ -3289,7 +3391,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactFsCloseAsync", std::move(closeAsyncFn));
 
   auto readFileAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 3,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsReadFileAsync"), 4,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count == 0 || (!args[0].isString() && !args[0].isNumber())) {
@@ -3308,6 +3410,52 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;
         bool needsWrite = false;
+        if (ex_host_is_armed() == 1) {
+          classifyOpenAccess(posixFlags, needsRead, needsWrite);
+          if (!needsRead || needsWrite) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          std::string presentedHandle;
+          if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+            if (!args[3].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactFsReadFileAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[3].asString(runtime).utf8(runtime);
+          }
+          auto parentAndName = splitParentAndName(path);
+          auto parentPath = std::move(parentAndName.first);
+          auto name = std::move(parentAndName.second);
+          int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+          if (parentRaw < 0) throwFsError(runtime, "open", path);
+          auto parent = retainedFd(parentRaw);
+          int fdRaw = name.empty()
+              ? -1
+              : ::openat(
+                    parentRaw, name.c_str(),
+                    O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+          if (fdRaw < 0) throwFsError(runtime, "open", path);
+          auto fd = retainedFd(fdRaw);
+          struct stat sb = {};
+          if (::fstat(fdRaw, &sb) != 0 || !S_ISREG(sb.st_mode)) {
+            errno = EACCES;
+            throwFsError(runtime, "open", path);
+          }
+          uint64_t principal = currentPrincipalId();
+          const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+          if (ex_host_authorize_typed_fs_open(
+                  principal, path.c_str(), 1, 2, parentRaw, fdRaw, 1, 0,
+                  presented) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          return startFsAsync(
+              handle, runtime,
+              [principal, path, presentedHandle, parent = std::move(parent),
+               fd = std::move(fd)]() {
+                return fsReadFileArmedWork(
+                    principal, path, presentedHandle, parent, fd);
+              });
+        }
         requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         int mode = 0666;
         if (count > 2 && args[2].isNumber()) {

@@ -240,6 +240,7 @@ extern "C" int32_t ex_host_authorize_typed_fs_open(
     uint64_t module_id,
     const char* path,
     uint32_t stage,
+    uint32_t surface,
     int32_t parent_fd,
     int32_t fd,
     int32_t needs_read,

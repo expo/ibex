@@ -663,8 +663,10 @@ commit runs on the worker before the descriptor is delivered to JavaScript;
 registry publication remains on the attributed runtime thread. The remaining
 descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
 mode, and times, including their worker-backed forms) reuse the retained
-descriptor and typed repeat checks. The remaining path-based filesystem
-operations are still pending.
+descriptor and typed repeat checks. Synchronous and worker-backed whole-file
+reads use their own registry edges, accept only retained regular files, and
+recheck authority and identity before each chunk. The remaining path-based
+filesystem operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 
