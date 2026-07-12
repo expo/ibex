@@ -186,6 +186,59 @@ impl VerifiedDecisionContext {
             authority,
         })
     }
+
+    /// A bearer handle may be minted only from an authority the owner already
+    /// holds in its immutable static floor. This deliberately excludes ambient
+    /// root fallback and dynamic/handle re-export; re-attenuation is modeled by
+    /// an explicit parent handle at publication time.
+    pub fn static_authority_covers(
+        &self,
+        owner: &Principal,
+        selector: &crate::model::AuthoritySelector,
+        package_root_owner: Option<&Principal>,
+    ) -> Result<bool> {
+        let definition = self.definitions.get(selector.action.as_str())?;
+        if definition.lifecycle != Lifecycle::Authorable || !definition.channels.handle {
+            return Ok(false);
+        }
+        let Some(policy) = self.authority.principal_policies.get(owner) else {
+            return Ok(false);
+        };
+        for denial in &policy.denials {
+            let context = ContainmentContext {
+                same_snapshot: denial.armed_snapshot_digest == self.identity.armed_snapshot_digest,
+                same_package_root_owner: package_owner_equal_to(denial, package_root_owner),
+            };
+            if matches!(
+                try_compare_authority_containment(&denial.selector, selector, &context)?,
+                Containment::Equal | Containment::StrictSubset
+            ) {
+                return Ok(false);
+            }
+        }
+        for authority in &policy.static_floor {
+            let context = ContainmentContext {
+                same_snapshot: authority.armed_snapshot_digest
+                    == self.identity.armed_snapshot_digest,
+                same_package_root_owner: package_owner_equal_to(authority, package_root_owner),
+            };
+            if matches!(
+                try_compare_authority_containment(&authority.selector, selector, &context)?,
+                Containment::Equal | Containment::StrictSubset
+            ) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn package_owner_equal_to(authority: &BoundAuthority, owner: Option<&Principal>) -> bool {
+    match (&authority.package_root_owner, owner) {
+        (None, None) => true,
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
