@@ -5323,11 +5323,35 @@ mod tests {
         .unwrap();
         assert!(bundle_cache_is_fresh(&output, &entry).await);
 
-        // Same-length edits invalidate without relying on timestamp movement.
+        // Same-length edits invalidate even when an attacker restores the old
+        // timestamp, so a coarse filesystem clock cannot preserve stale code.
+        let original_modified = std::fs::metadata(&dep).unwrap().modified().unwrap();
         std::fs::write(&dep, "export const v = 2;").expect("edit dep");
+        std::fs::File::options()
+            .write(true)
+            .open(&dep)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+            .unwrap();
+        assert_eq!(
+            std::fs::metadata(&dep).unwrap().modified().unwrap(),
+            original_modified
+        );
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
 
         std::fs::write(&dep, "export const v = 1;").expect("restore dep");
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Clock skew alone is not content identity either: an unchanged file
+        // remains valid even when its mtime jumps into the future.
+        std::fs::File::options()
+            .write(true)
+            .open(&dep)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(
+                std::time::SystemTime::now() + std::time::Duration::from_secs(86_400),
+            ))
+            .unwrap();
         assert!(bundle_cache_is_fresh(&output, &entry).await);
 
         // Output tampering is rejected before execution too.
