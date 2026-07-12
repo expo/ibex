@@ -1038,14 +1038,16 @@ pub struct Runtime {
 impl Runtime {
     /// Build a runtime from CLI configuration.
     pub fn from_cli(cli: &Cli) -> Result<Self> {
+        let (host, armed_snapshot_digest) = build_host(cli)?;
+
         // Opt-in compat surfaces ride the env contract so the runtime bundle
         // sees them regardless of bootstrap ordering, and child spawns inherit
         // them. `__exactCompatModes` is also seeded in the preload for JS-side
-        // introspection.
+        // introspection. Validate armed startup before this process-global
+        // mutation so a rejected compatibility facade has no side effect.
         if cli.compat.as_deref() == Some("bun") {
             std::env::set_var("EXACT_COMPAT_BUN", "1");
         }
-        let (host, armed_snapshot_digest) = build_host(cli)?;
         crate::host::abi::install_host(host.clone());
         let engine = engine::create_engine(&cli.engine, armed_snapshot_digest.as_deref())?;
 
@@ -1544,6 +1546,9 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 anyhow::bail!(
                     "armed capability startup closes inspector activation and configuration"
                 );
+            }
+            if cli.compat.is_some() {
+                anyhow::bail!("armed capability startup closes compatibility facades");
             }
             if cli.policy.is_some()
                 || !cli.allow.is_empty()
@@ -3449,6 +3454,29 @@ mod tests {
                 "inspector closure must precede artifact I/O: {error}"
             );
         }
+    }
+
+    #[test]
+    fn armed_startup_closes_compatibility_facades_before_io() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "--compat",
+            "bun",
+            "app.ts",
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("armed compatibility facade must be closed")
+            .to_string();
+        assert!(error.contains("closes compatibility"), "{error}");
+        assert!(
+            !error.contains("failed to read"),
+            "compatibility closure must precede artifact I/O: {error}"
+        );
     }
 
     #[test]

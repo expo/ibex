@@ -668,6 +668,20 @@ struct RunFileOptions<'a> {
     inspect_host: Option<&'a str>,
 }
 
+fn effective_run_cli(cli: &Cli, options: RunFileOptions<'_>) -> Cli {
+    let mut effective = cli.clone();
+    effective.inspect |= options.inspect;
+    effective.inspect_wait |= options.inspect_wait;
+    effective.inspect_open |= options.inspect_open;
+    effective.inspect_pause |= options.inspect_pause;
+    effective.inspect_port = options.inspect_port.or(effective.inspect_port);
+    effective.inspect_host = options
+        .inspect_host
+        .map(str::to_owned)
+        .or(effective.inspect_host);
+    effective
+}
+
 /// Run a JavaScript/TypeScript file
 async fn run_file(
     cli: &Cli,
@@ -676,7 +690,12 @@ async fn run_file(
     options: RunFileOptions<'_>,
 ) -> Result<()> {
     let t0 = std::time::Instant::now();
-    let runtime = runtime::Runtime::from_cli(cli)?;
+    // `run` owns a second set of inspector flags for Node-compatible argument
+    // placement. Fold those into the configuration authenticated by armed
+    // startup so subcommand spelling cannot bypass the closed inspector route.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    let effective_cli = effective_run_cli(cli, options);
+    let runtime = runtime::Runtime::from_cli(&effective_cli)?;
     if trace_startup() {
         eprintln!(
             "[startup] {:<30} {:>6} us ({:>5.1} ms)",
@@ -1480,10 +1499,45 @@ fn open_devtools_for_port(port: u16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        cli, exit_code_for_error, watch_child_args, watch_shutdown_timeout_from_env,
-        DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS, EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
+        cli, effective_run_cli, exit_code_for_error, watch_child_args,
+        watch_shutdown_timeout_from_env, RunFileOptions, DEFAULT_WATCH_SHUTDOWN_TIMEOUT_MS,
+        EXACT_PROJECT_COMMANDS, RESERVED_RUNTIME_COMMANDS,
     };
     use clap::Parser;
+
+    #[test]
+    fn run_subcommand_inspector_configuration_reaches_armed_validation() {
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "run",
+            "app.ts",
+        ]);
+        let effective = effective_run_cli(
+            &cli,
+            RunFileOptions {
+                inspect: true,
+                inspect_wait: false,
+                inspect_open: false,
+                inspect_pause: false,
+                keep_alive: false,
+                inspect_port: Some(9230),
+                inspect_host: Some("127.0.0.1"),
+            },
+        );
+        assert!(effective.inspect);
+        assert_eq!(effective.inspect_port, Some(9230));
+        assert_eq!(effective.inspect_host.as_deref(), Some("127.0.0.1"));
+        let error = super::runtime::Runtime::from_cli(&effective)
+            .err()
+            .expect("run-subcommand inspector must be rejected before artifact I/O")
+            .to_string();
+        assert!(error.contains("closes inspector"), "{error}");
+        assert!(!error.contains("failed to read"), "{error}");
+    }
 
     /// The pre-clap dispatcher tables must agree with the runtime surface
     /// manifest (`runtime-surface.json`, LLP 0010#runtime-command-surface):
