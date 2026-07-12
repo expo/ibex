@@ -41,6 +41,7 @@ const bindings = {
   sourceRevision: "0".repeat(40),
   sourceTreeDigest: `sha256-${"A".repeat(43)}`,
   engine: {
+    engineArtifactPath: "/repo/ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
     kind: "hermes",
     binaryDigest: `sha256-${"B".repeat(43)}`,
     object: { platform: "apple", volume: "dev:test", file: "ino:test" },

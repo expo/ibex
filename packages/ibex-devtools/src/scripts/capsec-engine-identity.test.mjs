@@ -33,6 +33,7 @@ const validate = (candidate) =>
 describe("exact loaded engine identity", () => {
   test("projects the attested mapped object into a report binding", () => {
     expect(validate(identity)).toEqual({
+      engineArtifactPath: identity.engineArtifactPath,
       kind: "hermes",
       binaryDigest: identity.binaryDigest,
       object: identity.object,

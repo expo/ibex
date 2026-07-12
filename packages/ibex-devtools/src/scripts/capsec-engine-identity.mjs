@@ -71,6 +71,7 @@ export function validateLoadedEngineIdentity({
     );
   }
   return {
+    engineArtifactPath: identity.engineArtifactPath,
     kind: identity.kind,
     binaryDigest: identity.binaryDigest,
     object: identity.object,

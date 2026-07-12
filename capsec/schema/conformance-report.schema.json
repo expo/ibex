@@ -37,6 +37,7 @@
         "engine": {
           "type": "object",
           "required": [
+            "engineArtifactPath",
             "kind",
             "binaryDigest",
             "object",
@@ -44,6 +45,7 @@
             "structuralFeatures"
           ],
           "properties": {
+            "engineArtifactPath": { "type": "string", "minLength": 1 },
             "kind": { "const": "hermes" },
             "binaryDigest": {
               "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"

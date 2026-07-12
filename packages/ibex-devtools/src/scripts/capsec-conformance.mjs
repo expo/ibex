@@ -8,6 +8,7 @@
  */
 
 import crypto from "node:crypto";
+import path from "node:path";
 import { canonicalJson, computeDomainDigest } from "./capsec-contract.mjs";
 import { absenceFixtureForTarget } from "./capsec-fixture-obligations.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
@@ -24,6 +25,8 @@ function validateLoadedEngineBinding(engine, target) {
   const object = engine?.object;
   if (
     engine?.kind !== "hermes" ||
+    typeof engine.engineArtifactPath !== "string" ||
+    !path.isAbsolute(engine.engineArtifactPath) ||
     !/^sha256-[A-Za-z0-9_-]{43}$/u.test(engine.binaryDigest ?? "") ||
     !object ||
     canonicalJson(Object.keys(object).sort()) !==
