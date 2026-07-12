@@ -2132,6 +2132,21 @@ for (var _bk in BufferProto) {
     });
   }
 }
+// Hermes' legacy for-in path can retain the old [[DontEnum]] suppression for
+// Object.prototype names even when BufferProto has enumerable own overrides.
+// Install these two names explicitly as well.
+_defineBufferPrototypeProperty(Buffer.prototype, "toString", {
+  value: BufferProto.toString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
+_defineBufferPrototypeProperty(Buffer.prototype, "toLocaleString", {
+  value: BufferProto.toLocaleString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
 Object.defineProperty(Buffer.prototype, "parent", {
   get: function() {
     if (!this || typeof this !== "object" || !ArrayBuffer.isView(this)) return undefined;
