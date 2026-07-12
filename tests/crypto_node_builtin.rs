@@ -213,6 +213,36 @@ async fn sign_and_verify_with_bad_pem_key_throw_instead_of_hmac() {
     );
 }
 
+/// PEM supplied as a Buffer (directly or through the key-options object) is
+/// still asymmetric key material. It must take the native public-key path,
+/// never the legacy symmetric HMAC compatibility path.
+#[tokio::test]
+async fn pem_buffers_use_asymmetric_sign_and_verify() {
+    let js = format!(
+        "(function(){{ {prologue} \
+           var privBuf = Buffer.from(priv); var pubBuf = Buffer.from(pub); \
+           try {{ \
+             var direct = c.sign('sha256', msg, privBuf); \
+             var option = c.sign('sha256', msg, {{ key: privBuf }}); \
+             return JSON.stringify([ \
+               c.verify('sha256', msg, pubBuf, direct), \
+               c.verify('sha256', msg, {{ key: pubBuf }}, option) \
+             ]); \
+           }} catch (e) {{ return 'ERR:' + e.message; }} \
+         }})()",
+        prologue = key_prologue()
+    );
+    let result = eval(&js).await;
+    if result.starts_with("ERR:") && is_unavailable(&result) {
+        eprintln!("skipping: asymmetric crypto bridge unavailable ({result})");
+        return;
+    }
+    assert_eq!(
+        result, "[true,true]",
+        "Buffer-backed PEM keys must use asymmetric sign/verify"
+    );
+}
+
 /// ENG-24283: binary PKCS#8/SPKI keys are asymmetric even when supplied
 /// directly as Buffer/TypedArray values. Unsupported DER/JWK imports must fail
 /// explicitly; they must never fall through to the legacy HMAC compatibility
@@ -600,6 +630,13 @@ async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
         code('safe', function(){ c.generatePrimeSync(257, { safe: true }); }); \
         code('candidate', function(){ c.checkPrimeSync(1n << 512n); }); \
         code('rounds', function(){ c.checkPrimeSync(65537n, { checks: 65 }); }); \
+        code('dhGenerate', function(){ c.createDiffieHellman(513); }); \
+        code('addZero', function(){ c.generatePrimeSync(16, { add: 0n }); }); \
+        code('addZeroBuffer', function(){ c.generatePrimeSync(16, { add: Buffer.from([0]) }); }); \
+        code('addOversizedBuffer', function(){ c.generatePrimeSync(16, { add: Buffer.alloc(65, 1) }); }); \
+        code('remNotSmaller', function(){ c.generatePrimeSync(16, { add: Buffer.from([4]), rem: Buffer.from([4]) }); }); \
+        out.safeDefaultRem = Number(c.generatePrimeSync(16, { safe: true, add: 4n, bigint: true }) % 4n); \
+        out.defaultRem = Number(c.generatePrimeSync(16, { add: 4n, bigint: true }) % 4n); \
         var dsaDer = Buffer.from('300b06072a8648ce380401', 'hex'); \
         var dsaPem = '-----BEGIN PUBLIC KEY-----\\n' + dsaDer.toString('base64') + '\\n-----END PUBLIC KEY-----'; \
         var traditionalDsa = '-----BEGIN DSA PRIVATE KEY-----\\nMAkCAQACAQECAQE=\\n-----END DSA PRIVATE KEY-----'; \
@@ -610,7 +647,7 @@ async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
     let result = eval(js).await;
     assert_eq!(
         result,
-        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED","traditionalDsa":"ERR_OSSL_UNSUPPORTED"}"#,
+        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dhGenerate":"ERR_CRYPTO_OPERATION_FAILED","addZero":"ERR_OUT_OF_RANGE","addZeroBuffer":"ERR_OUT_OF_RANGE","addOversizedBuffer":"ERR_OUT_OF_RANGE","remNotSmaller":"ERR_OUT_OF_RANGE","safeDefaultRem":3,"defaultRem":1,"dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED","traditionalDsa":"ERR_OSSL_UNSUPPORTED"}"#,
         "sync work bounds and P1363 rejection must fail explicitly: {result}"
     );
 }

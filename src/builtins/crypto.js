@@ -134,6 +134,9 @@ function _toBytes(value) {
   if (value === null || value === undefined) return new Uint8Array(0);
   if (value instanceof Uint8Array) return value;
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  if (typeof SharedArrayBuffer !== 'undefined' && value instanceof SharedArrayBuffer) {
+    return new Uint8Array(value);
+  }
   if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView && ArrayBuffer.isView(value)) {
     return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   }
@@ -2217,11 +2220,23 @@ function _isPemKeyText(value) {
 
 function _extractKeyText(key) {
   if (typeof key === 'string') return key;
+  if (_isStringOrBuffer(key)) {
+    var directText = _toByteString(key);
+    return _isPemKeyText(directText) ? directText : '';
+  }
   if (key instanceof KeyObject) return typeof key._data === 'string' ? key._data : _toByteString(key._data);
   if (!key || typeof key !== 'object') return '';
   if (typeof key.key === 'string') return key.key;
+  if (_isStringOrBuffer(key.key)) {
+    var optionText = _toByteString(key.key);
+    return _isPemKeyText(optionText) ? optionText : '';
+  }
   if (key.key instanceof KeyObject) return typeof key.key._data === 'string' ? key.key._data : _toByteString(key.key._data);
   if (typeof key.pem === 'string') return key.pem;
+  if (_isStringOrBuffer(key.pem)) {
+    var pemText = _toByteString(key.pem);
+    return _isPemKeyText(pemText) ? pemText : '';
+  }
   return '';
 }
 
@@ -2986,6 +3001,11 @@ function generateKeyPair(type, options, callback) {
 }
 
 // --- DiffieHellman ---
+// Pure-JS prime generation runs on the runtime thread. Keep every entry point,
+// including lazy DiffieHellman generation, under the same bounded-work policy.
+var _MAX_SYNC_PRIME_BITS = 512;
+var _MAX_SYNC_SAFE_PRIME_BITS = 256;
+
 function _readInt(value) {
   return typeof value === 'number' && isFinite(value) && value === (value | 0);
 }
@@ -3006,6 +3026,11 @@ function DiffieHellman(sizeOrKey, generatorEncoding, generator, genEncoding) {
     if (prime <= 1) {
       throw _createCryptoError(Error, 'ERR_OSSL_DH_MODULUS_TOO_SMALL',
         'modulus too small');
+    }
+    if (prime > _MAX_SYNC_PRIME_BITS) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Diffie-Hellman prime generation is limited to ' + _MAX_SYNC_PRIME_BITS +
+        ' bits in this runtime; provide explicit parameters or use a native worker backend');
     }
     this._prime = null;
     this._primeBigInt = null;
@@ -3206,6 +3231,11 @@ function _randomProbablePrime(bits) {
 }
 
 function _generateProbablePrime(bits) {
+  if (!Number.isInteger(bits) || bits < 2 || bits > _MAX_SYNC_PRIME_BITS) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+      'Synchronous prime generation is limited to ' + _MAX_SYNC_PRIME_BITS +
+      ' bits in this runtime');
+  }
   return _randomProbablePrime(bits);
 }
 
@@ -3777,9 +3807,22 @@ X509Certificate.prototype.publicKey = undefined;
 // BigInt arithmetic. Bound both operand size and caller-selected MR rounds so
 // an untrusted request cannot pin a runtime thread for minutes. Larger jobs
 // need a native worker-backed implementation.
-var _MAX_SYNC_PRIME_BITS = 512;
-var _MAX_SYNC_SAFE_PRIME_BITS = 256;
 var _MAX_SYNC_PRIME_CHECKS = 64;
+
+function _primeConstraintToBigInt(value, name, size) {
+  if (value === undefined) return null;
+  if (typeof value === 'bigint') return value;
+
+  // Bound binary inputs before converting them to a BigInt. In particular,
+  // an attacker must not be able to hand the synchronous compatibility path a
+  // multi-megabyte Buffer when the largest supported prime is only 512 bits.
+  var bytes = _toBytes(value);
+  var maxBytes = Math.ceil(size / 8);
+  if (bytes.length > maxBytes || bytes.length > Math.ceil(_MAX_SYNC_PRIME_BITS / 8)) {
+    throw _errOutOfRange(name, 'no larger than the requested prime', bytes.length + ' bytes');
+  }
+  return _bytesToBigInt(bytes);
+}
 
 function generatePrimeSync(size, options) {
   if (typeof size !== 'number') throw _errInvalidArgType('size', 'of type number', size);
@@ -3802,42 +3845,15 @@ function generatePrimeSync(size, options) {
     if (options.rem !== undefined && !_isStringOrBuffer(options.rem) && typeof options.rem !== 'bigint') {
       throw _errInvalidArgType('options.rem', 'a bigint, ArrayBuffer, Buffer, TypedArray, or DataView', options.rem);
     }
-    if (size > _MAX_SYNC_PRIME_BITS || (options.safe && size > _MAX_SYNC_SAFE_PRIME_BITS)) {
-      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
-        'Synchronous prime generation is limited to ' +
-        (options.safe ? _MAX_SYNC_SAFE_PRIME_BITS : _MAX_SYNC_PRIME_BITS) +
-        ' bits in this runtime; use a native worker backend for larger primes');
-    }
-    // Check negative bigints for add/rem
-    if (typeof options.add === 'bigint' && options.add < 0n) {
-      throw _errOutOfRange('options.add', '>= 0', options.add + 'n');
-    }
-    if (typeof options.rem === 'bigint' && options.rem < 0n) {
-      throw _errOutOfRange('options.rem', '>= 0', options.rem + 'n');
-    }
-    // Check add > 2^size (impossible condition)
-    if (typeof options.add === 'bigint' && options.add >= (1n << BigInt(size))) {
-      throw _errOutOfRange('options.add', 'invalid options.add', 'invalid options.add');
-    }
-    // Check rem >= add (impossible condition)
-    if (typeof options.add === 'bigint' && typeof options.rem === 'bigint' && options.rem >= options.add) {
-      throw _errOutOfRange('options.rem', 'invalid options.rem', 'invalid options.rem');
-    }
-    // Check if result can only be one value (add > 2^size with rem specified)
-    if (typeof options.add === 'bigint' && typeof options.rem === 'bigint') {
-      var maxPrime = (1n << BigInt(size)) - 1n;
-      if (options.rem <= maxPrime && (maxPrime - options.rem) < options.add && options.rem === options.rem) {
-        // If only one possibility, check if it's prime
-        var onlyVal = options.rem;
-        if (onlyVal < 2n) {
-          throw _errOutOfRange('options.rem', 'invalid options', 'invalid options');
-        }
-      }
-    }
   }
-  if (size > _MAX_SYNC_PRIME_BITS) {
+
+  var safe = !!(options && options.safe);
+  var maxSyncBits = safe ? _MAX_SYNC_SAFE_PRIME_BITS : _MAX_SYNC_PRIME_BITS;
+  // This check must precede every BigInt shift and binary-option conversion;
+  // otherwise a nominally valid int32 size can request an enormous allocation.
+  if (size > maxSyncBits) {
     throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
-      'Synchronous prime generation is limited to ' + _MAX_SYNC_PRIME_BITS +
+      'Synchronous prime generation is limited to ' + maxSyncBits +
       ' bits in this runtime; use a native worker backend for larger primes');
   }
   // Generate a real probable prime (Miller-Rabin, exact bit length), honoring
@@ -3847,15 +3863,20 @@ function generatePrimeSync(size, options) {
     throw _createCryptoError(Error, 'ERR_OSSL_BN_BITS_TOO_SMALL',
       'error:01800076:bignum routines::bits too small');
   }
-  var addB = options && options.add !== undefined
-    ? (typeof options.add === 'bigint' ? options.add : _bytesToBigInt(_toBytes(options.add)))
-    : null;
-  var remB = options && options.rem !== undefined
-    ? (typeof options.rem === 'bigint' ? options.rem : _bytesToBigInt(_toBytes(options.rem)))
-    : null;
-  var safe = !!(options && options.safe);
+  var addB = _primeConstraintToBigInt(options && options.add, 'options.add', size);
+  var remB = _primeConstraintToBigInt(options && options.rem, 'options.rem', size);
+  var sizeLimit = 1n << BigInt(size);
+  if (addB !== null && (addB <= 0n || addB >= sizeLimit)) {
+    throw _errOutOfRange('options.add', '> 0 and smaller than the requested prime', String(addB));
+  }
+  if (remB !== null && remB < 0n) {
+    throw _errOutOfRange('options.rem', '>= 0', String(remB));
+  }
+  if (addB !== null && remB !== null && remB >= addB) {
+    throw _errOutOfRange('options.rem', 'smaller than options.add', String(remB));
+  }
   var prime = null;
-  if (!addB && !safe) {
+  if (addB === null && !safe) {
     prime = _randomProbablePrime(size);
   } else {
     var byteLen = Math.ceil(size / 8);
@@ -3869,9 +3890,12 @@ function generatePrimeSync(size, options) {
       candBytes[0] |= (0x80 >> excess);
       candBytes[byteLen - 1] |= 0x01;
       var candidate = _bytesToBigInt(candBytes);
-      if (addB) {
-        // OpenSSL: candidate ≡ rem (mod add), rem defaulting to 1.
-        var wantRem = remB !== null ? remB : 1n;
+      if (addB !== null) {
+        // OpenSSL/Node default to 3 for safe primes and 1 otherwise.
+        var wantRem = remB !== null ? remB : (safe ? 3n : 1n);
+        if (wantRem >= addB) {
+          throw _errOutOfRange('options.add', 'larger than the default remainder', String(addB));
+        }
         candidate = candidate - (candidate % addB) + wantRem;
         if (candidate < sizeMin || candidate > sizeMax || candidate % 2n === 0n) continue;
       }
