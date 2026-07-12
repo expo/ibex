@@ -2,7 +2,7 @@
 <!-- @ref LLP 0021#default-and-target-claim — exact-target claims remain disabled until conformance -->
 # Generated capsec target matrix
 
-The registry contains 6816 semantic coverage edges, including 671 conditional-unrefined edges. WP1 advertises no executable target.
+The registry contains 6816 semantic coverage edges, including 299 conditional-unrefined edges. WP1 advertises no executable target.
 
 | Exact target | Structural features | Selected implementation branches | Branchless cells | Enforced | Closed | Non-capability | Absent | Unsupported |
 |---|---|---:|---:|---:|---:|---:|---:|---:|

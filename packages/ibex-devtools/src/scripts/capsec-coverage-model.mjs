@@ -6946,6 +6946,168 @@ function filesystemStreamUseEffectSpec(action, openingOnly) {
   );
 }
 
+const NETWORK_RETAINED_OPTIONS = Object.freeze({
+  lifetimeContract: "socket-stream",
+  effectOwnerSource: "descriptor-owner",
+  principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+});
+
+function optionalNetworkEffectSpec(action, fact, options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "active",
+        when: [{ fact, equals: "active" }],
+        actions: [action],
+      },
+      {
+        id: "metadata",
+        when: [{ fact, equals: "metadata" }],
+        actions: [],
+      },
+    ],
+    "network",
+    "WP6",
+    { ...NETWORK_RETAINED_OPTIONS, ...options },
+  );
+}
+
+function retainedNetworkOriginEffectSpec(
+  actions,
+  fact = "network.retained.origin",
+) {
+  const branches = [
+    {
+      id: "metadata",
+      when: [{ fact, equals: "metadata" }],
+      actions: [],
+    },
+  ];
+  if (actions.includes("network:connect")) {
+    branches.push({
+      id: "outbound",
+      when: [{ fact, equals: "outbound" }],
+      actions: ["network:connect"],
+    });
+  }
+  if (actions.includes("network:listen")) {
+    branches.push({
+      id: "accepted",
+      when: [{ fact, equals: "accepted" }],
+      actions: ["network:listen"],
+    });
+  }
+  return conditionalBranchEffectSpec(
+    branches,
+    "network",
+    "WP6",
+    NETWORK_RETAINED_OPTIONS,
+  );
+}
+
+function dnsResolverEffectSpec(fact) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "custom-udp",
+        when: [{ fact, equals: "custom-udp" }],
+        actions: ["network:connect", "network:listen", "network:resolve"],
+      },
+      {
+        id: "system",
+        when: [{ fact, equals: "system" }],
+        actions: ["network:resolve"],
+      },
+    ],
+    "network",
+    "WP6",
+    { lifetimeContract: "operation" },
+  );
+}
+
+function udpSendEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "already-bound",
+        when: [{ fact: "network.udp.bind-state", equals: "already-bound" }],
+        actions: ["network:connect"],
+      },
+      {
+        id: "implicit-bind",
+        when: [{ fact: "network.udp.bind-state", equals: "implicit-bind" }],
+        actions: ["network:connect", "network:listen"],
+      },
+    ],
+    "network",
+    "WP6",
+    NETWORK_RETAINED_OPTIONS,
+  );
+}
+
+function inetOrUnixNetworkEffectSpec(action, pathAction, fact) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "inet",
+        when: [{ fact, equals: "inet" }],
+        actions: [action],
+      },
+      {
+        id: "unix",
+        when: [{ fact, equals: "unix" }],
+        actions: [pathAction, action],
+      },
+    ],
+    "network",
+    "WP6",
+    {
+      lifetimeContract:
+        action === "network:listen" ? "listener" : "socket-stream",
+    },
+  );
+}
+
+function optionalPayloadNetworkEffectSpec(action, fact) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "payload",
+        when: [{ fact, equals: "payload" }],
+        actions: [action],
+      },
+      {
+        id: "release",
+        when: [{ fact, equals: "release" }],
+        actions: [],
+      },
+    ],
+    "network",
+    "WP6",
+    NETWORK_RETAINED_OPTIONS,
+  );
+}
+
+function environmentSelectedNetworkEffectSpec(action, fact, options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "set",
+        when: [{ fact, equals: "set" }],
+        actions: ["env:read", action],
+      },
+      {
+        id: "unset",
+        when: [{ fact, equals: "unset" }],
+        actions: [],
+      },
+    ],
+    "network",
+    "WP6",
+    options,
+  );
+}
+
 function closedSpec(action, implementationOwner, rationale) {
   return { classification: "closed", action, implementationOwner, rationale };
 }
@@ -7417,13 +7579,7 @@ function builtinExportClassification(surface) {
       if (/^(?:lookup|lookupservice)$/u.test(name)) {
         return effectSpec(["network:resolve"], "network", "WP6");
       }
-      return conditionalEffectSpec(
-        ["network:connect", "network:listen", "network:resolve"],
-        "network",
-        "WP6",
-        "Module DNS query methods may use the system resolver or bind a UDP socket and send to the configured DNS server.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return dnsResolverEffectSpec("network.dns.module-resolver");
     }
     if (/^(?:setservers|setdefaultresultorder)$/u.test(name)) {
       return closedSpec(
@@ -7437,13 +7593,7 @@ function builtinExportClassification(surface) {
         name,
       )
     ) {
-      return conditionalEffectSpec(
-        ["network:connect", "network:listen", "network:resolve"],
-        "network",
-        "WP6",
-        "A custom Resolver may bind a UDP socket and send DNS queries to caller-selected server endpoints; the system-resolver branch only resolves.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return dnsResolverEffectSpec("network.dns.resolver");
     }
     if (/^resolvercancel$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP6");
@@ -7484,12 +7634,9 @@ function builtinExportClassification(surface) {
         return nonCapabilitySpec("authority-release", "WP6");
       }
       if (/^agent(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
-          ["network:connect"],
-          "network",
-          "WP6",
-          "HTTP Agent methods may allocate, retain, reuse, or dispatch an outbound connection depending on pool state.",
-          { lifetimeContract: "socket-stream" },
+        return optionalNetworkEffectSpec(
+          "network:connect",
+          "network.http-agent.operation",
         );
       }
       if (/^clientrequest(?:abort|destroy)$/u.test(name)) {
@@ -7499,21 +7646,15 @@ function builtinExportClassification(surface) {
         return nonCapabilitySpec("authority-control-plane", "WP6");
       }
       if (/^clientrequest(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
-          ["network:connect"],
-          "network",
-          "WP6",
-          "ClientRequest methods conditionally create or use the retained outbound connection; header-only branches have no external effect.",
-          { lifetimeContract: "socket-stream" },
+        return optionalNetworkEffectSpec(
+          "network:connect",
+          "network.http-client-request.operation",
         );
       }
       if (/^(?:incomingmessage|outgoingmessage|websocket)(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
+        return retainedNetworkOriginEffectSpec(
           ["network:connect", "network:listen"],
-          "network",
-          "WP6",
-          "The shared HTTP message/socket wrapper may belong to an outbound request or an accepted listener connection.",
-          { lifetimeContract: "socket-stream" },
+          "network.http-message.origin",
         );
       }
       if (
@@ -7533,21 +7674,16 @@ function builtinExportClassification(surface) {
         });
       }
       if (/^server(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
-          ["network:listen"],
-          "network",
-          "WP6",
-          "HTTP Server methods may query listener state, configure it, or accept and deliver connections.",
+        return optionalNetworkEffectSpec(
+          "network:listen",
+          "network.http-server.operation",
           { lifetimeContract: "listener" },
         );
       }
       if (/^(?:serverincomingmessage|serverresponse)(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
-          ["network:listen"],
-          "network",
-          "WP6",
-          "Server-side HTTP message methods conditionally consume or produce bytes on an accepted connection.",
-          { lifetimeContract: "socket-stream" },
+        return optionalNetworkEffectSpec(
+          "network:listen",
+          "network.http-server-message.operation",
         );
       }
       if (
@@ -7566,23 +7702,18 @@ function builtinExportClassification(surface) {
         );
       }
       if (/^agent(?:\.|$)/u.test(api)) {
-        return conditionalEffectSpec(
-          ["network:connect"],
-          "network",
-          "WP6",
-          "HTTPS Agent methods may create or reuse an authenticated outbound connection.",
-          { lifetimeContract: "socket-stream" },
+        return optionalNetworkEffectSpec(
+          "network:connect",
+          "network.https-agent.operation",
         );
       }
       if (/^server(?:\.|$)/u.test(api)) {
         if (/^serverconstructor$/u.test(name)) {
           return nonCapabilitySpec("unbound-owned-resource", "WP6");
         }
-        return conditionalEffectSpec(
-          ["network:listen"],
-          "network",
-          "WP6",
-          "HTTPS Server methods conditionally configure or use the retained listener.",
+        return optionalNetworkEffectSpec(
+          "network:listen",
+          "network.https-server.operation",
           { lifetimeContract: "listener" },
         );
       }
@@ -7619,26 +7750,20 @@ function builtinExportClassification(surface) {
 
   if (source === "node_net") {
     if (/^(?:connect|createconnection)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:read", "network:connect"],
-        "network",
-        "WP6",
-        "Net connect may select an IP endpoint or discover and connect to a Unix-domain socket path.",
-        {
-          lifetimeContract: "socket-stream",
-        },
+      return inetOrUnixNetworkEffectSpec(
+        "network:connect",
+        "fs:read",
+        "network.connect.address-kind",
       );
     }
     if (/^createserver$/u.test(name)) {
       return nonCapabilitySpec("unbound-owned-resource", "WP6");
     }
     if (/^serverlisten$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:write", "network:listen"],
-        "network",
-        "WP6",
-        "Server.listen may bind an IP endpoint or create a Unix-domain socket path.",
-        { lifetimeContract: "listener" },
+      return inetOrUnixNetworkEffectSpec(
+        "network:listen",
+        "fs:write",
+        "network.listen.address-kind",
       );
     }
     if (/^server(?:close)$/u.test(name)) {
@@ -7651,21 +7776,17 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("unbound-owned-resource", "WP6");
     }
     if (/^server(?:\.|$)/u.test(api)) {
-      return conditionalEffectSpec(
-        ["network:listen"],
-        "network",
-        "WP6",
-        "Net Server methods may query or configure listener state or deliver accepted connections.",
+      return optionalNetworkEffectSpec(
+        "network:listen",
+        "network.net-server.operation",
         { lifetimeContract: "listener" },
       );
     }
     if (/^(?:socket|stream)connect$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:read", "network:connect"],
-        "network",
-        "WP6",
-        "Socket.connect may select an IP endpoint or discover and connect to a Unix-domain socket path.",
-        { lifetimeContract: "socket-stream" },
+      return inetOrUnixNetworkEffectSpec(
+        "network:connect",
+        "fs:read",
+        "network.socket.connect.address-kind",
       );
     }
     if (/^(?:socket|stream)(?:close|destroy|resetanddestroy)$/u.test(name)) {
@@ -7682,16 +7803,9 @@ function builtinExportClassification(surface) {
         api,
       )
     ) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "Retained Socket/Stream metadata discloses or mutates state belonging to either an outbound connection or an accepted listener connection; WP6 must select the authenticated descriptor provenance.",
-        {
-          lifetimeContract: "socket-stream",
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-        },
+        "network.socket.metadata-origin",
       );
     }
     if (/^(?:socket|stream)$/u.test(name)) {
@@ -7702,12 +7816,9 @@ function builtinExportClassification(surface) {
       );
     }
     if (/^(?:socket|stream)(?:\.|$)/u.test(api)) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "A net Socket/Stream may be an outbound connection or an accepted listener connection; metadata-only branches have no external effect.",
-        { lifetimeContract: "socket-stream" },
+        "network.socket.operation-origin",
       );
     }
     if (
@@ -7736,21 +7847,12 @@ function builtinExportClassification(surface) {
       });
     }
     if (/^socket(?:connect|send|sendto)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "UDP connect and send operations may implicitly bind and begin receiving before sending to the peer.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return udpSendEffectSpec();
     }
     if (/^socketstartrecv$/u.test(name)) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "UDP receive delivery may belong to a connected peer or a bound listener socket.",
-        { lifetimeContract: "socket-stream" },
+        "network.udp.receive-origin",
       );
     }
     if (/^socket(?:fromfd|getfd)$/u.test(name)) {
@@ -8021,25 +8123,15 @@ function builtinExportClassification(surface) {
         api,
       )
     ) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "TLSSocket metadata discloses retained transport state that may belong to an outbound connection or an accepted listener connection.",
-        {
-          lifetimeContract: "socket-stream",
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-        },
+        "network.tls-socket.metadata-origin",
       );
     }
     if (/^tlssocket(?:\.|$)/u.test(api)) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "A TLSSocket may wrap an outbound connection or an accepted server connection; metadata-only branches have no external effect.",
-        { lifetimeContract: "socket-stream" },
+        "network.tls-socket.operation-origin",
       );
     }
     if (/^serverconstructor$/u.test(name)) {
@@ -8062,12 +8154,9 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("authority-release", "WP6");
     }
     if (/^websocket(?:close|ping|pong|send|sendframe)$/u.test(name)) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "WebSocket output may use an outbound client connection or a connection accepted by WebSocketServer.",
-        { lifetimeContract: "socket-stream" },
+        "network.websocket.output-origin",
       );
     }
     if (
@@ -8075,12 +8164,9 @@ function builtinExportClassification(surface) {
         name,
       )
     ) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "WebSocket input delivery may use an outbound client connection or a connection accepted by WebSocketServer.",
-        { lifetimeContract: "socket-stream" },
+        "network.websocket.input-origin",
       );
     }
     if (
@@ -9183,11 +9269,9 @@ function startupEnvironmentClassification(surface) {
       : effectSpec(["env:read"], "environment", "WP7");
   }
   if (environmentName === "IBEX_HTTP_MAX_REQUEST_BODY_BYTES") {
-    return conditionalEffectSpec(
-      ["env:read", "network:listen"],
-      "network",
-      "WP6",
-      "IBEX_HTTP_MAX_REQUEST_BODY_BYTES changes how the shared HTTP listener admits and buffers request bodies.",
+    return environmentSelectedNetworkEffectSpec(
+      "network:listen",
+      "network.environment.http-max-request-body",
       { lifetimeContract: "listener" },
     );
   }
@@ -9231,19 +9315,15 @@ function startupEnvironmentClassification(surface) {
     environmentName === "IBEX_DNS_SERVER" ||
     environmentName === "RES_OPTIONS"
   ) {
-    return conditionalEffectSpec(
-      ["env:read", "network:resolve"],
-      "network",
-      "WP6",
-      `${environmentName} changes the resolver endpoint or transport timing used for DNS operations.`,
+    return environmentSelectedNetworkEffectSpec(
+      "network:resolve",
+      `network.environment.${environmentName.toLowerCase().replaceAll("_", "-")}`,
     );
   }
   if (environmentName === "EXACT_WINHTTP_ENABLE_HTTP2") {
-    return conditionalEffectSpec(
-      ["env:read", "network:fetch"],
-      "network",
-      "WP6",
-      "EXACT_WINHTTP_ENABLE_HTTP2 changes the Windows HTTP transport used by fetch requests.",
+    return environmentSelectedNetworkEffectSpec(
+      "network:fetch",
+      "network.environment.exact-winhttp-enable-http2",
       { lifetimeContract: "socket-stream" },
     );
   }
@@ -9265,11 +9345,9 @@ function startupEnvironmentClassification(surface) {
     );
   }
   if (environmentName === "WPT_SERVER_URL") {
-    return conditionalEffectSpec(
-      ["env:read", "network:fetch"],
-      "network",
-      "WP6",
-      "WPT_SERVER_URL selects the compatibility harness HTTP endpoint.",
+    return environmentSelectedNetworkEffectSpec(
+      "network:fetch",
+      "network.environment.wpt-server-url",
       { lifetimeContract: "socket-stream" },
     );
   }
@@ -10332,12 +10410,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       });
     }
     if (member === "close") {
-      return conditionalEffectSpec(
-        ["network:connect"],
-        "network",
-        "WP6",
-        "WebSocket close may transmit a code and reason before releasing the retained connection.",
-        { lifetimeContract: "socket-stream" },
+      return optionalPayloadNetworkEffectSpec(
+        "network:connect",
+        "network.websocket.close-kind",
       );
     }
     if (
@@ -10368,12 +10443,9 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       });
     }
     if (/^(?:close|_initiateclose|_finishwritableclose)$/u.test(member)) {
-      return conditionalEffectSpec(
-        ["network:connect"],
-        "network",
-        "WP6",
-        "WebSocketStream close may transmit a close frame before releasing the retained connection.",
-        { lifetimeContract: "socket-stream" },
+      return optionalPayloadNetworkEffectSpec(
+        "network:connect",
+        "network.websocket-stream.close-kind",
       );
     }
     if (/^(?:_drainresolvedwrites|_syncreadablebackpressure)$/u.test(member)) {
@@ -10851,16 +10923,9 @@ function androidHostAbiClassification(name) {
     });
   }
   if (operation === "closeWebSocket") {
-    return conditionalEffectSpec(
-      ["network:connect"],
-      "network",
-      "WP6",
-      "Android WebSocket close may transmit a caller-provided code and reason before releasing the retained connection.",
-      {
-        lifetimeContract: "socket-stream",
-        effectOwnerSource: "descriptor-owner",
-        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-      },
+    return optionalPayloadNetworkEffectSpec(
+      "network:connect",
+      "network.android-websocket.close-kind",
     );
   }
   if (
@@ -11282,16 +11347,9 @@ function nativeNetworkBackendClassification(name) {
     });
   }
   if (name === "native_ws_close") {
-    return conditionalEffectSpec(
-      ["network:connect"],
-      "network",
-      "WP6",
-      "Native WebSocket close may transmit a caller-provided close frame before releasing the retained connection.",
-      {
-        lifetimeContract: "socket-stream",
-        effectOwnerSource: "descriptor-owner",
-        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-      },
+    return optionalPayloadNetworkEffectSpec(
+      "network:connect",
+      "network.native-websocket.close-kind",
     );
   }
   if (
@@ -11599,12 +11657,9 @@ function classifyConcreteSurface(surface) {
     return nonCapabilitySpec("authority-release", "WP6");
   }
   if (/wsclose/u.test(name)) {
-    return conditionalEffectSpec(
-      ["network:connect"],
-      "network",
-      "WP6",
-      "WebSocket close may transmit a code/reason; WP6 must split payload-bearing I/O from a payload-free release.",
-      { lifetimeContract: "socket-stream" },
+    return optionalPayloadNetworkEffectSpec(
+      "network:connect",
+      "network.native-operation.websocket-close-kind",
     );
   }
 
@@ -11726,16 +11781,9 @@ function classifyConcreteSurface(surface) {
         name,
       )
     ) {
-      return conditionalEffectSpec(
+      return retainedNetworkOriginEffectSpec(
         ["network:connect", "network:listen"],
-        "network",
-        "WP6",
-        "The retained descriptor may originate from an outbound connection, accepted listener, or Unix socket; WP6 must select the effect owner and action from authenticated descriptor provenance.",
-        {
-          lifetimeContract: "socket-stream",
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-        },
+        "network.native-descriptor.origin",
       );
     }
     const actions = /unixconnect/u.test(name)

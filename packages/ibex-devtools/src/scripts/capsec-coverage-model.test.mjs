@@ -710,9 +710,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           "network:connect",
           "network:listen",
         ]);
-        expect(classified.edge.effectMode, exportName).toBe(
-          "conditional-unrefined",
-        );
+        expect(classified.edge.effectMode, exportName).toBe("conditional");
         expect(classified.edge.effectOwnerSource, exportName).toBe(
           "descriptor-owner",
         );
@@ -792,9 +790,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "network:connect",
         "network:listen",
       ]);
-      expect(classified.edge.effectMode, exportName).toBe(
-        "conditional-unrefined",
-      );
+      expect(classified.edge.effectMode, exportName).toBe("conditional");
       expect(classified.edge.effectOwnerSource, exportName).toBe(
         "descriptor-owner",
       );
@@ -947,7 +943,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const closeWebSocket = classifyJava("closeWebSocket");
     expect(closeWebSocket.edge.classification).toBe("effects");
     expect(edgeActions(closeWebSocket)).toEqual(["network:connect"]);
-    expect(closeWebSocket.edge.effectMode).toBe("conditional-unrefined");
+    expect(closeWebSocket.edge.effectMode).toBe("conditional");
     expect(closeWebSocket.edge.effectOwnerSource).toBe("descriptor-owner");
 
     for (const operation of [
@@ -1067,11 +1063,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
   });
 
   test("parameter-dependent effects remain explicitly unrefined and unclaimable", () => {
-    for (const name of [
-      "__exactSpawn",
-      "__exactAndroidCameraHostCall",
-      "__exactTcpRead",
-    ]) {
+    for (const name of ["__exactSpawn", "__exactAndroidCameraHostCall"]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
         context,
@@ -1227,7 +1219,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "Resolver.resolveTxt",
         "effects",
         ["network:connect", "network:listen", "network:resolve"],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["node_dns", "Resolver.cancel", "non-capability", []],
       [
@@ -1242,7 +1234,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "Socket.send",
         "effects",
         ["network:connect", "network:listen"],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["node_dgram", "Socket._fromFd", "closed", ["ipc:channel"]],
       ["node_dgram", "Socket.close", "non-capability", []],
@@ -1273,14 +1265,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "Socket.connect",
         "effects",
         ["fs:read", "network:connect"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_net",
         "Server.listen",
         "effects",
         ["fs:write", "network:listen"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_fs_promises",
@@ -1324,14 +1316,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "ClientRequest.write",
         "effects",
         ["network:connect"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_http",
         "IncomingMessage.read",
         "effects",
         ["network:connect", "network:listen"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_http",
@@ -1352,14 +1344,14 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "TLSSocket.write",
         "effects",
         ["network:connect", "network:listen"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "ws",
         "WebSocket.send",
         "effects",
         ["network:connect", "network:listen"],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["ws", "WebSocket.terminate", "non-capability", []],
       [
@@ -1673,9 +1665,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "network:connect",
         "network:listen",
       ]);
-      expect(classified.edge.effectMode, exportName).toBe(
-        "conditional-unrefined",
-      );
+      expect(classified.edge.effectMode, exportName).toBe("conditional");
     }
 
     for (const exportName of ["resolve", "resolve4", "reverse"]) {
@@ -1688,7 +1678,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "network:listen",
         "network:resolve",
       ]);
-      expect(classified.edge.effectMode).toBe("conditional-unrefined");
+      expect(classified.edge.effectMode).toBe("conditional");
     }
 
     for (const [exportName, expectedActions] of [
@@ -2846,31 +2836,74 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
     }
 
-    for (const [environmentName, expectedActions] of [
-      ["IBEX_POLICY", ["env:read", "fs:list", "fs:read"]],
-      ["IBEX_REPO_ROOT", ["env:read", "fs:list", "fs:read"]],
-      ["PATH", ["env:read", "fs:list", "process:spawn"]],
-      ["IBEX_DNS_SERVER", ["env:read", "network:resolve"]],
-      ["RES_OPTIONS", ["env:read", "network:resolve"]],
-      ["IBEX_HTTP_MAX_REQUEST_BODY_BYTES", ["env:read", "network:listen"]],
-      ["EXACT_SECURITY_LOG", ["env:read", "stdio:write"]],
-      ["IBEX_SUPPRESS_CONSOLE_MIRROR", ["env:read", "stdio:write"]],
+    for (const [environmentName, expectedActions, expectedMode] of [
+      [
+        "IBEX_POLICY",
+        ["env:read", "fs:list", "fs:read"],
+        "conditional-unrefined",
+      ],
+      [
+        "IBEX_REPO_ROOT",
+        ["env:read", "fs:list", "fs:read"],
+        "conditional-unrefined",
+      ],
+      [
+        "PATH",
+        ["env:read", "fs:list", "process:spawn"],
+        "conditional-unrefined",
+      ],
+      ["IBEX_DNS_SERVER", ["env:read", "network:resolve"], "conditional"],
+      ["RES_OPTIONS", ["env:read", "network:resolve"], "conditional"],
+      [
+        "IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
+        ["env:read", "network:listen"],
+        "conditional",
+      ],
+      [
+        "EXACT_SECURITY_LOG",
+        ["env:read", "stdio:write"],
+        "conditional-unrefined",
+      ],
+      [
+        "IBEX_SUPPRESS_CONSOLE_MIRROR",
+        ["env:read", "stdio:write"],
+        "conditional-unrefined",
+      ],
       [
         "EXACT_ANDROID_CACHE_DIR",
         ["env:read", "env:write", "fs:list", "fs:read", "fs:write"],
+        "conditional-unrefined",
       ],
       [
         "EXACT_ANDROID_EXTERNAL_FILES_DIR",
         ["env:read", "env:write", "fs:list", "fs:read", "fs:write"],
+        "conditional-unrefined",
       ],
       [
         "EXACT_TRANSPILE_SCRIPT",
         ["env:read", "fs:list", "fs:read", "process:spawn"],
+        "conditional-unrefined",
       ],
-      ["EXACT_EXECUTABLE", ["env:read", "fs:list", "process:spawn"]],
-      ["EXACT_COMPAT_EXECUTABLE", ["env:read", "fs:list", "process:spawn"]],
-      ["COMSPEC", ["env:read", "fs:list", "process:spawn"]],
-      ["EXACT_WINHTTP_ENABLE_HTTP2", ["env:read", "network:fetch"]],
+      [
+        "EXACT_EXECUTABLE",
+        ["env:read", "fs:list", "process:spawn"],
+        "conditional-unrefined",
+      ],
+      [
+        "EXACT_COMPAT_EXECUTABLE",
+        ["env:read", "fs:list", "process:spawn"],
+        "conditional-unrefined",
+      ],
+      [
+        "COMSPEC",
+        ["env:read", "fs:list", "process:spawn"],
+        "conditional-unrefined",
+      ],
+      [
+        "EXACT_WINHTTP_ENABLE_HTTP2",
+        ["env:read", "network:fetch"],
+        "conditional",
+      ],
     ]) {
       const classified = classifyObservedSurface(
         surface("startup", `env:${environmentName}`),
@@ -2878,9 +2911,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       expect(classified.edge.classification, environmentName).toBe("effects");
       expect(edgeActions(classified), environmentName).toEqual(expectedActions);
-      expect(classified.edge.effectMode, environmentName).toBe(
-        "conditional-unrefined",
-      );
+      expect(classified.edge.effectMode, environmentName).toBe(expectedMode);
     }
 
     for (const environmentName of [
@@ -3109,7 +3140,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     const close = classifyBackend("native_ws_close");
-    expect(close.edge.effectMode).toBe("conditional-unrefined");
+    expect(close.edge.effectMode).toBe("conditional");
     expect(close.edge.effectOwnerSource).toBe("descriptor-owner");
     expect(classifyBackend("native_ws_send").edge.effectOwnerSource).toBe(
       "descriptor-owner",
@@ -3565,7 +3596,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           exportName,
         ).toMatchObject({
           classification: "effects",
-          effectMode: "conditional-unrefined",
+          effectMode: "conditional",
           effectOwnerSource: "descriptor-owner",
           effects: [{ cap: "network:connect" }, { cap: "network:listen" }],
         });
@@ -3637,7 +3668,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toMatchObject({
       classification: "effects",
-      effectMode: "conditional-unrefined",
+      effectMode: "conditional",
       effectOwnerSource: "descriptor-owner",
       effects: [{ cap: "network:connect" }],
     });
@@ -3837,7 +3868,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "native_ws_close",
         {
           classification: "effects",
-          effectMode: "conditional-unrefined",
+          effectMode: "conditional",
           effectOwnerSource: "descriptor-owner",
           effects: [{ cap: "network:connect" }],
         },
