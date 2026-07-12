@@ -305,6 +305,11 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
 int ex_host_typed_dynamic_grant(const uint8_t* request, size_t request_len);
 int ex_host_typed_dynamic_revoke(const uint8_t* request, size_t request_len);
 
+/// Mint/re-attenuate and revoke typed bearer handles. Mint returns a heap-owned
+/// JSON handle/error envelope; revoke returns 1/0/-1 like dynamic revocation.
+char* ex_host_typed_handle_mint(const uint8_t* request, size_t request_len);
+int ex_host_typed_handle_revoke(const uint8_t* request, size_t request_len);
+
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);
 

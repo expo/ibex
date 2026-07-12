@@ -5162,6 +5162,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_time_now_ms",
     "ex_host_typed_dynamic_grant",
     "ex_host_typed_dynamic_revoke",
+    "ex_host_typed_handle_mint",
+    "ex_host_typed_handle_revoke",
     "ex_host_version",
     "ex_worklet_bind_shared_values",
     "ex_worklet_create",
@@ -11211,7 +11213,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke)$/u.test(
+    /^(?:exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {

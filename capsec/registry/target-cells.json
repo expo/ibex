@@ -58823,6 +58823,40 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.typed.handle.mint.06rx1lp",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.typed.handle.mint.06rx1lp.default.0337yoz"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7.default.1kq0xll"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.version.0j3pfft",
       "target": {
         "triple": "aarch64-apple-darwin",

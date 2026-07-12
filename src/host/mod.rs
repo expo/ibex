@@ -37,6 +37,18 @@ struct TypedDynamicGrantRequest {
     authority: capsec_semantics::model::AuthoritySelector,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TypedHandleMintRequest {
+    actor: capsec_semantics::model::Principal,
+    holder: capsec_semantics::model::Principal,
+    authority: capsec_semantics::model::AuthoritySelector,
+    #[serde(default)]
+    parent_handle_id: Option<capsec_semantics::model::NonEmptyString>,
+    #[serde(default)]
+    operation_id: Option<capsec_semantics::model::NonEmptyString>,
+}
+
 /// Capability security enforcement mode.
 ///
 /// @ref LLP 0013#phase-0 — the historical `Capability` and `Strict` modes were
@@ -480,6 +492,215 @@ impl Host {
         self.revoke_typed_dynamic(&grant_id)
     }
 
+    pub fn mint_typed_handle(
+        &self,
+        actor: capsec_semantics::model::Principal,
+        holder: capsec_semantics::model::Principal,
+        selector: capsec_semantics::model::AuthoritySelector,
+        parent_handle_id: Option<&capsec_semantics::model::NonEmptyString>,
+        operation_id: Option<capsec_semantics::model::NonEmptyString>,
+    ) -> capsec_semantics::Result<capsec_semantics::model::NonEmptyString> {
+        use capsec_semantics::containment::{
+            try_compare_authority_containment, Containment, ContainmentContext,
+        };
+        use capsec_semantics::decision::{BearerHandle, BoundAuthority};
+
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed handle mint requested without an armed context".into(),
+            )
+        })?;
+        let mut current = context.write().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let mut authority = current.authority().clone();
+        let (owner, package_root_owner, ancestor_ids) = if let Some(parent_handle_id) =
+            parent_handle_id
+        {
+            let parent = authority
+                .handles
+                .iter()
+                .find(|handle| &handle.handle_id == parent_handle_id)
+                .ok_or_else(|| {
+                    capsec_semantics::Error::ArmRefused("parent handle is absent or revoked".into())
+                })?;
+            if parent.holder != actor {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "only the current holder may re-attenuate a handle".into(),
+                ));
+            }
+            let same_package_root_owner = matches!(
+                (
+                    &parent.authority.package_root_owner,
+                    selector.resource.contains_package_logical_root(),
+                ),
+                (Some(_), true) | (None, false)
+            );
+            if !matches!(
+                try_compare_authority_containment(
+                    &parent.authority.selector,
+                    &selector,
+                    &ContainmentContext {
+                        same_snapshot: true,
+                        same_package_root_owner,
+                    },
+                )?,
+                Containment::Equal | Containment::StrictSubset
+            ) {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "child handle would widen its parent authority".into(),
+                ));
+            }
+            let mut ancestors = parent.ancestor_ids.clone();
+            ancestors.push(parent.handle_id.clone());
+            ancestors.sort();
+            ancestors.dedup();
+            (
+                parent.owner.clone(),
+                parent.authority.package_root_owner.clone(),
+                ancestors,
+            )
+        } else {
+            let package_owner = selector
+                .resource
+                .contains_package_logical_root()
+                .then(|| actor.is_package().then(|| actor.clone()))
+                .flatten();
+            if !current.static_authority_covers(&actor, &selector, package_owner.as_ref())? {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "handle authority is not covered by the owner's static floor".into(),
+                ));
+            }
+            (actor, package_owner, Vec::new())
+        };
+
+        let handle_id = fresh_typed_handle_id(&authority.handles)?;
+        let next_handle = authority
+            .generations
+            .handle
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "handle generation cannot be incremented".into(),
+                )
+            })?;
+        for handle in &mut authority.handles {
+            handle.published_handle_generation = next_handle;
+        }
+        authority.handles.push(BearerHandle {
+            handle_id: handle_id.clone(),
+            owner,
+            holder,
+            authority: BoundAuthority {
+                source_id: capsec_semantics::model::NonEmptyString::new(format!(
+                    "handle.{}",
+                    handle_id.as_str()
+                ))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: current.identity().armed_snapshot_digest.clone(),
+                package_root_owner,
+            },
+            observed_negative_generation: authority.generations.negative,
+            published_handle_generation: next_handle,
+            ancestor_ids,
+            operation_id,
+        });
+        authority
+            .handles
+            .sort_by(|left, right| left.handle_id.cmp(&right.handle_id));
+        authority.generations.handle = next_handle;
+        *current = current.with_authority(authority)?;
+        Ok(handle_id)
+    }
+
+    pub fn mint_typed_handle_json(
+        &self,
+        request_json: &[u8],
+    ) -> capsec_semantics::Result<capsec_semantics::model::NonEmptyString> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "handle mint request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let request: TypedHandleMintRequest = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.mint_typed_handle(
+            request.actor,
+            request.holder,
+            request.authority,
+            request.parent_handle_id.as_ref(),
+            request.operation_id,
+        )
+    }
+
+    pub fn revoke_typed_handle(
+        &self,
+        handle_id: &capsec_semantics::model::NonEmptyString,
+    ) -> capsec_semantics::Result<bool> {
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed handle revocation requested without an armed context".into(),
+            )
+        })?;
+        let mut current = context.write().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let mut authority = current.authority().clone();
+        let original_len = authority.handles.len();
+        authority.handles.retain(|handle| {
+            &handle.handle_id != handle_id && !handle.ancestor_ids.contains(handle_id)
+        });
+        if authority.handles.len() == original_len {
+            return Ok(false);
+        }
+        let next_negative = authority
+            .generations
+            .negative
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "negative generation cannot be incremented".into(),
+                )
+            })?;
+        let next_handle = authority
+            .generations
+            .handle
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "handle generation cannot be incremented".into(),
+                )
+            })?;
+        authority.generations.negative = next_negative;
+        authority.generations.handle = next_handle;
+        for handle in &mut authority.handles {
+            handle.observed_negative_generation = next_negative;
+            handle.published_handle_generation = next_handle;
+        }
+        for grant in &mut authority.dynamic_grants {
+            grant.observed_negative_generation = next_negative;
+        }
+        for revocation in &mut authority.revocations {
+            revocation.generation = next_negative;
+        }
+        *current = current.with_authority(authority)?;
+        Ok(true)
+    }
+
+    pub fn revoke_typed_handle_json(&self, request_json: &[u8]) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "handle revocation request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let handle_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.revoke_typed_handle(&handle_id)
+    }
+
     /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow
     pub fn handles(&self) -> &handles::HandleRegistry {
         &self.handles
@@ -758,6 +979,33 @@ fn typed_import_allowed(
     policy.packages.iter().any(|allowed| {
         allowed == specifier || package_name_from_specifier(allowed) == requested_package
     })
+}
+
+fn fresh_typed_handle_id(
+    handles: &[capsec_semantics::decision::BearerHandle],
+) -> capsec_semantics::Result<capsec_semantics::model::NonEmptyString> {
+    for _ in 0..32 {
+        let mut random = [0u8; 16];
+        getrandom::getrandom(&mut random).map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "OS randomness unavailable for handle mint: {error}"
+            ))
+        })?;
+        let id = capsec_semantics::model::NonEmptyString::new(format!(
+            "h-{}",
+            random
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        ))
+        .map_err(capsec_semantics::Error::InvalidModel)?;
+        if handles.iter().all(|handle| handle.handle_id != id) {
+            return Ok(id);
+        }
+    }
+    Err(capsec_semantics::Error::ArmRefused(
+        "could not allocate a unique handle id".into(),
+    ))
 }
 
 fn package_name_from_specifier(specifier: &str) -> &str {
@@ -1159,5 +1407,132 @@ mod tests {
             ),
             Err(capsec_semantics::Error::DuplicateKey { .. })
         ));
+    }
+
+    #[test]
+    fn typed_handles_attenuate_delegate_and_revoke_as_a_cascade() {
+        use capsec_semantics::decision::{DecisionOutcome, EffectGate};
+        use capsec_semantics::model::{AuthoritySelector, DecisionSet, Principal};
+
+        let host = example_armed_host();
+        let owner_value = serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        });
+        let holder_value = serde_json::json!({"kind": "runtime", "identity": "delegated-consumer"});
+        let owner: Principal = serde_json::from_value(owner_value).unwrap();
+        let holder: Principal = serde_json::from_value(holder_value.clone()).unwrap();
+        let tree: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-tree",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "images"}]
+                }
+            }
+        }))
+        .unwrap();
+        let photo: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [
+                        {"encoding": "utf8", "value": "images"},
+                        {"encoding": "utf8", "value": "photo.jpg"}
+                    ]
+                }
+            }
+        }))
+        .unwrap();
+        let decision: DecisionSet = serde_json::from_value(serde_json::json!({
+            "decisionSetSchema": "ibex/capsec-decision-set/1",
+            "operationId": "delegated-photo-read",
+            "atomicityGroup": "test.handle.fs.read",
+            "combination": "conjunction",
+            "context": {
+                "stage": "commit",
+                "actor": holder_value,
+                "constrainedPrincipals": [holder_value]
+            },
+            "effects": [{
+                "cap": "fs:read",
+                "effectOwner": holder_value,
+                "resource": {
+                    "kind": "path-occurrence",
+                    "requested": {
+                        "root": "project",
+                        "components": [
+                            {"encoding": "utf8", "value": "images"},
+                            {"encoding": "utf8", "value": "photo.jpg"}
+                        ]
+                    },
+                    "followMode": "follow-final",
+                    "objectState": "existing",
+                    "parentObject": {"platform": "unix", "volume": "dev-test", "file": "images"},
+                    "finalObject": {"platform": "unix", "volume": "dev-test", "file": "photo"},
+                    "retainedHandle": "delegated-fd"
+                }
+            }]
+        }))
+        .unwrap();
+        let gates: Vec<EffectGate> = serde_json::from_value(serde_json::json!([{
+            "coverageEdgeId": "test.handle.fs.read",
+            "targetCell": "complete",
+            "definitionAndEdgePredicatesSatisfied": true
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Deny
+        );
+        let parent_request = serde_json::to_vec(&serde_json::json!({
+            "actor": owner,
+            "holder": holder,
+            "authority": tree
+        }))
+        .unwrap();
+        let parent = host.mint_typed_handle_json(&parent_request).unwrap();
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Allow
+        );
+        let child = host
+            .mint_typed_handle(holder.clone(), holder.clone(), photo, Some(&parent), None)
+            .unwrap();
+        assert_ne!(parent, child);
+        assert!(host
+            .revoke_typed_handle_json(serde_json::to_string(parent.as_str()).unwrap().as_bytes())
+            .unwrap());
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Deny
+        );
+
+        let outside: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-tree",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "secrets"}]
+                }
+            }
+        }))
+        .unwrap();
+        assert!(host
+            .mint_typed_handle(owner, holder, outside, None, None)
+            .is_err());
     }
 }

@@ -66994,6 +66994,46 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.typed.handle.mint.06rx1lp",
+      "observedKey": "host-abi:ex_host_typed_handle_mint",
+      "branchId": "surface.host.abi.ex.host.typed.handle.mint.06rx1lp.default.0337yoz",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_typed_handle_mint"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.typed.handle.mint.06rx1lp.default.0337yoz.cannot-widen-authority",
+        "surface.host.abi.ex.host.typed.handle.mint.06rx1lp.default.0337yoz.non-capability",
+        "surface.host.abi.ex.host.typed.handle.mint.06rx1lp.default.0337yoz.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7",
+      "observedKey": "host-abi:ex_host_typed_handle_revoke",
+      "branchId": "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7.default.1kq0xll",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_typed_handle_revoke"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7.default.1kq0xll.cannot-widen-authority",
+        "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7.default.1kq0xll.non-capability",
+        "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7.default.1kq0xll.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.version.0j3pfft",
       "observedKey": "host-abi:ex_host_version",
       "branchId": "surface.host.abi.ex.host.version.0j3pfft.default.1msr5wb",
@@ -143284,53 +143324,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-v_nulF1Lt5ROY6ChsD_u_xUtNBH1MwkxCyH8dqwIF1s"
+      "rawContentDigest": "sha256-pyGdQYxctGwL1C3R351pjwwikAagRzE9YhudG9vY0W4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-0ePIwPoxhUt9guQlwgfTN3r-Yviql0cfC2tjZ70xovA"
+      "rawContentDigest": "sha256-Tp-S7Cn4qE_CTG2E0jkeztp7hhZdZPT8hWrJ8Xvmpb8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-H2tBLjx03TpZY1n-w4Hwu-QX-Ozn48JQ0RvAVCJ43bc"
+      "rawContentDigest": "sha256-iwdkVZQbXP2zpxmnWMkl92_iNDNhYHqa4Pws4mMNcwk"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-CZJ9r5qSUAc9USKIevxY8eFnrKMaYGY4lvHHMrM8xmI"
+      "rawContentDigest": "sha256-kL7VNIRJlIbEkj1hTrYTCEwXMgvz8Lqxjf9mZcgIw7o"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-ly_RWUMjNcJ9gFmt09Rj6dOHZgcwegNqYLejBOu20Qs"
+      "rawContentDigest": "sha256-vuO8bL2TTzgbjFN0wVPdmXGjef2GlHFvs_EVWVCbrQ4"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-Xkz0PV6E85wdAWZ6_kp750Y4QGZLUsI2Bix_Tu0ONaY"
+      "rawContentDigest": "sha256-R4XpyLTJGcwwKO9fBvEh_Erq1-SOgxL_IZcQur4ViBA"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-rhfOG4Wh1cyqKM1npGnJ8espewi66_tWPvgJ0kXvMO4"
+      "rawContentDigest": "sha256-T-EhGmjM-VcWzwF0JohXFkRMYW8yBhUfTw3G7dOvKYs"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-T9gAcZecnFBsBGT5p6_RFW2AHwT0Hcy0jb7_FgZ1O9A"
+      "rawContentDigest": "sha256-qQMhTsAFmyOb0LZVrw6LlfqzRXFFFaWD79nA0ZfI5zI"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-xifQEI_WRfEHYxoSPPCPVhJyxy8MVTwVsKuAWReNO9Y"
+      "rawContentDigest": "sha256-NZGtNo6YPpDZVBvQLmQ5lBIj6mHwSUYKlKEmip6XOzE"
     }
   ],
   "counts": {
-    "observedReferences": 11085,
-    "logicalSurfaces": 6819,
-    "coverageEdges": 6819,
-    "targetCells": 6819
+    "observedReferences": 11087,
+    "logicalSurfaces": 6821,
+    "coverageEdges": 6821,
+    "targetCells": 6821
   }
 }

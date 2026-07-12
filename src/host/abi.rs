@@ -1017,6 +1017,63 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
     )
 }
 
+/// Mint or re-attenuate an unguessable typed bearer handle. Returns a
+/// heap-owned JSON `handleId` or `error` envelope.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call. Free
+/// the returned string with `ex_host_free_string`.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_handle_mint(
+    request: *const u8,
+    request_len: usize,
+) -> *mut c_char {
+    if request.is_null() {
+        return as_json_cstring(&json!({"error": "null typed handle request"}));
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let result = with_host(
+        |host| match host.mint_typed_handle_json(request) {
+            Ok(handle_id) => as_json_cstring(&json!({"handleId": handle_id.as_str()})),
+            Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
+        },
+        std::ptr::null_mut(),
+    );
+    if result.is_null() {
+        as_json_cstring(&json!({"error": "host is not installed"}))
+    } else {
+        result
+    }
+}
+
+/// Revoke a typed bearer handle and all descendants by JSON string ID.
+/// Returns 1 when removed, 0 when absent, and -1 on malformed input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_handle_revoke(
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    with_host(
+        |host| match host.revoke_typed_handle_json(request) {
+            Ok(removed) => i32::from(removed),
+            Err(error) => {
+                eprintln!("error: typed handle revocation refused: {error}");
+                -1
+            }
+        },
+        -1,
+    )
+}
+
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.
 /// Used by the C++ bridge to skip expensive capability checks.
 #[no_mangle]

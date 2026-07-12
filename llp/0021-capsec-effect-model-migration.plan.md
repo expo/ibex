@@ -706,7 +706,10 @@ dynamic grant fails closed once that typed context is installed; production
 call sites must migrate to the typed ingress before a target can advertise.
 Typed dynamic grant publication now validates the canonical ceiling before
 advancing its generation; revocation advances negative and dynamic generations
-before publishing the replacement context, invalidating prior decisions.
+before publishing the replacement context, invalidating prior decisions. Typed
+bearer handles use OS-random identifiers, can be minted only from an owner's
+static floor or re-attenuated from a handle currently held by the actor, and
+revoke descendants as one negative/handle-generation publication.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

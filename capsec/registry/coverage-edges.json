@@ -137161,6 +137161,26 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.typed.handle.mint.06rx1lp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_typed_handle_mint"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.typed.handle.revoke.1qhc2y7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_typed_handle_revoke"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.version.0j3pfft",
       "classification": "non-capability",
       "surface": {
