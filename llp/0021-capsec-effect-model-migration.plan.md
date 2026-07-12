@@ -827,6 +827,13 @@ Typed bearer mint and cascade revocation are likewise reachable as
 `Ibex.authority.mintHandle(request)` and `revokeHandle(handleId)`. Handle IDs
 remain opaque strings; the live bridge exposes no numeric conversion or legacy
 capability-string minting path.
+The live native ABI authenticates both authority surfaces from the executing
+Hermes principal rather than trusting the principal or actor supplied in JSON.
+Dynamic grants must name that authenticated principal and may be revoked only
+by it; handle mint actors must match it, and handle revocation is limited to the
+authenticated owner or current holder. Forged package identities and unknown
+grant or handle IDs therefore refuse at the bridge instead of becoming ambient
+authority or cross-principal revocation.
 Successful typed grant, revocation, mint, and cascade-revocation publications
 wake the runtime. Each event-loop poll compares the authenticated negative,
 dynamic, and handle generations; changes emit a frozen generation tuple through

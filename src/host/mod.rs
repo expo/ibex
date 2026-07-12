@@ -817,6 +817,27 @@ impl Host {
         self.grant_typed_dynamic(request.grant_id, request.principal, request.authority)
     }
 
+    pub fn grant_typed_dynamic_json_for_principal(
+        &self,
+        principal: capsec_semantics::model::Principal,
+        request_json: &[u8],
+    ) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "dynamic grant request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let request: TypedDynamicGrantRequest = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        if request.principal != principal {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "dynamic grant principal does not match the executing principal".into(),
+            ));
+        }
+        self.grant_typed_dynamic(request.grant_id, principal, request.authority)
+    }
+
     pub fn revoke_typed_dynamic(
         &self,
         grant_id: &capsec_semantics::model::NonEmptyString,
@@ -880,6 +901,41 @@ impl Host {
         let value = capsec_semantics::strict_json::parse_strict(text)?;
         let grant_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
             .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.revoke_typed_dynamic(&grant_id)
+    }
+
+    pub fn revoke_typed_dynamic_json_for_principal(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+        request_json: &[u8],
+    ) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "dynamic revocation request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let grant_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed dynamic revocation requested without an armed context".into(),
+            )
+        })?;
+        let current = context.read().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let authorized = current
+            .authority()
+            .dynamic_grants
+            .iter()
+            .any(|grant| grant.grant_id == grant_id && &grant.principal == principal);
+        drop(current);
+        if !authorized {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "only the grant principal may revoke a dynamic grant".into(),
+            ));
+        }
         self.revoke_typed_dynamic(&grant_id)
     }
 
@@ -1026,6 +1082,33 @@ impl Host {
         )
     }
 
+    pub fn mint_typed_handle_json_for_actor(
+        &self,
+        actor: capsec_semantics::model::Principal,
+        request_json: &[u8],
+    ) -> capsec_semantics::Result<capsec_semantics::model::NonEmptyString> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "handle mint request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let request: TypedHandleMintRequest = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        if request.actor != actor {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "handle mint actor differs from the authenticated engine principal".into(),
+            ));
+        }
+        self.mint_typed_handle(
+            actor,
+            request.holder,
+            request.authority,
+            request.parent_handle_id.as_ref(),
+            request.operation_id,
+        )
+    }
+
     pub fn revoke_typed_handle(
         &self,
         handle_id: &capsec_semantics::model::NonEmptyString,
@@ -1089,6 +1172,42 @@ impl Host {
         let value = capsec_semantics::strict_json::parse_strict(text)?;
         let handle_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
             .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.revoke_typed_handle(&handle_id)
+    }
+
+    pub fn revoke_typed_handle_json_for_actor(
+        &self,
+        actor: &capsec_semantics::model::Principal,
+        request_json: &[u8],
+    ) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "handle revocation request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let handle_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed handle revocation requested without an armed context".into(),
+            )
+        })?;
+        let current = context.read().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let authorized = current
+            .authority()
+            .handles
+            .iter()
+            .find(|handle| handle.handle_id == handle_id)
+            .is_some_and(|handle| &handle.owner == actor || &handle.holder == actor);
+        drop(current);
+        if !authorized {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "only the authenticated handle owner or holder may revoke it".into(),
+            ));
+        }
         self.revoke_typed_handle(&handle_id)
     }
 
@@ -2330,6 +2449,17 @@ mod tests {
         }))
         .unwrap();
         let parent = host.mint_typed_handle_json(&parent_request).unwrap();
+        let wrong_holder: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "runtime",
+            "identity": "unrelated-runtime"
+        }))
+        .unwrap();
+        assert!(host
+            .revoke_typed_handle_json_for_actor(
+                &wrong_holder,
+                serde_json::to_string(parent.as_str()).unwrap().as_bytes(),
+            )
+            .is_err());
         assert_eq!(
             host.evaluate_typed_decision(&decision, &gates)
                 .unwrap()

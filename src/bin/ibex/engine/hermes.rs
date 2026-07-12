@@ -2327,6 +2327,77 @@ mod tests {
         assert!(!marker.exists());
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_authority_bridge_rejects_forged_principals_and_unknown_ids() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let script = r#"(function() {
+            var forgedActorDenied = false;
+            try {
+              Ibex.authority.mintHandle({
+                actor: {
+                  kind: 'package',
+                  name: 'image-lib',
+                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
+                  locator: 'image-lib@2.4.1'
+                },
+                holder: {
+                  kind: 'package',
+                  name: 'image-lib',
+                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
+                  locator: 'image-lib@2.4.1'
+                },
+                authority: {
+                  cap: 'fs:read',
+                  resource: {
+                    kind: 'path-tree',
+                    path: {
+                      root: 'project',
+                      components: [{encoding: 'utf8', value: 'images'}]
+                    }
+                  }
+                }
+              });
+            } catch (_) { forgedActorDenied = true; }
+            var unknownBearerDenied = false;
+            try { Ibex.authority.revokeHandle('h-forged-not-issued'); }
+            catch (_) { unknownBearerDenied = true; }
+            var forgedGrantDenied = false;
+            try {
+              Ibex.permissions.requestTyped({
+                grantId: 'forged-package-grant',
+                principal: {
+                  kind: 'package',
+                  name: 'image-lib',
+                  integrity: 'sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA',
+                  locator: 'image-lib@2.4.1'
+                },
+                authority: {
+                  cap: 'device:location',
+                  resource: {
+                    kind: 'device-location',
+                    usage: 'foreground',
+                    precision: 'coarse'
+                  }
+                }
+              });
+            } catch (_) { forgedGrantDenied = true; }
+            var unknownGrantDenied = false;
+            try { Ibex.permissions.revokeTyped('forged-grant-not-issued'); }
+            catch (_) { unknownGrantDenied = true; }
+            return JSON.stringify([
+              forgedActorDenied,
+              unknownBearerDenied,
+              forgedGrantDenied,
+              unknownGrantDenied
+            ]);
+        })()"#;
+        let outcome = engine.eval_immediate(script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("[true,true,true,true]"));
+    }
+
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer() {

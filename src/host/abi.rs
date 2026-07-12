@@ -1467,6 +1467,7 @@ fn object_identity(dev: u64, ino: u64) -> Option<capsec_semantics::model::Object
 /// `request` must reference `request_len` readable bytes for this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
+    module_id: u64,
     request: *const u8,
     request_len: usize,
 ) -> i32 {
@@ -1475,10 +1476,18 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
     let result = with_host(
-        |host| match host.grant_typed_dynamic_json(request) {
-            Ok(applied) => i32::from(applied),
-            Err(error) => {
-                eprintln!("error: typed dynamic grant refused: {error}");
+        |host| match host.typed_principal_for_module(&module_id.to_string()) {
+            Some(principal) => {
+                match host.grant_typed_dynamic_json_for_principal(principal, request) {
+                    Ok(applied) => i32::from(applied),
+                    Err(error) => {
+                        eprintln!("error: typed dynamic grant refused: {error}");
+                        -1
+                    }
+                }
+            }
+            None => {
+                eprintln!("error: typed dynamic grant refused: unknown executing principal");
                 -1
             }
         },
@@ -1498,6 +1507,7 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
 /// `request` must reference `request_len` readable bytes for this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
+    module_id: u64,
     request: *const u8,
     request_len: usize,
 ) -> i32 {
@@ -1506,10 +1516,18 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
     let result = with_host(
-        |host| match host.revoke_typed_dynamic_json(request) {
-            Ok(removed) => i32::from(removed),
-            Err(error) => {
-                eprintln!("error: typed dynamic revocation refused: {error}");
+        |host| match host.typed_principal_for_module(&module_id.to_string()) {
+            Some(principal) => {
+                match host.revoke_typed_dynamic_json_for_principal(&principal, request) {
+                    Ok(removed) => i32::from(removed),
+                    Err(error) => {
+                        eprintln!("error: typed dynamic revocation refused: {error}");
+                        -1
+                    }
+                }
+            }
+            None => {
+                eprintln!("error: typed dynamic revocation refused: unknown executing principal");
                 -1
             }
         },
@@ -1530,6 +1548,7 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
 /// the returned string with `ex_host_free_string`.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_handle_mint(
+    module_id: u64,
     request: *const u8,
     request_len: usize,
 ) -> *mut c_char {
@@ -1538,12 +1557,17 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
     let result = with_host(
-        |host| match host.mint_typed_handle_json(request) {
-            Ok(handle_id) => {
-                notify_runtime_authority_change();
-                as_json_cstring(&json!({"handleId": handle_id.as_str()}))
+        |host| {
+            let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
+                return as_json_cstring(&json!({"error": "authenticated handle actor is unknown"}));
+            };
+            match host.mint_typed_handle_json_for_actor(actor, request) {
+                Ok(handle_id) => {
+                    notify_runtime_authority_change();
+                    as_json_cstring(&json!({"handleId": handle_id.as_str()}))
+                }
+                Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
             }
-            Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
         },
         std::ptr::null_mut(),
     );
@@ -1562,6 +1586,7 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
 /// `request` must reference `request_len` readable bytes for this call.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_handle_revoke(
+    module_id: u64,
     request: *const u8,
     request_len: usize,
 ) -> i32 {
@@ -1570,11 +1595,16 @@ pub unsafe extern "C" fn ex_host_typed_handle_revoke(
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
     let result = with_host(
-        |host| match host.revoke_typed_handle_json(request) {
-            Ok(removed) => i32::from(removed),
-            Err(error) => {
-                eprintln!("error: typed handle revocation refused: {error}");
-                -1
+        |host| {
+            let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
+                return -1;
+            };
+            match host.revoke_typed_handle_json_for_actor(&actor, request) {
+                Ok(removed) => i32::from(removed),
+                Err(error) => {
+                    eprintln!("error: typed handle revocation refused: {error}");
+                    -1
+                }
             }
         },
         -1,

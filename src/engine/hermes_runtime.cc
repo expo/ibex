@@ -249,13 +249,17 @@ extern "C" int32_t ex_host_authorize_typed_fs_stack(
     int32_t needs_write,
     const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
-extern "C" int32_t ex_host_typed_dynamic_grant(const uint8_t* request,
+extern "C" int32_t ex_host_typed_dynamic_grant(uint64_t module_id,
+                                                 const uint8_t* request,
                                                  size_t request_len);
-extern "C" int32_t ex_host_typed_dynamic_revoke(const uint8_t* request,
+extern "C" int32_t ex_host_typed_dynamic_revoke(uint64_t module_id,
+                                                  const uint8_t* request,
                                                   size_t request_len);
-extern "C" char* ex_host_typed_handle_mint(const uint8_t* request,
+extern "C" char* ex_host_typed_handle_mint(uint64_t module_id,
+                                            const uint8_t* request,
                                             size_t request_len);
-extern "C" int32_t ex_host_typed_handle_revoke(const uint8_t* request,
+extern "C" int32_t ex_host_typed_handle_revoke(uint64_t module_id,
+                                                const uint8_t* request,
                                                  size_t request_len);
 extern "C" int32_t ex_host_typed_generations(uint64_t* negative,
                                               uint64_t* dynamic,
@@ -1549,6 +1553,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto request = serialized.asString(runtime).utf8(runtime);
         return facebook::jsi::Value(static_cast<double>(
             ex_host_typed_dynamic_grant(
+                currentPrincipalId(),
                 reinterpret_cast<const uint8_t*>(request.data()), request.size())));
       });
   rt.global().setProperty(
@@ -1571,6 +1576,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto request = serialized.asString(runtime).utf8(runtime);
         return facebook::jsi::Value(static_cast<double>(
             ex_host_typed_dynamic_revoke(
+                currentPrincipalId(),
                 reinterpret_cast<const uint8_t*>(request.data()), request.size())));
       });
   rt.global().setProperty(
@@ -1597,6 +1603,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         }
         auto request = serialized.asString(runtime).utf8(runtime);
         char* response = ex_host_typed_handle_mint(
+            currentPrincipalId(),
             reinterpret_cast<const uint8_t*>(request.data()), request.size());
         if (!response) {
           return facebook::jsi::String::createFromUtf8(
@@ -1625,6 +1632,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         auto request = serialized.asString(runtime).utf8(runtime);
         return facebook::jsi::Value(static_cast<double>(
             ex_host_typed_handle_revoke(
+                currentPrincipalId(),
                 reinterpret_cast<const uint8_t*>(request.data()), request.size())));
       });
   rt.global().setProperty(

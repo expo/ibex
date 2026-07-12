@@ -319,13 +319,21 @@ int ex_host_authorize_typed_fs_stack(uint64_t module_id,
 /// Publish or revoke ceiling-bounded typed dynamic authority. Grant input is a
 /// strict JSON request object; revoke input is a strict JSON string grant ID.
 /// Returns 1 when changed, 0 when unchanged, and -1 on refusal.
-int ex_host_typed_dynamic_grant(const uint8_t* request, size_t request_len);
-int ex_host_typed_dynamic_revoke(const uint8_t* request, size_t request_len);
+int ex_host_typed_dynamic_grant(uint64_t module_id,
+                                const uint8_t* request,
+                                size_t request_len);
+int ex_host_typed_dynamic_revoke(uint64_t module_id,
+                                 const uint8_t* request,
+                                 size_t request_len);
 
 /// Mint/re-attenuate and revoke typed bearer handles. Mint returns a heap-owned
 /// JSON handle/error envelope; revoke returns 1/0/-1 like dynamic revocation.
-char* ex_host_typed_handle_mint(const uint8_t* request, size_t request_len);
-int ex_host_typed_handle_revoke(const uint8_t* request, size_t request_len);
+char* ex_host_typed_handle_mint(uint64_t module_id,
+                                const uint8_t* request,
+                                size_t request_len);
+int ex_host_typed_handle_revoke(uint64_t module_id,
+                                const uint8_t* request,
+                                size_t request_len);
 
 /// Read the current authenticated negative/dynamic/handle generations.
 /// Returns 1 for an armed host and 0 otherwise.
