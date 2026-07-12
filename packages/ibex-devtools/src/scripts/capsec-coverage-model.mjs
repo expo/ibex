@@ -352,8 +352,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
 
 const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
   "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_host_call:pushRuntimeCallback",
-  "producer:src/engine/hermes_runtime.cc:ex_hermes_schedule_watchdog_heartbeat:pushRuntimeCallback",
-  "producer:src/engine/hermes_runtime.cc:native_ws_release_context:pushRuntimeCallback",
+  "producer:src/engine/hermes_runtime.cc:ex_hermes_schedule_watchdog_heartbeat_for_generation:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_animation_frame_callback:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_platform_event_available:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_crypto.cc:signalWatcherThreadMain:pushRuntimeCallback",

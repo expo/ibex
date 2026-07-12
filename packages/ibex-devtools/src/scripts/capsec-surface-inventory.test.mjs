@@ -4207,10 +4207,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(13);
+    expect(producers).toHaveLength(12);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(18);
+    ).toBe(17);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")

@@ -48334,7 +48334,7 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
-      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.schedule.watchdog.heartb.0qkpin7",
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.schedule.watchdog.heartb.1xyyct0",
       "target": {
         "triple": "aarch64-apple-darwin",
         "features": [
@@ -48345,24 +48345,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.schedule.watchdog.heartb.0qkpin7.main"
-      ],
-      "fixtures": [],
-      "rationale": "No content-addressed conformant report advertises this exact target cell."
-    },
-    {
-      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.native.ws.release.context.pushrunt.1v2icse",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.callback.producer.src.engine.hermes.runtime.cc.native.ws.release.context.pushrunt.1v2icse.main"
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.schedule.watchdog.heartb.1xyyct0.main"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
@@ -57778,6 +57761,23 @@
       "rationale": "No content-addressed conformant report advertises this exact target cell."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.runtime.nonce.0sqhs3l.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.03ne8ij",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -57790,6 +57790,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.03ne8ij.default"
+      ],
+      "fixtures": [],
+      "rationale": "No content-addressed conformant report advertises this exact target cell."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.for.generation.1tz4x4i",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.schedule.watchdog.heartbeat.for.generation.1tz4x4i.default"
       ],
       "fixtures": [],
       "rationale": "No content-addressed conformant report advertises this exact target cell."
