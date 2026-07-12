@@ -985,13 +985,40 @@ mod tests {
             }]
         });
         let mut second = value["principals"][1].clone();
-        second["principal"] = serde_json::json!({
+        let second_principal = serde_json::json!({
             "kind": "package",
             "name": "other-lib",
             "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "locator": "other-lib@1.0.0"
         });
+        second["principal"] = second_principal.clone();
         value["principals"].as_array_mut().unwrap().push(second);
+        value["principals"][0]["imports"]["packages"] =
+            serde_json::json!(["image-lib@2.4.1", "other-lib@1.0.0"]);
+        value["packageGraph"]["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"principal": second_principal.clone()}));
+        let root_identity = value["rootIdentity"].clone();
+        value["packageGraph"]["importEdges"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "importer": root_identity,
+                "imported": second_principal.clone(),
+            }));
+        let mut second_binding = value["rootBindings"][0].clone();
+        second_binding["owner"] = second_principal;
+        second_binding["hostPath"]["components"]
+            .as_array_mut()
+            .unwrap()
+            .last_mut()
+            .unwrap()["value"] = Value::String("other-lib".into());
+        second_binding["object"]["file"] = Value::String("file-201".into());
+        value["rootBindings"]
+            .as_array_mut()
+            .unwrap()
+            .push(second_binding);
         let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
         value["armedSnapshotDigest"] = Value::String(digest);
         let snapshot =
