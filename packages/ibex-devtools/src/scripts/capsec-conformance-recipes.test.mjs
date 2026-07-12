@@ -280,6 +280,55 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("binds directory enumeration to an owned generation-checked directory", () => {
+    const recipesForDirectory = recipes.recipes.filter(
+      (recipe) =>
+        recipe.route.surfaceObservedKeys.includes(
+          "builtin:export:node_fs:readdirSync",
+        ) &&
+        [
+          "allow",
+          "deny",
+          "malformed",
+          "missing-attribution",
+          "wrong-principal",
+        ].includes(recipe.scenario),
+    );
+    expect(recipesForDirectory).toHaveLength(5);
+    for (const recipe of recipesForDirectory) {
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName: "readdirSync",
+            setup: {
+              kind: "filesystem-directory",
+              logicalPath: {
+                root: "project",
+                components: [
+                  { encoding: "utf8", value: "capsec-directory-fixture" },
+                ],
+              },
+              entries: [{ kind: "file", name: "entry.txt" }],
+            },
+            expectedActionIds: ["fs:list"],
+          },
+        },
+      });
+      const denial = recipe.scenario === "deny";
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        denial
+          ? ["requested"]
+          : ["requested", "discovery", "repeat", "repeat"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(denial ? 1 : 4);
+    }
+  });
+
   test("source-binds every callback and authority-control invariant", () => {
     const callbackRecipes = recipes.recipes.filter(
       (recipe) =>

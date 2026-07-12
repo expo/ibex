@@ -52,10 +52,14 @@ const EFFECT_SCENARIOS = new Set([
   "wrong-principal",
 ]);
 
-const FS_LIST_EXPORTS = new Set(["lstatSync", "statSync"]);
+const FS_LIST_EXPORTS = new Set(["lstatSync", "readdirSync", "statSync"]);
 const FS_FIXTURE_PATH = Object.freeze({
   root: "project",
   components: [{ encoding: "utf8", value: "capsec-stat-fixture.txt" }],
+});
+const FS_DIRECTORY_PATH = Object.freeze({
+  root: "project",
+  components: [{ encoding: "utf8", value: "capsec-directory-fixture" }],
 });
 
 const BUILTIN_BATCH_COMMAND = Object.freeze([
@@ -195,6 +199,8 @@ export function authoredBuiltinPublicProbe({
     "node:fs",
   );
   if (!descriptor) return null;
+  const directoryProbe = exportName === "readdirSync";
+  const logicalPath = directoryProbe ? FS_DIRECTORY_PATH : FS_FIXTURE_PATH;
 
   return {
     kind: "public-surface-invocation",
@@ -208,23 +214,39 @@ export function authoredBuiltinPublicProbe({
       sourceDescriptor: descriptor,
       sourceDescriptorDigest: taggedDigest(descriptor),
       arguments: [
-        { kind: "filesystem-fixture-path", logicalPath: FS_FIXTURE_PATH },
+        { kind: "filesystem-fixture-path", logicalPath },
       ],
-      setup: {
-        kind: "filesystem-file",
-        logicalPath: FS_FIXTURE_PATH,
-        contents: "ibex-capsec-stat-fixture\n",
-      },
+      setup: directoryProbe
+        ? {
+            kind: "filesystem-directory",
+            logicalPath,
+            entries: [
+              {
+                kind: "file",
+                name: "entry.txt",
+                contents: "ibex-capsec-directory-entry\n",
+              },
+            ],
+          }
+        : {
+            kind: "filesystem-file",
+            logicalPath,
+            contents: "ibex-capsec-stat-fixture\n",
+          },
       requiredAuthority: [
         {
           cap: "fs:list",
-          resource: { kind: "path-exact", path: FS_FIXTURE_PATH },
+          resource: { kind: "path-exact", path: logicalPath },
         },
       ],
       expectedResult: publicDenial ? "permission-denied" : "return",
-      expectedTypedDecisionCount: publicDenial ? 1 : 3,
+      expectedTypedDecisionCount: publicDenial ? 1 : directoryProbe ? 4 : 3,
       expectedTypedStages:
-        publicDenial ? ["requested"] : ["requested", "discovery", "repeat"],
+        publicDenial
+          ? ["requested"]
+          : directoryProbe
+            ? ["requested", "discovery", "repeat", "repeat"]
+            : ["requested", "discovery", "repeat"],
       allowedCoverageEdgeIds,
       expectedActionIds: ["fs:list"],
     },

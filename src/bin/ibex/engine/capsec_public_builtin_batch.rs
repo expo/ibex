@@ -275,6 +275,60 @@ fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
                 )],
             }
         }
+        Some("filesystem-directory") => {
+            assert_eq!(invocation.module_specifier, "node:fs");
+            assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
+            assert_eq!(invocation.export_name, "readdirSync");
+            let logical_path = serde_json::json!({
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "capsec-directory-fixture"}
+                ]
+            });
+            assert_eq!(invocation.setup["logicalPath"], logical_path);
+            assert_eq!(
+                invocation.setup["entries"],
+                serde_json::json!([{
+                    "kind": "file",
+                    "name": "entry.txt",
+                    "contents": "ibex-capsec-directory-entry\n",
+                }])
+            );
+            assert_eq!(
+                invocation.required_authority,
+                vec![serde_json::json!({
+                    "cap": "fs:list",
+                    "resource": {"kind": "path-exact", "path": logical_path.clone()},
+                })]
+            );
+            assert_eq!(
+                invocation.arguments,
+                vec![serde_json::json!({
+                    "kind": "filesystem-fixture-path",
+                    "logicalPath": logical_path,
+                })]
+            );
+            let fixture_root = tempfile::tempdir().expect("create builtin directory fixture");
+            let project_root = std::fs::canonicalize(fixture_root.path())
+                .expect("canonicalize builtin directory fixture root");
+            let fixture_path = project_root.join("capsec-directory-fixture");
+            std::fs::create_dir(&fixture_path).expect("create builtin directory fixture");
+            std::fs::write(
+                fixture_path.join("entry.txt"),
+                "ibex-capsec-directory-entry\n",
+            )
+            .expect("write builtin directory entry");
+            PreparedInvocation {
+                _fixture_root: Some(fixture_root),
+                project_root: Some(project_root),
+                arguments: vec![serde_json::Value::String(
+                    fixture_path
+                        .to_str()
+                        .expect("builtin directory path must be UTF-8")
+                        .to_owned(),
+                )],
+            }
+        }
         other => panic!("unsupported effect-builtin setup {other:?}"),
     }
 }
@@ -325,7 +379,7 @@ fn validate_observation(
     assert_eq!(invocation.expected_action_ids, recipe.action_ids);
     assert!(matches!(
         invocation.setup["kind"].as_str(),
-        Some("none" | "filesystem-file")
+        Some("none" | "filesystem-file" | "filesystem-directory")
     ));
     assert_eq!(
         tagged_jcs_digest(&invocation.source_descriptor),
@@ -622,7 +676,7 @@ async fn capsec_public_builtin_recipe_batch() {
     let recipes = builtin_recipes(&catalog);
     assert_eq!(
         recipes.len(),
-        100,
+        105,
         "expected the authored OS and filesystem builtin recipe slices"
     );
     let _lock = hermes_engine_test_lock().lock().await;
