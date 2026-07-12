@@ -27,7 +27,9 @@
         "vocabularyDigest",
         "registryDigest",
         "implementationManifestDigest",
-        "fixtureCatalogDigest"
+        "fixtureCatalogDigest",
+        "recipeCatalogDigest",
+        "publicSurfaceExecutionDigest"
       ],
       "properties": {
         "sourceRevision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
@@ -72,6 +74,12 @@
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         },
         "fixtureCatalogDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "recipeCatalogDigest": {
+          "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+        },
+        "publicSurfaceExecutionDigest": {
           "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
         }
       },

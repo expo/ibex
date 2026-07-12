@@ -30,7 +30,11 @@
           "vocabularyDigest",
           "registryDigest",
           "implementationManifestDigest",
-          "fixtureCatalogDigest"
+          "fixtureCatalogDigest",
+          "recipeCatalogDigest",
+          "recipeCatalogRawContentDigest",
+          "publicSurfaceExecutionDigest",
+          "publicSurfaceExecutionRawContentDigest"
         ],
         "properties": {
           "target": { "$ref": "#/$defs/target" },
@@ -69,7 +73,11 @@
           "vocabularyDigest": { "$ref": "#/$defs/digest" },
           "registryDigest": { "$ref": "#/$defs/digest" },
           "implementationManifestDigest": { "$ref": "#/$defs/digest" },
-          "fixtureCatalogDigest": { "$ref": "#/$defs/digest" }
+          "fixtureCatalogDigest": { "$ref": "#/$defs/digest" },
+          "recipeCatalogDigest": { "$ref": "#/$defs/digest" },
+          "recipeCatalogRawContentDigest": { "$ref": "#/$defs/digest" },
+          "publicSurfaceExecutionDigest": { "$ref": "#/$defs/digest" },
+          "publicSurfaceExecutionRawContentDigest": { "$ref": "#/$defs/digest" }
         },
         "additionalProperties": false
       }

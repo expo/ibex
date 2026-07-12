@@ -1038,8 +1038,16 @@ deliberately non-promotable and is not represented as fixture pass claims.
 full loaded-engine identity-, vocabulary-, registry-, source-implementation-,
 target-, and fixture-catalog-bound report. Promotion then requires a checked
 content-addressed attestation; the generator reopens and validates the report,
-derives every cell and advertisement, and permits no source changes after the
-reported revision except the report/attestation and their generated publication
+the complete executable-recipe catalog, and a separate public-surface execution
+artifact. All three are immutable regular files addressed by their raw content,
+and the report and attestation bind the catalog and public-execution semantic
+digests. Adapter-probe evidence is a distinct diagnostic schema and is rejected
+at publication. The generator re-derives the exact required fixture set and
+requires one passing authored public-surface invocation (or target-absence
+probe) with the selected terminal observation for every recipe, with zero
+residual, missing, duplicate, or failed rows. It then derives every cell and
+advertisement and permits no source changes after the reported revision except
+those three evidence files, the attestation, and generated publication
 artifacts. Until every required fixture genuinely passes, production startup
 refuses before project code on every target.
 

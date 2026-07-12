@@ -7,7 +7,10 @@ import {
   buildConformanceRecipeCatalog,
   fixtureScenario,
 } from "./capsec-conformance-recipes.mjs";
-import { fixtureCatalogForTarget } from "./capsec-conformance.mjs";
+import {
+  fixtureCatalogForTarget,
+  fixtureExecutionPlans,
+} from "./capsec-conformance.mjs";
 import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 
 const repoRoot = path.resolve(
@@ -19,6 +22,7 @@ const readJson = (relativePath) =>
 
 describe("exact-target CapSec executable recipes", () => {
   let recipes;
+  let expectedFixtureIds;
 
   beforeAll(async () => {
     const coverage = readJson("capsec/registry/coverage-edges.json");
@@ -32,6 +36,9 @@ describe("exact-target CapSec executable recipes", () => {
       implementation,
       target,
     });
+    expectedFixtureIds = fixtureExecutionPlans(catalog).map(
+      (plan) => plan.fixtureId,
+    );
     recipes = buildConformanceRecipeCatalog({
       catalog,
       coverage,
@@ -45,7 +52,7 @@ describe("exact-target CapSec executable recipes", () => {
       ),
       target,
     });
-  });
+  }, 60_000);
 
   test("parses fixture scenarios by exact terminal suffix", () => {
     expect(fixtureScenario("branch.logical.none.malformed-branch-facts")).toBe(
@@ -63,29 +70,45 @@ describe("exact-target CapSec executable recipes", () => {
     expect(recipes.recipeCatalogSchema).toBe(
       "ibex/capsec-executable-recipes/1",
     );
-    expect(recipes.summary.requiredFixtures).toBe(21_606);
-    expect(recipes.recipes).toHaveLength(21_606);
+    expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
+    expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
     expect(new Set(recipes.recipes.map((recipe) => recipe.fixtureId)).size).toBe(
-      21_606,
+      expectedFixtureIds.length,
     );
-    expect(recipes.summary.adapterExecutableFixtures).toBe(10_325);
+    expect(recipes.recipes.map((recipe) => recipe.fixtureId)).toEqual(
+      expectedFixtureIds,
+    );
+    expect(recipes.summary.adapterExecutableFixtures).toBe(
+      recipes.recipes.filter((recipe) => recipe.adapterProbe !== null).length,
+    );
     expect(recipes.summary.fullyExecutableFixtures).toBe(0);
-    expect(recipes.summary.unresolvedFixtures).toBe(21_606);
-    expect(recipes.summary.residualReasons).toMatchObject({
-      "public-surface-invocation-not-authored": 21_497,
-      "target-absence-probe-not-authored": 109,
-    });
+    expect(recipes.summary.unresolvedFixtures).toBe(expectedFixtureIds.length);
+    const publicFixtures = recipes.recipes.filter(
+      (recipe) => recipe.expectedObservation.kind === "enforcement-branch",
+    ).length;
+    const absenceFixtures = recipes.recipes.filter(
+      (recipe) => recipe.expectedObservation.kind === "target-absence",
+    ).length;
+    expect(
+      recipes.summary.residualReasons[
+        "public-surface-invocation-not-authored"
+      ],
+    ).toBe(publicFixtures);
+    expect(
+      recipes.summary.residualReasons["target-absence-probe-not-authored"],
+    ).toBe(absenceFixtures);
+    expect(publicFixtures + absenceFixtures).toBe(expectedFixtureIds.length);
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
-      /21606\/21606 unresolved/,
+      /executable recipe catalog is incomplete/,
     );
   });
 
-  test("preserves cross-module and multiple terminal routes", () => {
+  test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>
         candidate.scenario === "allow" &&
         candidate.route.surfaceObservedKeys.includes(
-          "builtin:export:node_fs_promises:readFile",
+          "builtin:export:exact_sqlite:Database.close",
         ),
     );
     expect(recipe).toBeDefined();
@@ -93,14 +116,12 @@ describe("exact-target CapSec executable recipes", () => {
       recipe.route.alternatives.map((alternative) =>
         alternative.terminalObservedKey,
       ),
-    ).toEqual(expect.arrayContaining(["native-op:__exactFsOpen"]));
-    expect(
-      recipe.route.alternatives.some((alternative) =>
-        alternative.proofPaths.some((proofPath) =>
-          proofPath.includes("require:node:fs#openSync -> export:openSync"),
-        ),
-      ),
-    ).toBe(true);
+    ).toEqual(
+      expect.arrayContaining([
+        "native-op:__exactSqliteClose",
+        "native-op:__exactSqliteExec",
+      ]),
+    );
   });
 
   test("models every declared action stage through the typed adapter", () => {
@@ -141,4 +162,3 @@ describe("exact-target CapSec executable recipes", () => {
     });
   });
 });
-

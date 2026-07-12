@@ -30,8 +30,15 @@ import { discoverRepositorySurfaces } from "./capsec-surface-inventory.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
 import {
   assertReportMayAdvertise,
+  fixtureCatalogForTarget,
+  fixtureExecutionPlans,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
+import {
+  assertRecipeCatalogComplete,
+  buildConformanceRecipeCatalog,
+} from "./capsec-conformance-recipes.mjs";
+import { assertPublicSurfaceExecutionComplete } from "./capsec-public-surface-evidence.mjs";
 import {
   assertConfinedGeneratedFile,
   writeGeneratedFilesTransactionally,
@@ -606,6 +613,55 @@ function expectedDigest(digestVectors, id) {
   return matches[0].expectedDigest;
 }
 
+export function readImmutablePromotionArtifact(
+  directory,
+  digest,
+  label,
+  root = capsecRoot,
+) {
+  const artifactPath = path.join(
+    root,
+    "conformance",
+    directory,
+    `${digest}.json`,
+  );
+  let pathMetadata;
+  try {
+    pathMetadata = fs.lstatSync(artifactPath);
+  } catch {
+    throw new Error(`${label} content-addressed artifact is missing`);
+  }
+  if (!pathMetadata.isFile() || pathMetadata.isSymbolicLink()) {
+    throw new Error(`${label} is not an immutable regular file`);
+  }
+  let descriptor;
+  let text;
+  try {
+    descriptor = fs.openSync(
+      artifactPath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const openedMetadata = fs.fstatSync(descriptor);
+    if (
+      !openedMetadata.isFile() ||
+      openedMetadata.dev !== pathMetadata.dev ||
+      openedMetadata.ino !== pathMetadata.ino
+    ) {
+      throw new Error(`${label} changed while it was being opened`);
+    }
+    text = fs.readFileSync(descriptor, "utf8");
+  } catch (error) {
+    if (error?.message?.startsWith(label)) throw error;
+    throw new Error(`${label} could not be opened without following links`);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+  if (rawContentDigest(text) !== digest) {
+    throw new Error(`${label} raw content digest differs`);
+  }
+  return readJsonStrict(artifactPath);
+}
+
 function verifyReportSourceRevision(attestation, allowedReportPaths) {
   const git = (...args) =>
     execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" });
@@ -659,7 +715,12 @@ function verifyReportSourceRevision(attestation, allowedReportPaths) {
  * catalog: an advertisement exists only if the addressed report validates
  * against the current source-derived implementation inventory.
  */
-export function loadTargetPromotions({ coverage, implementation, rules }) {
+export function loadTargetPromotions({
+  coverage,
+  implementation,
+  inventory,
+  rules,
+}) {
   const attestationPath = path.join(
     capsecRoot,
     "conformance",
@@ -699,11 +760,14 @@ export function loadTargetPromotions({ coverage, implementation, rules }) {
   );
   const seenTargets = new Set();
   const seenReports = new Set();
+  const seenRecipeCatalogs = new Set();
+  const seenPublicExecutions = new Set();
   const promotions = [];
-  const allowedReportPaths = attestations.attestations.map(
-    (attestation) =>
-      `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
-  );
+  const allowedReportPaths = attestations.attestations.flatMap((attestation) => [
+    `capsec/conformance/reports/${attestation.reportRawContentDigest}.json`,
+    `capsec/conformance/recipe-catalogs/${attestation.recipeCatalogRawContentDigest}.json`,
+    `capsec/conformance/public-surface-executions/${attestation.publicSurfaceExecutionRawContentDigest}.json`,
+  ]);
   for (const attestation of attestations.attestations) {
     const targetKey = canonicalJson(attestation.target);
     if (!candidateTargets.has(targetKey)) {
@@ -715,25 +779,33 @@ export function loadTargetPromotions({ coverage, implementation, rules }) {
     if (seenReports.has(attestation.reportRawContentDigest)) {
       throw new Error("target attestations reuse one report for multiple targets");
     }
+    if (seenRecipeCatalogs.has(attestation.recipeCatalogRawContentDigest)) {
+      throw new Error(
+        "target attestations reuse one recipe catalog for multiple targets",
+      );
+    }
+    if (
+      seenPublicExecutions.has(
+        attestation.publicSurfaceExecutionRawContentDigest,
+      )
+    ) {
+      throw new Error(
+        "target attestations reuse one public execution artifact for multiple targets",
+      );
+    }
     seenTargets.add(targetKey);
     seenReports.add(attestation.reportRawContentDigest);
+    seenRecipeCatalogs.add(attestation.recipeCatalogRawContentDigest);
+    seenPublicExecutions.add(
+      attestation.publicSurfaceExecutionRawContentDigest,
+    );
     verifyReportSourceRevision(attestation, allowedReportPaths);
 
-    const reportPath = path.join(
-      capsecRoot,
-      "conformance",
+    const report = readImmutablePromotionArtifact(
       "reports",
-      `${attestation.reportRawContentDigest}.json`,
+      attestation.reportRawContentDigest,
+      "attested conformance report",
     );
-    const reportMetadata = fs.lstatSync(reportPath);
-    if (!reportMetadata.isFile() || reportMetadata.isSymbolicLink()) {
-      throw new Error("attested conformance report is not an immutable regular file");
-    }
-    const reportText = fs.readFileSync(reportPath, "utf8");
-    if (rawContentDigest(reportText) !== attestation.reportRawContentDigest) {
-      throw new Error("attested conformance report raw content digest differs");
-    }
-    const report = readJsonStrict(reportPath);
     if (!validateReport?.(report)) {
       throw new Error(
         `invalid attested conformance report: ${ajv.errorsText(validateReport?.errors)}`,
@@ -746,6 +818,60 @@ export function loadTargetPromotions({ coverage, implementation, rules }) {
       digestContract: rules.digestContract,
     });
     assertReportMayAdvertise(report);
+    const recipeCatalog = readImmutablePromotionArtifact(
+      "recipe-catalogs",
+      attestation.recipeCatalogRawContentDigest,
+      "attested executable recipe catalog",
+    );
+    const expectedFixtureIds = fixtureExecutionPlans(
+      fixtureCatalogForTarget({
+        coverage,
+        implementation,
+        target: attestation.target,
+      }),
+    ).map((plan) => plan.fixtureId);
+    const derivedRecipeCatalog = buildConformanceRecipeCatalog({
+      catalog: fixtureCatalogForTarget({
+        coverage,
+        implementation,
+        target: attestation.target,
+      }),
+      coverage,
+      implementation,
+      inventory,
+      occurrenceExamples: readJsonStrict(
+        path.join(capsecRoot, "examples", "effect-occurrences.canonical.json"),
+      ),
+      selectorExamples: readJsonStrict(
+        path.join(capsecRoot, "examples", "authority-selectors.canonical.json"),
+      ),
+      target: attestation.target,
+    });
+    if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {
+      throw new Error(
+        "attested recipe catalog differs from the source-derived public recipe plan",
+      );
+    }
+    assertRecipeCatalogComplete(recipeCatalog, {
+      target: attestation.target,
+      expectedFixtureIds,
+    });
+    const publicSurfaceExecutions = readImmutablePromotionArtifact(
+      "public-surface-executions",
+      attestation.publicSurfaceExecutionRawContentDigest,
+      "attested public-surface execution evidence",
+    );
+    assertPublicSurfaceExecutionComplete(
+      publicSurfaceExecutions,
+      recipeCatalog,
+      {
+        target: attestation.target,
+        sourceRevision: attestation.sourceRevision,
+        sourceTreeDigest: attestation.sourceTreeDigest,
+        engine: report.bindings.engine,
+        expectedFixtureIds,
+      },
+    );
     if (
       report.conformanceDigest !== attestation.conformanceDigest ||
       report.bindings.sourceRevision !== attestation.sourceRevision ||
@@ -753,7 +879,15 @@ export function loadTargetPromotions({ coverage, implementation, rules }) {
       report.bindings.engine?.binaryDigest !== attestation.engineBinaryDigest ||
       canonicalJson(report.bindings.target) !== targetKey ||
       report.bindings.vocabularyDigest !== vocabularyDigest ||
-      report.bindings.registryDigest !== registryDigest
+      report.bindings.registryDigest !== registryDigest ||
+      report.bindings.recipeCatalogDigest !==
+        attestation.recipeCatalogDigest ||
+      recipeCatalog.recipeCatalogDigest !==
+        attestation.recipeCatalogDigest ||
+      report.bindings.publicSurfaceExecutionDigest !==
+        attestation.publicSurfaceExecutionDigest ||
+      publicSurfaceExecutions.publicSurfaceExecutionDigest !==
+        attestation.publicSurfaceExecutionDigest
     ) {
       throw new Error(
         "target attestation differs from the report or current semantic identities",
@@ -786,6 +920,12 @@ function buildTargetAdvertisements(promotions, targetCellsText) {
       registryDigest: report.bindings.registryDigest,
       implementationManifestDigest: report.bindings.implementationManifestDigest,
       fixtureCatalogDigest: report.bindings.fixtureCatalogDigest,
+      recipeCatalogDigest: report.bindings.recipeCatalogDigest,
+      recipeCatalogRawContentDigest: attestation.recipeCatalogRawContentDigest,
+      publicSurfaceExecutionDigest:
+        report.bindings.publicSurfaceExecutionDigest,
+      publicSurfaceExecutionRawContentDigest:
+        attestation.publicSurfaceExecutionRawContentDigest,
     })),
   };
 }
@@ -995,6 +1135,7 @@ export async function renderCapsecRegistry() {
   const promotions = loadTargetPromotions({
     coverage,
     implementation: implementationManifest,
+    inventory,
     rules,
   });
   targetCells = buildTargetCells(

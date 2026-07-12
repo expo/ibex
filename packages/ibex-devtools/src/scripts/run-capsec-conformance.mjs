@@ -11,6 +11,11 @@ import {
   fixtureCatalogForTarget,
 } from "./capsec-conformance.mjs";
 import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
+import {
+  assertPublicSurfaceExecutionComplete,
+  buildPublicSurfaceExecutionArtifact,
+  validatePublicSurfaceExecutionArtifact,
+} from "./capsec-public-surface-evidence.mjs";
 import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
 import { runObservedCommand } from "./capsec-command-evidence.mjs";
 import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
@@ -28,6 +33,7 @@ const args = process.argv.slice(2);
 const knownOptions = new Set([
   "--engine-artifact",
   "--fixture-evidence",
+  "--public-surface-evidence",
   "--output",
   "--report",
 ]);
@@ -61,6 +67,7 @@ const engineArtifactPath = path.resolve(
     "ios/Frameworks/hermesvm.framework/Versions/1/hermesvm",
 );
 const fixtureEvidencePath = option("--fixture-evidence");
+const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
 const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
@@ -133,6 +140,10 @@ const recipeCatalogPath = path.join(
 const adapterEvidencePath = path.join(
   evidenceDirectory,
   "typed-adapter-evidence.json",
+);
+const publicSurfaceEvidencePath = path.join(
+  evidenceDirectory,
+  "public-surface-executions.json",
 );
 execFileSync(
   process.execPath,
@@ -246,6 +257,35 @@ const bindings = {
   registryDigest,
   implementationManifestDigest,
 };
+let publicSurfaceEvidence;
+if (publicSurfaceEvidenceInputPath) {
+  publicSurfaceEvidence = readJsonStrict(
+    path.resolve(repoRoot, publicSurfaceEvidenceInputPath),
+  );
+  validatePublicSurfaceExecutionArtifact(publicSurfaceEvidence, {
+    recipeCatalog,
+    target,
+    sourceRevision: bindings.sourceRevision,
+    sourceTreeDigest: bindings.sourceTreeDigest,
+    engine: bindings.engine,
+  });
+} else {
+  publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
+    recipeCatalog,
+    sourceRevision: bindings.sourceRevision,
+    sourceTreeDigest: bindings.sourceTreeDigest,
+    target,
+    engine: bindings.engine,
+    executions: [],
+  });
+}
+fs.writeFileSync(
+  publicSurfaceEvidencePath,
+  `${JSON.stringify(publicSurfaceEvidence, null, 2)}\n`,
+);
+bindings.recipeCatalogDigest = recipeCatalog.recipeCatalogDigest;
+bindings.publicSurfaceExecutionDigest =
+  publicSurfaceEvidence.publicSurfaceExecutionDigest;
 const fixtureCatalogDigest = canonicalDigest(catalog);
 const bindingDigest = executionBindingDigest({
   bindings,
@@ -260,6 +300,9 @@ if (fixtureEvidencePath) {
     fixtureArtifact.sourceRevision !== bindings.sourceRevision ||
     fixtureArtifact.sourceTreeDigest !== bindings.sourceTreeDigest ||
     canonicalJson(fixtureArtifact.engine) !== canonicalJson(bindings.engine) ||
+    fixtureArtifact.recipeCatalogDigest !== bindings.recipeCatalogDigest ||
+    fixtureArtifact.publicSurfaceExecutionDigest !==
+      bindings.publicSurfaceExecutionDigest ||
     !Array.isArray(fixtureArtifact.executions)
   ) {
     throw new Error("fixture evidence artifact is stale, malformed, or from another revision");
@@ -287,6 +330,8 @@ fs.writeFileSync(
     suiteArtifactDigest,
     recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
     adapterEvidenceDigest,
+    publicSurfaceExecutionDigest:
+      publicSurfaceEvidence.publicSurfaceExecutionDigest,
     commands: commandEvidence,
     executions,
   }, null, 2)}\n`,
@@ -303,6 +348,10 @@ execFileSync(
     engineArtifactPath,
     "--executions",
     outputPath,
+    "--recipe-catalog",
+    recipeCatalogPath,
+    "--public-surface-executions",
+    publicSurfaceEvidencePath,
     "--output",
     reportPath,
   ],
@@ -312,4 +361,11 @@ const report = readJsonStrict(reportPath);
 // Adapter-only evidence is diagnostic and can never become a fixture pass.
 // Fail with the exact residual inventory before considering target promotion.
 assertRecipeCatalogComplete(recipeCatalog);
+assertPublicSurfaceExecutionComplete(publicSurfaceEvidence, recipeCatalog, {
+  target,
+  sourceRevision: bindings.sourceRevision,
+  sourceTreeDigest: bindings.sourceTreeDigest,
+  engine: bindings.engine,
+  expectedFixtureIds: catalog.flatMap((cell) => cell.requiredFixtures),
+});
 assertReportMayAdvertise(report);

@@ -50,6 +50,8 @@ const bindings = {
   },
   vocabularyDigest: `sha256-${"D".repeat(43)}`,
   registryDigest: `sha256-${"E".repeat(43)}`,
+  recipeCatalogDigest: `sha256-${"F".repeat(43)}`,
+  publicSurfaceExecutionDigest: `sha256-${"G".repeat(43)}`,
 };
 const digestContract = {
   domains: { conformance: "ibex:capsec:conformance:1" },
@@ -193,6 +195,11 @@ describe("capsec target conformance", () => {
     });
     expect(report.executions).toEqual([pass]);
     expect(() => assertReportMayAdvertise(report)).not.toThrow();
+    const unbound = structuredClone(report);
+    delete unbound.bindings.publicSurfaceExecutionDigest;
+    expect(() => assertReportMayAdvertise(unbound)).toThrow(
+      /without recipe and public-surface evidence bindings/,
+    );
     expect(() =>
       validateConformanceReportSemantics(report, {
         coverage,

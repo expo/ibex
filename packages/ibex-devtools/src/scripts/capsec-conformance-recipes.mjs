@@ -509,6 +509,7 @@ export function buildConformanceRecipeCatalog({
       implementationBranchIds: plan.implementationBranchIds,
       enforcementBranchIds: plan.enforcementBranchIds,
       actionIds: plan.actionIds,
+      terminalObservedKey: plan.terminalObservedKey,
       expectedObservation: plan.expectedObservation,
       route,
       adapterProbe,
@@ -532,7 +533,85 @@ export function buildConformanceRecipeCatalog({
   return result;
 }
 
-export function assertRecipeCatalogComplete(recipeCatalog) {
+export function computeRecipeCatalogDigest(recipeCatalog) {
+  const { recipeCatalogDigest: _digest, ...payload } = recipeCatalog;
+  return taggedDigest(payload);
+}
+
+function validatePublicSurfaceProbe(recipe) {
+  const probe = recipe.publicSurfaceProbe;
+  const expectedKind =
+    recipe.expectedObservation?.kind === "target-absence"
+      ? "target-absence-probe"
+      : "public-surface-invocation";
+  const allowedSurfaces =
+    expectedKind === "target-absence-probe"
+      ? [recipe.terminalObservedKey]
+      : recipe.route?.surfaceObservedKeys;
+  if (
+    probe?.kind !== expectedKind ||
+    typeof probe.surfaceObservedKey !== "string" ||
+    !Array.isArray(allowedSurfaces) ||
+    !allowedSurfaces.includes(probe.surfaceObservedKey) ||
+    !Array.isArray(probe.command) ||
+    probe.command.length === 0 ||
+    !probe.command.every(
+      (part) => typeof part === "string" && part.length > 0,
+    )
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: complete recipe lacks an exact authored public-surface probe`,
+    );
+  }
+}
+
+export function validateRecipeCatalog(
+  recipeCatalog,
+  { expectedFixtureIds = null, target = null } = {},
+) {
+  if (
+    recipeCatalog?.recipeCatalogSchema !==
+      "ibex/capsec-executable-recipes/1" ||
+    recipeCatalog.profile !== "ibex/capsec/1" ||
+    !Array.isArray(recipeCatalog.recipes) ||
+    !recipeCatalog.summary ||
+    recipeCatalog.recipeCatalogDigest !==
+      computeRecipeCatalogDigest(recipeCatalog)
+  ) {
+    throw new Error("malformed or digest-mismatched executable recipe catalog");
+  }
+  if (target && canonicalJson(recipeCatalog.target) !== canonicalJson(target)) {
+    throw new Error("recipe catalog target differs from the attested target");
+  }
+  const fixtureIds = recipeCatalog.recipes.map((recipe) => recipe.fixtureId);
+  if (
+    fixtureIds.some((fixtureId) => typeof fixtureId !== "string") ||
+    new Set(fixtureIds).size !== fixtureIds.length ||
+    canonicalJson(fixtureIds) !==
+      canonicalJson([...fixtureIds].sort(compareText))
+  ) {
+    throw new Error(
+      "recipe catalog fixture ids are missing, duplicate, or noncanonical",
+    );
+  }
+  if (
+    expectedFixtureIds &&
+    canonicalJson(fixtureIds) !==
+      canonicalJson(canonicalSet(expectedFixtureIds))
+  ) {
+    throw new Error("recipe catalog does not cover the exact required fixture set");
+  }
+  if (
+    canonicalJson(recipeCatalog.summary) !==
+    canonicalJson(summarize(recipeCatalog.recipes))
+  ) {
+    throw new Error("recipe catalog summary disagrees with its recipe rows");
+  }
+  return recipeCatalog;
+}
+
+export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
+  validateRecipeCatalog(recipeCatalog, options);
   if (
     recipeCatalog.summary.fullyExecutableFixtures !==
       recipeCatalog.summary.requiredFixtures ||
@@ -544,5 +623,15 @@ export function assertRecipeCatalogComplete(recipeCatalog) {
     throw new Error(
       `CapSec executable recipe catalog is incomplete: ${recipeCatalog.summary.unresolvedFixtures}/${recipeCatalog.summary.requiredFixtures} unresolved (${residual})`,
     );
+  }
+  for (const recipe of recipeCatalog.recipes) {
+    if (
+      recipe.status !== "fully-executable" ||
+      !Array.isArray(recipe.residualReasons) ||
+      recipe.residualReasons.length !== 0
+    ) {
+      throw new Error(`${recipe.fixtureId}: complete catalog retains a residual`);
+    }
+    validatePublicSurfaceProbe(recipe);
   }
 }

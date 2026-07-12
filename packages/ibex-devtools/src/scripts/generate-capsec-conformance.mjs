@@ -10,6 +10,10 @@ import {
   buildConformanceReport,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
+import { validateRecipeCatalog } from "./capsec-conformance-recipes.mjs";
+import {
+  validatePublicSurfaceExecutionArtifact,
+} from "./capsec-public-surface-evidence.mjs";
 import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
 import { validateLoadedEngineIdentity } from "./capsec-engine-identity.mjs";
 
@@ -32,6 +36,8 @@ const enginePath = path.resolve(
   option("--engine") ?? "tools/hermes/hermes",
 );
 const executionsPath = option("--executions");
+const recipeCatalogPath = option("--recipe-catalog");
+const publicSurfaceExecutionsPath = option("--public-surface-executions");
 
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
@@ -41,9 +47,9 @@ if (!fs.existsSync(enginePath))
 if (git("status", "--porcelain").toString("utf8").trim()) {
   throw new Error("conformance generation requires a clean committed source tree");
 }
-if (!executionsPath) {
+if (!executionsPath || !recipeCatalogPath || !publicSurfaceExecutionsPath) {
   throw new Error(
-    "conformance generation requires executions from the exact loaded-engine runner",
+    "conformance generation requires fixture, recipe, and public-surface execution artifacts from the exact loaded-engine runner",
   );
 }
 const executionArtifact = readJsonStrict(path.resolve(repoRoot, executionsPath));
@@ -96,6 +102,27 @@ if (
     "execution artifact source or engine binding differs from this checkout",
   );
 }
+const recipeCatalog = readJsonStrict(path.resolve(repoRoot, recipeCatalogPath));
+validateRecipeCatalog(recipeCatalog, { target });
+const publicSurfaceExecutions = readJsonStrict(
+  path.resolve(repoRoot, publicSurfaceExecutionsPath),
+);
+validatePublicSurfaceExecutionArtifact(publicSurfaceExecutions, {
+  recipeCatalog,
+  target,
+  sourceRevision: executionArtifact.sourceRevision,
+  sourceTreeDigest: executionArtifact.sourceTreeDigest,
+  engine: engineBinding,
+});
+if (
+  executionArtifact.recipeCatalogDigest !== recipeCatalog.recipeCatalogDigest ||
+  executionArtifact.publicSurfaceExecutionDigest !==
+    publicSurfaceExecutions.publicSurfaceExecutionDigest
+) {
+  throw new Error(
+    "fixture execution artifact is not bound to the exact recipe/public-surface evidence",
+  );
+}
 const vocabularyDigest = registryBundle.members.find(
   (member) => member.logicalName === "vocab-digest",
 )?.document?.digest;
@@ -120,6 +147,9 @@ const report = buildConformanceReport({
     },
     vocabularyDigest,
     registryDigest,
+    recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+    publicSurfaceExecutionDigest:
+      publicSurfaceExecutions.publicSurfaceExecutionDigest,
   },
   digestContract: rules.digestContract,
 });

@@ -18,7 +18,11 @@
           "reportRawContentDigest",
           "sourceRevision",
           "sourceTreeDigest",
-          "engineBinaryDigest"
+          "engineBinaryDigest",
+          "recipeCatalogDigest",
+          "recipeCatalogRawContentDigest",
+          "publicSurfaceExecutionDigest",
+          "publicSurfaceExecutionRawContentDigest"
         ],
         "properties": {
           "target": { "$ref": "#/$defs/target" },
@@ -33,6 +37,18 @@
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
           },
           "engineBinaryDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "recipeCatalogDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "recipeCatalogRawContentDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "publicSurfaceExecutionDigest": {
+            "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+          },
+          "publicSurfaceExecutionRawContentDigest": {
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
           }
         },

@@ -214,6 +214,8 @@ export function executionBindingDigest({
     registryDigest: bindings.registryDigest,
     implementationManifestDigest: bindings.implementationManifestDigest,
     fixtureCatalogDigest,
+    recipeCatalogDigest: bindings.recipeCatalogDigest,
+    publicSurfaceExecutionDigest: bindings.publicSurfaceExecutionDigest,
   });
 }
 
@@ -416,6 +418,18 @@ export function buildConformanceReport({
 }
 
 export function assertReportMayAdvertise(report) {
+  if (
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
+      report.bindings?.recipeCatalogDigest ?? "",
+    ) ||
+    !/^sha256-[A-Za-z0-9_-]{43}$/u.test(
+      report.bindings?.publicSurfaceExecutionDigest ?? "",
+    )
+  ) {
+    throw new Error(
+      "conformance report cannot advertise without recipe and public-surface evidence bindings",
+    );
+  }
   if (report.status !== "conformant")
     throw new Error("incomplete conformance report cannot advertise a target");
   if (
@@ -452,6 +466,9 @@ export function validateConformanceReportSemantics(
       engine: report.bindings.engine,
       vocabularyDigest: report.bindings.vocabularyDigest,
       registryDigest: report.bindings.registryDigest,
+      recipeCatalogDigest: report.bindings.recipeCatalogDigest,
+      publicSurfaceExecutionDigest:
+        report.bindings.publicSurfaceExecutionDigest,
     },
     digestContract,
   });

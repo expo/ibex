@@ -4,6 +4,7 @@
 
 import { afterAll, describe, expect, test } from "bun:test";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -11,6 +12,7 @@ import {
   buildTargetCells,
   generatedRegistryPaths,
   generatedRegistryOutputCatalog,
+  readImmutablePromotionArtifact,
   renderCapsecRegistry,
   runCapsecRegistryGenerator,
 } from "./generate-capsec-registry.mjs";
@@ -39,6 +41,54 @@ afterAll(() => {
 });
 
 describe("LLP 0021 WP1 capsec registry generator", () => {
+  test("reopens promotion evidence only as digest-addressed regular files", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "ibex-capsec-promotion-"));
+    try {
+      const directory = path.join(root, "conformance", "recipe-catalogs");
+      fs.mkdirSync(directory, { recursive: true });
+      const text = '{"profile":"ibex/capsec/1"}\n';
+      const digest = `sha256-${crypto
+        .createHash("sha256")
+        .update(text)
+        .digest("base64url")}`;
+      const artifactPath = path.join(directory, `${digest}.json`);
+      fs.writeFileSync(artifactPath, text);
+      expect(
+        readImmutablePromotionArtifact(
+          "recipe-catalogs",
+          digest,
+          "test recipe catalog",
+          root,
+        ),
+      ).toEqual({ profile: "ibex/capsec/1" });
+
+      fs.writeFileSync(artifactPath, '{"profile":"tampered"}\n');
+      expect(() =>
+        readImmutablePromotionArtifact(
+          "recipe-catalogs",
+          digest,
+          "test recipe catalog",
+          root,
+        ),
+      ).toThrow(/raw content digest differs/);
+
+      fs.unlinkSync(artifactPath);
+      const targetPath = path.join(root, "target.json");
+      fs.writeFileSync(targetPath, text);
+      fs.symlinkSync(targetPath, artifactPath);
+      expect(() =>
+        readImmutablePromotionArtifact(
+          "recipe-catalogs",
+          digest,
+          "test recipe catalog",
+          root,
+        ),
+      ).toThrow(/not an immutable regular file/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("derives promoted dispositions only from conformant report cells", () => {
     const target = {
       triple: "aarch64-apple-darwin",
