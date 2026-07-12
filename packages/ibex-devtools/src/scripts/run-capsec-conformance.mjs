@@ -6,9 +6,11 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  assertReportMayAdvertise,
   executionBindingDigest,
   fixtureCatalogForTarget,
 } from "./capsec-conformance.mjs";
+import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
 import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
 import { runObservedCommand } from "./capsec-command-evidence.mjs";
 import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
@@ -124,6 +126,69 @@ const engineBinding = validateLoadedEngineIdentity({
   binaryDigest: engineBinaryDigest,
   target,
 });
+const recipeCatalogPath = path.join(
+  evidenceDirectory,
+  "executable-recipes.json",
+);
+const adapterEvidencePath = path.join(
+  evidenceDirectory,
+  "typed-adapter-evidence.json",
+);
+execFileSync(
+  process.execPath,
+  [
+    path.join(
+      repoRoot,
+      "packages/ibex-devtools/src/scripts/generate-capsec-conformance-recipes.mjs",
+    ),
+    "--output",
+    recipeCatalogPath,
+  ],
+  { cwd: repoRoot, stdio: "inherit" },
+);
+const recipeCatalog = readJsonStrict(recipeCatalogPath);
+commandEvidence.push(
+  runObservedCommand({
+    id: "exact-hermes-typed-adapter-recipes",
+    command: "cargo",
+    args: [
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer",
+      "capsec_executable_recipe_adapter_batch",
+      "--",
+      "--test-threads=1",
+      "--nocapture",
+    ],
+    cwd: repoRoot,
+    evidenceDirectory,
+    env: {
+      ...exactEngineEnvironment,
+      IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+      IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT: adapterEvidencePath,
+    },
+  }),
+);
+const adapterEvidence = readJsonStrict(adapterEvidencePath);
+if (
+  adapterEvidence.adapterEvidenceSchema !==
+    "ibex/capsec-adapter-probe-evidence/1" ||
+  adapterEvidence.recipeCatalogDigest !== recipeCatalog.recipeCatalogDigest ||
+  canonicalJson(adapterEvidence.loadedEngineIdentity) !==
+    canonicalJson(loadedEngineIdentity) ||
+  adapterEvidence.summary?.adapterExecutableFixtures !==
+    recipeCatalog.summary?.adapterExecutableFixtures ||
+  adapterEvidence.summary?.executedCases !==
+    adapterEvidence.summary?.passedCases ||
+  adapterEvidence.fixtures?.length !==
+    recipeCatalog.summary?.adapterExecutableFixtures
+) {
+  throw new Error(
+    "typed adapter evidence is stale, incomplete, or from another loaded engine",
+  );
+}
 commandEvidence.push(...CONFORMANCE_COMMANDS.map(([id, command, commandArgs]) =>
   runObservedCommand({
     id,
@@ -207,6 +272,7 @@ if (fixtureEvidencePath) {
 const suiteArtifactDigest = taggedDigest(
   Buffer.from(canonicalJson(commandEvidence), "utf8"),
 );
+const adapterEvidenceDigest = taggedDigest(fs.readFileSync(adapterEvidencePath));
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(
   outputPath,
@@ -219,6 +285,8 @@ fs.writeFileSync(
     loadedEngineIdentity,
     bindingDigest,
     suiteArtifactDigest,
+    recipeCatalogDigest: recipeCatalog.recipeCatalogDigest,
+    adapterEvidenceDigest,
     commands: commandEvidence,
     executions,
   }, null, 2)}\n`,
@@ -237,7 +305,11 @@ execFileSync(
     outputPath,
     "--output",
     reportPath,
-    "--require-conformant",
   ],
   { cwd: repoRoot, stdio: "inherit" },
 );
+const report = readJsonStrict(reportPath);
+// Adapter-only evidence is diagnostic and can never become a fixture pass.
+// Fail with the exact residual inventory before considering target promotion.
+assertRecipeCatalogComplete(recipeCatalog);
+assertReportMayAdvertise(report);
