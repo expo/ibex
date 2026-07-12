@@ -1151,9 +1151,11 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 Some(principals) => principals,
                 None => return -1,
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            if capsec_semantics::model::sort_and_dedup_principals(&mut constrained_principals)
+                .is_err()
+            {
+                return -1;
+            }
             match host.authorize_typed_fs_open_stage(
                 &module_id.to_string(),
                 operation_key,
@@ -1316,9 +1318,11 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
                 Some(principals) => principals,
                 None => return -1,
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            if capsec_semantics::model::sort_and_dedup_principals(&mut constrained_principals)
+                .is_err()
+            {
+                return -1;
+            }
             let result = match network_kind {
                 0 | 1 => host.authorize_typed_fetch_stage(
                     &module_id.to_string(),
@@ -1577,9 +1581,13 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
                     )
                 }
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            if capsec_semantics::model::sort_and_dedup_principals(&mut constrained_principals)
+                .is_err()
+            {
+                return as_json_cstring(
+                    &json!({"error": "constrained principal order is not canonical"}),
+                );
+            }
             match host.mint_typed_handle_json_for_actor(actor, constrained_principals, request) {
                 Ok(handle_id) => {
                     notify_runtime_authority_change();

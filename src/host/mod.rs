@@ -285,19 +285,24 @@ impl Host {
                 "typed path normalization requested without an armed snapshot".into(),
             )
         })?;
-        let path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            std::env::current_dir()
-                .map_err(|error| {
-                    capsec_semantics::Error::ArmRefused(format!(
-                        "cannot resolve current directory for typed path: {error}"
-                    ))
-                })?
-                .join(path)
-        };
-        let components = host_path_components(&path)?;
+        let components = absolute_host_path_components(path)?;
         snapshot.logical_path_for_host_components(principal, &components)
+    }
+
+    fn typed_logical_paths(
+        &self,
+        principals: &[capsec_semantics::model::Principal],
+        path: &std::path::Path,
+    ) -> capsec_semantics::Result<
+        BTreeMap<capsec_semantics::model::Principal, capsec_semantics::model::LogicalPath>,
+    > {
+        let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed path normalization requested without an armed snapshot".into(),
+            )
+        })?;
+        let components = absolute_host_path_components(path)?;
+        snapshot.logical_paths_for_host_components(principals, &components)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -320,7 +325,9 @@ impl Host {
         retained_handle: Option<capsec_semantics::model::NonEmptyString>,
         presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::decision::{
+            EffectGate, PrincipalPathProjections, TargetCellDisposition,
+        };
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
             OccurrenceResource, StableId,
@@ -331,46 +338,68 @@ impl Host {
                 "filesystem operation has no authenticated typed principal".into(),
             )
         })?;
-        let requested = self.typed_logical_path(&principal, path)?;
         if constrained_principals.is_empty()
             || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+            || !capsec_semantics::model::principals_are_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "filesystem principal stack is empty, noncanonical, or omits the actor".into(),
             ));
         }
+        // @ref LLP 0021#decision-staging-and-principal-semantics — a logical
+        // package root is principal-relative. Project the host path separately
+        // for every constrained dimension before any containment check.
+        let requested_paths = self.typed_logical_paths(&constrained_principals, path)?;
+        let requested = requested_paths.get(&principal).cloned().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "filesystem actor is missing its authenticated path projection".into(),
+            )
+        })?;
         if let Some(resolved_parent_path) = resolved_parent_path {
-            let parent_matches = if requested.components.is_empty() {
-                self.armed_snapshot
-                    .as_deref()
-                    .ok_or_else(|| {
-                        capsec_semantics::Error::ArmRefused(
-                            "root-object validation requires an armed snapshot".into(),
-                        )
-                    })?
-                    .root_bindings()?
-                    .into_iter()
-                    .any(|binding| {
+            // Compare the retained physical parent before projecting it. A
+            // foreign nested package is a logical mount boundary: the target
+            // can correctly be Project-rooted for an outer package while its
+            // immediate parent is Package-rooted. Re-projecting the two paths
+            // independently would reject that valid boundary crossing.
+            // @ref LLP 0021#decision-staging-and-principal-semantics
+            let mut expected_parent_components = absolute_host_path_components(path)?;
+            expected_parent_components.pop();
+            if absolute_host_path_components(resolved_parent_path)? != expected_parent_components {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "retained filesystem parent is not the requested path's physical parent".into(),
+                ));
+            }
+            let bindings = self
+                .armed_snapshot
+                .as_deref()
+                .ok_or_else(|| {
+                    capsec_semantics::Error::ArmRefused(
+                        "root-object validation requires an armed snapshot".into(),
+                    )
+                })?
+                .root_bindings()?;
+            let all_root_objects_match = constrained_principals.iter().all(|constrained| {
+                let Some(requested) = requested_paths.get(constrained) else {
+                    return false;
+                };
+                if requested.components.is_empty() {
+                    bindings.iter().any(|binding| {
                         binding.logical_root == requested.root
                             && match binding.logical_root {
                                 capsec_semantics::model::LogicalRoot::Package => {
-                                    binding.owner.as_ref() == Some(&principal)
+                                    binding.owner.as_ref() == Some(constrained)
                                 }
                                 _ => binding.owner.is_none(),
                             }
                             && final_object.as_ref() == Some(&binding.object)
                     })
-            } else {
-                let mut expected_parent = requested.clone();
-                expected_parent.components.pop();
-                self.typed_logical_path(&principal, resolved_parent_path)? == expected_parent
-            };
-            if !parent_matches {
+                } else {
+                    true
+                }
+            });
+            if !all_root_objects_match {
                 return Err(capsec_semantics::Error::ArmRefused(
-                    "retained filesystem parent escaped its authenticated logical root".into(),
+                    "filesystem root object differs from its authenticated binding".into(),
                 ));
             }
         } else if stage != capsec_semantics::model::Stage::Requested {
@@ -420,6 +449,8 @@ impl Host {
             operation_key, module_id, operation_resource
         ))
         .map_err(capsec_semantics::Error::InvalidModel)?;
+        let path_projections =
+            PrincipalPathProjections::new(vec![requested_paths.clone(); actions.len()]);
         let set = DecisionSet {
             decision_set_schema: DecisionSetSchema::V1,
             operation_id,
@@ -445,7 +476,7 @@ impl Host {
                 })
             })
             .collect::<capsec_semantics::Result<Vec<_>>>()?;
-        self.evaluate_typed_decision(&set, &gates)
+        self.evaluate_typed_decision_inner(&set, &gates, Some(&path_projections))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -476,9 +507,7 @@ impl Host {
         })?;
         if constrained_principals.is_empty()
             || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+            || !capsec_semantics::model::principals_are_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "fetch principal stack is empty, noncanonical, or omits the actor".into(),
@@ -573,9 +602,7 @@ impl Host {
         })?;
         if constrained_principals.is_empty()
             || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+            || !capsec_semantics::model::principals_are_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "connect principal stack is empty, noncanonical, or omits the actor".into(),
@@ -650,6 +677,15 @@ impl Host {
         set: &capsec_semantics::model::DecisionSet,
         gates: &[capsec_semantics::decision::EffectGate],
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        self.evaluate_typed_decision_inner(set, gates, None)
+    }
+
+    fn evaluate_typed_decision_inner(
+        &self,
+        set: &capsec_semantics::model::DecisionSet,
+        gates: &[capsec_semantics::decision::EffectGate],
+        projections: Option<&capsec_semantics::decision::PrincipalPathProjections>,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
         let context = self.decision_context.as_deref().ok_or_else(|| {
             capsec_semantics::Error::ArmRefused(
                 "typed decision requested without an armed context".into(),
@@ -658,13 +694,25 @@ impl Host {
         let context = context.read().map_err(|_| {
             capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
         })?;
-        let decision = capsec_semantics::decision::evaluate_decision_set(
-            &context,
-            set,
-            gates,
-            capsec_semantics::decision::Workflow::ProductionEnforce,
-            &classify_network_peer,
-        )?;
+        let decision = match projections {
+            Some(projections) => {
+                capsec_semantics::decision::evaluate_decision_set_with_path_projections(
+                    &context,
+                    set,
+                    gates,
+                    projections,
+                    capsec_semantics::decision::Workflow::ProductionEnforce,
+                    &classify_network_peer,
+                )?
+            }
+            None => capsec_semantics::decision::evaluate_decision_set(
+                &context,
+                set,
+                gates,
+                capsec_semantics::decision::Workflow::ProductionEnforce,
+                &classify_network_peer,
+            )?,
+        };
         let evidence =
             capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
         if let Ok(mut rows) = self.typed_evidence.write() {
@@ -1458,6 +1506,23 @@ impl Host {
     }
 }
 
+fn absolute_host_path_components(
+    path: &std::path::Path,
+) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| {
+                capsec_semantics::Error::ArmRefused(format!(
+                    "cannot resolve current directory for typed path: {error}"
+                ))
+            })?
+            .join(path)
+    };
+    host_path_components(&path)
+}
+
 fn host_path_components(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
@@ -1896,7 +1961,7 @@ mod tests {
             host.typed_principal_for_module("0").unwrap(),
             host.typed_principal_for_module("7").unwrap(),
         ];
-        deputy_principals.sort_by_key(|principal| serde_json::to_vec(principal).unwrap());
+        capsec_semantics::model::sort_and_dedup_principals(&mut deputy_principals).unwrap();
         let deputy_write = host
             .authorize_typed_fs_open_stage(
                 "0",
@@ -2020,6 +2085,369 @@ mod tests {
         assert_eq!(
             evidence[5].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
+        );
+    }
+
+    #[test]
+    fn typed_fs_projects_deputy_paths_and_protects_package_source() {
+        use capsec_semantics::decision::{DecisionOutcome, DecisionReason};
+        use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+
+        let second_principal = serde_json::json!({
+            "kind": "package",
+            "name": "codec",
+            "integrity": "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDA",
+            "locator": "codec@1.0.0"
+        });
+        let package_floor = serde_json::json!([
+            {
+                "cap": "fs:read",
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {"root": "package", "components": []}
+                }
+            },
+            {
+                "cap": "fs:write",
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {"root": "package", "components": []}
+                }
+            }
+        ]);
+        let mut image_floor = package_floor.clone();
+        image_floor.as_array_mut().unwrap().push(serde_json::json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-tree",
+                "path": {
+                    "root": "project",
+                    "components": [
+                        {"encoding": "utf8", "value": "node_modules"},
+                        {"encoding": "utf8", "value": "image-lib"},
+                        {"encoding": "utf8", "value": "node_modules"},
+                        {"encoding": "utf8", "value": "codec"}
+                    ]
+                }
+            }
+        }));
+        let host = example_armed_host_with(|value| {
+            value["principals"][1]["floor"] = image_floor;
+            let mut second_row = value["principals"][1].clone();
+            second_row["principal"] = second_principal.clone();
+            second_row["floor"] = package_floor;
+            value["principals"].as_array_mut().unwrap().push(second_row);
+            value["rootBindings"]
+                .as_array_mut()
+                .unwrap()
+                .push(serde_json::json!({
+                    "logicalRoot": "package",
+                    "owner": second_principal,
+                    "hostPath": {
+                        "root": "absolute",
+                        "components": [
+                            {"encoding": "utf8", "value": "Users"},
+                            {"encoding": "utf8", "value": "example"},
+                            {"encoding": "utf8", "value": "project"},
+                            {"encoding": "utf8", "value": "node_modules"},
+                            {"encoding": "utf8", "value": "image-lib"},
+                            {"encoding": "utf8", "value": "node_modules"},
+                            {"encoding": "utf8", "value": "codec"}
+                        ],
+                        "hostBound": true
+                    },
+                    "object": {"platform": "apple", "volume": "volume-1", "file": "file-201"}
+                }));
+        });
+        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        host.register_module_package("8", "codec", Some("codec@1.0.0"));
+        let image = host.typed_principal_for_module("7").unwrap();
+        let codec = host.typed_principal_for_module("8").unwrap();
+        let mut deputy = vec![image.clone(), codec.clone()];
+        assert!(
+            serde_json::to_vec(&codec).unwrap() < serde_json::to_vec(&image).unwrap(),
+            "fixture must expose serde field-order sorting disagreement"
+        );
+        capsec_semantics::model::sort_and_dedup_principals(&mut deputy).unwrap();
+        assert_eq!(deputy, vec![image.clone(), codec.clone()]);
+        let object = |file: &str| ObjectIdentity {
+            platform: ObjectPlatform::Apple,
+            volume: NonEmptyString::new("dev:test").unwrap(),
+            file: NonEmptyString::new(file).unwrap(),
+        };
+
+        let image_path =
+            std::path::Path::new("/Users/example/project/node_modules/image-lib/lib/index.js");
+        let image_only = host
+            .authorize_typed_fs_open_stage(
+                "7",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![image.clone()],
+                image_path,
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                None,
+                true,
+                false,
+                None,
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(image_only.outcome, DecisionOutcome::Allow);
+
+        let cross_package = host
+            .authorize_typed_fs_open_stage(
+                "7",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                deputy.clone(),
+                image_path,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new(
+                    "/Users/example/project/node_modules/image-lib/lib",
+                )),
+                true,
+                false,
+                Some(object("image-lib-parent")),
+                Some(object("shared-source-inode")),
+                Some(NonEmptyString::new("fd:77").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(cross_package.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            cross_package.evidence[0].reason,
+            DecisionReason::MissingAuthority
+        );
+        assert_eq!(cross_package.evidence[0].principal.as_ref(), Some(&codec));
+
+        let codec_path = std::path::Path::new(
+            "/Users/example/project/node_modules/image-lib/node_modules/codec/index.js",
+        );
+        let reverse = host
+            .authorize_typed_fs_open_stage(
+                "8",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                deputy.clone(),
+                codec_path,
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                None,
+                true,
+                false,
+                None,
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(reverse.outcome, DecisionOutcome::Allow);
+
+        let codec_root = std::path::Path::new(
+            "/Users/example/project/node_modules/image-lib/node_modules/codec",
+        );
+        let nested_boundary = host
+            .authorize_typed_fs_open_stage(
+                "8",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                deputy,
+                codec_root,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new(
+                    "/Users/example/project/node_modules/image-lib/node_modules",
+                )),
+                true,
+                false,
+                Some(object("image-lib-node-modules-parent")),
+                Some(ObjectIdentity {
+                    platform: ObjectPlatform::Apple,
+                    volume: NonEmptyString::new("volume-1").unwrap(),
+                    file: NonEmptyString::new("file-201").unwrap(),
+                }),
+                Some(NonEmptyString::new("fd:boundary").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(nested_boundary.outcome, DecisionOutcome::Allow);
+
+        // Model a content-addressed store alias: codec is authorized to write
+        // its own package-relative path, but that path resolves to the same
+        // inode as image-lib source. The lexical package-tree guard must deny
+        // before the exact-object identity can make the alias look harmless.
+        let protected_write = host
+            .authorize_typed_fs_open_stage(
+                "8",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![codec.clone()],
+                codec_path,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new(
+                    "/Users/example/project/node_modules/image-lib/node_modules/codec",
+                )),
+                false,
+                true,
+                Some(object("codec-parent")),
+                Some(object("shared-source-inode")),
+                Some(NonEmptyString::new("fd:78").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(protected_write.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            protected_write.evidence[0].reason,
+            DecisionReason::ProtectedResource
+        );
+
+        let root = host.typed_principal_for_module("0").unwrap();
+        let first_party_write = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![root.clone()],
+                std::path::Path::new("/Users/example/project/src/main.js"),
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                None,
+                false,
+                true,
+                None,
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(first_party_write.outcome, DecisionOutcome::Allow);
+
+        let project_root_object = ObjectIdentity {
+            platform: ObjectPlatform::Apple,
+            volume: NonEmptyString::new("volume-1").unwrap(),
+            file: NonEmptyString::new("file-100").unwrap(),
+        };
+        let first_party_direct_child = std::path::Path::new("/Users/example/project/app.js");
+        let first_party_commit = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![root.clone()],
+                first_party_direct_child,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new("/Users/example/project")),
+                false,
+                true,
+                Some(project_root_object.clone()),
+                Some(object("first-party-app")),
+                Some(NonEmptyString::new("fd:first-party-app").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(first_party_commit.outcome, DecisionOutcome::Allow);
+
+        let first_party_create = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![root.clone()],
+                first_party_direct_child,
+                capsec_semantics::model::Stage::Discovery,
+                capsec_semantics::model::ObjectState::AbsentCreate,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new("/Users/example/project")),
+                false,
+                true,
+                Some(project_root_object),
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(first_party_create.outcome, DecisionOutcome::Allow);
+
+        let package_create = host
+            .authorize_typed_fs_open_stage(
+                "8",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![codec.clone()],
+                std::path::Path::new(
+                    "/Users/example/project/node_modules/image-lib/node_modules/codec/new.js",
+                ),
+                capsec_semantics::model::Stage::Discovery,
+                capsec_semantics::model::ObjectState::AbsentCreate,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new(
+                    "/Users/example/project/node_modules/image-lib/node_modules/codec",
+                )),
+                false,
+                true,
+                Some(ObjectIdentity {
+                    platform: ObjectPlatform::Apple,
+                    volume: NonEmptyString::new("volume-1").unwrap(),
+                    file: NonEmptyString::new("file-201").unwrap(),
+                }),
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(package_create.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            package_create.evidence[0].reason,
+            DecisionReason::ProtectedResource
+        );
+
+        let root_package_write = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![root],
+                image_path,
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                None,
+                false,
+                true,
+                None,
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(root_package_write.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            root_package_write.evidence[0].reason,
+            DecisionReason::ProtectedResource
         );
     }
 

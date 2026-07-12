@@ -132,6 +132,15 @@ function defineLazyGlobal(g: any, name: string, factory: () => any): void {
       return value;
     },
   });
+  const lazyGetter = Object.getOwnPropertyDescriptor(g, name)?.get;
+  if (lazyGetter) {
+    Object.defineProperty(lazyGetter, '__ibexLazyGlobalGetter', {
+      value: true,
+      writable: false,
+      configurable: false,
+      enumerable: false,
+    });
+  }
 }
 
 function preserveConstructorName<T>(value: T, expectedName: string): T {

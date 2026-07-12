@@ -1,0 +1,27 @@
+{
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-KGh_kproEqxwp0bTxOM_mIesQMqZ8p6-k7vcomfsnDE",
+  "policyDigest": "sha256-KcFg_ObvVUVVx3GF33sQOG2o0YLsvkuIpx-oUpQoKiA",
+  "purpose": "production",
+  "mode": "enforce",
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "evil-pkg",
+        "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+        "locator": "evil-pkg@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    }
+  ]
+}

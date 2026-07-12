@@ -20,8 +20,8 @@ use crate::containment::{
     PeerClassifier,
 };
 use crate::model::{
-    ActionId, DecisionSet, Digest, EffectOccurrence, Generation, NonEmptyString, ObjectIdentity,
-    OccurrenceResource, Principal, StableId,
+    ActionId, DecisionSet, Digest, EffectOccurrence, Generation, LogicalPath, NonEmptyString,
+    ObjectIdentity, OccurrenceResource, Principal, StableId,
 };
 use crate::registry::{
     DecisionStratumId, DefinitionSet, Globality, Lifecycle, ResourceKind, PROFILE, SEMANTIC_CORE,
@@ -264,6 +264,21 @@ pub struct EffectGate {
     pub definition_and_edge_predicates_satisfied: bool,
 }
 
+/// Authenticated logical-path views for path effects, indexed first by effect
+/// and then by constrained principal. This is deliberately not part of the wire
+/// decision-set schema: only the host adapter has the absolute path and armed
+/// root bindings needed to construct it safely.
+#[derive(Clone, Debug, Default)]
+pub struct PrincipalPathProjections {
+    by_effect: Vec<BTreeMap<Principal, LogicalPath>>,
+}
+
+impl PrincipalPathProjections {
+    pub fn new(by_effect: Vec<BTreeMap<Principal, LogicalPath>>) -> Self {
+        Self { by_effect }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DecisionOutcome {
@@ -374,6 +389,30 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     workflow: Workflow,
     classifier: &C,
 ) -> Result<Decision> {
+    evaluate_decision_set_inner(context, set, gates, None, workflow, classifier)
+}
+
+/// Evaluate a path-bearing decision set using the separately authenticated
+/// view of that path for every constrained principal.
+pub fn evaluate_decision_set_with_path_projections<C: PeerClassifier>(
+    context: &VerifiedDecisionContext,
+    set: &DecisionSet,
+    gates: &[EffectGate],
+    projections: &PrincipalPathProjections,
+    workflow: Workflow,
+    classifier: &C,
+) -> Result<Decision> {
+    evaluate_decision_set_inner(context, set, gates, Some(projections), workflow, classifier)
+}
+
+fn evaluate_decision_set_inner<C: PeerClassifier>(
+    context: &VerifiedDecisionContext,
+    set: &DecisionSet,
+    gates: &[EffectGate],
+    projections: Option<&PrincipalPathProjections>,
+    workflow: Workflow,
+    classifier: &C,
+) -> Result<Decision> {
     if set.effects.is_empty() || gates.len() != set.effects.len() {
         return Ok(hard_decision(
             DecisionOutcome::Deny,
@@ -406,6 +445,7 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
         ));
     }
     let occurrences = set.occurrences();
+    let projected_occurrences = materialize_path_projections(&occurrences, projections)?;
 
     // 2. Attribution — validate the factored context across every effect.
     for (effect_index, occurrence) in occurrences.iter().enumerate() {
@@ -531,9 +571,15 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
             ));
         }
         for principal in &occurrence.constrained_principals {
+            let principal_occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                effect_index,
+                principal,
+            );
             if let Some(denial) = first_matching_authority(
                 &context.authority.protected_resources,
-                occurrence,
+                principal_occurrence,
                 principal,
                 &context.identity.armed_snapshot_digest,
                 AuthorityPolarity::Denial,
@@ -554,9 +600,15 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     // 5. Process ceiling, separately against each constrained package root.
     for (effect_index, occurrence) in occurrences.iter().enumerate() {
         for principal in &occurrence.constrained_principals {
+            let principal_occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                effect_index,
+                principal,
+            );
             if !ceiling_allows(
                 &context.authority.process_ceiling,
-                occurrence,
+                principal_occurrence,
                 principal,
                 &context.identity.armed_snapshot_digest,
                 classifier,
@@ -576,6 +628,12 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     // 6. Principal denials.
     for (effect_index, occurrence) in occurrences.iter().enumerate() {
         for principal in &occurrence.constrained_principals {
+            let principal_occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                effect_index,
+                principal,
+            );
             let denials = context
                 .authority
                 .principal_policies
@@ -584,7 +642,7 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
                 .unwrap_or_default();
             if let Some(denial) = first_matching_authority(
                 denials,
-                occurrence,
+                principal_occurrence,
                 principal,
                 &context.identity.armed_snapshot_digest,
                 AuthorityPolarity::Denial,
@@ -611,9 +669,15 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
             {
                 continue;
             }
+            let principal_occurrence = occurrence_for_principal(
+                &occurrences,
+                &projected_occurrences,
+                effect_index,
+                &revocation.principal,
+            );
             if authority_matches(
                 &revocation.authority,
-                occurrence,
+                principal_occurrence,
                 &revocation.principal,
                 &context.identity.armed_snapshot_digest,
                 AuthorityPolarity::Denial,
@@ -684,6 +748,7 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     fill_from_policy_authorities(
         &mut pending,
         &occurrences,
+        &projected_occurrences,
         context,
         classifier,
         |policy| &policy.static_floor,
@@ -693,7 +758,12 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
 
     // 11. Bearer handles and operation leases.
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
-        let occurrence = &occurrences[pending_row.effect_index];
+        let occurrence = occurrence_for_principal(
+            &occurrences,
+            &projected_occurrences,
+            pending_row.effect_index,
+            &pending_row.principal,
+        );
         for handle in &context.authority.handles {
             if !set.context.presented_handle_ids.contains(&handle.handle_id)
                 || handle.holder != pending_row.principal
@@ -727,7 +797,12 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
 
     // 12. Dynamic session authority, already verified within its static ceiling.
     for pending_row in pending.iter_mut().filter(|row| row.authorization.is_none()) {
-        let occurrence = &occurrences[pending_row.effect_index];
+        let occurrence = occurrence_for_principal(
+            &occurrences,
+            &projected_occurrences,
+            pending_row.effect_index,
+            &pending_row.principal,
+        );
         for grant in &context.authority.dynamic_grants {
             if grant.principal != pending_row.principal
                 || grant.observed_negative_generation != context.authority.generations.negative
@@ -758,6 +833,7 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
     fill_from_policy_authorities(
         &mut pending,
         &occurrences,
+        &projected_occurrences,
         context,
         classifier,
         |policy| &policy.implicit_package_self,
@@ -818,6 +894,108 @@ pub fn evaluate_decision_set<C: PeerClassifier>(
             .filter_map(|row| row.authorization)
             .collect(),
     })
+}
+
+fn materialize_path_projections(
+    occurrences: &[EffectOccurrence],
+    projections: Option<&PrincipalPathProjections>,
+) -> Result<Vec<BTreeMap<Principal, EffectOccurrence>>> {
+    if let Some(projections) = projections {
+        if projections.by_effect.len() != occurrences.len() {
+            return arm_refused("path projections do not align with the effect set");
+        }
+    }
+
+    occurrences
+        .iter()
+        .enumerate()
+        .map(|(effect_index, occurrence)| {
+            let supplied = projections.map(|projections| &projections.by_effect[effect_index]);
+            let OccurrenceResource::PathOccurrence { requested, .. } = &occurrence.resource else {
+                if supplied.is_some_and(|paths| !paths.is_empty()) {
+                    return arm_refused("non-path effect has path projections");
+                }
+                // Executable and Unix-socket occurrences can also carry a
+                // principal-relative package path. Their adapters do not yet
+                // supply enough authenticated paths to rewrite every nested
+                // field, so a deputy decision must refuse rather than reuse the
+                // actor's Package-rooted selector for another principal.
+                // @ref LLP 0021#decision-staging-and-principal-semantics
+                if occurrence.constrained_principals.len() > 1
+                    && occurrence
+                        .resource
+                        .requested_selector_resource()
+                        .is_some_and(|resource| resource.contains_package_logical_root())
+                {
+                    return arm_refused(
+                        "multi-principal package-root resource lacks authenticated projections",
+                    );
+                }
+                return Ok(BTreeMap::new());
+            };
+
+            let Some(paths) = supplied else {
+                if occurrence.constrained_principals.len() > 1 {
+                    return arm_refused(
+                        "multi-principal path decision lacks authenticated projections",
+                    );
+                }
+                return Ok(BTreeMap::new());
+            };
+            if paths.len() != occurrence.constrained_principals.len()
+                || occurrence
+                    .constrained_principals
+                    .iter()
+                    .any(|principal| !paths.contains_key(principal))
+            {
+                return arm_refused(
+                    "path projection principals differ from the constrained principal set",
+                );
+            }
+            if paths
+                .values()
+                .any(|projected_path| !projected_path.is_canonical())
+            {
+                return arm_refused("path projection is not canonical");
+            }
+            if paths.iter().any(|(principal, projected_path)| {
+                projected_path.root == crate::model::LogicalRoot::Package && !principal.is_package()
+            }) {
+                return arm_refused("package path projection belongs to a non-package principal");
+            }
+            if paths
+                .get(&occurrence.actor)
+                .is_some_and(|actor_path| actor_path != requested)
+            {
+                return arm_refused("actor path differs from its authenticated projection");
+            }
+
+            paths
+                .iter()
+                .map(|(principal, path)| {
+                    let mut projected = occurrence.clone();
+                    let OccurrenceResource::PathOccurrence { requested, .. } =
+                        &mut projected.resource
+                    else {
+                        unreachable!("path occurrence changed while projecting")
+                    };
+                    *requested = path.clone();
+                    Ok((principal.clone(), projected))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn occurrence_for_principal<'a>(
+    occurrences: &'a [EffectOccurrence],
+    projected_occurrences: &'a [BTreeMap<Principal, EffectOccurrence>],
+    effect_index: usize,
+    principal: &Principal,
+) -> &'a EffectOccurrence {
+    projected_occurrences[effect_index]
+        .get(principal)
+        .unwrap_or(&occurrences[effect_index])
 }
 
 fn validate_authority_state(
@@ -948,14 +1126,14 @@ fn protected_object_matches(guard: &ProtectedObjectGuard, occurrence: &EffectOcc
         return false;
     }
     match &occurrence.resource {
-        OccurrenceResource::PathOccurrence {
-            parent_object,
-            final_object,
-            ..
-        } => [parent_object.as_ref(), final_object.as_ref()]
-            .into_iter()
-            .flatten()
-            .any(|object| object == &guard.object),
+        // @ref LLP 0021#decision-staging-and-principal-semantics — an exact
+        // protected object guards the object targeted by the occurrence. The
+        // retained parent is an ancestry/staging fact, not an implicit subtree
+        // selector; protected directory entries and package trees are modeled
+        // explicitly by path-tree guards.
+        OccurrenceResource::PathOccurrence { final_object, .. } => {
+            final_object.as_ref() == Some(&guard.object)
+        }
         OccurrenceResource::ExecutableOccurrence {
             executable_object,
             interpreter_object,
@@ -1151,6 +1329,7 @@ fn authority_matches<C: PeerClassifier>(
 fn fill_from_policy_authorities<C: PeerClassifier>(
     pending: &mut [PendingPrincipal],
     occurrences: &[EffectOccurrence],
+    projected_occurrences: &[BTreeMap<Principal, EffectOccurrence>],
     context: &VerifiedDecisionContext,
     classifier: &C,
     select: impl Fn(&PrincipalPolicy) -> &[BoundAuthority],
@@ -1165,9 +1344,15 @@ fn fill_from_policy_authorities<C: PeerClassifier>(
         else {
             continue;
         };
+        let occurrence = occurrence_for_principal(
+            occurrences,
+            projected_occurrences,
+            pending_row.effect_index,
+            &pending_row.principal,
+        );
         if let Some(authority) = first_matching_authority(
             select(policy),
-            &occurrences[pending_row.effect_index],
+            occurrence,
             &pending_row.principal,
             &context.identity.armed_snapshot_digest,
             AuthorityPolarity::Positive,
@@ -1263,7 +1448,12 @@ mod tests {
         definitions["definitions"]
             .as_array_mut()
             .unwrap()
-            .retain(|definition| matches!(definition["id"].as_str(), Some("env:read" | "fs:read")));
+            .retain(|definition| {
+                matches!(
+                    definition["id"].as_str(),
+                    Some("env:read" | "fs:read" | "fs:write")
+                )
+            });
         ValidatedProfile::from_json(
             &serde_json::to_vec(&definitions).unwrap(),
             include_bytes!("../../../capsec/registry/policy-rules.json"),
@@ -1375,6 +1565,22 @@ mod tests {
         Some(PeerClass::Public)
     }
 
+    fn package_tree_authority(action: &str, owner: Principal, source_id: &str) -> BoundAuthority {
+        BoundAuthority {
+            source_id: NonEmptyString::new(source_id).unwrap(),
+            selector: serde_json::from_value(json!({
+                "cap": action,
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {"root": "package", "components": []}
+                }
+            }))
+            .unwrap(),
+            armed_snapshot_digest: identity().armed_snapshot_digest,
+            package_root_owner: Some(owner),
+        }
+    }
+
     #[test]
     fn audit_relaxes_only_missing_authority() {
         let occurrence = env_occurrence();
@@ -1456,7 +1662,7 @@ mod tests {
         let first = occurrence.effect_owner.clone();
         let second = package("other-package");
         let mut principals = vec![first.clone(), second.clone()];
-        principals.sort_by_key(|p| serde_json::to_vec(p).unwrap());
+        crate::model::sort_and_dedup_principals(&mut principals).unwrap();
         let mut set = set_from(&occurrence);
         set.context.constrained_principals = principals;
         set.effects.push(set.effects[0].clone());
@@ -1515,6 +1721,345 @@ mod tests {
             decision.evidence[0].reason,
             DecisionReason::InvalidOccurrenceFacts
         );
+    }
+
+    #[test]
+    fn package_path_authority_uses_each_constrained_principals_projection() {
+        let first = package("a-package");
+        let second = package("b-package");
+        let mut constrained = vec![first.clone(), second.clone()];
+        constrained.sort_by_key(|principal| {
+            crate::canonical::to_jcs_bytes(&serde_json::to_value(principal).unwrap()).unwrap()
+        });
+        let component = |value: &str| crate::model::PathComponent::utf8(value).unwrap();
+        let occurrence = EffectOccurrence {
+            action: ActionId::new("fs:read").unwrap(),
+            stage: crate::model::Stage::Requested,
+            actor: first.clone(),
+            effect_owner: first.clone(),
+            constrained_principals: constrained.clone(),
+            resource: OccurrenceResource::PathOccurrence {
+                requested: LogicalPath {
+                    root: crate::model::LogicalRoot::Package,
+                    components: vec![component("index.js")],
+                    host_bound: None,
+                },
+                follow_mode: crate::model::FollowMode::FollowFinal,
+                object_state: crate::model::ObjectState::Existing,
+                parent_object: None,
+                final_object: None,
+                retained_handle: None,
+            },
+        };
+        let mut state = empty_authority();
+        for principal in [&first, &second] {
+            let mut static_floor = vec![package_tree_authority(
+                "fs:read",
+                principal.clone(),
+                "floor.package",
+            )];
+            if principal == &first {
+                static_floor.push(BoundAuthority {
+                    source_id: NonEmptyString::new("floor.project").unwrap(),
+                    selector: serde_json::from_value(json!({
+                        "cap": "fs:read",
+                        "resource": {
+                            "kind": "path-tree",
+                            "path": {
+                                "root": "project",
+                                "components": [
+                                    {"encoding": "utf8", "value": "node_modules"},
+                                    {"encoding": "utf8", "value": "b-package"}
+                                ]
+                            }
+                        }
+                    }))
+                    .unwrap(),
+                    armed_snapshot_digest: identity().armed_snapshot_digest,
+                    package_root_owner: None,
+                });
+            }
+            state.principal_policies.insert(
+                principal.clone(),
+                PrincipalPolicy {
+                    static_floor,
+                    ..PrincipalPolicy::default()
+                },
+            );
+        }
+        let context = arm(state).unwrap();
+        let set = set_from(&occurrence);
+
+        assert!(matches!(
+            evaluate_decision_set(
+                &context,
+                &set,
+                &[gate()],
+                Workflow::ProductionEnforce,
+                &classifier,
+            ),
+            Err(Error::ArmRefused(message))
+                if message.contains("lacks authenticated projections")
+        ));
+
+        let mut incomplete = BTreeMap::new();
+        incomplete.insert(
+            first.clone(),
+            LogicalPath {
+                root: crate::model::LogicalRoot::Package,
+                components: vec![component("index.js")],
+                host_bound: None,
+            },
+        );
+        assert!(matches!(
+            evaluate_decision_set_with_path_projections(
+                &context,
+                &set,
+                &[gate()],
+                &PrincipalPathProjections::new(vec![incomplete]),
+                Workflow::ProductionEnforce,
+                &classifier,
+            ),
+            Err(Error::ArmRefused(message))
+                if message.contains("differ from the constrained principal set")
+        ));
+
+        let mut paths = BTreeMap::new();
+        paths.insert(
+            first.clone(),
+            LogicalPath {
+                root: crate::model::LogicalRoot::Package,
+                components: vec![component("index.js")],
+                host_bound: None,
+            },
+        );
+        paths.insert(
+            second.clone(),
+            LogicalPath {
+                root: crate::model::LogicalRoot::Project,
+                components: vec![
+                    component("node_modules"),
+                    component("a-package"),
+                    component("index.js"),
+                ],
+                host_bound: None,
+            },
+        );
+        let decision = evaluate_decision_set_with_path_projections(
+            &context,
+            &set,
+            &[gate()],
+            &PrincipalPathProjections::new(vec![paths]),
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Deny);
+        assert_eq!(decision.evidence[0].principal.as_ref(), Some(&second));
+        assert_eq!(
+            decision.evidence[0].reason,
+            DecisionReason::MissingAuthority
+        );
+
+        let second_occurrence = EffectOccurrence {
+            actor: second.clone(),
+            effect_owner: second.clone(),
+            resource: OccurrenceResource::PathOccurrence {
+                requested: LogicalPath {
+                    root: crate::model::LogicalRoot::Package,
+                    components: vec![component("index.js")],
+                    host_bound: None,
+                },
+                follow_mode: crate::model::FollowMode::FollowFinal,
+                object_state: crate::model::ObjectState::Existing,
+                parent_object: None,
+                final_object: None,
+                retained_handle: None,
+            },
+            ..occurrence
+        };
+        let mut second_paths = BTreeMap::new();
+        second_paths.insert(
+            first,
+            LogicalPath {
+                root: crate::model::LogicalRoot::Project,
+                components: vec![
+                    component("node_modules"),
+                    component("b-package"),
+                    component("index.js"),
+                ],
+                host_bound: None,
+            },
+        );
+        second_paths.insert(
+            second,
+            LogicalPath {
+                root: crate::model::LogicalRoot::Package,
+                components: vec![component("index.js")],
+                host_bound: None,
+            },
+        );
+        let allowed = evaluate_decision_set_with_path_projections(
+            &context,
+            &set_from(&second_occurrence),
+            &[gate()],
+            &PrincipalPathProjections::new(vec![second_paths]),
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(allowed.outcome, DecisionOutcome::Allow);
+    }
+
+    #[test]
+    fn unprojected_package_executable_and_unix_socket_deputies_refuse() {
+        let examples: Occurrences = serde_json::from_slice(include_bytes!(
+            "../../../capsec/examples/effect-occurrences.canonical.json"
+        ))
+        .unwrap();
+        let package_path = json!({
+            "root": "package",
+            "components": [{"encoding": "utf8", "value": "target"}]
+        });
+
+        for requested_kind in ["executable", "connect-unix", "listen-unix"] {
+            let mut occurrence = examples
+                .occurrences
+                .iter()
+                .find(|occurrence| {
+                    occurrence.resource.requested_kind_name() == Some(requested_kind)
+                })
+                .unwrap_or_else(|| panic!("missing {requested_kind} occurrence"))
+                .clone();
+            let mut resource = serde_json::to_value(&occurrence.resource).unwrap();
+            if requested_kind == "executable" {
+                resource["requested"]["path"] = package_path.clone();
+            } else {
+                resource["requested"]["address"]["path"] = package_path.clone();
+            }
+            occurrence.resource = serde_json::from_value(resource).unwrap();
+
+            let deputy = package(&format!("{requested_kind}-deputy"));
+            occurrence.constrained_principals.push(deputy);
+            occurrence.constrained_principals.sort_by_key(|principal| {
+                crate::canonical::to_jcs_bytes(&serde_json::to_value(principal).unwrap()).unwrap()
+            });
+
+            assert!(matches!(
+                evaluate_decision_set(
+                    &arm(empty_authority()).unwrap(),
+                    &set_from(&occurrence),
+                    &[gate()],
+                    Workflow::ProductionEnforce,
+                    &classifier,
+                ),
+                Err(Error::ArmRefused(message))
+                    if message.contains("package-root resource lacks authenticated projections")
+            ));
+        }
+    }
+
+    #[test]
+    fn package_tree_protection_precedes_package_write_authority() {
+        let principal = package("protected-package");
+        let component = crate::model::PathComponent::utf8("lib.js").unwrap();
+        let occurrence = EffectOccurrence {
+            action: ActionId::new("fs:write").unwrap(),
+            stage: crate::model::Stage::Requested,
+            actor: principal.clone(),
+            effect_owner: principal.clone(),
+            constrained_principals: vec![principal.clone()],
+            resource: OccurrenceResource::PathOccurrence {
+                requested: LogicalPath {
+                    root: crate::model::LogicalRoot::Package,
+                    components: vec![component],
+                    host_bound: None,
+                },
+                follow_mode: crate::model::FollowMode::FollowFinal,
+                object_state: crate::model::ObjectState::Existing,
+                parent_object: None,
+                final_object: None,
+                retained_handle: None,
+            },
+        };
+        let mut state = empty_authority();
+        state.protected_resources = vec![package_tree_authority(
+            "fs:write",
+            principal.clone(),
+            "protected",
+        )];
+        state.principal_policies.insert(
+            principal.clone(),
+            PrincipalPolicy {
+                static_floor: vec![package_tree_authority("fs:write", principal, "floor")],
+                ..PrincipalPolicy::default()
+            },
+        );
+        let decision = evaluate_decision_set(
+            &arm(state).unwrap(),
+            &set_from(&occurrence),
+            &[gate()],
+            Workflow::ProductionEnforce,
+            &classifier,
+        )
+        .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Deny);
+        assert_eq!(
+            decision.evidence[0].reason,
+            DecisionReason::ProtectedResource
+        );
+        assert_eq!(
+            decision.decisive_stratum,
+            Some(DecisionStratumId::ProtectedResourceGuards)
+        );
+    }
+
+    #[test]
+    fn exact_object_guard_protects_the_target_not_every_child_of_a_directory() {
+        let principal = package("protected-object-package");
+        let guarded: ObjectIdentity = serde_json::from_value(json!({
+            "platform": "unix",
+            "volume": "dev:test",
+            "file": "ino:guarded-directory"
+        }))
+        .unwrap();
+        let child: ObjectIdentity = serde_json::from_value(json!({
+            "platform": "unix",
+            "volume": "dev:test",
+            "file": "ino:child"
+        }))
+        .unwrap();
+        let guard = ProtectedObjectGuard {
+            action: ActionId::new("fs:write").unwrap(),
+            object: guarded.clone(),
+        };
+        let mut occurrence = EffectOccurrence {
+            action: ActionId::new("fs:write").unwrap(),
+            stage: crate::model::Stage::Commit,
+            actor: principal.clone(),
+            effect_owner: principal.clone(),
+            constrained_principals: vec![principal],
+            resource: OccurrenceResource::PathOccurrence {
+                requested: LogicalPath {
+                    root: crate::model::LogicalRoot::Project,
+                    components: vec![crate::model::PathComponent::utf8("app.js").unwrap()],
+                    host_bound: None,
+                },
+                follow_mode: crate::model::FollowMode::FollowFinal,
+                object_state: crate::model::ObjectState::Existing,
+                parent_object: Some(guarded.clone()),
+                final_object: Some(child),
+                retained_handle: Some(NonEmptyString::new("fd:child").unwrap()),
+            },
+        };
+
+        assert!(!protected_object_matches(&guard, &occurrence));
+        let OccurrenceResource::PathOccurrence { final_object, .. } = &mut occurrence.resource
+        else {
+            unreachable!("fixture is a path occurrence")
+        };
+        *final_object = Some(guarded);
+        assert!(protected_object_matches(&guard, &occurrence));
     }
 
     #[test]

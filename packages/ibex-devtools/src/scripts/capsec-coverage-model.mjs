@@ -325,9 +325,12 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__hostCallAsync",
   "__ibex",
   "__ibexBarePackageName",
+  "__ibexCompartmentBaselineFinalized",
+  "__ibexCompartmentRegistryReady",
   "__ibexEndowRaw",
   "__ibexLockedDown",
   "__ibexNativeLockdown",
+  "__ibexRefreshCompartmentBaseline",
   "__nativeFetch",
   "__nativeFetchSync",
   "__svGet",
@@ -4683,6 +4686,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "getAbsoluteLayout",
     "getLayout",
     "getLayoutGeneration",
+    "getLayoutTree",
     "getModuleStateOffset",
     "getRootViewId",
     "getStateMirror",
@@ -6298,10 +6302,10 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:__has_include:18ool1z:stream-enhance",
     "evaluation:__has_include:18ool1z:stream-stability-patch",
     "evaluation:defined:13e9rgh:promise-unwrap",
-    "evaluation:env_flag_enabled:0x0uwpa:compartment-registry",
     "evaluation:env_flag_enabled:0x0uwpa:eager-install-seal",
     "evaluation:env_flag_enabled:0x0uwpa:lockdown",
     "evaluation:ex_hermes_debugger_eval:cdp",
+    "evaluation:installCompartmentRegistry:compartment-registry",
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
     "evaluation:translation-unit-fallback:capability-hardening",
@@ -6315,6 +6319,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "globals-install",
     "install-route:defined:13e9rgh:installFsHostFunctions",
     "install-route:env_flag_enabled:0jb9qqi:installWebStreamsPolyfill",
+    "install-route:ex_hermes_create:installCompartmentRegistry",
     "install-route:ex_hermes_create:installGlobals",
     "install-route:ex_worklet_create:installWorkletGlobals",
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
@@ -6351,6 +6356,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installAndroidHostFunctions",
     "installer:installAndroidLocationBridge",
     "installer:installChildProcessHostFunctions",
+    "installer:installCompartmentRegistry",
     "installer:installConsoleGlobals",
     "installer:installCryptoHostFunctions",
     "installer:installDnsHostFunctions",
@@ -9144,6 +9150,13 @@ function cliClassification(surface) {
       "The production inspector command is closed pending authenticated activation.",
     );
   }
+  if (name === "command:ibex%20capsec%20audit") {
+    return closedSpec(
+      "vm:evaluate",
+      "WP7",
+      "The foreground capsec audit dispatch executes operator-selected source and remains closed pending authenticated code ingress.",
+    );
+  }
   if (
     /^(?:eval|repl|command:ibex%20eval|command:ibex%20repl)$/u.test(name) ||
     /:(?:eval_code|print_eval):/u.test(name) ||
@@ -9664,6 +9677,7 @@ function startupClassification(surface) {
         "installer:installandroidhostfunctions",
         "installer:installandroidlocationbridge",
         "installer:installchildprocesshostfunctions",
+        "installer:installcompartmentregistry",
         "installer:installconsoleglobals",
         "installer:installcryptohostfunctions",
         "installer:installdnshostfunctions",
@@ -11605,7 +11619,7 @@ function classifyConcreteSurface(surface) {
   }
 
   if (
-    /deepfreeze|nativefreeze|nativelockdown|lockeddown|setcompartment|endowraw/u.test(
+    /deepfreeze|nativefreeze|nativelockdown|lockeddown|setcompartment|endowraw|compartmentbaselinefinalized|compartmentregistryready|refreshcompartmentbaseline|lazyglobalgetter/u.test(
       name,
     )
   ) {

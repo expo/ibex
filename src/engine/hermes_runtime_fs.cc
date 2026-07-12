@@ -98,20 +98,56 @@ static std::unordered_map<int, FdEntry> g_fd_registry;
 static std::unordered_map<int, uint64_t> g_transferable_fds;
 static thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
+constexpr size_t kMaxTypedPrincipalStack = 256;
+
+static std::vector<uint64_t> normalizeTypedPrincipalStack(
+    const std::vector<uint64_t>& collected) {
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return collected;
+#else
+  // kNoUserPrincipal is an absence marker, not an additional authority
+  // dimension, when the same walk also recovered a real user/scheduler
+  // principal. This is the native-resolution shape covered by Hermes patch
+  // 0008: a real callback frame supplies attribution and a no-user scheduler is
+  // not evidence of laundering. Sentinel-only attribution must still deny.
+  // A live collection that filled the bounded buffer appends a 257th no-user
+  // sentinel below; preserve that explicit truncation witness in full.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
+  if (collected.size() > kMaxTypedPrincipalStack) return collected;
+  bool hasRealPrincipal = std::any_of(
+      collected.begin(), collected.end(), [](uint64_t principal) {
+        return principal != static_cast<uint64_t>(kNoUserPrincipalId)
+            && principal != static_cast<uint64_t>(kRuntimePrincipalId);
+      });
+  if (!hasRealPrincipal) return collected;
+
+  std::vector<uint64_t> normalized;
+  normalized.reserve(collected.size());
+  for (uint64_t principal : collected) {
+    if (principal != static_cast<uint64_t>(kNoUserPrincipalId)) {
+      normalized.push_back(principal);
+    }
+  }
+  return normalized;
+#endif
+}
+
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
-  if (g_typed_principal_stack) return *g_typed_principal_stack;
+  if (g_typed_principal_stack) {
+    return normalizeTypedPrincipalStack(*g_typed_principal_stack);
+  }
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
-    constexpr size_t kMaxStack = 256;
-    uint32_t ids[kMaxStack];
-    size_t count = ex_hermes_vm_collect_package_ids(g_vm_runtime, ids, kMaxStack);
+    uint32_t ids[kMaxTypedPrincipalStack];
+    size_t count = ex_hermes_vm_collect_package_ids(
+        g_vm_runtime, ids, kMaxTypedPrincipalStack);
     principals.reserve(count + 1);
     for (size_t index = 0; index < count; ++index) {
       auto id = static_cast<uint64_t>(ids[index]);
       if (principals.empty() || principals.back() != id) principals.push_back(id);
     }
-    if (count == kMaxStack) {
+    if (count == kMaxTypedPrincipalStack) {
       principals.push_back(static_cast<uint64_t>(kNoUserPrincipalId));
     }
   }
@@ -126,7 +162,7 @@ std::vector<uint64_t> exactCollectTypedPrincipalStack() {
     principals.push_back(scheduler);
   }
   if (principals.empty()) principals.push_back(currentPrincipalId());
-  return principals;
+  return normalizeTypedPrincipalStack(principals);
 }
 
 ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(

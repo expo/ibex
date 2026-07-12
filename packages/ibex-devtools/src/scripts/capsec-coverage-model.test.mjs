@@ -2528,6 +2528,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         evidenceType: "cli-command-route",
         path: "ibex eval",
       }),
+      surface("cli", "command:ibex%20capsec%20audit", {
+        evidenceType: "cli-command-route",
+        path: "ibex capsec audit",
+      }),
       surface("startup", "script:eval"),
       surface("startup", "script:bytecode"),
     ]) {
@@ -2535,6 +2539,16 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(classified.edge.classification).toBe("closed");
       expect(edgeActions(classified)).toEqual(["vm:evaluate"]);
     }
+
+    const auditFileParser = classifyObservedSurface(
+      surface(
+        "cli",
+        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
+      ),
+      context,
+    );
+    expect(auditFileParser.edge.classification).toBe("non-capability");
+    expect(auditFileParser.edge.rationaleId).toBe("runtime-bootstrap-state");
 
     for (const observed of [
       surface("cli", "run-external-program", {
@@ -3360,7 +3374,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         row.metadata?.surfaceType === "global-api" &&
         row.metadata?.surfaceTypes?.includes("private-native-operation"),
     );
-    expect(liveDualRoleOperations).toHaveLength(281);
+    expect(liveDualRoleOperations).toHaveLength(289);
     expect(
       liveDualRoleOperations.every(
         (row) =>

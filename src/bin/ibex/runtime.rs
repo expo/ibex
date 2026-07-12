@@ -22,6 +22,8 @@ use std::sync::Arc;
 static BYTECODE_INCOMPATIBLE: AtomicBool = AtomicBool::new(false);
 
 const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
+  if (g.__exactRuntimeLoaded === true) return;
+
   if (typeof g.TextEncoder !== 'function') {
     g.TextEncoder = function TextEncoder() {};
     g.TextEncoder.prototype.encode = function(value) {
@@ -933,6 +935,22 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
   g.__exactRuntimeLoaded = true;
 })(globalThis);"#;
 
+const WINDOWS_RUNTIME_LOADED_PROBE: &str =
+    "typeof globalThis === 'object' && globalThis.__exactRuntimeLoaded === true";
+
+async fn load_windows_minimal_runtime(engine: &dyn Engine) -> Result<()> {
+    let loaded = engine
+        .eval_immediate(WINDOWS_RUNTIME_LOADED_PROBE)
+        .await
+        .context("failed to probe the Windows minimal runtime")?;
+    if !matches!(loaded.as_deref().map(str::trim), Some("true")) {
+        engine
+            .eval_immediate(WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP)
+            .await?;
+    }
+    engine::hermes::finalize_compartment_baseline(engine).await
+}
+
 /// Mark bytecode as incompatible with the embedded runtime.
 /// Called from the engine layer when bytecode loading fails.
 pub fn mark_bytecode_incompatible() {
@@ -1137,9 +1155,7 @@ impl Runtime {
         );
         self.engine.eval_immediate(&preload_bootstrap).await?;
         if cfg!(windows) {
-            self.engine
-                .eval_immediate(WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP)
-                .await?;
+            load_windows_minimal_runtime(self.engine.as_ref()).await?;
             return Ok(());
         }
 
@@ -1552,6 +1568,40 @@ impl Runtime {
     }
 }
 
+const PRODUCTION_RUN_NONCE_BYTES: usize = 16;
+const CONTRACT_FIXTURE_RUN_NONCE: &str = "AQIDBAUGBwgJCgsMDQ4PEA";
+
+fn production_run_nonce_from_bytes(bytes: &[u8; PRODUCTION_RUN_NONCE_BYTES]) -> Result<String> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+
+    let nonce = URL_SAFE_NO_PAD.encode(bytes);
+    anyhow::ensure!(
+        nonce != CONTRACT_FIXTURE_RUN_NONCE,
+        "OS randomness produced the reserved capsec contract-fixture run nonce"
+    );
+    Ok(nonce)
+}
+
+fn fresh_production_run_nonce() -> Result<String> {
+    let mut bytes = [0u8; PRODUCTION_RUN_NONCE_BYTES];
+    getrandom::getrandom(&mut bytes).map_err(|error| {
+        anyhow::anyhow!("OS randomness unavailable for production run nonce: {error}")
+    })?;
+    production_run_nonce_from_bytes(&bytes)
+}
+
+fn finalize_production_snapshot(value: &mut serde_json::Value) -> Result<()> {
+    value["runNonce"] = serde_json::json!(fresh_production_run_nonce()?);
+    let digest = capsec_semantics::digest::compute_domain_digest(
+        capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+        value,
+        &["armedSnapshotDigest".to_string()],
+    )?;
+    value["armedSnapshotDigest"] = serde_json::json!(digest);
+    Ok(())
+}
+
 /// Authenticate the immutable production snapshot before either the host or
 /// Hermes can observe project code. The independently generated expected
 /// identity is launcher input, not policy authority, and is discarded after
@@ -1620,9 +1670,17 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 .context("invalid strict JSON in capsec arming identity")?;
             let expected: ExpectedArmingIdentity =
                 serde_json::from_value(identity_value).context("invalid capsec arming identity")?;
+            // Authenticate the launcher-supplied document before changing it.
+            // Its nonce is template/test input only: runtime construction owns
+            // the fresh nonce and therefore the final armed digest.
+            let template = ArmedSnapshot::load(&snapshot_bytes, &expected)
+                .context("refused to authenticate capability snapshot template")?;
+            let mut runtime_document = template.document().clone();
+            finalize_production_snapshot(&mut runtime_document)
+                .context("failed to finalize fresh production capability snapshot")?;
             let snapshot = Arc::new(
-                ArmedSnapshot::load(&snapshot_bytes, &expected)
-                    .context("refused to arm capability snapshot")?,
+                ArmedSnapshot::load(&serde_json::to_vec(&runtime_document)?, &expected)
+                    .context("refused to arm finalized capability snapshot")?,
             );
             let digest = snapshot.digest().as_str().to_owned();
             let host = Host::new_armed(
@@ -1642,7 +1700,7 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
-    use capsec_semantics::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN, POLICY_DOMAIN};
+    use capsec_semantics::digest::{compute_domain_digest, POLICY_DOMAIN};
     use capsec_semantics::model::Digest;
     use sha2::{Digest as _, Sha256};
 
@@ -1950,12 +2008,7 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         "object": root_object,
         "deniedActions": ["fs:write"],
     }]);
-    let digest = compute_domain_digest(
-        ARMED_SNAPSHOT_DOMAIN,
-        &value,
-        &["armedSnapshotDigest".to_string()],
-    )?;
-    value["armedSnapshotDigest"] = serde_json::json!(digest);
+    finalize_production_snapshot(&mut value)?;
     let digest_at = |path: &[&str]| -> Result<Digest> {
         let field = path
             .iter()
@@ -3496,6 +3549,83 @@ mod tests {
     use clap::Parser;
     use tempfile::tempdir;
 
+    #[derive(Default)]
+    struct WindowsMinimalBootstrapEngine {
+        evaluated: std::sync::Mutex<Vec<String>>,
+        runtime_loaded: AtomicBool,
+    }
+
+    #[async_trait::async_trait]
+    impl Engine for WindowsMinimalBootstrapEngine {
+        fn name(&self) -> &str {
+            "windows-minimal-bootstrap-test"
+        }
+
+        fn version(&self) -> Result<String> {
+            Ok("test".to_string())
+        }
+
+        async fn load_runtime(&self) -> Result<()> {
+            anyhow::bail!("the Windows minimal bootstrap must not load the full runtime")
+        }
+
+        async fn eval(&self, _code: &str) -> Result<Option<String>> {
+            anyhow::bail!("the Windows minimal bootstrap must use immediate evaluation")
+        }
+
+        async fn eval_immediate(&self, code: &str) -> Result<Option<String>> {
+            self.evaluated.lock().unwrap().push(code.to_string());
+            if code == WINDOWS_RUNTIME_LOADED_PROBE {
+                Ok(Some(self.runtime_loaded.load(Ordering::SeqCst).to_string()))
+            } else if code == WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP {
+                self.runtime_loaded.store(true, Ordering::SeqCst);
+                Ok(None)
+            } else if code == crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE {
+                Ok(Some("true".to_string()))
+            } else {
+                anyhow::bail!("unexpected bootstrap script")
+            }
+        }
+
+        async fn run_file(&self, _path: &str) -> Result<Option<String>> {
+            anyhow::bail!("unexpected file evaluation")
+        }
+
+        async fn start_inspector(&self, _host: &str, _port: u16) -> Result<()> {
+            anyhow::bail!("unexpected inspector start")
+        }
+
+        async fn stop_inspector(&self) -> Result<()> {
+            anyhow::bail!("unexpected inspector stop")
+        }
+
+        fn supports_feature(&self, _feature: EngineFeature) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn windows_minimal_bootstrap_runs_once_and_finalizes_each_load() {
+        let engine = WindowsMinimalBootstrapEngine::default();
+
+        load_windows_minimal_runtime(&engine).await.unwrap();
+        load_windows_minimal_runtime(&engine).await.unwrap();
+
+        let evaluated = engine.evaluated.lock().unwrap();
+        assert_eq!(evaluated.len(), 5);
+        assert_eq!(evaluated[0], WINDOWS_RUNTIME_LOADED_PROBE);
+        assert_eq!(evaluated[1], WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP);
+        assert_eq!(
+            evaluated[2],
+            crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE
+        );
+        assert_eq!(evaluated[3], WINDOWS_RUNTIME_LOADED_PROBE);
+        assert_eq!(
+            evaluated[4],
+            crate::engine::hermes::FINALIZE_COMPARTMENT_BASELINE
+        );
+    }
+
     struct ProductionEnvGuard(Vec<(&'static str, Option<std::ffi::OsString>)>);
 
     impl ProductionEnvGuard {
@@ -3695,9 +3825,28 @@ mod tests {
     }
 
     #[test]
-    fn armed_startup_authenticates_snapshot_and_returns_engine_digest() {
+    fn production_run_nonce_is_canonical_and_rejects_the_contract_vector() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+
+        let nonce = production_run_nonce_from_bytes(&[0; PRODUCTION_RUN_NONCE_BYTES]).unwrap();
+        assert_eq!(URL_SAFE_NO_PAD.decode(&nonce).unwrap().len(), 16);
+        assert!(!nonce.contains('='));
+
+        let contract_bytes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let error = production_run_nonce_from_bytes(&contract_bytes)
+            .expect_err("the committed contract nonce must never arm production")
+            .to_string();
+        assert!(
+            error.contains("reserved capsec contract-fixture"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn armed_startup_authenticates_template_then_freshens_engine_digest() {
         let directory = tempdir().unwrap();
-        let (snapshot, identity, expected_digest) = write_arming_fixture(directory.path());
+        let (snapshot, identity, template_digest) = write_arming_fixture(directory.path());
         let cli = Cli::parse_from([
             "ibex".into(),
             "--capsec-armed-snapshot".into(),
@@ -3707,11 +3856,18 @@ mod tests {
             "app.ts".into(),
         ]);
         let (host, digest) = build_host(&cli).expect("fixture must arm");
-        assert_eq!(digest.as_deref(), Some(expected_digest.as_str()));
+        let runtime_digest = digest.expect("fresh runtime digest");
+        assert_ne!(runtime_digest, template_digest);
         assert_eq!(
             host.armed_snapshot().unwrap().digest().as_str(),
-            expected_digest
+            runtime_digest
         );
+        let runtime_nonce = host.armed_snapshot().unwrap().document()["runNonce"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_ne!(runtime_nonce, CONTRACT_FIXTURE_RUN_NONCE);
+
         let (snapshot, identity, _) = write_arming_fixture(directory.path());
         let explicit = Cli::parse_from([
             "ibex".into(),
@@ -3723,8 +3879,39 @@ mod tests {
             identity.into_os_string(),
             "app.ts".into(),
         ]);
-        let (_, explicit_digest) = build_host(&explicit).expect("explicit enforce must arm");
-        assert_eq!(explicit_digest.as_deref(), Some(expected_digest.as_str()));
+        let (explicit_host, explicit_digest) =
+            build_host(&explicit).expect("explicit enforce must arm");
+        let explicit_digest = explicit_digest.expect("fresh explicit runtime digest");
+        assert_ne!(explicit_digest, template_digest);
+        assert_ne!(explicit_digest, runtime_digest);
+        let explicit_nonce = explicit_host.armed_snapshot().unwrap().document()["runNonce"]
+            .as_str()
+            .unwrap();
+        assert_ne!(explicit_nonce, CONTRACT_FIXTURE_RUN_NONCE);
+        assert_ne!(explicit_nonce, runtime_nonce);
+    }
+
+    #[test]
+    fn armed_startup_rejects_tampered_template_before_freshening() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let mut tampered: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&snapshot).unwrap()).unwrap();
+        tampered["runNonce"] = serde_json::json!("AAAAAAAAAAAAAAAAAAAAAA");
+        std::fs::write(&snapshot, serde_json::to_vec_pretty(&tampered).unwrap()).unwrap();
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("freshening must not repair an unauthenticated template");
+        let message = format!("{error:#}");
+        assert!(message.contains("digest is stale or tampered"), "{message}");
     }
 
     fn file_hash(path: &Path) -> u64 {
@@ -3791,7 +3978,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_and_explicit_enforce_arm_the_same_empty_typed_snapshot() {
+    async fn default_and_explicit_enforce_arm_equivalent_fresh_typed_snapshots() {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+
         let _lock = crate::engine::hermes::hermes_engine_test_lock()
             .lock()
             .await;
@@ -3800,10 +3990,24 @@ mod tests {
         let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", "app.ts"]);
         let (auto_host, auto_digest) = build_host(&auto).unwrap();
         let (explicit_host, explicit_digest) = build_host(&explicit).unwrap();
-        assert_eq!(auto_digest, explicit_digest);
+        assert_ne!(auto_digest, explicit_digest);
         let auto_snapshot = auto_host.armed_snapshot().unwrap();
         let explicit_snapshot = explicit_host.armed_snapshot().unwrap();
-        assert_eq!(auto_snapshot.document(), explicit_snapshot.document());
+        let auto_nonce = auto_snapshot.document()["runNonce"].as_str().unwrap();
+        let explicit_nonce = explicit_snapshot.document()["runNonce"].as_str().unwrap();
+        assert_ne!(auto_nonce, explicit_nonce);
+        assert_ne!(auto_nonce, CONTRACT_FIXTURE_RUN_NONCE);
+        assert_ne!(explicit_nonce, CONTRACT_FIXTURE_RUN_NONCE);
+        assert_eq!(URL_SAFE_NO_PAD.decode(auto_nonce).unwrap().len(), 16);
+        assert_eq!(URL_SAFE_NO_PAD.decode(explicit_nonce).unwrap().len(), 16);
+
+        let mut auto_document = auto_snapshot.document().clone();
+        let mut explicit_document = explicit_snapshot.document().clone();
+        for document in [&mut auto_document, &mut explicit_document] {
+            document["runNonce"] = serde_json::json!("<fresh-run-nonce>");
+            document["armedSnapshotDigest"] = serde_json::json!("<fresh-armed-digest>");
+        }
+        assert_eq!(auto_document, explicit_document);
         let principals = auto_snapshot.document()["principals"].as_array().unwrap();
         assert_eq!(principals.len(), 1);
         assert_eq!(
@@ -3827,6 +4031,7 @@ mod tests {
         let directory = tempdir().unwrap();
         let entry = directory.path().join("app.ts");
         std::fs::write(&entry, "1 + 1").unwrap();
+        std::fs::create_dir_all(directory.path().join("node_modules/image-lib")).unwrap();
         let policy = include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/capsec/examples/canonical-policy.canonical.json"

@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion, production CLI arming, and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 retained verified-peer record, metadata-peer denial, and exact logical network branch migration landed under ENG-24150, with runtime typed gates and red-team coverage still pending); 2026-07-11 (WP7 deny-only escape/process catalog invariant plus exact loader, process, stdio, environment, and host-default branch migration landed under ENG-24151, with runtime gates and red-team coverage still pending); 2026-07-11 (WP8 structured decision evidence, exact Android media-operation branches, and immutable snapshot-to-verified-decision-context arming landed under ENG-24152, with live handles/grants/deputy gate migration still pending); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures); 2026-07-12 (ENG-24462/ENG-24465 bind filesystem occurrences separately to every constrained principal and protect every authenticated package subtree lexically against writes; ENG-24464 makes production run nonces construction-fresh; ENG-24466 explicitly closes diagnostic file execution in the advertised registry pending authenticated ingress)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -346,9 +346,21 @@ has no runtime legacy-oracle or compatibility-mask stratum; the 57-bit table is
 build-time reconciliation evidence only. An unbounded process ceiling
 continues; a bounded ceiling requires containment, and an empty bounded ceiling
 denies everything.
-Package-root ceiling selectors evaluate separately against each constrained
-package principal's own binding. No later source, including ambient root, can
-override an earlier ceiling or denial.
+Every filesystem occurrence is projected separately through each constrained
+principal's authenticated root binding before any principal-indexed authority
+stratum runs. That rule applies to protected resources, process ceilings,
+principal denials, revocations, static floors, handles, dynamic grants, and
+implicit package-self authority; an actor-projected package path is never reused
+as another package's resource. An unprojected multi-principal path occurrence
+fails closed. A deeper foreign package binding shadows an owned package
+ancestor, so an outer package sees a nested dependency through the best
+ownerless root rather than as part of its own package tree; equal package host
+bindings and package principals without bindings refuse arming. Other
+path-bearing resource kinds (executables and Unix sockets) refuse a
+multi-principal package-root decision until their adapters supply complete
+projections. The host, ABI, and semantic core all use the same JCS principal
+ordering. No later source, including ambient root, can override an earlier
+ceiling or denial.
 
 The exact reserved `runtime/ibex-runtime-internal` frame stamp is transparent;
 other runtime identities are not, and the reserved identity is never an
@@ -366,10 +378,16 @@ An armed snapshot has exactly one authority row matching `rootIdentity`. Every
 package-graph node has a unique locator-and-integrity principal, an exact
 authority row, and its own package-root binding; package authority rows may not
 exist outside the graph. Import allowlists exactly equal authenticated graph
-edges, and every logical path resolves through a root binding. The protected
-object set is exactly armed policy, engine binary, package graph, and registry,
-with `fs:write` denied. Network posture binds direct-only routing and always
-denies metadata and unspecified peers.
+edges, and every logical path resolves through a root binding. Exact protected
+objects cover armed policy, engine binary, package graph, and registry. In
+addition, arming derives `fs:write` path-tree guards for every authenticated
+package binding in every principal's projected view. Authenticated package
+source cannot be written through any registered package spelling, even when two
+such spellings share an inode; writable package scratch space requires a
+separate future binding. A pre-existing filesystem alias outside every
+authenticated package binding is not covered by this lexical guarantee and
+requires a future commit-time identity/integrity guard. Network posture binds
+direct-only routing and always denies metadata and unspecified peers.
 
 ### Handles, dynamic authority, and generations
 
@@ -622,6 +640,12 @@ Build the trusted arming pipeline that binds canonical policy to an execution
 and hands the authenticated immutable snapshot to the host/engine. Report the
 actually loaded profile and digests from the decision context.
 
+Production runtime construction owns `runNonce`. After authenticating any
+supplied snapshot template, it discards the artifact/caller nonce, generates a
+fresh 128-bit value with the operating-system CSPRNG, and finalizes the armed
+digest before handing the snapshot to the host and engine. Fixed nonces remain
+valid only in contract fixtures; RNG failure refuses construction.
+
 Acceptance:
 
 - The runtime refuses before project code on stale/mismatched policy, registry,
@@ -689,6 +713,20 @@ The same armed denial fixture covers unported sync and async rename, copy,
 symlink, and hard-link paths, proving they cannot mutate either source or
 destination through the legacy oracle while their typed staged adapters remain
 pending.
+
+Filesystem path occurrences now retain a non-wire projection for every
+constrained principal, keyed exactly to the constrained set and effect index.
+Every authority stratum uses that principal's projection, so two packages with
+the same package-relative tail cannot borrow one another's self grants. Arming
+also derives hard-deny `fs:write` path-tree guards for every package binding in
+every authenticated principal's view, including nested package layouts. These
+lexical guards make installed package source immutable without attempting to
+enumerate inodes or assuming that hard-linked files have distinct identities;
+first-party project paths outside package bindings remain writable. A foreign
+nested package is a shadow boundary rather than part of its ancestor's package
+tree, and colliding physical package bindings refuse. Aliases outside all
+registered package spellings remain a distinct integrity problem rather than a
+claim made by the lexical guard.
 
 ### WP6 — Convert network effects and protected peers
 
@@ -860,6 +898,10 @@ Armed root bindings are decoded into typed values and host paths normalize
 through the longest authenticated binding. Package roots match only their exact
 package owner, project roots do not borrow package identity, absolute bindings
 remain exact, and paths outside every armed binding refuse before a decision.
+For filesystem effects the host computes that normalization once per
+constrained principal, preserves the complete principal set for attribution and
+evidence, and refuses a missing, extra, or noncanonical projection before any
+authority match.
 Live typed filesystem decisions now carry the canonical full Hermes principal
 stack, including the captured schedule-time owner. Worker dispatch snapshots
 that stack on the runtime thread and installs a scoped immutable copy on the
@@ -897,8 +939,10 @@ ordinary no-policy path now constructs an execution-bound immutable typed
 snapshot instead of the legacy host: it binds the actual project directory
 object, patched-Hermes binary digest, exact advertised target/features, empty
 package graph, empty dependency floors and dynamic ceilings, and the current
-semantic/registry identity. Auto and explicit enforce produce byte-identical
-snapshot documents and engine handshakes. The trusted module loader may read
+semantic/registry identity. Auto and explicit enforce produce identical policy
+and authority state. Each runtime construction injects a fresh run nonce before
+finalizing the armed digest, so complete snapshot bytes and handshake digests
+intentionally differ. The trusted module loader may read
 only source that canonicalizes under the authenticated project binding after
 the typed import gate succeeds. A project-local `ibex-policy.json` (or explicit
 `--policy`) is now accepted only as strict, digest-valid canonical typed policy;
@@ -909,7 +953,10 @@ policy paths and stale/tampered policy digests refuse. Production builds always
 enable enforce isolation and cannot persist audit or permissive posture.
 Diagnostic audit is a separately named foreground command,
 `ibex capsec audit <file>`; it accepts no durable policy or ambient endowment
-input and never becomes an armed production profile.
+input and never becomes an armed production profile. In the candidate registry,
+that canonical file-execution dispatch route is conservatively closed under
+`vm:evaluate` until authenticated code ingress and its fixtures exist; parser
+and positional metadata remain structural rows and claim no ingress authority.
 
 Acceptance:
 

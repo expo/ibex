@@ -262,6 +262,164 @@ fn compartment_withholds_powerful_globals_and_honors_endowments() {
     }
 }
 
+#[test]
+fn compartment_baseline_does_not_forward_post_bootstrap_global_state() {
+    // ENG-24463: a compartment used to forward every non-withheld read/has to
+    // the live realm global. In a long-lived REPL/session that handed every
+    // package fresh `var`s, sloppy globals, replaced builtin slots, and symbol
+    // properties created after arming. Drive `-e` so top-level `var` really is a
+    // realm-global declaration (a fixture loaded through CJS would be scoped to
+    // its wrapper), then exercise every observable membrane channel directly.
+    let script = r#"
+var outputConsole = globalThis.console;
+var O = globalThis.Object;
+var R = globalThis.Reflect;
+var J = globalThis.JSON;
+var S = globalThis.Symbol;
+var originalConsole = globalThis.console;
+
+var sessionVar = 'VAR-SECRET';
+sessionSloppy = 'SLOPPY-SECRET';
+var console = { sessionSecret: 'ADOPTED-SECRET' };
+var sessionSymbol = S('ibex.session.secret');
+globalThis[sessionSymbol] = 'SYMBOL-SECRET';
+var getterRan = false;
+O.defineProperty(globalThis, 'sessionGetter', {
+  configurable: true,
+  enumerable: true,
+  get: function () {
+    getterRan = true;
+    return 'GETTER-SECRET';
+  }
+});
+
+var registry = globalThis.__compartments;
+var a = registry['session-a'];
+var b = registry['session-b'];
+function observe(compartment, name) {
+  return {
+    type: typeof compartment[name],
+    has: R.has(compartment, name),
+    descriptor: O.getOwnPropertyDescriptor(compartment, name) !== undefined,
+    ownKeys: R.ownKeys(compartment).indexOf(name) !== -1,
+    keys: O.keys(compartment).indexOf(name) !== -1
+  };
+}
+
+var before = {
+  freshVar: observe(a, 'sessionVar'),
+  sloppy: observe(a, 'sessionSloppy'),
+  getter: observe(a, 'sessionGetter'),
+  symbol: observe(a, sessionSymbol)
+};
+var baselineControls = {
+  consolePreserved: a.console === originalConsole,
+  rootConsoleReplaced: globalThis.console !== originalConsole,
+  object: typeof a.Object,
+  promise: typeof a.Promise,
+  textEncoder: typeof a.TextEncoder,
+  url: typeof a.URL,
+  self: a.globalThis === a && a.global === a && a.self === a,
+  processType: typeof a.process,
+  processHas: R.has(a, 'process')
+};
+
+var rootSecretBefore = globalThis.sessionVar;
+a.sessionVar = 'PACKAGE-LOCAL';
+var after = {
+  rootUnchanged: globalThis.sessionVar === rootSecretBefore,
+  a: observe(a, 'sessionVar'),
+  aValue: a.sessionVar,
+  b: observe(b, 'sessionVar')
+};
+O.defineProperty(a, 'lockedLocal', {
+  value: 1,
+  writable: false,
+  enumerable: true,
+  configurable: true
+});
+var localDescriptorControl = {
+  setResult: R.set(a, 'lockedLocal', 2),
+  value: a.lockedLocal
+};
+
+outputConsole.log('compartment-baseline=' + J.stringify({
+  before: before,
+  controls: baselineControls,
+  after: after,
+  localDescriptor: localDescriptorControl,
+  getterRan: getterRan
+}));
+"#;
+
+    let out = run_ibex(
+        &["--lockdown", "-e", script],
+        &[("IBEX_CAPSEC_ALLOW_ADVISORY", "0")],
+        None,
+    );
+    assert_eq!(
+        out.status, 0,
+        "baseline probe should run successfully:\nstdout:\n{}\nstderr:\n{}",
+        out.stdout, out.stderr
+    );
+    let json = out
+        .stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("compartment-baseline="))
+        .unwrap_or_else(|| {
+            panic!(
+                "missing baseline probe output:\nstdout:\n{}\nstderr:\n{}",
+                out.stdout, out.stderr
+            )
+        });
+    let value: serde_json::Value = serde_json::from_str(json).expect("baseline probe JSON");
+
+    for name in ["freshVar", "sloppy", "getter", "symbol"] {
+        let observed = &value["before"][name];
+        assert_eq!(observed["type"], "undefined", "{name} value leaked: {json}");
+        assert_eq!(observed["has"], false, "{name} existence leaked: {json}");
+        assert_eq!(
+            observed["descriptor"], false,
+            "{name} descriptor leaked: {json}"
+        );
+        assert_eq!(
+            observed["ownKeys"], false,
+            "{name} Reflect.ownKeys entry leaked: {json}"
+        );
+        assert_eq!(
+            observed["keys"], false,
+            "{name} Object.keys entry leaked: {json}"
+        );
+    }
+    assert_eq!(value["getterRan"], false, "live realm getter ran: {json}");
+    assert_eq!(value["controls"]["consolePreserved"], true, "{json}");
+    assert_eq!(value["controls"]["rootConsoleReplaced"], true, "{json}");
+    for name in ["object", "promise", "textEncoder", "url"] {
+        assert_eq!(
+            value["controls"][name], "function",
+            "expected baseline global {name} to remain usable: {json}"
+        );
+    }
+    assert_eq!(value["controls"]["self"], true, "{json}");
+    assert_eq!(value["controls"]["processType"], "undefined", "{json}");
+    assert_eq!(value["controls"]["processHas"], false, "{json}");
+
+    assert_eq!(value["after"]["rootUnchanged"], true, "{json}");
+    assert_eq!(value["after"]["a"]["type"], "string", "{json}");
+    assert_eq!(value["after"]["a"]["has"], true, "{json}");
+    assert_eq!(value["after"]["a"]["descriptor"], true, "{json}");
+    assert_eq!(value["after"]["a"]["ownKeys"], true, "{json}");
+    assert_eq!(value["after"]["a"]["keys"], true, "{json}");
+    assert_eq!(value["after"]["aValue"], "PACKAGE-LOCAL", "{json}");
+    assert_eq!(value["after"]["b"]["type"], "undefined", "{json}");
+    assert_eq!(value["after"]["b"]["has"], false, "{json}");
+    assert_eq!(value["after"]["b"]["descriptor"], false, "{json}");
+    assert_eq!(value["after"]["b"]["ownKeys"], false, "{json}");
+    assert_eq!(value["after"]["b"]["keys"], false, "{json}");
+    assert_eq!(value["localDescriptor"]["setResult"], false, "{json}");
+    assert_eq!(value["localDescriptor"]["value"], 1, "{json}");
+}
+
 // ---------------------------------------------------------------------------
 // IBEX_ENDOW cannot widen policy endowments under enforce (ENG-22684)
 //
@@ -2420,7 +2578,11 @@ fn native_compartment_withholds_globals_without_rewrite() {
     let dir = fixtures_dir().join("native-compartment");
     let out = run_ibex(
         &["--lockdown", "run", "app.js"],
-        &[("IBEX_COMPARTMENTS", "1"), ("EXACT_COMPAT_TEST", "1")],
+        &[
+            ("IBEX_COMPARTMENTS", "1"),
+            ("EXACT_COMPAT_TEST", "1"),
+            ("IBEX_CAPSEC_ALLOW_ADVISORY", "0"),
+        ],
         Some(&dir),
     );
     // The app (root) keeps the real global.
@@ -2439,6 +2601,21 @@ fn native_compartment_withholds_globals_without_rewrite() {
         out.stdout,
         out.stderr
     );
+    for expected in [
+        "window-process=undefined",
+        "window-secret=undefined",
+        "self-aliases=true",
+        "registry-binding=true",
+        "own-registry=true/true",
+        "victim-registry=undefined/undefined",
+    ] {
+        assert!(
+            out.stdout.contains(expected),
+            "native compartment boundary missing {expected}:\nstdout:\n{}\nstderr:\n{}",
+            out.stdout,
+            out.stderr
+        );
+    }
 }
 
 #[test]
@@ -2597,24 +2774,6 @@ fn native_freeze_primitive_freezes_objects() {
     assert!(
         out.stdout.contains("nativefreeze-typeof: undefined"),
         "__exactNativeFreeze must be sealed away from package code in all modes:\nstdout:\n{}\nstderr:\n{}",
-        out.stdout,
-        out.stderr
-    );
-}
-
-#[test]
-fn native_compartment_control_no_containment_without_compartments() {
-    // Same unbundled package, no compartments: it reaches process both ways.
-    let dir = fixtures_dir().join("native-compartment");
-    let out = run_ibex(
-        &["run", "app.js"],
-        &[("EXACT_COMPAT_TEST", "1")],
-        Some(&dir),
-    );
-    assert!(
-        out.stdout
-            .contains("evil: bare-process=object this-process=object"),
-        "without compartments the unbundled package reaches process (control):\nstdout:\n{}\nstderr:\n{}",
         out.stdout,
         out.stderr
     );

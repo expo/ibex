@@ -1,16 +1,20 @@
 (function() {
   // Helper: define a lazy getter that initializes on first access
   function defineLazyGlobal(prop, init) {
+    var lazyGetter = function() {
+      delete globalThis[prop];
+      var val = init();
+      if (val !== undefined && globalThis[prop] === undefined) {
+        globalThis[prop] = val;
+      }
+      return globalThis[prop];
+    };
+    Object.defineProperty(lazyGetter, '__ibexLazyGlobalGetter', {
+      value: true, writable: false, enumerable: false, configurable: false
+    });
     Object.defineProperty(globalThis, prop, {
       configurable: true, enumerable: true,
-      get: function() {
-        delete globalThis[prop];
-        var val = init();
-        if (val !== undefined && globalThis[prop] === undefined) {
-          globalThis[prop] = val;
-        }
-        return globalThis[prop];
-      }
+      get: lazyGetter
     });
   }
 

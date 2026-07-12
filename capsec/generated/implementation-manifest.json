@@ -56797,9 +56797,9 @@
       "sourceRefs": [
         "runtime-surface.json#clapSurface.command:ibex capsec audit"
       ],
-      "implementationOwner": "WP4",
+      "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.cli.command.ibex.20capsec.20audit.08lc6u6.main.non-capability"
+        "surface.cli.command.ibex.20capsec.20audit.08lc6u6.main.closed"
       ]
     },
     {
@@ -100141,6 +100141,24 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.global.exact.getlayouttree.1kmyr1i",
+      "observedKey": "native-op:global:exact.getLayoutTree",
+      "branchId": "surface.native.op.global.exact.getlayouttree.1kmyr1i.ios.0fhpy55",
+      "branchKind": "single",
+      "targetVariant": "ios",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "ios"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_ios.cc#jsi-global:exact.getLayoutTree"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.exact.getlayouttree.1kmyr1i.ios.0fhpy55.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.global.exact.getmodulestateoffset.0s3igpa",
       "observedKey": "native-op:global:exact.getModuleStateOffset",
       "branchId": "surface.native.op.global.exact.getmodulestateoffset.0s3igpa.ios.0tmqxbv",
@@ -132609,6 +132627,46 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
+      "observedKey": "native-op:__ibexCompartmentBaselineFinalized",
+      "branchId": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn.default.029e3m8",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__ibexCompartmentBaselineFinalized",
+        "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__ibexCompartmentBaselineFinalized"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn.default.029e3m8.cannot-widen-authority",
+        "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn.default.029e3m8.non-capability",
+        "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn.default.029e3m8.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.ibexcompartmentregistryready.09cm8o6",
+      "observedKey": "native-op:__ibexCompartmentRegistryReady",
+      "branchId": "surface.native.op.ibexcompartmentregistryready.09cm8o6.default.1w8wgxo",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__ibexCompartmentRegistryReady",
+        "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__ibexCompartmentRegistryReady"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.ibexcompartmentregistryready.09cm8o6.default.1w8wgxo.cannot-widen-authority",
+        "surface.native.op.ibexcompartmentregistryready.09cm8o6.default.1w8wgxo.non-capability",
+        "surface.native.op.ibexcompartmentregistryready.09cm8o6.default.1w8wgxo.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.ibexendowraw.004oyaj",
       "observedKey": "native-op:__ibexEndowRaw",
       "branchId": "surface.native.op.ibexendowraw.004oyaj.default.059iqzk",
@@ -132665,6 +132723,26 @@
         "surface.native.op.ibexnativelockdown.1jb51og.default.1sab9le.cannot-widen-authority",
         "surface.native.op.ibexnativelockdown.1jb51og.default.1sab9le.non-capability",
         "surface.native.op.ibexnativelockdown.1jb51og.default.1sab9le.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m",
+      "observedKey": "native-op:__ibexRefreshCompartmentBaseline",
+      "branchId": "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m.default.0m11etk",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__ibexRefreshCompartmentBaseline",
+        "src/engine/hermes_runtime.cc#embedded:kCompartmentRegistryJS:__ibexRefreshCompartmentBaseline"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m.default.0m11etk.cannot-widen-authority",
+        "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m.default.0m11etk.non-capability",
+        "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m.default.0m11etk.post-lockdown-invariant"
       ]
     },
     {
@@ -138069,23 +138147,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh",
-      "observedKey": "startup:evaluation:env_flag_enabled:0x0uwpa:compartment-registry",
-      "branchId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#env_flag_enabled:0x0uwpa:evaluateJavaScript:<compartment-registry>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp",
       "observedKey": "startup:evaluation:env_flag_enabled:0x0uwpa:eager-install-seal",
       "branchId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp.main",
@@ -138185,6 +138246,23 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.startup.evaluation.has.include.18ool1z.stream.stability.patch.0brqfz4.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk",
+      "observedKey": "startup:evaluation:installCompartmentRegistry:compartment-registry",
+      "branchId": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installCompartmentRegistry:evaluateJavaScript:<compartment-registry>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk.main.non-capability"
       ]
     },
     {
@@ -138422,6 +138500,25 @@
         "surface.startup.install.route.env.flag.enabled.0jb9qqi.installwebstreamspolyfill.0t9vkdc.main.cannot-widen-authority",
         "surface.startup.install.route.env.flag.enabled.0jb9qqi.installwebstreamspolyfill.0t9vkdc.main.non-capability",
         "surface.startup.install.route.env.flag.enabled.0jb9qqi.installwebstreamspolyfill.0t9vkdc.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.install.route.ex.hermes.create.installcompartmentregistry.1r4y4oq",
+      "observedKey": "startup:install-route:ex_hermes_create:installCompartmentRegistry",
+      "branchId": "surface.startup.install.route.ex.hermes.create.installcompartmentregistry.1r4y4oq.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create:installCompartmentRegistry"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.install.route.ex.hermes.create.installcompartmentregistry.1r4y4oq.main.cannot-widen-authority",
+        "surface.startup.install.route.ex.hermes.create.installcompartmentregistry.1r4y4oq.main.non-capability",
+        "surface.startup.install.route.ex.hermes.create.installcompartmentregistry.1r4y4oq.main.post-lockdown-invariant"
       ]
     },
     {
@@ -139106,6 +139203,25 @@
         "surface.startup.installer.installchildprocesshostfunctions.177g5xx.main.cannot-widen-authority",
         "surface.startup.installer.installchildprocesshostfunctions.177g5xx.main.non-capability",
         "surface.startup.installer.installchildprocesshostfunctions.177g5xx.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.installer.installcompartmentregistry.1yo7iho",
+      "observedKey": "startup:installer:installCompartmentRegistry",
+      "branchId": "surface.startup.installer.installcompartmentregistry.1yo7iho.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#installCompartmentRegistry"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.installer.installcompartmentregistry.1yo7iho.main.cannot-widen-authority",
+        "surface.startup.installer.installcompartmentregistry.1yo7iho.main.non-capability",
+        "surface.startup.installer.installcompartmentregistry.1yo7iho.main.post-lockdown-invariant"
       ]
     },
     {
@@ -141612,6 +141728,7 @@
         "surface.native.op.global.exact.getabsolutelayout.1su4n8b",
         "surface.native.op.global.exact.getlayout.1egshbe",
         "surface.native.op.global.exact.getlayoutgeneration.0um8zd0",
+        "surface.native.op.global.exact.getlayouttree.1kmyr1i",
         "surface.native.op.global.exact.getmodulestateoffset.0s3igpa",
         "surface.native.op.global.exact.getrootviewid.0gcfi7s",
         "surface.native.op.global.exact.getstatemirror.1r65bcm",
@@ -141664,7 +141781,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 204 observed surface edges."
+      "rationale": "Closed by 205 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -143949,6 +144066,7 @@
         "surface.builtin.vm.0to2xpb",
         "surface.cli.argument.parser.ibex.eval.code.utf8.string.1tryb9f",
         "surface.cli.argument.parser.ibex.print.eval.utf8.string.0lcljtj",
+        "surface.cli.command.ibex.20capsec.20audit.08lc6u6",
         "surface.cli.command.ibex.20eval.1b2f8xx",
         "surface.cli.command.ibex.20repl.1v2crqy",
         "surface.cli.eval.146q9y3",
@@ -143977,7 +144095,7 @@
         "surface.startup.script.bytecode.1d41kkw",
         "surface.startup.script.eval.19993vd"
       ],
-      "rationale": "Closed by 40 observed surface edges."
+      "rationale": "Closed by 41 observed surface edges."
     },
     {
       "definitionId": "wasi:instantiate",
@@ -144053,53 +144171,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-1hGxeV070238hfUDp0KR5Tu8u6tWGRB3kcmEH5xt_KI"
+      "rawContentDigest": "sha256-luNhd_jCQF1XlsuK3ul47tvHim32Oi3RHo69jha9GxE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-9sr2LIPBYCxvzaO2ot0989UcQxOYFx0Eyx3YonEByqs"
+      "rawContentDigest": "sha256-8nyvueluicBX2JKQF9jINBxlI85T1z8lhmMKmx5mLAI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-D0KpAJr8tKYhaOy1PjEITt0yEb2XddraGUw_cnEZYBk"
+      "rawContentDigest": "sha256-NR62JTFvmGZf9ok1ma54-PkYqE471fylOQAaXu5YXcs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-4q6nW6hNQGvqExKZHrXhewbGFDzMgm-3B8R1g7l3fsA"
+      "rawContentDigest": "sha256-mz_d0keXKfr9R77Ld4l_tqok7E9uJiDTQkMWVh_Tpqs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-4flW-xvdplJY5I2qSiowjxgHzqnXB1HLOqe-BvRH1ZQ"
+      "rawContentDigest": "sha256-NISQD_UswUVuQ9FSIMOTkZd2VihdK4bTiAI7KCqHscs"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-gvcJ_DScQ-tx8wXUcqWrOE37eUCSSLpV4rjaLodSURE"
+      "rawContentDigest": "sha256-fs7zOJ1j1KrSckqyPgmfux_lyZP1es8WQvpObI2z9TU"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-SiG-RaPSVWmo5P5JfL_SlHStAwqZexDnudOdSR1j-8U"
+      "rawContentDigest": "sha256-yNcwpU-pK5NBPNRlCAsG5iAABtp1WBPR6lFYs-RanGg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-uAjK8FxnI4ejHEPHBN1ncWp-cS3YWkMut_KnmrsX3dU"
+      "rawContentDigest": "sha256-mc25k6Sh-G2jZcncEl7c8tsQCTxQXrvGpZCE96F9XcA"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-N-Q-IM2HOj18hLlHSvtDC-6PYrSdogJfC8A0Vx97hSo"
+      "rawContentDigest": "sha256-tlZSMUdHXV3wMoOb25QL8dZCxAbpyXTJKhnYB1jr_-8"
     }
   ],
   "counts": {
-    "observedReferences": 11140,
-    "logicalSurfaces": 6861,
-    "coverageEdges": 6861,
-    "targetCells": 6861
+    "observedReferences": 11149,
+    "logicalSurfaces": 6867,
+    "coverageEdges": 6867,
+    "targetCells": 6867
   }
 }

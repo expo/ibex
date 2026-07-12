@@ -1114,6 +1114,329 @@ public:
 
 // --- Spawn env helpers (used by __exactSpawnSync and __exactSpawn) ---
 
+bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
+  // @ref LLP 0013#mechanism-2 — per-package compartment registry. Install an
+  // initial native-bootstrap snapshot plus a required one-shot refresh for the
+  // completed runtime surface, then resolve packages against that baseline
+  // rather than the live realm global. A REPL/session may
+  // subsequently create or replace realm-global properties; none of those
+  // top-level binding mutations may become ambient package endowments. Captured
+  // descriptor values remain shared; deeper facade isolation is ENG-24514.
+  if (!(env_flag_enabled("IBEX_LOCKDOWN") ||
+        env_flag_enabled("IBEX_COMPARTMENTS"))) {
+    return true;
+  }
+
+  static const char* kCompartmentRegistryJS = R"JS((function () {
+  var g = globalThis;
+  var reflectGet = Reflect.get;
+  var reflectHas = Reflect.has;
+  var reflectSet = Reflect.set;
+  var reflectApply = Reflect.apply;
+  var reflectDefineProp = Reflect.defineProperty;
+  var reflectDeleteProp = Reflect.deleteProperty;
+  var reflectOwnKeys = Reflect.ownKeys;
+  var getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var getOwnPropNames = Object.getOwnPropertyNames;
+  var defineProp = Object.defineProperty;
+  var getProto = Object.getPrototypeOf;
+  var objectCreate = Object.create;
+  var hasOwn = Object.prototype.hasOwnProperty;
+  var ProxyCtor = Proxy;
+  function owns(value, key) {
+    return reflectApply(hasOwn, value, [key]);
+  }
+
+  if (owns(g, '__compartments') ||
+      owns(g, '__ibexRefreshCompartmentBaseline') ||
+      owns(g, '__ibexCompartmentRegistryReady') ||
+      owns(g, '__ibexCompartmentBaselineFinalized')) {
+    throw new Error('compartment registry globals already exist');
+  }
+
+  // Clone the prototype chain as well as the global's own descriptors. The
+  // compartment-only mode does not freeze Object.prototype, so retaining the
+  // live prototype here would let a later session assignment or getter leak
+  // through both `get` and `has` even though own globals use the baseline.
+  function snapshotPrototypeChain(source) {
+    if (source === null) return null;
+    var snapshot = objectCreate(snapshotPrototypeChain(getProto(source)));
+    var keys = reflectOwnKeys(source);
+    for (var ski = 0; ski < keys.length; ski++) {
+      var desc = getOwnPropDesc(source, keys[ski]);
+      if (desc) defineProp(snapshot, keys[ski], desc);
+    }
+    return snapshot;
+  }
+  // Snapshot descriptors rather than values alone so trusted lazy globals keep
+  // their bootstrap behavior without running their factory once per package.
+  // A baseline-local accessor initializes against the real global once, caches
+  // only after success, and maps a real-global result back to the caller's
+  // compartment. The baseline and alias set are replaced atomically on refresh.
+  var baseline = null;
+  var selfAliasKeys = [];
+  function memoizedGlobalGetter(getter) {
+    var initialized = false;
+    var cached;
+    return function () {
+      if (!initialized) {
+        var next = reflectApply(getter, g, []);
+        cached = next;
+        initialized = true;
+      }
+      return cached === g ? this : cached;
+    };
+  }
+  function captureBaseline() {
+    // Keep the portable aliases guaranteed by the prior membrane even on the
+    // Windows minimal runtime, then add every host-specific alias whose captured
+    // data descriptor points at the real global (for example a platform shim).
+    var nextAliases = ['globalThis', 'global', 'self', 'window'];
+    var nextBaseline = objectCreate(snapshotPrototypeChain(getProto(g)));
+    var baselineKeys = reflectOwnKeys(g);
+    for (var bki = 0; bki < baselineKeys.length; bki++) {
+      var baselineKey = baselineKeys[bki];
+      var baselineDesc = getOwnPropDesc(g, baselineKey);
+      if (!baselineDesc) continue;
+      if (owns(baselineDesc, 'value')) {
+        if (baselineDesc.value === g) {
+          nextAliases[nextAliases.length] = baselineKey;
+        }
+        defineProp(nextBaseline, baselineKey, baselineDesc);
+      } else if (typeof baselineDesc.get === 'function') {
+        var capturedGetter = memoizedGlobalGetter(baselineDesc.get);
+        var capturedDescriptor = {
+          get: capturedGetter,
+          set: baselineDesc.set,
+          enumerable: baselineDesc.enumerable,
+          configurable: baselineDesc.configurable
+        };
+        // Ibex lazy globals self-replace on first access. Give the real global
+        // and package baseline the same memo cell so root-first and package-first
+        // access both run the factory once and cannot clobber one another. Leave
+        // ordinary dynamic accessors untouched on g; only explicitly marked,
+        // configurable lazy getters receive the coordinating wrapper.
+        if (baselineDesc.configurable === true &&
+            baselineDesc.get.__ibexLazyGlobalGetter === true) {
+          defineProp(g, baselineKey, capturedDescriptor);
+        }
+        defineProp(nextBaseline, baselineKey, capturedDescriptor);
+      } else {
+        defineProp(nextBaseline, baselineKey, baselineDesc);
+      }
+    }
+    baseline = nextBaseline;
+    selfAliasKeys = nextAliases;
+  }
+  function isSelfAlias(prop) {
+    for (var sai = 0; sai < selfAliasKeys.length; sai++) {
+      if (selfAliasKeys[sai] === prop) return true;
+    }
+    return false;
+  }
+  function finalizeBaseline() {
+    captureBaseline();
+    defineProp(g, '__ibexCompartmentBaselineFinalized', {
+      value: true, writable: false, enumerable: false, configurable: false
+    });
+  }
+
+  var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
+    'importScripts','queueMicrotask','eval','Function','Ibex','Exact','Bun'];
+  var POWERFUL_SET = objectCreate(null);
+  for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
+  var endowMap = objectCreate(null);
+  // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
+  var raw = g.__ibexEndowments;
+  if (raw && typeof raw === 'object') {
+    var keys = getOwnPropNames(raw);
+    for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
+  }
+  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch".
+  // Read the raw value injected by the host (below) rather than `process.env`:
+  // this runs as a runtime deputy with no user frame, so a gated `process.env`
+  // read fails closed under --capsec enforce; and the endowment config must not
+  // be reachable by a package that merely holds env:read. @ref LLP 0013#mechanism-3
+  var envEndow = g.__ibexEndowRaw || '';
+  if (envEndow) {
+    var groups = String(envEndow).split(';');
+    for (var gi = 0; gi < groups.length; gi++) {
+      var colon = groups[gi].indexOf(':');
+      if (colon === -1) continue;
+      var pkgName = groups[gi].slice(0, colon).trim();
+      var caps = groups[gi].slice(colon + 1).split(',');
+      for (var ci = 0; ci < caps.length; ci++) caps[ci] = caps[ci].trim();
+      if (pkgName) endowMap[pkgName] = caps;
+    }
+  }
+  var bareNameOf = typeof g.__ibexBarePackageName === 'function'
+    ? g.__ibexBarePackageName
+    : function (pkg) { return pkg; };
+  function isEndowed(pkg, name) {
+    // Compartments are keyed by the version-qualified identity (`name@version`),
+    // but endow entries are usually written bare (`pkg:fetch`, applying to every
+    // version). Consult the exact key first so a pinned `pkg@1.0.0:fetch` can
+    // narrow one version, then fall back to the bare name. (ENG-22621)
+    var e = endowMap[pkg] || endowMap[bareNameOf(pkg)];
+    if (!e) return false;
+    for (var ei = 0; ei < e.length; ei++) {
+      if (e[ei] === name) return true;
+    }
+    return false;
+  }
+  function startsWithRawPrefix(name, prefix) {
+    if (name.length < prefix.length) return false;
+    for (var pi = 0; pi < prefix.length; pi++) {
+      if (name[pi] !== prefix[pi]) return false;
+    }
+    return true;
+  }
+  function isWithheld(pkg, name) {
+    // Raw host primitives (__exact* / __ibex*) must never be reachable from
+    // package code, endowed or not — exposing e.g. __exactFsOpen or the
+    // __ibexEndowRaw config would defeat the whole membrane. (ENG-22625/ENG-22636)
+    if (startsWithRawPrefix(name, '__exact') ||
+        startsWithRawPrefix(name, '__ibex')) return true;
+    return POWERFUL_SET[name] === true && !isEndowed(pkg, name);
+  }
+  function makeCompartment(pkg) {
+    return new ProxyCtor(objectCreate(null), {
+      get: function (t, prop, receiver) {
+        // This reserved binding always resolves to the package-scoped registry.
+        // Check it before package-local state so one module cannot poison the
+        // transformed hoist used by another module of the same package.
+        if (prop === '__compartments') return scopedRegistryFor(pkg);
+        // A write the compartment made shadows the arming baseline for this
+        // package only. Reflect.get preserves package-defined accessor semantics.
+        if (owns(t, prop)) return reflectGet(t, prop, receiver);
+        // Self-referential globals resolve to the compartment itself, never the
+        // real global: otherwise `window.process` (or another host alias) reaches
+        // every withheld capability in one hop. Derive the alias set from the
+        // captured host global rather than relying on platform-specific names.
+        if (isSelfAlias(prop)) return receiver;
+        if (typeof prop === 'string' && isWithheld(pkg, prop)) return undefined;
+        // String and symbol reads both stop at the immutable arming baseline.
+        return reflectGet(baseline, prop, receiver);
+      },
+      set: function (t, prop, value) {
+        // Writes land on the compartment's own backing object, never the shared
+        // real global or baseline. Reflect.set also honors a package's own
+        // non-writable/accessor descriptor instead of unconditionally claiming
+        // success. (ENG-22626/ENG-22640/ENG-24463)
+        if (prop === '__compartments') return false;
+        return reflectSet(t, prop, value, t);
+      },
+      defineProperty: function (t, prop, descriptor) {
+        if (prop === '__compartments') return false;
+        return reflectDefineProp(t, prop, descriptor);
+      },
+      deleteProperty: function (t, prop) {
+        if (prop === '__compartments') return false;
+        return reflectDeleteProp(t, prop);
+      },
+      has: function (t, prop) {
+        if (prop === '__compartments') return true;
+        if (owns(t, prop)) return true;
+        if (isSelfAlias(prop)) return true;
+        if (typeof prop === 'string' && isWithheld(pkg, prop)) return false;
+        return reflectHas(baseline, prop);
+      }
+      // Deliberately no ownKeys/getOwnPropertyDescriptor traps: reflection sees
+      // package-local target state only, so post-arming realm properties cannot
+      // leak through descriptors or enumeration and Proxy invariants stay simple.
+    });
+  }
+  var compartmentMap = objectCreate(null);
+  var scopedRegistryMap = objectCreate(null);
+  function compartmentFor(pkg) {
+    if (!owns(compartmentMap, pkg)) {
+      compartmentMap[pkg] = makeCompartment(pkg);
+    }
+    return compartmentMap[pkg];
+  }
+  function scopedRegistryFor(pkg) {
+    if (!owns(scopedRegistryMap, pkg)) {
+      scopedRegistryMap[pkg] = new ProxyCtor(objectCreate(null), {
+        get: function (_t, requested) {
+          return requested === pkg ? compartmentFor(pkg) : undefined;
+        },
+        has: function (_t, requested) { return requested === pkg; },
+        set: function () { return false; },
+        defineProperty: function () { return false; },
+        deleteProperty: function () { return false; },
+        setPrototypeOf: function () { return false; },
+        ownKeys: function () { return []; },
+        getOwnPropertyDescriptor: function () { return undefined; }
+      });
+    }
+    return scopedRegistryMap[pkg];
+  }
+  var registry = new ProxyCtor(objectCreate(null), {
+    get: function (_t, pkg) {
+      if (typeof pkg !== 'string') return undefined;
+      return compartmentFor(pkg);
+    },
+    has: function (_t, pkg) { return typeof pkg === 'string'; },
+    set: function () { return false; },
+    defineProperty: function () { return false; },
+    deleteProperty: function () { return false; },
+    setPrototypeOf: function () { return false; },
+    ownKeys: function () { return []; },
+    getOwnPropertyDescriptor: function () { return undefined; }
+  });
+
+  Object.defineProperty(g, '__compartments', {
+    value: registry, writable: false, enumerable: false, configurable: false
+  });
+  // Predeclare the final marker while the global is known extensible. The
+  // one-shot hook can later change a non-configurable writable data property to
+  // true/non-writable even if trusted lockdown has made the global inextensible.
+  Object.defineProperty(g, '__ibexCompartmentBaselineFinalized', {
+    value: false, writable: true, enumerable: false, configurable: false
+  });
+  Object.defineProperty(g, '__ibexRefreshCompartmentBaseline', {
+    value: finalizeBaseline, writable: false, enumerable: false, configurable: true
+  });
+  captureBaseline();
+  try { delete g.__ibexBarePackageName; } catch (e) {}
+  try { delete g.__ibexEndowRaw; } catch (e) {}
+  try { delete g.__ibexEndowments; } catch (e) {}
+  Object.defineProperty(g, '__ibexCompartmentRegistryReady', {
+    value: true, writable: false, enumerable: false, configurable: false
+  });
+})();
+)JS";
+  try {
+    // Inject the raw endowment config (IBEX_ENDOW) directly from the host, so
+    // the registry does not read it through the capability-gated `process.env`
+    // (which fails closed under enforce, and would expose the config to any
+    // package holding env:read). @ref LLP 0013#mechanism-3
+    auto& rt = *handle->runtime;
+    if (const char* endow = ::getenv("IBEX_ENDOW")) {
+      rt.global().setProperty(
+          rt,
+          "__ibexEndowRaw",
+          facebook::jsi::String::createFromUtf8(rt, endow));
+    }
+    auto buffer =
+        std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
+    handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
+    auto ready =
+        rt.global().getProperty(rt, "__ibexCompartmentRegistryReady");
+    return ready.isBool() && ready.getBool();
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(
+        1,
+        (std::string("Compartment registry error: ") + err.getMessage()).c_str());
+  } catch (const std::exception& err) {
+    ex_host_console_log(
+        1, (std::string("Compartment registry error: ") + err.what()).c_str());
+  } catch (...) {
+    ex_host_console_log(1, "Compartment registry error: unknown exception");
+  }
+  return false;
+}
+
 void installGlobals(struct ExactHermesRuntime* handle) {
   bool _tracing = startup_trace_enabled();
   bool sharedRuntimeInstalled = false;
@@ -2566,140 +2889,6 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     }
   }
 
-  // @ref LLP 0013#mechanism-2 — per-package compartment registry. Package code
-  // rewritten by the compartment transform resolves its bare globals against
-  // `__compartments[<package>]` instead of the real global. Each compartment is
-  // a Proxy that passes safe shared intrinsics through but WITHHOLDS powerful
-  // globals (process, fetch, Buffer, ...) unless the package is endowed by
-  // policy (globalThis.__ibexEndowments). Ships with lockdown (which closes the
-  // prototype-walk channel) so the two mechanisms compose.
-  if (env_flag_enabled("IBEX_LOCKDOWN") ||
-      env_flag_enabled("IBEX_COMPARTMENTS")) {
-    static const char* kCompartmentRegistryJS = R"JS((function () {
-  var g = globalThis;
-  if (g.__compartments) return;
-  var POWERFUL = ['process','fetch','Buffer','XMLHttpRequest','WebSocket',
-    'importScripts','queueMicrotask','eval','Function','Ibex','Exact','Bun'];
-  var POWERFUL_SET = Object.create(null);
-  for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
-  var endowMap = Object.create(null);
-  // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
-  var raw = g.__ibexEndowments;
-  if (raw && typeof raw === 'object') {
-    var keys = Object.getOwnPropertyNames(raw);
-    for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
-  }
-  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch".
-  // Read the raw value injected by the host (below) rather than `process.env`:
-  // this runs as a runtime deputy with no user frame, so a gated `process.env`
-  // read fails closed under --capsec enforce; and the endowment config must not
-  // be reachable by a package that merely holds env:read. @ref LLP 0013#mechanism-3
-  var envEndow = g.__ibexEndowRaw || '';
-  if (envEndow) {
-    var groups = String(envEndow).split(';');
-    for (var gi = 0; gi < groups.length; gi++) {
-      var colon = groups[gi].indexOf(':');
-      if (colon === -1) continue;
-      var pkgName = groups[gi].slice(0, colon).trim();
-      var caps = groups[gi].slice(colon + 1).split(',');
-      for (var ci = 0; ci < caps.length; ci++) caps[ci] = caps[ci].trim();
-      if (pkgName) endowMap[pkgName] = caps;
-    }
-  }
-  var bareNameOf = typeof g.__ibexBarePackageName === 'function'
-    ? g.__ibexBarePackageName
-    : function (pkg) { return pkg; };
-  function isEndowed(pkg, name) {
-    // Compartments are keyed by the version-qualified identity (`name@version`),
-    // but endow entries are usually written bare (`pkg:fetch`, applying to every
-    // version). Consult the exact key first so a pinned `pkg@1.0.0:fetch` can
-    // narrow one version, then fall back to the bare name. (ENG-22621)
-    var e = endowMap[pkg] || endowMap[bareNameOf(pkg)];
-    return !!e && e.indexOf(name) !== -1;
-  }
-  function isWithheld(pkg, name) {
-    // Raw host primitives (__exact* / __ibex*) must never be reachable from
-    // package code, endowed or not — exposing e.g. __exactFsOpen or the
-    // __ibexEndowRaw config would defeat the whole membrane. (ENG-22625/ENG-22636)
-    if (name.indexOf('__exact') === 0 || name.indexOf('__ibex') === 0) return true;
-    return POWERFUL_SET[name] === true && !isEndowed(pkg, name);
-  }
-  function makeCompartment(pkg) {
-    return new Proxy(Object.create(null), {
-      get: function (t, prop, receiver) {
-        if (typeof prop !== 'string') return g[prop];
-        // A write the compartment made shadows the real global for this package
-        // only — the set trap writes to `t`, never to the shared global. (ENG-22626)
-        if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
-        // Self-referential globals resolve to the compartment itself, never the
-        // real global: otherwise `globalThis.process` (or global/self) reaches
-        // every withheld capability in one hop. (ENG-22625)
-        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return receiver;
-        if (isWithheld(pkg, prop)) return undefined; // withheld
-        return g[prop];
-      },
-      set: function (t, prop, value) {
-        // Writes land on the compartment's own backing object, never the shared
-        // real global — a package poisoning `fetch`/`process` (or defining a
-        // sloppy `foo = 1`) must not be observed by root or any other
-        // compartment. (ENG-22626/ENG-22640)
-        t[prop] = value;
-        return true;
-      },
-      has: function (t, prop) {
-        // Reflect real presence: a withheld name (present on the real global)
-        // still reads as `undefined` via the get trap, but a genuinely-absent
-        // name reports false so a typo throws ReferenceError as JS requires,
-        // rather than silently resolving to undefined. (ENG-22640)
-        if (Object.prototype.hasOwnProperty.call(t, prop)) return true;
-        if (prop === 'globalThis' || prop === 'global' || prop === 'self') return true;
-        return (prop in g);
-      }
-    });
-  }
-  var backing = Object.create(null);
-  var registry = new Proxy(backing, {
-    get: function (t, pkg) {
-      if (typeof pkg !== 'string') return undefined;
-      if (!t[pkg]) { t[pkg] = makeCompartment(pkg); }
-      return t[pkg];
-    }
-  });
-  try {
-    Object.defineProperty(g, '__compartments', {
-      value: registry, writable: false, enumerable: false, configurable: false
-    });
-  } catch (e) {}
-  try { delete g.__ibexBarePackageName; } catch (e) {}
-})();
-)JS";
-    try {
-      // Inject the raw endowment config (IBEX_ENDOW) directly from the host, so
-      // the registry does not read it through the capability-gated `process.env`
-      // (which fails closed under enforce, and would expose the config to any
-      // package holding env:read). @ref LLP 0013#mechanism-3
-      auto& rt = *handle->runtime;
-      if (const char* endow = ::getenv("IBEX_ENDOW")) {
-        rt.global().setProperty(
-            rt,
-            "__ibexEndowRaw",
-            facebook::jsi::String::createFromUtf8(rt, endow));
-      }
-      auto buffer =
-          std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
-      handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
-    } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Compartment registry error: ") + err.getMessage())
-              .c_str());
-    } catch (const std::exception& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Compartment registry error: ") + err.what()).c_str());
-    }
-  }
-
   IG_TRACE_END(post_host_fns);
 }
 
@@ -2870,6 +3059,23 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   } else if (startup_trace_enabled()) {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");
   }
+
+  // Seal the compartment view only after every trusted bootstrap/polyfill has
+  // installed its expected globals. From this point forward, package global
+  // resolution uses the captured binding baseline and cannot observe
+  // session-created or session-replaced realm-global properties. (ENG-24463)
+  TRACE_START(compartment_registry);
+  const bool compartmentRegistryInstalled = installCompartmentRegistry(handle);
+  if (!compartmentRegistryInstalled) {
+    TRACE_END(compartment_registry);
+    unregisterAndroidHostFunctions(handle);
+    ibex_zlib_streams::cleanupZlibStreams(handle);
+    disableDebugger(handle);
+    delete handle;
+    return nullptr;
+  }
+  TRACE_END(compartment_registry);
+
   registerRuntime(handle);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
