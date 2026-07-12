@@ -21,7 +21,10 @@ import {
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
 import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
-import { runObservedCommand } from "./capsec-command-evidence.mjs";
+import {
+  commandEvidenceIdSuffix,
+  runObservedCommand,
+} from "./capsec-command-evidence.mjs";
 import {
   canonicalJson,
   parseJsonStrict,
@@ -318,9 +321,9 @@ for (const recipe of recipeCatalog.recipes) {
 const publicBatches = [];
 let publicBatchIndex = 0;
 for (const { command, fixtureIds } of publicRecipeCommands.values()) {
-  const batchId = `public-fixtures-${String(publicBatchIndex).padStart(3, "0")}-${taggedDigest(
+  const batchId = `public-fixtures-${String(publicBatchIndex).padStart(3, "0")}-${commandEvidenceIdSuffix(
     Buffer.from(canonicalJson(command), "utf8"),
-  ).slice(7, 19)}`;
+  )}`;
   publicBatchIndex += 1;
   const batchOutputPath = path.join(
     publicBatchEvidenceDirectory,

@@ -2,11 +2,28 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, test } from "bun:test";
-import { runObservedCommand } from "./capsec-command-evidence.mjs";
+import {
+  commandEvidenceIdSuffix,
+  runObservedCommand,
+} from "./capsec-command-evidence.mjs";
 
 const roots = [];
 afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+});
+
+test("command evidence ID suffixes are canonical and collision-resistant", () => {
+  const first = commandEvidenceIdSuffix(Buffer.from("cargo test --bin ibex"));
+  expect(first).toMatch(/^[a-f0-9]{64}$/u);
+  expect(commandEvidenceIdSuffix(Buffer.from("cargo test --bin ibex"))).toBe(
+    first,
+  );
+  expect(commandEvidenceIdSuffix(Buffer.from("cargo test --lib"))).not.toBe(
+    first,
+  );
+  expect(`public-fixtures-000-${first}`).toMatch(
+    /^[a-z0-9][a-z0-9-]*$/u,
+  );
 });
 
 test("command evidence streams large output and retains only a bounded tail", () => {

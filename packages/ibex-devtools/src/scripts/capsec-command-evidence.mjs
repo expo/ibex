@@ -9,6 +9,14 @@ import { spawnSync } from "node:child_process";
 
 const DEFAULT_TAIL_BYTES = 64 * 1024;
 
+// Evidence IDs become filenames and therefore use a deliberately smaller
+// alphabet than content digests. Keep the full SHA-256 in lowercase hex: this
+// is canonical under the ID grammar without folding base64url characters and
+// losing collision resistance.
+export function commandEvidenceIdSuffix(value) {
+  return crypto.createHash("sha256").update(value).digest("hex");
+}
+
 const ownedByCurrentUser = (metadata) =>
   typeof process.getuid !== "function" || metadata.uid === process.getuid();
 
