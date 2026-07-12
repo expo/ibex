@@ -2215,6 +2215,28 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn runtime_installs_typed_dynamic_permission_bridge() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let result = engine
+            .eval_immediate(
+                "JSON.stringify([typeof Ibex.permissions.requestTyped, typeof Ibex.permissions.revokeTyped])",
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.as_deref(), Some("[\"function\",\"function\"]"));
+
+        let malformed = engine
+            .eval_immediate(
+                "try { Ibex.permissions.requestTyped('fs:read:/tmp'); 'missed' } catch (e) { e.name }",
+            )
+            .await
+            .unwrap();
+        assert_eq!(malformed.as_deref(), Some("TypeError"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
         // The C Hermes host callbacks are process-global in the test binary.
         // Keep engine-owning tests serial so the Rust test harness cannot

@@ -236,6 +236,10 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
+extern "C" int32_t ex_host_typed_dynamic_grant(const uint8_t* request,
+                                                 size_t request_len);
+extern "C" int32_t ex_host_typed_dynamic_revoke(const uint8_t* request,
+                                                  size_t request_len);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
 extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
@@ -1500,6 +1504,58 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactPermissionStatus", std::move(permStatusFn));
 
+  // Typed dynamic authority is intentionally a separate surface from the
+  // legacy string permission API. JSON.stringify executes on the JS thread;
+  // the Rust boundary then applies strict-I-JSON parsing, typed validation,
+  // ceiling containment, and generation publication atomically.
+  // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+  auto typedPermRequestFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTypedPermissionRequest"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isObject()) {
+          return facebook::jsi::Value(-1.0);
+        }
+        auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+        auto stringify = json.getPropertyAsFunction(runtime, "stringify");
+        auto serialized = stringify.call(runtime, args[0]);
+        if (!serialized.isString()) {
+          return facebook::jsi::Value(-1.0);
+        }
+        auto request = serialized.asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(static_cast<double>(
+            ex_host_typed_dynamic_grant(
+                reinterpret_cast<const uint8_t*>(request.data()), request.size())));
+      });
+  rt.global().setProperty(
+      rt, "__exactTypedPermissionRequest", std::move(typedPermRequestFn));
+
+  auto typedPermRevokeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTypedPermissionRevoke"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(-1.0);
+        }
+        auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+        auto stringify = json.getPropertyAsFunction(runtime, "stringify");
+        auto serialized = stringify.call(runtime, args[0]);
+        auto request = serialized.asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(static_cast<double>(
+            ex_host_typed_dynamic_revoke(
+                reinterpret_cast<const uint8_t*>(request.data()), request.size())));
+      });
+  rt.global().setProperty(
+      rt, "__exactTypedPermissionRevoke", std::move(typedPermRevokeFn));
+
   auto getCwdFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCwd"),
@@ -2041,6 +2097,29 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     cap = String(cap);
     g.__exactPermissionRevoke(cap);
     __notifyPerm(cap);
+  };
+  // Typed authority never crosses this boundary as a legacy colon string.
+  // A request is { grantId, principal, authority }; revocation names the
+  // immutable grant ID. Negative means malformed/forbidden and is surfaced
+  // loudly instead of collapsing into an ordinary denial.
+  // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+  Ibex.permissions.requestTyped = function (request) {
+    if (!request || typeof request !== 'object') {
+      throw new TypeError('typed permission request must be an object');
+    }
+    var result = g.__exactTypedPermissionRequest(request);
+    if (result < 0) throw new Error('Typed permission request refused');
+    if (result > 0) __notifyPerm(request.grantId);
+    return result > 0;
+  };
+  Ibex.permissions.revokeTyped = function (grantId) {
+    if (typeof grantId !== 'string' || !grantId) {
+      throw new TypeError('typed permission grantId must be a non-empty string');
+    }
+    var result = g.__exactTypedPermissionRevoke(grantId);
+    if (result < 0) throw new Error('Typed permission revocation refused');
+    if (result > 0) __notifyPerm(grantId);
+    return result > 0;
   };
   // @ref LLP 0013 — §dynamic permissions — acquisition is async and lives in the
   // attenuator, while the host-boundary check stays synchronous. `acquire`

@@ -206,6 +206,8 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactPermissionRequest",
   "__exactPermissionRevoke",
   "__exactPermissionStatus",
+  "__exactTypedPermissionRequest",
+  "__exactTypedPermissionRevoke",
   "__exactPlatform",
   "__exactPlatformVersion",
   "__exactPollSignal",
@@ -3740,7 +3742,9 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "permissions.broker",
     "permissions.onChange",
     "permissions.request",
+    "permissions.requestTyped",
     "permissions.revoke",
+    "permissions.revokeTyped",
     "permissions.status",
   ],
   Int16Array: [

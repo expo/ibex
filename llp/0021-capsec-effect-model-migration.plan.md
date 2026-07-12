@@ -711,6 +711,13 @@ bearer handles use OS-random identifiers, can be minted only from an owner's
 static floor or re-attenuated from a handle currently held by the actor, and
 revoke descendants as one negative/handle-generation publication.
 
+The live Hermes surface also exposes typed dynamic grant and revocation as
+`Ibex.permissions.requestTyped(request)` and `revokeTyped(grantId)`. Requests
+cross the native boundary as strict typed JSON and therefore use the same
+ceiling, lifecycle, digest, and generation validation as embedder calls;
+legacy colon strings are rejected by the typed method rather than reinterpreted.
+Both the private bridge and public methods are exact registry surfaces.
+
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
 Flip ordinary CLI execution and embedding defaults only after WP4–WP8 cover the
