@@ -8,6 +8,7 @@ test("conformance prerequisite matrix covers every product test layer", () => {
     "capsec-contract-drift",
     "capsec-registry-drift",
     "devtools-js-full",
+    "generated-policy-drift",
     "hermes-transform-loader-corpora",
     "linked-literate-references",
     "runtime-js-full",
