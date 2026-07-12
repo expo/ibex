@@ -775,6 +775,12 @@ closed: individual environment reads return `undefined`, enumeration returns an
 empty object, cwd disclosure returns `undefined`, and cwd mutation is denied
 without changing the host process directory. A live armed fixture covers all
 four boundaries.
+The armed import gate also carries an artifact-independent terminal-builtin
+deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
+(including `node:` aliases and subpaths). A deliberately overbroad but
+otherwise authenticated snapshot cannot re-enable those runtime-inspection,
+VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
+remain governed by the snapshot import policy.
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 

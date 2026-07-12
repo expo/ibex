@@ -1397,6 +1397,13 @@ fn typed_import_allowed(
 ) -> bool {
     let without_node = specifier.strip_prefix("node:").unwrap_or(specifier);
     let builtin_root = without_node.split('/').next().unwrap_or(without_node);
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Terminal builtins remain absent even if an authenticated artifact erroneously lists them.
+    if matches!(
+        builtin_root,
+        "async_hooks" | "inspector" | "vm" | "wasi" | "worker_threads"
+    ) {
+        return false;
+    }
     if crate::module_loader::RUNTIME_GATED_NODE_BUILTINS.contains(&builtin_root) {
         return policy.builtins.iter().any(|allowed| {
             let allowed = allowed.strip_prefix("node:").unwrap_or(allowed);
@@ -1996,6 +2003,34 @@ mod tests {
             mixed_error.to_string().contains("always denied"),
             "{mixed_error}"
         );
+    }
+
+    #[test]
+    fn armed_terminal_builtins_stay_closed_even_if_snapshot_lists_them() {
+        let host = example_armed_host_with(|value| {
+            value["principals"][1]["imports"]["builtins"] = serde_json::json!([
+                "node:async_hooks",
+                "node:fs",
+                "node:inspector",
+                "node:inspector/promises",
+                "node:vm",
+                "node:wasi",
+                "node:worker_threads"
+            ]);
+        });
+        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        assert!(host.check_import("7", "node:fs"));
+        for specifier in [
+            "async_hooks",
+            "node:async_hooks",
+            "inspector",
+            "node:inspector/promises",
+            "vm",
+            "node:wasi",
+            "worker_threads",
+        ] {
+            assert!(!host.check_import("7", specifier), "{specifier}");
+        }
     }
 
     #[test]
