@@ -341,6 +341,7 @@ impl Host {
         path: &std::path::Path,
         stage: capsec_semantics::model::Stage,
         object_state: capsec_semantics::model::ObjectState,
+        follow_mode: capsec_semantics::model::FollowMode,
         disclosure_only: bool,
         resolved_parent_path: Option<&std::path::Path>,
         needs_read: bool,
@@ -353,7 +354,7 @@ impl Host {
         use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
-            FollowMode, OccurrenceResource, StableId,
+            OccurrenceResource, StableId,
         };
 
         let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
@@ -418,7 +419,7 @@ impl Host {
             .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
         let resource = OccurrenceResource::PathOccurrence {
             requested,
-            follow_mode: FollowMode::FollowFinal,
+            follow_mode,
             object_state,
             parent_object,
             final_object,
@@ -1430,6 +1431,7 @@ mod tests {
                 open_path,
                 capsec_semantics::model::Stage::Requested,
                 capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
                 true,
                 None,
                 true,
@@ -1457,6 +1459,7 @@ mod tests {
                 open_path,
                 capsec_semantics::model::Stage::Discovery,
                 capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
                 true,
                 Some(std::path::Path::new("/Users/example/project/images")),
                 true,
@@ -1479,6 +1482,7 @@ mod tests {
                 open_path,
                 capsec_semantics::model::Stage::Commit,
                 capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
                 false,
                 Some(std::path::Path::new("/Users/example/project/images")),
                 true,
@@ -1501,6 +1505,7 @@ mod tests {
                 open_path,
                 capsec_semantics::model::Stage::Repeat,
                 capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
                 false,
                 Some(std::path::Path::new("/Users/example/project/images")),
                 true,

@@ -507,6 +507,48 @@ static TypedPathDescriptors openArmedListTarget(
   return TypedPathDescriptors{std::move(parent), std::move(target)};
 }
 
+static TypedPathDescriptors openArmedLinkTarget(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    uint32_t surface,
+    const std::string& presentedHandle) {
+  uint64_t principal = currentPrincipalId();
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, surface, -1, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "open", path);
+  auto parent = retainedFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, surface, parentRaw, -1, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+#if defined(__APPLE__)
+  int targetRaw = ::openat(parentRaw, name.c_str(), O_RDONLY | O_SYMLINK | O_CLOEXEC);
+#elif defined(O_PATH)
+  int targetRaw = ::openat(parentRaw, name.c_str(), O_PATH | O_NOFOLLOW | O_CLOEXEC);
+#else
+  int targetRaw = -1;
+  errno = ENOTSUP;
+#endif
+  if (targetRaw < 0) throwFsError(runtime, "lstat", path);
+  auto target = retainedFd(targetRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, surface, parentRaw, targetRaw, 0, 0,
+          presented) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  return TypedPathDescriptors{std::move(parent), std::move(target)};
+}
+
 static TypedPathDescriptors openArmedWriteTarget(
     facebook::jsi::Runtime& runtime,
     const std::string& path,
@@ -1642,12 +1684,13 @@ static FsAsyncResult fsFstatWork(int fd) {
 static FsAsyncResult fsStatArmedWork(
     uint64_t principal,
     const std::string& path,
+    uint32_t surface,
     const std::string& presentedHandle,
     const std::shared_ptr<int>& parent,
     int targetFd) {
   const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
   if (ex_host_authorize_typed_fs_open(
-          principal, path.c_str(), 5, 8, *parent, targetFd, 0, 0,
+          principal, path.c_str(), 5, surface, *parent, targetFd, 0, 0,
           presented) != 1) {
     return fsAsyncError(EACCES, "fstat", path);
   }
@@ -2084,7 +2127,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto lstatFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactLstat"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2093,6 +2136,22 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactLstat: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactLstat: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedLinkTarget(runtime, path, 10, presentedHandle);
+          struct stat sb = {};
+          if (::fstat(*descriptors.target, &sb) != 0) {
+            throwFsError(runtime, "fstat", path);
+          }
+          return facebook::jsi::String::createFromUtf8(runtime, statJsonFromStat(sb));
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -4131,7 +4190,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
                 handle, runtime,
                 [workerFd, parent, principal, path, presentedHandle]() {
                   return fsStatArmedWork(
-                      principal, path, presentedHandle, parent,
+                      principal, path, 8, presentedHandle, parent,
                       workerFd->get());
                 });
           }
@@ -4147,10 +4206,6 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         }
         auto path = args[0].toString(runtime).utf8(runtime);
         if (ex_host_is_armed() == 1) {
-          if (kind == "lstat") {
-            throw facebook::jsi::JSError(
-                runtime, "Permission denied: typed lstat is not supported");
-          }
           std::string presentedHandle;
           if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
             if (!args[2].isString()) {
@@ -4159,16 +4214,20 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             }
             presentedHandle = args[2].asString(runtime).utf8(runtime);
           }
-          auto descriptors = openArmedListTarget(
-              runtime, path, 8, O_RDONLY | O_NONBLOCK, presentedHandle);
+          uint32_t surface = kind == "lstat" ? 11 : 8;
+          auto descriptors = kind == "lstat"
+              ? openArmedLinkTarget(runtime, path, surface, presentedHandle)
+              : openArmedListTarget(
+                    runtime, path, surface, O_RDONLY | O_NONBLOCK,
+                    presentedHandle);
           uint64_t principal = currentPrincipalId();
           auto targetFd = descriptors.target;
           return startFsAsync(
               handle, runtime,
-              [principal, path, presentedHandle,
+              [principal, path, surface, presentedHandle,
                parent = std::move(descriptors.parent), targetFd]() {
                 return fsStatArmedWork(
-                    principal, path, presentedHandle, parent, *targetFd);
+                    principal, path, surface, presentedHandle, parent, *targetFd);
               });
         }
         // Same gate as __exactStat / __exactLstat.

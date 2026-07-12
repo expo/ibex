@@ -669,9 +669,9 @@ recheck authority and identity before each chunk. `stat` and directory
 enumeration likewise use retained no-follow targets and their own `fs:list`
 edges; enumeration rechecks before every disclosed entry. Worker-backed path
 and descriptor stat use the async stat edge and recheck on the worker before
-serialization; typed lstat remains explicitly closed pending link-object
-identity support. Realpath returns the canonical path of the retained no-follow
-descriptor under its own list edge. Whole-file replace,
+serialization. Sync and async lstat retain the link object itself with
+`no-follow-final` semantics. Realpath returns the canonical path of the retained
+no-follow descriptor under its own list edge. Whole-file replace,
 append, and worker-backed write use their own edges, authorize absent-create or
 existing state before `openat`, commit the actual regular file before delayed
 truncation, and recheck before each write/flush. The remaining path-based

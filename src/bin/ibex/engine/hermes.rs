@@ -2311,6 +2311,8 @@ mod tests {
         let async_whole = root.join("async-whole.txt");
         let whole_created = root.join("whole-created.txt");
         std::fs::write(&existing, b"old contents").unwrap();
+        let link = root.join("existing-link");
+        std::os::unix::fs::symlink(&existing, &link).unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
@@ -2329,6 +2331,7 @@ mod tests {
                 var reread = __exactReadFile({existing:?});
                 if (String.fromCharCode.apply(null, reread) !== 'new') throw new Error('readFile');
                 if (!JSON.parse(__exactStat({existing:?})).is_file) throw new Error('stat');
+                if (!JSON.parse(__exactLstat({link:?})).is_symlink) throw new Error('lstat');
                 if (__exactRealpath({existing:?}) !== {existing:?}) throw new Error('realpath');
                 if (JSON.parse(__exactReaddir({root:?})).indexOf('existing.txt') < 0) throw new Error('readdir');
                 __exactWriteFile({existing:?}, 'whole');
@@ -2339,6 +2342,7 @@ mod tests {
             existing = existing.to_str().unwrap(),
             created = created.to_str().unwrap(),
             root = root.to_str().unwrap(),
+            link = link.to_str().unwrap(),
             whole_created = whole_created.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
@@ -2403,6 +2407,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(async_stat.as_deref(), Some("true"));
+        let async_lstat_script = format!(
+            r#"globalThis.__armedAsyncLstat = 'pending';
+               __exactFsStatAsync({path:?}, 'lstat').then(function(json) {{
+                 globalThis.__armedAsyncLstat = String(JSON.parse(json).is_symlink);
+               }}, function(error) {{
+                 globalThis.__armedAsyncLstat = 'error:' + error.message;
+               }});"#,
+            path = link.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_lstat_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_lstat = engine
+            .eval_immediate("globalThis.__armedAsyncLstat")
+            .await
+            .unwrap();
+        assert_eq!(async_lstat.as_deref(), Some("true"));
         let async_write_script = format!(
             r#"globalThis.__armedAsyncWrite = 'pending';
                __exactFsWriteFileAsync({path:?}, 'worker', 'w', 438, true).then(function() {{
@@ -2500,6 +2520,8 @@ mod tests {
                 try {{ __exactReaddir({directory:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactFsStatAsync({file:?}, 'stat'); }} catch (_) {{ denied++; }}
                 try {{ __exactRealpath({file:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactLstat({file:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactFsStatAsync({file:?}, 'lstat'); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             file = file.to_str().unwrap(),
@@ -2507,7 +2529,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("4"));
+        assert_eq!(outcome.as_deref(), Some("6"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2562,6 +2584,8 @@ mod tests {
                 try {{ __exactFsStatAsync({final_escape:?}, 'stat'); }} catch (_) {{ denied++; }}
                 try {{ __exactRealpath({parent_escape:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactRealpath({final_escape:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactLstat({parent_escape:?}); }} catch (_) {{ denied++; }}
+                if (!JSON.parse(__exactLstat({final_escape:?})).is_symlink) throw new Error('lstat-link');
                 return String(denied);
             }})()"#,
             parent_escape = parent_escape.to_str().unwrap(),
@@ -2569,7 +2593,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("18"));
+        assert_eq!(outcome.as_deref(), Some("19"));
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);

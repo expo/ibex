@@ -1010,7 +1010,17 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             "surface.native.op.exactfsstatasync.0b0hr8s",
         ),
         9 => ("fs-realpath", "surface.native.op.exactrealpath.06qb6s2"),
+        10 => ("fs-lstat", "surface.native.op.exactlstat.1c98s6l"),
+        11 => (
+            "fs-lstat-async",
+            "surface.native.op.exactfsstatasync.0b0hr8s",
+        ),
         _ => return -1,
+    };
+    let follow_mode = if matches!(surface, 10 | 11) {
+        capsec_semantics::model::FollowMode::NoFollowFinal
+    } else {
+        capsec_semantics::model::FollowMode::FollowFinal
     };
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
     #[cfg(unix)]
@@ -1053,7 +1063,11 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
                 let Some(parent_object) = object_identity_for_fd(parent_fd) else {
                     return 0;
                 };
-                let (object_state, final_object) = match object_identity_at(parent_fd, &path) {
+                let (object_state, final_object) = match object_identity_at(
+                    parent_fd,
+                    &path,
+                    follow_mode == capsec_semantics::model::FollowMode::FollowFinal,
+                ) {
                     Ok(Some(identity)) => (
                         capsec_semantics::model::ObjectState::Existing,
                         Some(identity),
@@ -1124,6 +1138,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             &path,
             stage,
             object_state,
+            follow_mode,
             disclosure_only,
             resolved_parent_path.as_deref(),
             needs_read != 0
@@ -1185,12 +1200,18 @@ fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
 fn object_identity_at(
     parent_fd: i32,
     path: &std::path::Path,
+    follow_final: bool,
 ) -> Result<Option<capsec_semantics::model::ObjectIdentity>, ()> {
     use std::os::unix::ffi::OsStrExt;
     let name = path.file_name().ok_or(())?;
     let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| ())?;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-    if unsafe { libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), 0) } == 0 {
+    let flags = if follow_final {
+        0
+    } else {
+        libc::AT_SYMLINK_NOFOLLOW
+    };
+    if unsafe { libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), flags) } == 0 {
         return Ok(object_identity_from_stat(unsafe { stat.assume_init() }));
     }
     match std::io::Error::last_os_error().raw_os_error() {
