@@ -239,6 +239,97 @@ const STREAM_ROOT_CALL_SPECS = streamRootCallSpecs();
 // exportName. They are an allowlist derived from the corresponding builtin
 // source, not a generic "call every function" mechanism.
 const ROOT_CALL_SPECS = Object.freeze({
+  node_perf_hooks: Object.freeze({
+    Performance: constructTarget([]),
+    "Performance.clearMarks": constructedOwner(
+      "Performance",
+      [],
+      "undefined",
+    ),
+    "Performance.clearMeasures": constructedOwner(
+      "Performance",
+      [],
+      "undefined",
+    ),
+    "Performance.clearResourceTimings": constructedOwner(
+      "Performance",
+      [],
+      "undefined",
+    ),
+    "Performance.getEntries": constructedOwner("Performance", [], "object"),
+    "Performance.getEntriesByName": constructedOwner(
+      "Performance",
+      [jsonArgument("ibex")],
+      "object",
+    ),
+    "Performance.getEntriesByType": constructedOwner(
+      "Performance",
+      [jsonArgument("mark")],
+      "object",
+    ),
+    "Performance.mark": constructedOwner(
+      "Performance",
+      [jsonArgument("ibex"), jsonArgument({ startTime: 0 })],
+      "object",
+    ),
+    "Performance.markResourceTiming": constructedOwner(
+      "Performance",
+      [
+        jsonArgument({
+          startTime: 0,
+          endTime: 1,
+          encodedBodySize: 4,
+          decodedBodySize: 4,
+          finalConnectionTimingInfo: { ALPNNegotiatedProtocol: "h2" },
+        }),
+        jsonArgument("https://example.test/ibex"),
+        jsonArgument("fetch"),
+        jsonArgument(null),
+        jsonArgument(""),
+        jsonArgument({}),
+        jsonArgument(200),
+        jsonArgument(""),
+      ],
+      "object",
+    ),
+    "Performance.measure": constructedOwner(
+      "Performance",
+      [
+        jsonArgument("ibex-measure"),
+        jsonArgument({ start: 0, duration: 1 }),
+      ],
+      "object",
+    ),
+    "Performance.now": constructedOwner("Performance", [], "number"),
+    "Performance.toJSON": constructedOwner("Performance", [], "object"),
+    PerformanceMark: constructTarget([
+      jsonArgument("ibex-mark"),
+      jsonArgument({ startTime: 0 }),
+    ]),
+    "PerformanceMark.constructor": constructTarget([
+      jsonArgument("ibex-mark"),
+      jsonArgument({ startTime: 0 }),
+    ]),
+    "PerformanceMark.toJSON": constructedOwner(
+      "PerformanceMark",
+      [],
+      "object",
+      [jsonArgument("ibex-mark"), jsonArgument({ startTime: 0 })],
+    ),
+    PerformanceObserver: constructTarget([noopArgument()]),
+    "PerformanceObserver.disconnect": constructedOwner(
+      "PerformanceObserver",
+      [],
+      "undefined",
+      [noopArgument()],
+    ),
+    "PerformanceObserver.takeRecords": constructedOwner(
+      "PerformanceObserver",
+      [],
+      "object",
+      [noopArgument()],
+    ),
+  }),
   node_path: Object.freeze({
     basename: rootCall([jsonArgument("/ibex/file.txt")], "string"),
     dirname: rootCall([jsonArgument("/ibex/file.txt")], "string"),
@@ -1064,6 +1155,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
   node_events: "node-events-bounded-v1",
+  node_perf_hooks: "node-perf-hooks-bounded-v1",
   node_path: "node-path-pure-v1",
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",

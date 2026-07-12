@@ -324,6 +324,59 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("authors bounded performance receivers without retaining observers", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_perf_hooks",
+        exportName: "Performance.measure",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:perf_hooks", "perf_hooks"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-perf-hooks-bounded-v1",
+        arguments: [
+          { kind: "json", value: "ibex-measure" },
+          { kind: "json", value: { start: 0, duration: 1 } },
+        ],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Performance",
+          constructorArguments: [],
+        },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_perf_hooks",
+        exportName: "PerformanceObserver.takeRecords",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:perf_hooks", "perf_hooks"],
+        valueShape: "callable",
+      })?.invocation.setup.constructorArguments,
+    ).toEqual([{ kind: "noop-function" }]);
+    expect(
+      probeFor({
+        sourceKey: "node_perf_hooks",
+        exportName: "PerformanceObserver.observe",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:perf_hooks", "perf_hooks"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_perf_hooks",
+        exportName: "PerformanceMeasure",
+        exportIdioms: ["module-exports-object"],
+        moduleSpecifiers: ["node:perf_hooks", "perf_hooks"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({

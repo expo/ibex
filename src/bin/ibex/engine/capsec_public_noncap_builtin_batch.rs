@@ -497,6 +497,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_assert" => Some("node-assert-bounded-v1"),
         "node_buffer" => Some("node-buffer-bounded-v1"),
         "node_events" => Some("node-events-bounded-v1"),
+        "node_perf_hooks" => Some("node-perf-hooks-bounded-v1"),
         "node_path" => Some("node-path-pure-v1"),
         "node_punycode" => Some("node-punycode-pure-v1"),
         "node_querystring" => Some("node-querystring-pure-v1"),

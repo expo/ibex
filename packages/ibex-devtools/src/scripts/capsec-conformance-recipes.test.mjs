@@ -440,6 +440,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_assert",
         "node_buffer",
         "node_events",
+        "node_perf_hooks",
         "node_path",
         "node_punycode",
         "node_querystring",

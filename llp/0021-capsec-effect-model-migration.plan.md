@@ -1057,9 +1057,10 @@ terminal checks or survive through an exported `require` closure.
 
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families
-cover `assert`, `buffer`, `events`, `path`, `punycode`, `querystring`, `zlib`,
-`stream`, `string_decoder`, `url`, and `util`: each recipe fixes its
-setup, receiver, arguments, dispatch mode, and expected return type. Prototype
+cover `assert`, `buffer`, `events`, `path`, `perf_hooks`, `punycode`,
+`querystring`, `zlib`, `stream`, `string_decoder`, `url`, and `util`: each
+recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
+type. Prototype
 recipes construct the declared owner (with dedicated bounded Buffer,
 CallTracker, zlib-transform, string-decoder, and configured
 readable/writable/duplex stream fixtures), then dispatch the exact
@@ -1069,14 +1070,17 @@ closes native stream state in a `finally` path. Stream recipes use inert
 read/write/transform callbacks; standalone `destroy` receives an explicit
 non-error value so it cannot leave an asynchronous `AbortError`, and `compose`
 remains residual because its normal return still owns a live pipeline.
-Evidence requires a normal return from the selected dispatch; an
+Performance observer `observe` likewise remains residual because it retains a
+callback; constructor, query, mutation, and explicitly disconnected observer
+recipes have bounded lifetimes. Evidence requires a normal return from the
+selected dispatch; an
 argument/receiver binding error or any other throw fails the recipe and cannot
-stand in for body entry. On the macOS/aarch64 candidate this adds 632 callable
-executions (101 root calls, 43 constructions, and 488 prototype calls) to the
+stand in for body entry. On the macOS/aarch64 candidate this adds 650 callable
+executions (101 root calls, 47 constructions, and 502 prototype calls) to the
 336 data/accessor executions, all against the same mapped Hermes identity.
 Loaded execution also exposed lazy builtin assignments that were swallowed by
-locked inherited primordial
-properties; those Buffer, AssertionError, and StringDecoder prototype members
+locked inherited primordial properties; those Buffer, AssertionError, and
+StringDecoder prototype members
 are now installed as explicit writable/configurable own properties without
 weakening primordial lockdown. Source inventory also preserves own prototype
 overrides when an inherited member of the same name was propagated into a
