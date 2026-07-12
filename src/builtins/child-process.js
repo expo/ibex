@@ -2137,6 +2137,21 @@ function _splitExactExecArgv(execArgv) {
   var compatArgs = [];
   for (var i = 0; i < execArgv.length; i++) {
     var arg = String(execArgv[i]);
+    // @ref LLP 0021#default-execution-contract — `ibex capsec audit` is the
+    // explicitly named diagnostic execution plane.
+    // Preserve it across `fork()` so a diagnostic parent cannot accidentally
+    // launch its child through production arming (or turn diagnostic-only
+    // startup controls into ambient production inputs).
+    if (
+      i === 0 &&
+      arg === 'capsec' &&
+      i + 1 < execArgv.length &&
+      String(execArgv[i + 1]) === 'audit'
+    ) {
+      cliArgs.push(arg, 'audit');
+      i++;
+      continue;
+    }
     if (_isExactCliBooleanExecArg(arg) || _isExactCliAssignmentExecArg(arg)) {
       cliArgs.push(arg);
       continue;

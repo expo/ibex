@@ -1080,7 +1080,7 @@ impl Runtime {
     }
 
     pub fn from_audit_cli(cli: &Cli) -> Result<Self> {
-        validate_production_inputs(cli)?;
+        validate_diagnostic_audit_inputs(cli)?;
         if cli.policy.is_some() || crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
             anyhow::bail!("foreground audit does not accept durable policy inputs");
         }
@@ -2495,12 +2495,14 @@ pub(crate) fn reject_closed_production_cli(cli: &Cli) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn validate_production_inputs(cli: &Cli) -> Result<()> {
+fn validate_runtime_inputs(cli: &Cli, reject_closed_environment: bool) -> Result<()> {
     reject_closed_production_cli(cli)?;
     if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
         anyhow::bail!("environment-selected policy paths are forbidden in production");
     }
-    crate::host::reject_closed_startup_environment()?;
+    if reject_closed_environment {
+        crate::host::reject_closed_startup_environment()?;
+    }
     if cli.allow_all
         || matches!(
             cli.capsec,
@@ -2557,6 +2559,18 @@ pub(crate) fn validate_production_inputs(cli: &Cli) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub(crate) fn validate_production_inputs(cli: &Cli) -> Result<()> {
+    validate_runtime_inputs(cli, true)
+}
+
+/// The separately named foreground audit is the diagnostic channel for
+/// exercising legacy startup branches. It retains every CLI/policy restriction
+/// above, but does not apply the production registry's ambient-control closure.
+/// @ref LLP 0021#default-execution-contract
+fn validate_diagnostic_audit_inputs(cli: &Cli) -> Result<()> {
+    validate_runtime_inputs(cli, false)
 }
 
 /// Apply the enforce/audit isolation prerequisite (per-package chunking) for the

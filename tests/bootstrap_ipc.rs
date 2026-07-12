@@ -13,11 +13,11 @@
 //!     not turn into U+FFFD on both sides.
 //!   * A throwing user 'message' listener must not permanently kill IPC
 //!     polling (uncaughtException semantics preserved, channel stays live).
-//!   * Legacy (EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE=1) bootstrap fixes:
-//!     global `setTimeout().refresh()` re-arms fired timers (ENG-22970
-//!     parity), `Bun.serve({unix})` returns a disposable server instead of
-//!     throwing ReferenceError, Bun's binary hash helpers hash raw bytes, and
-//!     legacy WebCrypto preserves binary hash/HMAC input.
+//!   * Runtime-bundle compatibility fixes, run through the explicitly
+//!     diagnostic `ibex capsec audit` command because production execution is
+//!     unavailable until this exact target has a verified advertisement:
+//!     WebCrypto preserves binary hash/HMAC input and storage/stdin data stays
+//!     byte-exact.
 //!
 //! Run with: `scripts/run-tests.sh --scope test bootstrap_ipc`.
 
@@ -56,13 +56,16 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-/// Run `ibex run app.js` with a wall-clock timeout. Extra env vars are applied
-/// to the parent (and inherited by forked children).
+/// Run `ibex capsec audit app.js` with a wall-clock timeout. These compatibility
+/// checks intentionally need the diagnostic runtime: production execution must
+/// refuse an unadvertised target before observing project code. Extra env vars
+/// are applied to the parent (and inherited by forked children).
 fn run_app_env(tag: &str, app: &str, env: &[(&str, &str)], timeout: Duration) -> AppRun {
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -122,7 +125,8 @@ fn run_app_env_stdin(
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -204,10 +208,7 @@ fn result_line(run: &AppRun) -> &str {
 /// next packet, and everything from ~message 35 on was silently lost.
 const BURST_PARENT: &str = r#"
 const { fork } = require('child_process');
-const legacy = process.env.IPC_TEST_LEGACY === '1';
-const child = fork(__dirname + '/child.js', [], legacy
-  ? { env: Object.assign({}, process.env, { EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE: '1' }) }
-  : {});
+const child = fork(__dirname + '/child.js');
 let count = 0, bad = 0, gotBig = false, bigOk = false;
 child.on('message', (m) => {
   if (m && m.type === 'seq') {
@@ -245,7 +246,8 @@ fn assert_burst_delivered(tag: &str, env: &[(&str, &str)]) {
     write_text(&dir.join("child.js"), BURST_CHILD);
     write_text(&dir.join("app.js"), BURST_PARENT);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -311,14 +313,6 @@ fn fork_child_send_burst_survives_backpressure() {
     assert_burst_delivered("burst", &[]);
 }
 
-#[test]
-fn fork_child_send_burst_survives_backpressure_legacy_ipc() {
-    // Forces the child onto the legacy compat-polyfills IPC bootstrap
-    // (process.__exactProcessIpcBootstrapInstalled), which has its own send
-    // queue implementation.
-    assert_burst_delivered("burst-legacy", &[("IPC_TEST_LEGACY", "1")]);
-}
-
 // ---------------------------------------------------------------------------
 // Parent-side send backpressure (ENG-23231): parent → child direction
 // ---------------------------------------------------------------------------
@@ -334,7 +328,8 @@ fn run_parent_child(
     write_text(&dir.join("child.js"), child_src);
     write_text(&dir.join("app.js"), parent_src);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -509,26 +504,13 @@ fn parent_send_burst_survives_backpressure() {
     assert_parent_burst_delivered("parent-burst", &[]);
 }
 
-#[test]
-fn parent_send_burst_survives_backpressure_legacy_ipc() {
-    // Runs the PARENT on the legacy bootstrap too (the child inherits the
-    // env via fork), covering the legacy-parent flavor of the send path.
-    assert_parent_burst_delivered(
-        "parent-burst-legacy",
-        &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")],
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Throwing 'message' listener must not kill polling (M)
 // ---------------------------------------------------------------------------
 
 const THROWING_LISTENER_PARENT: &str = r#"
 const { fork } = require('child_process');
-const legacy = process.env.IPC_TEST_LEGACY === '1';
-const child = fork(__dirname + '/child.js', [], legacy
-  ? { env: Object.assign({}, process.env, { EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE: '1' }) }
-  : {});
+const child = fork(__dirname + '/child.js');
 let got = [];
 child.on('message', (m) => {
   got.push(m);
@@ -563,7 +545,8 @@ fn assert_channel_survives_throwing_listener(tag: &str, env: &[(&str, &str)]) {
     let app = THROWING_LISTENER_PARENT;
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -598,14 +581,6 @@ fn throwing_message_listener_does_not_kill_ipc_polling() {
     assert_channel_survives_throwing_listener("throwing-listener", &[]);
 }
 
-#[test]
-fn throwing_message_listener_does_not_kill_ipc_polling_legacy_ipc() {
-    assert_channel_survives_throwing_listener(
-        "throwing-listener-legacy",
-        &[("IPC_TEST_LEGACY", "1")],
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Multibyte split across two reads must not corrupt (M)
 // ---------------------------------------------------------------------------
@@ -633,7 +608,8 @@ fn assert_split_multibyte_decodes(tag: &str, env: &[(&str, &str)]) {
     let child_fd = child_sock.as_raw_fd();
 
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("child.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -746,14 +722,6 @@ fn child_ipc_decode_survives_multibyte_split_across_reads() {
     assert_split_multibyte_decodes("decode-split", &[]);
 }
 
-#[test]
-fn child_ipc_decode_survives_multibyte_split_across_reads_legacy_ipc() {
-    assert_split_multibyte_decodes(
-        "decode-split-legacy",
-        &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")],
-    );
-}
-
 // ---------------------------------------------------------------------------
 // removeListener of a never-registered function must not stop delivery
 // (ENG-23481 #2)
@@ -802,7 +770,8 @@ fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
     write_text(&dir.join("child.js"), REMOVE_MISCOUNT_CHILD);
     write_text(&dir.join("app.js"), REMOVE_MISCOUNT_PARENT);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -831,96 +800,15 @@ fn remove_listener_of_unregistered_fn_does_not_stop_delivery() {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy bootstrap misc fixes (only reachable without the startup shared
-// runtime bundle; these run the bootstrap-globals / exact-global paths)
+// Runtime-bundle compatibility regressions.
 // ---------------------------------------------------------------------------
 
-const LEGACY_ENV: &[(&str, &str)] = &[("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1")];
+const DIAGNOSTIC_ENV: &[(&str, &str)] = &[];
 
-/// ENG-22970 parity for the bootstrap-globals global timer wrapper:
-/// refresh() must re-arm a fired one-shot; a cleared timer must stay dead.
-#[test]
-fn global_timeout_refresh_rearms_after_fire() {
-    let app = r#"
-let fires = 0;
-const t = setTimeout(() => { fires++; }, 30);
-setTimeout(() => { t.refresh(); }, 150);
-setTimeout(() => {
-  const t2 = setTimeout(() => { fires += 100; }, 10);
-  clearTimeout(t2);
-  t2.refresh();
-  setTimeout(() => {
-    console.log('RESULT|fires=' + fires);
-    process.exit(0);
-  }, 100);
-}, 320);
-"#;
-    let run = run_app_env("refresh", app, LEGACY_ENV, Duration::from_secs(30));
-    assert_eq!(
-        result_line(&run),
-        "RESULT|fires=2",
-        "refresh() did not re-arm exactly once\nstdout:\n{}\nstderr:\n{}",
-        run.stdout,
-        run.stderr
-    );
-}
-
-/// Bun.serve({ unix }) used to throw `ReferenceError: defineDisposable is not
-/// defined` after the server had already started listening.
-#[test]
-fn bun_serve_unix_returns_disposable_server() {
-    let app = r#"
-const sock = '/tmp/ibex-eng23132-test-' + process.pid + '.sock';
-const server = Bun.serve({ unix: sock, fetch() { return new Response('ok'); } });
-const hasDispose = typeof server[Symbol.dispose] === 'function';
-server.stop(true);
-console.log('RESULT|serve-ok|dispose=' + hasDispose);
-process.exit(0);
-"#;
-    let run = run_app_env("bun-serve", app, LEGACY_ENV, Duration::from_secs(30));
-    assert_eq!(
-        result_line(&run),
-        "RESULT|serve-ok|dispose=true",
-        "Bun.serve({{unix}}) failed\nstdout:\n{}\nstderr:\n{}",
-        run.stdout,
-        run.stderr
-    );
-}
-
-/// Bun.sha / Bun.CryptoHasher must hash raw bytes (previously Uint8Array
-/// input hashed '' and bytes >= 0x80 were mangled through a latin1/UTF-8
-/// round-trip), and Bun.peek must return the value/promise itself.
-#[test]
-fn bun_binary_hash_and_peek_are_correct() {
-    // printf '\xff\x80\x01' | openssl dgst -sha512 / -sha256
-    let app = r#"
-const shaBytes = Bun.sha(new Uint8Array([0xff, 0x80, 0x01]), 'hex');
-const hasherBytes = new Bun.CryptoHasher('sha256').update(new Uint8Array([0xff, 0x80, 0x01])).digest('hex');
-const hasherString = new Bun.CryptoHasher('sha256').update('hello').digest('hex');
-const p = Promise.resolve(1);
-const peekOk = (Bun.peek(42) === 42) && (Bun.peek(p) === p);
-console.log('RESULT|' + [
-  shaBytes === 'f72ac708801b73cf865f18a675f1f1c765390f71e25aa77388bfed93267038d4e648111bad6e7db6f303cad5584e6134f547cee1b19198b21cc9d39ec163e12d',
-  hasherBytes === '1b28450642394cac2cd61bbfb2b88c6325ac0c94944091bfd1ffdd8fad6571f9',
-  hasherString === '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
-  peekOk
-].join('|'));
-process.exit(0);
-"#;
-    let run = run_app_env("bun-hash", app, LEGACY_ENV, Duration::from_secs(30));
-    assert_eq!(
-        result_line(&run),
-        "RESULT|true|true|true|true",
-        "Bun binary hash/peek helpers wrong\nstdout:\n{}\nstderr:\n{}",
-        run.stdout,
-        run.stderr
-    );
-}
-
-/// Legacy web-crypto.js must keep algorithm metadata and hash raw bytes, not a
+/// WebCrypto must keep algorithm metadata and hash raw bytes, not a
 /// UTF-8-reencoded binary string.
 #[test]
-fn legacy_web_crypto_preserves_hmac_params_and_binary_hashes() {
+fn web_crypto_preserves_hmac_params_and_binary_hashes() {
     let app = r#"
 (async function() {
   const data = new Uint8Array([0xff, 0x80, 0x01]);
@@ -953,45 +841,32 @@ fn legacy_web_crypto_preserves_hmac_params_and_binary_hashes() {
   process.exit(1);
 });
 "#;
-    let run = run_app_env(
-        "legacy-web-crypto",
-        app,
-        LEGACY_ENV,
-        Duration::from_secs(30),
-    );
+    let run = run_app_env("web-crypto", app, DIAGNOSTIC_ENV, Duration::from_secs(30));
     assert_eq!(
         result_line(&run),
         "RESULT|1b28450642394cac2cd61bbfb2b88c6325ac0c94944091bfd1ffdd8fad6571f9|32a877ecf1da16c451665baf2bae55e3792573b48f3c9d6d4df704c53dcc5f85|SHA-256|32|SHA-512|1024",
-        "legacy web crypto did not preserve HMAC metadata/raw bytes\nstdout:\n{}\nstderr:\n{}",
+        "web crypto did not preserve HMAC metadata/raw bytes\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );
 }
 
 #[test]
-fn legacy_web_storage_persists_utf8_values() {
-    let home = unique_dir("legacy-storage-home");
+fn web_storage_persists_utf8_values() {
+    let home = unique_dir("storage-home");
     let home_str = home.to_str().expect("utf8 temp path");
-    let env = [
-        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
-        ("HOME", home_str),
-    ];
+    let env = [("HOME", home_str)];
 
     let writer = r#"
 localStorage.setItem('k', 'Ģ and π');
 console.log('RESULT|write|' + localStorage.length);
 process.exit(0);
 "#;
-    let write_run = run_app_env(
-        "legacy-storage-write",
-        writer,
-        &env,
-        Duration::from_secs(30),
-    );
+    let write_run = run_app_env("storage-write", writer, &env, Duration::from_secs(30));
     assert_eq!(
         result_line(&write_run),
         "RESULT|write|1",
-        "legacy localStorage write failed\nstdout:\n{}\nstderr:\n{}",
+        "localStorage write failed\nstdout:\n{}\nstderr:\n{}",
         write_run.stdout,
         write_run.stderr
     );
@@ -1000,97 +875,18 @@ process.exit(0);
 console.log('RESULT|read|' + localStorage.length + '|' + localStorage.getItem('k'));
 process.exit(0);
 "#;
-    let read_run = run_app_env("legacy-storage-read", reader, &env, Duration::from_secs(30));
+    let read_run = run_app_env("storage-read", reader, &env, Duration::from_secs(30));
     assert_eq!(
         result_line(&read_run),
         "RESULT|read|1|Ģ and π",
-        "legacy localStorage UTF-8 value did not round-trip\nstdout:\n{}\nstderr:\n{}",
+        "localStorage UTF-8 value did not round-trip\nstdout:\n{}\nstderr:\n{}",
         read_run.stdout,
         read_run.stderr
     );
 }
 
 #[test]
-fn legacy_fetch_wrappers_and_fixture_globals_match_node_contracts() {
-    let app = r#"
-let bodyThrows = false;
-try {
-  new Request('http://example.test/', { body: 'x' });
-} catch (err) {
-  bodyThrows = err instanceof TypeError;
-}
-const accept = new Request('http://example.test/', {
-  headers: [['accept', 'a'], ['accept', 'b']]
-}).headers.get('accept');
-console.log('RESULT|' + [
-  bodyThrows,
-  accept,
-  typeof ok,
-  typeof failed,
-  typeof badly
-].join('|'));
-process.exit(0);
-"#;
-    let run = run_app_env(
-        "legacy-fetch-globals",
-        app,
-        LEGACY_ENV,
-        Duration::from_secs(30),
-    );
-    assert_eq!(
-        result_line(&run),
-        "RESULT|true|a, b|undefined|undefined|undefined",
-        "legacy Request/Header wrappers or ambient globals are wrong\nstdout:\n{}\nstderr:\n{}",
-        run.stdout,
-        run.stderr
-    );
-
-    let compat_env = [
-        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
-        ("EXACT_COMPAT_TEST", "1"),
-    ];
-    let compat = r#"
-console.log('RESULT|' + [typeof ok, typeof failed, typeof badly].join('|'));
-process.exit(0);
-"#;
-    let compat_run = run_app_env(
-        "legacy-fixture-globals",
-        compat,
-        &compat_env,
-        Duration::from_secs(30),
-    );
-    assert_eq!(
-        result_line(&compat_run),
-        "RESULT|function|function|function",
-        "compat fixture globals were not installed under EXACT_COMPAT_TEST\nstdout:\n{}\nstderr:\n{}",
-        compat_run.stdout,
-        compat_run.stderr
-    );
-}
-
-#[test]
-fn bun_crypto_hasher_digest_without_encoding_returns_bytes() {
-    let app = r#"
-const bytes = new Bun.CryptoHasher('sha256').update('hello').digest();
-console.log('RESULT|' + [
-  bytes instanceof Uint8Array,
-  bytes.length,
-  Buffer.from(bytes).toString('hex')
-].join('|'));
-process.exit(0);
-"#;
-    let run = run_app_env("bun-hash-bytes", app, LEGACY_ENV, Duration::from_secs(30));
-    assert_eq!(
-        result_line(&run),
-        "RESULT|true|32|2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-        "Bun.CryptoHasher.digest() without encoding did not return raw bytes\nstdout:\n{}\nstderr:\n{}",
-        run.stdout,
-        run.stderr
-    );
-}
-
-#[test]
-fn legacy_stdin_data_chunks_are_buffers_with_raw_bytes() {
+fn stdin_data_chunks_are_buffers_with_raw_bytes() {
     let app = r#"
 const chunks = [];
 process.stdin.on('data', (chunk) => {
@@ -1107,23 +903,23 @@ process.stdin.on('end', () => {
 process.stdin.resume();
 "#;
     let run = run_app_env_stdin(
-        "legacy-stdin-buffer",
+        "stdin-buffer",
         app,
         vec![0x80, 0xff, 0x61],
-        LEGACY_ENV,
+        DIAGNOSTIC_ENV,
         Duration::from_secs(30),
     );
     assert_eq!(
         result_line(&run),
         "RESULT|true:object:80ff61",
-        "legacy stdin did not emit byte-exact Buffer chunks\nstdout:\n{}\nstderr:\n{}",
+        "stdin did not emit byte-exact Buffer chunks\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );
 }
 
 #[test]
-fn legacy_stdin_set_encoding_stream_decodes_split_utf8() {
+fn stdin_set_encoding_stream_decodes_split_utf8() {
     let app = r#"
 let text = '';
 process.stdin.setEncoding('utf8');
@@ -1140,16 +936,16 @@ process.stdin.resume();
     input.push(0xcf);
     input.push(0x80);
     let run = run_app_env_stdin(
-        "legacy-stdin-utf8-split",
+        "stdin-utf8-split",
         app,
         input,
-        LEGACY_ENV,
+        DIAGNOSTIC_ENV,
         Duration::from_secs(30),
     );
     assert_eq!(
         result_line(&run),
         "RESULT|262144|π|repl=0",
-        "legacy stdin setEncoding('utf8') corrupted a split multibyte sequence\nstdout:\n{}\nstderr:\n{}",
+        "stdin setEncoding('utf8') corrupted a split multibyte sequence\nstdout:\n{}\nstderr:\n{}",
         run.stdout,
         run.stderr
     );
@@ -1157,10 +953,7 @@ process.stdin.resume();
 
 #[test]
 fn web_streams_polyfill_exports_install_when_enabled() {
-    let env = [
-        ("EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE", "1"),
-        ("EX_WEB_STREAMS_POLYFILL", "1"),
-    ];
+    let env = [("EX_WEB_STREAMS_POLYFILL", "1")];
     let app = r#"
 console.log('RESULT|' + [
   typeof WebStreamsPolyfill,
@@ -1171,12 +964,7 @@ console.log('RESULT|' + [
 ].join('|'));
 process.exit(0);
 "#;
-    let run = run_app_env(
-        "legacy-web-streams-polyfill",
-        app,
-        &env,
-        Duration::from_secs(30),
-    );
+    let run = run_app_env("web-streams-polyfill", app, &env, Duration::from_secs(30));
     assert_eq!(
         result_line(&run),
         "RESULT|object|function|function|function|function",
