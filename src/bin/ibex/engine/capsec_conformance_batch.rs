@@ -1,7 +1,6 @@
 use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use sha2::Digest as _;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 
