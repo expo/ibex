@@ -113,6 +113,7 @@ validatePublicSurfaceExecutionArtifact(publicSurfaceExecutions, {
   sourceRevision: executionArtifact.sourceRevision,
   sourceTreeDigest: executionArtifact.sourceTreeDigest,
   engine: engineBinding,
+  coverage,
 });
 if (
   executionArtifact.recipeCatalogDigest !== recipeCatalog.recipeCatalogDigest ||

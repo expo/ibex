@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { describe, expect, test } from "bun:test";
 import {
   assertPublicSurfaceExecutionComplete,
@@ -9,6 +10,13 @@ import {
   computeRecipeCatalogDigest,
   assertRecipeCatalogComplete,
 } from "./capsec-conformance-recipes.mjs";
+import { canonicalJson } from "./capsec-contract.mjs";
+
+const taggedDigest = (value) =>
+  `sha256-${crypto
+    .createHash("sha256")
+    .update(canonicalJson(value), "utf8")
+    .digest("base64url")}`;
 
 const target = {
   triple: "aarch64-apple-darwin",
@@ -21,6 +29,14 @@ const engine = {
   object: { platform: "apple", volume: "dev:1", file: "ino:2" },
   targetArchitecture: "aarch64",
   structuralFeatures: [...target.features],
+};
+const coverage = {
+  edges: [
+    {
+      id: "edge.terminal",
+      surface: { kind: "native-op", name: "__exactPublic" },
+    },
+  ],
 };
 
 function completeCatalog() {
@@ -53,10 +69,32 @@ function completeCatalog() {
       kind: "public-surface-invocation",
       surfaceObservedKey: "builtin:export:node_test:read",
       command: ["ibex", "capsec-public-fixture", "fixture.public.allow"],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:test",
+        exportName: "read",
+        sourceDescriptor: {
+          kind: "builtin-export",
+          sourceKey: "node_test",
+          exportName: "read",
+          moduleSpecifiers: ["node:test"],
+          sourceRef: "src/builtins/test.js#exports:read",
+        },
+        arguments: [],
+        expectedResult: "return",
+        expectedTypedStages: ["requested"],
+        expectedTypedDecisionCount: 1,
+        allowedCoverageEdgeIds: ["edge.terminal", "edge.unselected"],
+        expectedActionIds: ["sys:read"],
+      },
     },
     status: "fully-executable",
     residualReasons: [],
   };
+  const descriptor = recipe.publicSurfaceProbe.invocation.sourceDescriptor;
+  recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+    taggedDigest(descriptor);
   const catalog = {
     recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
     profile: "ibex/capsec/1",
@@ -75,6 +113,59 @@ function completeCatalog() {
   return catalog;
 }
 
+function runtimeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: { kind: "return", valueType: "string" },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [
+      {
+        decisionSet: {
+          decisionSetSchema: "ibex/capsec-decision-set/1",
+          operationId: "fixture-public",
+          atomicityGroup: "edge.terminal.decision",
+          combination: "conjunction",
+          context: {
+            stage: "requested",
+            actor: { kind: "root", identity: "project-root" },
+            constrainedPrincipals: [
+              { kind: "root", identity: "project-root" },
+            ],
+            presentedHandleIds: [],
+          },
+          effects: [
+            {
+              cap: "sys:read",
+              effectOwner: { kind: "root", identity: "project-root" },
+              resource: {
+                kind: "system-info-occurrence",
+                requested: { kind: "system-info", name: "platform" },
+              },
+            },
+          ],
+        },
+        gates: [
+          {
+            coverageEdgeId: "edge.terminal",
+            targetCell: "complete",
+            definitionAndEdgePredicatesSatisfied: true,
+          },
+        ],
+        evidence: { outcome: "allow" },
+      },
+    ],
+  };
+}
+
 function completeArtifact(catalog = completeCatalog()) {
   return buildPublicSurfaceExecutionArtifact({
     recipeCatalog: catalog,
@@ -82,11 +173,13 @@ function completeArtifact(catalog = completeCatalog()) {
     sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
     target,
     engine,
+    coverage,
     executions: [
       buildPublicFixtureEvidence({
         recipe: catalog.recipes[0],
         engineBinaryDigest: engine.binaryDigest,
-        terminalObservedKey: "native-op:__exactPublic",
+        runtimeObservation: runtimeObservation(catalog.recipes[0]),
+        coverage,
       }),
     ],
   });
@@ -103,6 +196,7 @@ describe("CapSec public-surface promotion evidence", () => {
         sourceTreeDigest:
           "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
         engine,
+        coverage,
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
@@ -150,6 +244,7 @@ describe("CapSec public-surface promotion evidence", () => {
         "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
       target,
       engine,
+      coverage,
       executions: [],
     });
     expect(() =>
@@ -165,7 +260,38 @@ describe("CapSec public-surface promotion evidence", () => {
     expect(() =>
       validatePublicSurfaceExecutionArtifact(artifact, {
         recipeCatalog: catalog,
+        coverage,
       }),
     ).toThrow(/digest-mismatched|stale or mismatched/);
+  });
+
+  test("rejects a manually supplied terminal label in runtime observations", () => {
+    const catalog = completeCatalog();
+    const observed = runtimeObservation(catalog.recipes[0]);
+    observed.typedDecisions[0].terminalBranchId = "enforcement.public";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: catalog.recipes[0],
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/unknown or missing fields/);
+  });
+
+  test("derives the terminal from the bound coverage edge, not the static claim", () => {
+    const catalog = completeCatalog();
+    const observed = runtimeObservation(catalog.recipes[0]);
+    observed.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.unselected.decision";
+    observed.typedDecisions[0].gates[0].coverageEdgeId = "edge.unselected";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: catalog.recipes[0],
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/unknown coverage edge/);
   });
 });

@@ -268,6 +268,7 @@ if (publicSurfaceEvidenceInputPath) {
     sourceRevision: bindings.sourceRevision,
     sourceTreeDigest: bindings.sourceTreeDigest,
     engine: bindings.engine,
+    coverage,
   });
 } else {
   publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
@@ -276,6 +277,7 @@ if (publicSurfaceEvidenceInputPath) {
     sourceTreeDigest: bindings.sourceTreeDigest,
     target,
     engine: bindings.engine,
+    coverage,
     executions: [],
   });
 }

@@ -16,6 +16,7 @@ import {
 import { canonicalJson } from "./capsec-contract.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
+const canonicalSet = (values) => [...new Set(values)].sort(compareText);
 const taggedDigest = (value) =>
   `sha256-${crypto
     .createHash("sha256")
@@ -64,6 +65,7 @@ export function buildPublicSurfaceExecutionArtifact({
   sourceTreeDigest,
   target,
   engine,
+  coverage = null,
   executions = [],
 }) {
   validateRecipeCatalog(recipeCatalog, { target });
@@ -89,10 +91,241 @@ export function buildPublicSurfaceExecutionArtifact({
     sourceRevision,
     sourceTreeDigest,
     engine,
+    coverage,
   });
 }
 
-function validateExecution(execution, recipe, engineBinaryDigest) {
+function coverageTerminalMap(coverage) {
+  if (!Array.isArray(coverage?.edges)) {
+    throw new Error("runtime public evidence requires the bound coverage registry");
+  }
+  const terminals = new Map();
+  for (const edge of coverage.edges) {
+    const kind = edge?.surface?.kind;
+    const name = edge?.surface?.name;
+    if (
+      typeof edge?.id !== "string" ||
+      typeof kind !== "string" ||
+      typeof name !== "string" ||
+      terminals.has(edge.id)
+    ) {
+      throw new Error("bound coverage registry has malformed or duplicate edges");
+    }
+    terminals.set(edge.id, `${kind}:${name}`);
+  }
+  return terminals;
+}
+
+function validateRuntimeInvocation(observation, recipe) {
+  const invocation = observation.invocation;
+  const authored = recipe.publicSurfaceProbe?.invocation;
+  if (!authored || typeof authored.invocationSchema !== "string") {
+    throw new Error(`${recipe.fixtureId}: public probe has no typed invocation descriptor`);
+  }
+  const commonKeys = [
+    "invocationSchema",
+    "kind",
+    "surfaceObservedKey",
+    "sourceDescriptorDigest",
+    "result",
+  ];
+  if (invocation?.invocationSchema === "ibex/capsec-native-global-invocation/1") {
+    exactKeys(
+      invocation,
+      [...commonKeys, "globalName"],
+      `${recipe.fixtureId}: native runtime invocation`,
+    );
+    if (
+      invocation.kind !== "native-global-function" ||
+      invocation.globalName !== authored.globalName
+    ) {
+      throw new Error(`${recipe.fixtureId}: native runtime invocation descriptor drift`);
+    }
+  } else if (
+    [
+      "ibex/capsec-builtin-export-invocation/1",
+    ].includes(invocation?.invocationSchema)
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "moduleSpecifier", "exportName"],
+      `${recipe.fixtureId}: builtin runtime invocation`,
+    );
+    if (
+      !["builtin-export-call", "builtin-export-read"].includes(
+        invocation.kind,
+      ) ||
+      invocation.moduleSpecifier !== authored.moduleSpecifier ||
+      invocation.exportName !== authored.exportName
+    ) {
+      throw new Error(`${recipe.fixtureId}: builtin runtime invocation descriptor drift`);
+    }
+  } else {
+    throw new Error(`${recipe.fixtureId}: unsupported runtime invocation schema`);
+  }
+  if (
+    invocation.invocationSchema !== authored.invocationSchema ||
+    invocation.kind !== authored.kind ||
+    invocation.surfaceObservedKey !== recipe.publicSurfaceProbe.surfaceObservedKey ||
+    invocation.sourceDescriptorDigest !== authored.sourceDescriptorDigest ||
+    authored.sourceDescriptorDigest !== taggedDigest(authored.sourceDescriptor)
+  ) {
+    throw new Error(`${recipe.fixtureId}: runtime invocation is not source-descriptor bound`);
+  }
+  if (
+    !Number.isSafeInteger(authored.expectedTypedDecisionCount) ||
+    authored.expectedTypedDecisionCount < 0 ||
+    !Array.isArray(authored.expectedTypedStages) ||
+    authored.expectedTypedDecisionCount !== authored.expectedTypedStages.length ||
+    !Array.isArray(authored.allowedCoverageEdgeIds) ||
+    !Array.isArray(authored.expectedActionIds) ||
+    !authored.expectedTypedStages.every(
+      (stage) => typeof stage === "string" && stage.length > 0,
+    ) ||
+    !authored.allowedCoverageEdgeIds.every(
+      (edgeId) => typeof edgeId === "string" && edgeId.length > 0,
+    ) ||
+    !authored.expectedActionIds.every(
+      (actionId) => typeof actionId === "string" && actionId.length > 0,
+    ) ||
+    canonicalJson(authored.allowedCoverageEdgeIds) !==
+      canonicalJson(canonicalSet(authored.allowedCoverageEdgeIds)) ||
+    canonicalJson(authored.expectedActionIds) !==
+      canonicalJson(canonicalSet(authored.expectedActionIds))
+  ) {
+    throw new Error(`${recipe.fixtureId}: malformed authored runtime expectations`);
+  }
+  if (!invocation.result || typeof invocation.result !== "object") {
+    throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
+  }
+  if (authored.expectedResult === "return") {
+    if (invocation.result.kind !== "return") {
+      throw new Error(`${recipe.fixtureId}: public invocation did not return`);
+    }
+  } else if (authored.expectedResult === "permission-denied") {
+    if (
+      invocation.result.kind !== "throw" ||
+      typeof invocation.result.errorMessage !== "string" ||
+      !invocation.result.errorMessage.includes("Permission denied")
+    ) {
+      throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
+    }
+  } else {
+    throw new Error(`${recipe.fixtureId}: unsupported expected public result`);
+  }
+}
+
+function validateRuntimeObservation(observation, recipe, coverage) {
+  exactKeys(
+    observation,
+    [
+      "observationSchema",
+      "invocation",
+      "legacyObservationCount",
+      "typedDecisions",
+    ],
+    `${recipe.fixtureId}: runtime public observation`,
+  );
+  validateRuntimeInvocation(observation, recipe);
+  const authored = recipe.publicSurfaceProbe.invocation;
+  if (
+    observation.observationSchema !==
+      "ibex/capsec-runtime-public-observation/1" ||
+    observation.legacyObservationCount !== 0 ||
+    !Array.isArray(observation.typedDecisions) ||
+    observation.typedDecisions.length !== authored?.expectedTypedDecisionCount
+  ) {
+    throw new Error(`${recipe.fixtureId}: malformed runtime public observation`);
+  }
+  const stages = [];
+  const actions = new Set();
+  const edgeIds = new Set();
+  const terminals = new Set();
+  const terminalByEdge =
+    observation.typedDecisions.length === 0 ? null : coverageTerminalMap(coverage);
+  for (const decision of observation.typedDecisions) {
+    exactKeys(
+      decision,
+      ["decisionSet", "gates", "evidence"],
+      `${recipe.fixtureId}: observed typed decision`,
+    );
+    const set = decision.decisionSet;
+    if (
+      !set?.context ||
+      typeof set.context.stage !== "string" ||
+      !Array.isArray(set.effects) ||
+      !Array.isArray(decision.gates) ||
+      decision.gates.length !== set.effects.length
+    ) {
+      throw new Error(`${recipe.fixtureId}: malformed observed typed decision`);
+    }
+    stages.push(set.context.stage);
+    for (const effect of set.effects) {
+      if (typeof effect?.cap !== "string") {
+        throw new Error(`${recipe.fixtureId}: observed effect has no action`);
+      }
+      actions.add(effect.cap);
+    }
+    for (const gate of decision.gates) {
+      const edgeId = gate?.coverageEdgeId;
+      if (
+        typeof edgeId !== "string" ||
+        gate.targetCell !== "complete" ||
+        gate.definitionAndEdgePredicatesSatisfied !== true ||
+        set.atomicityGroup !== `${edgeId}.decision` ||
+        !authored.allowedCoverageEdgeIds.includes(edgeId)
+      ) {
+        throw new Error(`${recipe.fixtureId}: observed an unbound or incomplete typed gate`);
+      }
+      edgeIds.add(edgeId);
+      const terminal = terminalByEdge.get(edgeId);
+      if (!terminal) {
+        throw new Error(`${recipe.fixtureId}: observed an unknown coverage edge`);
+      }
+      terminals.add(terminal);
+    }
+    const expectedOutcome =
+      authored.expectedResult === "permission-denied" ? "deny" : "allow";
+    if (decision.evidence?.outcome !== expectedOutcome) {
+      throw new Error(`${recipe.fixtureId}: observed typed outcome disagrees with invocation`);
+    }
+  }
+  if (
+    canonicalJson(stages) !== canonicalJson(authored.expectedTypedStages) ||
+    canonicalJson([...actions].sort(compareText)) !==
+      canonicalJson([...authored.expectedActionIds].sort(compareText)) ||
+    (observation.typedDecisions.length > 0 && edgeIds.size === 0)
+  ) {
+    throw new Error(`${recipe.fixtureId}: observed typed stages, actions, or gates drifted`);
+  }
+
+  let terminalObservedKey;
+  if (observation.typedDecisions.length === 0) {
+    if (
+      recipe.classification !== "non-capability" ||
+      recipe.scenario !== "non-capability" ||
+      authored.expectedTypedStages.length !== 0 ||
+      authored.expectedActionIds.length !== 0
+    ) {
+      throw new Error(`${recipe.fixtureId}: absence of a typed decision is not evidence here`);
+    }
+    terminalObservedKey = observation.invocation.surfaceObservedKey;
+  } else {
+    if (terminals.size !== 1) {
+      throw new Error(`${recipe.fixtureId}: typed gates selected multiple terminals`);
+    }
+    terminalObservedKey = [...terminals][0];
+  }
+  const allowed = recipe.route?.alternatives?.map(
+    (alternative) => alternative.terminalObservedKey,
+  );
+  if (!allowed?.includes(terminalObservedKey)) {
+    throw new Error(`${recipe.fixtureId}: runtime-derived terminal is outside the bound route`);
+  }
+  return terminalObservedKey;
+}
+
+function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
   exactKeys(
     execution,
     ["fixtureId", "outcome", "executor", "evidence"],
@@ -110,6 +343,7 @@ function validateExecution(execution, recipe, engineBinaryDigest) {
       "exitCode",
       "resultMarker",
       "observation",
+      "runtimeObservation",
       "evidenceDigest",
     ],
     `${recipe.fixtureId}: public execution evidence`,
@@ -118,7 +352,7 @@ function validateExecution(execution, recipe, engineBinaryDigest) {
   if (
     execution.fixtureId !== recipe.fixtureId ||
     evidence.evidenceSchema !==
-      "ibex/capsec-public-surface-fixture-evidence/1" ||
+      "ibex/capsec-public-surface-fixture-evidence/2" ||
     evidence.fixtureId !== recipe.fixtureId ||
     typeof execution.executor !== "string" ||
     execution.executor.length === 0 ||
@@ -132,6 +366,11 @@ function validateExecution(execution, recipe, engineBinaryDigest) {
       `${recipe.fixtureId}: adapter-only, stale, or malformed public-surface evidence`,
     );
   }
+  const runtimeTerminal = validateRuntimeObservation(
+    evidence.runtimeObservation,
+    recipe,
+    coverage,
+  );
   const passedMarker = `ibex-capsec-public-fixture:${recipe.fixtureId}:passed`;
   const failedMarker = `ibex-capsec-public-fixture:${recipe.fixtureId}:failed`;
   const derivedOutcome =
@@ -150,14 +389,8 @@ function validateExecution(execution, recipe, engineBinaryDigest) {
   if (canonicalJson(evidence.observation) !== canonicalJson(expectedObservation)) {
     throw new Error(`${recipe.fixtureId}: public observation selected the wrong branch`);
   }
-  const allowedTerminals =
-    recipe.expectedObservation.kind === "target-absence"
-      ? [recipe.terminalObservedKey]
-      : recipe.route.alternatives.map(
-          (alternative) => alternative.terminalObservedKey,
-        );
-  if (!allowedTerminals.includes(evidence.terminalObservedKey)) {
-    throw new Error(`${recipe.fixtureId}: public execution observed an unbound terminal`);
+  if (runtimeTerminal !== evidence.terminalObservedKey) {
+    throw new Error(`${recipe.fixtureId}: claimed terminal differs from runtime typed gates`);
   }
 }
 
@@ -169,6 +402,7 @@ export function validatePublicSurfaceExecutionArtifact(
     sourceRevision = null,
     sourceTreeDigest = null,
     engine = null,
+    coverage = null,
   },
 ) {
   if (artifact?.adapterEvidenceSchema) {
@@ -216,7 +450,12 @@ export function validatePublicSurfaceExecutionArtifact(
       throw new Error("public-surface executions contain an unknown or duplicate fixture");
     }
     seen.add(execution.fixtureId);
-    validateExecution(execution, recipe, artifact.engine?.binaryDigest);
+    validateExecution(
+      execution,
+      recipe,
+      artifact.engine?.binaryDigest,
+      coverage,
+    );
   }
   if (
     canonicalJson(artifact.executions.map((row) => row.fixtureId)) !==
@@ -262,12 +501,18 @@ export function assertPublicSurfaceExecutionComplete(
 export function buildPublicFixtureEvidence({
   recipe,
   engineBinaryDigest,
-  terminalObservedKey,
+  runtimeObservation,
+  coverage,
   outcome = "passed",
   executor = "ibex-public-surface-harness",
 }) {
+  const terminalObservedKey = validateRuntimeObservation(
+    runtimeObservation,
+    recipe,
+    coverage,
+  );
   const evidence = {
-    evidenceSchema: "ibex/capsec-public-surface-fixture-evidence/1",
+    evidenceSchema: "ibex/capsec-public-surface-fixture-evidence/2",
     fixtureId: recipe.fixtureId,
     planDigest: recipe.planDigest,
     engineBinaryDigest,
@@ -276,6 +521,7 @@ export function buildPublicFixtureEvidence({
     exitCode: outcome === "passed" ? 0 : 1,
     resultMarker: `ibex-capsec-public-fixture:${recipe.fixtureId}:${outcome}`,
     observation: { ...recipe.expectedObservation, result: outcome },
+    runtimeObservation: structuredClone(runtimeObservation),
   };
   evidence.evidenceDigest = evidenceDigest(evidence);
   return {
