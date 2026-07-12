@@ -44,6 +44,9 @@ const implementation = readJsonStrict(
   path.join(capsecRoot, "generated/implementation-manifest.json"),
 );
 const rules = readJsonStrict(path.join(capsecRoot, "registry/policy-rules.json"));
+const capabilityDefinitions = readJsonStrict(
+  path.join(capsecRoot, "registry/capability-definitions.json"),
+);
 const occurrenceExamples = readJsonStrict(
   path.join(capsecRoot, "examples/effect-occurrences.canonical.json"),
 );
@@ -61,6 +64,7 @@ const recipes = buildConformanceRecipeCatalog({
   inventory,
   occurrenceExamples,
   selectorExamples,
+  capabilityDefinitions,
   target,
 });
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });

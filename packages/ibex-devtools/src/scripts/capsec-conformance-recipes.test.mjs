@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   assertRecipeCatalogComplete,
   buildConformanceRecipeCatalog,
+  deriveAdapterActionTemplate,
   fixtureScenario,
 } from "./capsec-conformance-recipes.mjs";
 import {
@@ -23,6 +24,9 @@ const readJson = (relativePath) =>
 describe("exact-target CapSec executable recipes", () => {
   let recipes;
   let expectedFixtureIds;
+  let capabilityDefinitions;
+  let occurrenceExamples;
+  let selectorExamples;
 
   beforeAll(async () => {
     const coverage = readJson("capsec/registry/coverage-edges.json");
@@ -39,17 +43,23 @@ describe("exact-target CapSec executable recipes", () => {
     expectedFixtureIds = fixtureExecutionPlans(catalog).map(
       (plan) => plan.fixtureId,
     );
+    capabilityDefinitions = readJson(
+      "capsec/registry/capability-definitions.json",
+    );
+    occurrenceExamples = readJson(
+      "capsec/examples/effect-occurrences.canonical.json",
+    );
+    selectorExamples = readJson(
+      "capsec/examples/authority-selectors.canonical.json",
+    );
     recipes = buildConformanceRecipeCatalog({
       catalog,
       coverage,
       implementation,
       inventory: await discoverRepositorySurfaces(repoRoot),
-      occurrenceExamples: readJson(
-        "capsec/examples/effect-occurrences.canonical.json",
-      ),
-      selectorExamples: readJson(
-        "capsec/examples/authority-selectors.canonical.json",
-      ),
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
       target,
     });
   }, 60_000);
@@ -440,6 +450,38 @@ describe("exact-target CapSec executable recipes", () => {
       );
       expect(gates).toHaveLength(decision.effects.length);
     }
+  });
+
+  test("freezes registry-valid derived templates for Rust ingestion", () => {
+    const envWrite = deriveAdapterActionTemplate({
+      action: "env:write",
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+    });
+    expect(envWrite).toEqual(
+      readJson(
+        "packages/ibex-devtools/src/scripts/fixtures/capsec-derived-env-write-template.json",
+      ),
+    );
+
+    const stdioWrite = deriveAdapterActionTemplate({
+      action: "stdio:write",
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+    });
+    expect(stdioWrite.selector.resource.stream).toBe("stderr");
+    expect(stdioWrite.occurrence.resource.requested.stream).toBe("stderr");
+
+    const stdioRaw = deriveAdapterActionTemplate({
+      action: "stdio:raw",
+      occurrenceExamples,
+      selectorExamples,
+      capabilityDefinitions,
+    });
+    expect(stdioRaw.selector.resource.source.kind).toBe("terminal");
+    expect(stdioRaw.occurrence.resource.requested.source.kind).toBe("terminal");
   });
 
   test("keeps malformed ingress as an adapter error with no invented observation", () => {

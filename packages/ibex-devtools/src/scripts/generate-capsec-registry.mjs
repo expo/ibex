@@ -845,6 +845,9 @@ export function loadTargetPromotions({
       selectorExamples: readJsonStrict(
         path.join(capsecRoot, "examples", "authority-selectors.canonical.json"),
       ),
+      capabilityDefinitions: readJsonStrict(
+        path.join(capsecRoot, "registry", "capability-definitions.json"),
+      ),
       target: attestation.target,
     });
     if (canonicalJson(recipeCatalog) !== canonicalJson(derivedRecipeCatalog)) {

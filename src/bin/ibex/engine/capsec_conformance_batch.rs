@@ -267,6 +267,45 @@ fn load_recipe_catalog(path: &std::path::Path) -> RecipeCatalog {
     catalog
 }
 
+#[test]
+fn generated_derived_env_write_template_is_accepted_by_rust_registry() {
+    let value = capsec_semantics::strict_json::parse_slice_strict(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/packages/ibex-devtools/src/scripts/fixtures/capsec-derived-env-write-template.json"
+    )))
+    .expect("shared derived-action template must be strict JSON");
+    let profile = capsec_semantics::registry::ValidatedProfile::from_json(
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/capability-definitions.json"
+        )),
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/registry/policy-rules.json"
+        )),
+    )
+    .expect("checked CapSec registry must load in Rust");
+    let selector: capsec_semantics::model::AuthoritySelector =
+        serde_json::from_value(value["selector"].clone())
+            .expect("generated selector must deserialize in Rust");
+    profile
+        .definitions
+        .validate_selector(&selector)
+        .expect("generated selector must satisfy Rust action constraints");
+
+    let occurrence: capsec_semantics::model::EffectOccurrence =
+        serde_json::from_value(value["occurrence"].clone())
+            .expect("generated occurrence must deserialize in Rust");
+    let requested = occurrence
+        .resource
+        .requested_selector_resource()
+        .expect("generated occurrence must expose a requested selector");
+    profile
+        .definitions
+        .validate_requested_resource(&occurrence.action, &requested)
+        .expect("generated occurrence must satisfy Rust action constraints");
+}
+
 fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
     let mut selectors = BTreeMap::new();
     for selector in catalog

@@ -98,7 +98,117 @@ function requestedResourceKind(resource) {
   return resource?.requested?.kind ?? resource?.kind ?? null;
 }
 
-function exampleForAction(examples, action, resourceKind = null) {
+function definitionMap(capabilityDefinitions) {
+  const definitions = capabilityDefinitions?.definitions;
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    throw new Error("recipe generation requires checked capability definitions");
+  }
+  const byAction = new Map(
+    definitions.map((definition) => [definition.id, definition]),
+  );
+  if (byAction.size !== definitions.length) {
+    throw new Error("capability definitions contain duplicate action ids");
+  }
+  return byAction;
+}
+
+function constrainedValue(action, field, current, allowed, preferred = []) {
+  if (!Array.isArray(allowed)) return current;
+  if (allowed.includes(current)) return current;
+  const replacement =
+    preferred.find((candidate) => allowed.includes(candidate)) ?? allowed[0];
+  if (typeof replacement !== "string") {
+    throw new Error(`${action}: ${field} has no registry-valid value`);
+  }
+  return replacement;
+}
+
+// @ref LLP 0021#typed-resources-and-initial-vocabulary — derived adapter
+// templates must preserve the target action's exact resource constraints;
+// cloning a related action's example cannot invent authority for that action.
+function constrainExampleForAction(example, action, definitionByAction) {
+  const definition = definitionByAction.get(action);
+  if (!definition) throw new Error(`${action}: no capability definition`);
+  const resource = example.resource;
+  const requested = resource?.requested ?? resource;
+  const resourceKind =
+    resource?.kind === "path-occurrence"
+      ? "path-exact"
+      : requestedResourceKind(resource);
+  if (!definition.resourceKinds.includes(resourceKind)) {
+    throw new Error(
+      `${action}: derived ${resourceKind} resource violates its capability definition`,
+    );
+  }
+
+  const constraints = definition.selectorConstraints ?? {};
+  if (constraints.environmentTargets) {
+    requested.target = constrainedValue(
+      action,
+      "environmentTargets",
+      requested.target,
+      constraints.environmentTargets,
+      ["principal-overlay"],
+    );
+    if (resource.kind === "environment-occurrence") {
+      resource.valueOrigin = ["broker-base", "principal-overlay"].includes(
+        requested.target,
+      )
+        ? requested.target
+        : "literal";
+    }
+  }
+  if (constraints.stdioStreams) {
+    const previousStream = requested.stream;
+    requested.stream = constrainedValue(
+      action,
+      "stdioStreams",
+      requested.stream,
+      constraints.stdioStreams,
+    );
+    if (requested.stream !== previousStream) {
+      requested.source.identity =
+        `conformance:${requested.source.kind}:${requested.stream}`;
+    }
+  }
+  if (constraints.stdioSourceKinds) {
+    const previousSourceKind = requested.source.kind;
+    requested.source.kind = constrainedValue(
+      action,
+      "stdioSourceKinds",
+      requested.source.kind,
+      constraints.stdioSourceKinds,
+    );
+    if (requested.source.kind !== previousSourceKind) {
+      requested.source.identity =
+        `conformance:${requested.source.kind}:${requested.stream}`;
+    }
+  }
+  if (constraints.closedSurfaceClasses) {
+    requested.surfaceClass = constrainedValue(
+      action,
+      "closedSurfaceClasses",
+      requested.surfaceClass,
+      constraints.closedSurfaceClasses,
+    );
+  }
+  if (constraints.storageStores) {
+    requested.store = constrainedValue(
+      action,
+      "storageStores",
+      requested.store,
+      constraints.storageStores,
+    );
+  }
+  return example;
+}
+
+function exampleForAction(
+  examples,
+  action,
+  resourceKind = null,
+  definitionByAction,
+) {
   const sourceAction = DERIVED_ACTION_SOURCE.get(action) ?? action;
   const candidates = examples.filter((row) => row.cap === sourceAction);
   const selected =
@@ -108,10 +218,10 @@ function exampleForAction(examples, action, resourceKind = null) {
   if (!selected) return null;
   const result = clone(selected);
   result.cap = action;
-  return result;
+  return constrainExampleForAction(result, action, definitionByAction);
 }
 
-function actionTemplate(action, occurrences, selectors) {
+function actionTemplate(action, occurrences, selectors, definitionByAction) {
   const selectorCandidates = selectors.filter(
     (row) => row.cap === (DERIVED_ACTION_SOURCE.get(action) ?? action),
   );
@@ -122,18 +232,35 @@ function actionTemplate(action, occurrences, selectors) {
       occurrences,
       action,
       candidateSelector.resource.kind,
+      definitionByAction,
     );
     if (candidateOccurrence) {
       occurrence = candidateOccurrence;
       selector = clone(candidateSelector);
+      selector.cap = action;
+      constrainExampleForAction(selector, action, definitionByAction);
       break;
     }
   }
-  occurrence ??= exampleForAction(occurrences, action);
-  selector ??= exampleForAction(selectors, action);
+  occurrence ??= exampleForAction(occurrences, action, null, definitionByAction);
+  selector ??= exampleForAction(selectors, action, null, definitionByAction);
   if (!occurrence || !selector) return null;
   selector.cap = action;
   return { occurrence, selector };
+}
+
+export function deriveAdapterActionTemplate({
+  action,
+  occurrenceExamples,
+  selectorExamples,
+  capabilityDefinitions,
+}) {
+  return actionTemplate(
+    action,
+    occurrenceExamples.occurrences ?? [],
+    selectorExamples.selectors ?? [],
+    definitionMap(capabilityDefinitions),
+  );
 }
 
 const COMMIT_OR_LATER = new Set(["commit", "delivery", "repeat", "cleanup"]);
@@ -242,6 +369,7 @@ function adapterProbeForPlan(
   occurrences,
   selectors,
   coverageByEdge,
+  definitionByAction,
 ) {
   if (plan.classification !== "effects" || !ADAPTER_SCENARIOS.has(scenario)) {
     return { probe: null, unavailableReason: null };
@@ -250,7 +378,7 @@ function adapterProbeForPlan(
     return { probe: null, unavailableReason: "decision-set-has-no-effects" };
   }
   const templates = plan.actionIds.map((action) =>
-    actionTemplate(action, occurrences, selectors),
+    actionTemplate(action, occurrences, selectors, definitionByAction),
   );
   const missingActions = plan.actionIds.filter(
     (_action, index) => templates[index] === null,
@@ -768,6 +896,7 @@ export function buildConformanceRecipeCatalog({
   inventory,
   occurrenceExamples,
   selectorExamples,
+  capabilityDefinitions,
   target,
 }) {
   const rowsByBranch = new Map(
@@ -786,6 +915,7 @@ export function buildConformanceRecipeCatalog({
   );
   const occurrences = occurrenceExamples.occurrences ?? [];
   const selectors = selectorExamples.selectors ?? [];
+  const definitionByAction = definitionMap(capabilityDefinitions);
   const recipes = fixtureExecutionPlans(catalog).map((plan) => {
     const scenario = fixtureScenario(plan.fixtureId);
     const rows = selectedRows(plan, rowsByBranch);
@@ -796,6 +926,7 @@ export function buildConformanceRecipeCatalog({
       occurrences,
       selectors,
       coverageByEdge,
+      definitionByAction,
     );
     const adapterProbe = adapter.probe;
     const targetAbsenceProbe = authoredTargetAbsenceProbe({
