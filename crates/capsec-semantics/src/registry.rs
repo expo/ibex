@@ -199,7 +199,7 @@ pub struct PolicyRulesDocument {
     pub initial_profile: Value,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DecisionStratumId {
     ArmValidity,

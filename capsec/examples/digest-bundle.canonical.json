@@ -133190,6 +133190,16 @@
             }
           },
           {
+            "id": "surface.host.abi.ex.host.evaluate.typed.decision.0qfg4sy",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_evaluate_typed_decision"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.free.buffer.0c4fojc",
             "classification": "non-capability",
             "surface": {

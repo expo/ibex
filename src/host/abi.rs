@@ -867,6 +867,11 @@ pub extern "C" fn ex_host_install() {
 
 /// Explicit fail-closed embedder arming entry point. Returns 0 only after the
 /// immutable snapshot is authenticated and installed.
+///
+/// # Safety
+///
+/// Each pointer must reference its declared byte length for the duration of
+/// this call. The buffers are copied before return.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_install_armed(
     snapshot: *const u8,
@@ -890,6 +895,10 @@ pub unsafe extern "C" fn ex_host_install_armed(
 
 /// Engine/host handshake: exact digest equality proves the runtime being
 /// created is attached to the decision context the caller authenticated.
+///
+/// # Safety
+///
+/// `digest` must be null or point to a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_char) -> i32 {
     if digest.is_null() {
@@ -907,6 +916,51 @@ pub unsafe extern "C" fn ex_host_matches_armed_snapshot_digest(digest: *const c_
         },
         0,
     )
+}
+
+/// Evaluate a complete typed decision set against the installed immutable
+/// context. Returns a heap-owned JSON decision/evidence envelope; malformed
+/// input, missing arming, and semantic errors return an `error` envelope and
+/// must be treated as denial by the caller.
+/// @ref LLP 0021#decision-staging-and-principal-semantics
+///
+/// # Safety
+///
+/// Non-null pointers must reference their declared byte lengths for the
+/// duration of this call. The returned string is owned by the caller and must
+/// be released with `ex_host_free_string`.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
+    decision_set: *const u8,
+    decision_set_len: usize,
+    gates: *const u8,
+    gates_len: usize,
+) -> *mut c_char {
+    if decision_set.is_null() || gates.is_null() {
+        return as_json_cstring(&json!({"error": "null typed decision input"}));
+    }
+    let decision_set = unsafe { std::slice::from_raw_parts(decision_set, decision_set_len) };
+    let gates = unsafe { std::slice::from_raw_parts(gates, gates_len) };
+    let result = with_host(
+        |host| match host.evaluate_typed_decision_json(decision_set, gates) {
+            Ok(decision) => match host.typed_evidence().last() {
+                Some(evidence) => as_json_cstring(&json!({
+                    "decision": decision,
+                    "evidence": evidence,
+                })),
+                None => as_json_cstring(&json!({
+                    "error": "typed decision evidence was not recorded"
+                })),
+            },
+            Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
+        },
+        std::ptr::null_mut(),
+    );
+    if result.is_null() {
+        as_json_cstring(&json!({"error": "host is not installed"}))
+    } else {
+        result
+    }
 }
 
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.
@@ -2839,6 +2893,17 @@ mod tests {
             ..Default::default()
         }));
         assert!(!with_host(|host| host.is_allow_all(), true));
+    }
+
+    #[test]
+    fn typed_decision_abi_returns_fail_closed_error_envelope() {
+        let result =
+            unsafe { ex_host_evaluate_typed_decision(std::ptr::null(), 0, std::ptr::null(), 0) };
+        assert!(!result.is_null());
+        let payload = unsafe { CStr::from_ptr(result) }.to_str().unwrap();
+        let value: serde_json::Value = serde_json::from_str(payload).unwrap();
+        assert_eq!(value["error"], "null typed decision input");
+        ex_host_free_string(result);
     }
 
     #[test]

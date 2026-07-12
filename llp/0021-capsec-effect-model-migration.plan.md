@@ -692,6 +692,13 @@ Acceptance:
   static-only/closed definitions.
 - Evidence groups denials without losing loaded-policy or effect provenance.
 
+Implementation status (2026-07-11): armed hosts now decode the immutable
+snapshot into a validated `VerifiedDecisionContext`, accept strict typed
+decision-set/effect-gate input, classify final peers, and retain bounded
+structured evidence. Every legacy string check, import check, handle mint, and
+dynamic grant fails closed once that typed context is installed; production
+call sites must migrate to the typed ingress before a target can advertise.
+
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
 Flip ordinary CLI execution and embedding defaults only after WP4–WP8 cover the

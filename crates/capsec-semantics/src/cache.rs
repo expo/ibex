@@ -35,7 +35,8 @@ impl PositiveAuthorityContext {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GenerationSet {
     pub negative: Generation,
     pub dynamic: Generation,

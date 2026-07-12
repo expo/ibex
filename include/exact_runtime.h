@@ -291,6 +291,14 @@ int ex_host_install_armed(const uint8_t* snapshot,
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);
 
+/// Evaluate a strict typed decision-set JSON document and its effect-gate JSON
+/// array against the installed armed context. Returns a heap-owned JSON
+/// decision/evidence or error envelope; free it with ex_host_free_string.
+char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
+                                      size_t decision_set_len,
+                                      const uint8_t* gates,
+                                      size_t gates_len);
+
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);
 

@@ -28,7 +28,8 @@ use crate::registry::{
 };
 use crate::{Error, Result};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SemanticIdentity {
     pub profile: String,
     pub semantic_core: String,
@@ -191,7 +192,8 @@ pub enum TargetCellDisposition {
     Incomplete,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectGate {
     pub coverage_edge_id: StableId,
     pub target_cell: TargetCellDisposition,
@@ -231,7 +233,8 @@ pub enum DecisionReason {
     MissingAuthority,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DecisionEvidence {
     pub effect_index: usize,
     pub principal: Option<Principal>,
@@ -240,7 +243,8 @@ pub struct DecisionEvidence {
     pub source_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Decision {
     pub outcome: DecisionOutcome,
     pub decisive_stratum: Option<DecisionStratumId>,
@@ -252,7 +256,8 @@ pub struct Decision {
 /// loaded semantic identity, and generations distinct instead of flattening
 /// them into one ambient package label.
 /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StructuredDecisionEvidence {
     pub identity: SemanticIdentity,
     pub generations: GenerationSet,
