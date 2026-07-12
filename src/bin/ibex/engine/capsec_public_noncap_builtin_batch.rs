@@ -254,6 +254,23 @@ fn validate_byte_array(value: &serde_json::Value, context: &str) {
     );
 }
 
+fn is_zlib_owner(value: &str) -> bool {
+    matches!(
+        value,
+        "BrotliCompress"
+            | "BrotliDecompress"
+            | "Deflate"
+            | "DeflateRaw"
+            | "Gunzip"
+            | "Gzip"
+            | "Inflate"
+            | "InflateRaw"
+            | "Unzip"
+            | "ZstdCompress"
+            | "ZstdDecompress"
+    )
+}
+
 fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: bool) {
     let object = argument
         .as_object()
@@ -310,6 +327,17 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
             assert!(allow_setup_value, "setup value used outside its authored setup");
             assert_object_keys(argument, &["kind", "name"], "setup value argument");
             assert_eq!(object["name"], "tracked");
+        }
+        "zlib-input" => {
+            assert_object_keys(
+                argument,
+                &["kind", "ownerExportName"],
+                "zlib input argument",
+            );
+            let owner = object["ownerExportName"]
+                .as_str()
+                .expect("zlib input owner must be text");
+            assert!(is_zlib_owner(owner));
         }
         other => panic!("unsupported authored builtin argument kind {other}"),
     }
@@ -393,6 +421,21 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             );
             allow_setup_value = true;
         }
+        "zlib-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["ensureNativeStream", "kind", "ownerExportName"],
+                "zlib owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_zlib");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("zlib owner name must be text");
+            assert!(is_zlib_owner(owner));
+            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert!(setup["ensureNativeStream"].is_boolean());
+        }
         other => panic!("unsupported authored builtin setup kind {other}"),
     }
     assert!(invocation.arguments.len() <= 8);
@@ -409,6 +452,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_path" => Some("node-path-pure-v1"),
         "node_punycode" => Some("node-punycode-pure-v1"),
         "node_querystring" => Some("node-querystring-pure-v1"),
+        "node_zlib" => Some("node-zlib-bounded-v1"),
         _ => None,
     }
 }
@@ -584,6 +628,29 @@ async fn execute_recipe(
             "{}: public builtin probe failed: {invocation_result}",
             recipe.fixture_id
         ));
+    }
+    if probe.invocation.kind == "builtin-export-call" {
+        let proof = probe
+            .invocation
+            .body_entry_proof
+            .as_ref()
+            .expect("validated builtin call has no body-entry proof");
+        if invocation_result["bodyEntryProof"] != proof.kind
+            || invocation_result["valueType"] != proof.result_type
+        {
+            return Err(format!(
+                "{}: public builtin call returned without its exact body-entry proof: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
+        if probe.invocation.setup["kind"] == "zlib-owner"
+            && invocation_result["cleanupPerformed"] != true
+        {
+            return Err(format!(
+                "{}: public zlib call did not prove native-state cleanup: {invocation_result}",
+                recipe.fixture_id
+            ));
+        }
     }
     if !legacy.is_empty() || !typed.is_empty() {
         return Err(format!(

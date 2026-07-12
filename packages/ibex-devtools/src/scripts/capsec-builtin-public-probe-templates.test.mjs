@@ -147,6 +147,59 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
+  test("authors format-correct zlib roots and inherited transform receivers", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "gzipSync",
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-zlib-bounded-v1",
+        arguments: [
+          { kind: "zlib-input", ownerExportName: "Gzip" },
+        ],
+        setup: { kind: "root-call" },
+        bodyEntryProof: { resultType: "object" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "Gunzip._processChunk",
+        exportIdioms: ["exported-constructor-inherited-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        arguments: [
+          { kind: "zlib-input", ownerExportName: "Gunzip" },
+          { kind: "json", value: 4 },
+        ],
+        setup: {
+          kind: "zlib-owner",
+          ownerExportName: "Gunzip",
+          ensureNativeStream: false,
+        },
+        sourceDescriptor: {
+          access: { kind: "inherited-prototype-property" },
+        },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_zlib",
+        exportName: "ZstdDecompress._processChunk",
+        exportIdioms: ["exported-constructor-inherited-prototype"],
+        moduleSpecifiers: ["node:zlib", "zlib"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({

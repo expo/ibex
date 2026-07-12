@@ -58,6 +58,10 @@ const uint8ArrayArgument = (bytes) => ({ kind: "uint8-array", bytes });
 const bufferArgument = (bytes) => ({ kind: "buffer", bytes });
 const bigintArgument = (value) => ({ kind: "bigint", value: String(value) });
 const setupValueArgument = (name) => ({ kind: "setup-value", name });
+const zlibInputArgument = (ownerExportName) => ({
+  kind: "zlib-input",
+  ownerExportName,
+});
 const ownValue = (object, key) =>
   object && Object.prototype.hasOwnProperty.call(object, key)
     ? object[key]
@@ -86,6 +90,70 @@ const constructedOwner = (
     arguments_,
     resultType,
   );
+
+const ZLIB_OWNER_NAMES = Object.freeze([
+  "BrotliCompress",
+  "BrotliDecompress",
+  "Deflate",
+  "DeflateRaw",
+  "Gunzip",
+  "Gzip",
+  "Inflate",
+  "InflateRaw",
+  "Unzip",
+  "ZstdCompress",
+  "ZstdDecompress",
+]);
+const ZLIB_OWNER_SET = new Set(ZLIB_OWNER_NAMES);
+const ZLIB_NATIVE_OWNER_SET = new Set([
+  "Deflate",
+  "DeflateRaw",
+  "Gunzip",
+  "Gzip",
+  "Inflate",
+  "InflateRaw",
+  "Unzip",
+]);
+const ZLIB_ONE_SHOT_EXPORTS = Object.freeze({
+  brotliCompress: "BrotliCompress",
+  brotliCompressSync: "BrotliCompress",
+  brotliDecompress: "BrotliDecompress",
+  brotliDecompressSync: "BrotliDecompress",
+  deflate: "Deflate",
+  deflateRaw: "DeflateRaw",
+  deflateRawSync: "DeflateRaw",
+  deflateSync: "Deflate",
+  gunzip: "Gunzip",
+  gunzipSync: "Gunzip",
+  gzip: "Gzip",
+  gzipSync: "Gzip",
+  inflate: "Inflate",
+  inflateRaw: "InflateRaw",
+  inflateRawSync: "InflateRaw",
+  inflateSync: "Inflate",
+  unzip: "Unzip",
+  unzipSync: "Unzip",
+});
+
+function zlibRootCallSpecs() {
+  const specs = Object.create(null);
+  for (const ownerExportName of ZLIB_OWNER_NAMES) {
+    specs[ownerExportName] = constructTarget([]);
+    specs[`create${ownerExportName}`] = rootCall([], "object");
+  }
+  specs.crc32 = rootCall([jsonArgument("ibex")], "number");
+  for (const [exportName, ownerExportName] of Object.entries(
+    ZLIB_ONE_SHOT_EXPORTS,
+  )) {
+    const input = zlibInputArgument(ownerExportName);
+    specs[exportName] = exportName.endsWith("Sync")
+      ? rootCall([input], "object")
+      : rootCall([input, noopArgument()], "undefined");
+  }
+  return Object.freeze(specs);
+}
+
+const ZLIB_ROOT_CALL_SPECS = zlibRootCallSpecs();
 
 // These tables are deliberately keyed by the scanner's sourceKey and exact
 // exportName. They are an allowlist derived from the corresponding builtin
@@ -220,6 +288,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     isAscii: rootCall([uint8ArrayArgument([73, 98, 101, 120])], "boolean"),
     isUtf8: rootCall([uint8ArrayArgument([73, 98, 101, 120])], "boolean"),
   }),
+  node_zlib: ZLIB_ROOT_CALL_SPECS,
 });
 
 const ASSERT_PROTOTYPE_SPECS = Object.freeze({
@@ -462,6 +531,116 @@ function bufferPrototypeSpec(exportName) {
   );
 }
 
+function zlibOwnerCall(
+  ownerExportName,
+  arguments_,
+  resultType,
+  ensureNativeStream = false,
+) {
+  return callSpec(
+    {
+      kind: "zlib-owner",
+      ownerExportName,
+      ensureNativeStream,
+    },
+    arguments_,
+    resultType,
+  );
+}
+
+function zlibPrototypeSpec(exportName) {
+  const segments = exportName.split(".");
+  if (segments.length !== 2 || !ZLIB_OWNER_SET.has(segments[0])) return null;
+  const [ownerExportName, methodName] = segments;
+  if (methodName === "constructor") return constructTarget([]);
+  if (methodName === "_closeNativeStream") {
+    return zlibOwnerCall(ownerExportName, [], "undefined");
+  }
+  if (methodName === "_destroy") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [jsonArgument(null), noopArgument()],
+      "undefined",
+    );
+  }
+  if (methodName === "_ensureNativeStream") {
+    return zlibOwnerCall(ownerExportName, [], "boolean");
+  }
+  if (methodName === "_flush") {
+    return zlibOwnerCall(ownerExportName, [noopArgument()], "undefined");
+  }
+  if (methodName === "_processChunk") {
+    if (ownerExportName.startsWith("Zstd")) return null;
+    return zlibOwnerCall(
+      ownerExportName,
+      [zlibInputArgument(ownerExportName), jsonArgument(4)],
+      "object",
+    );
+  }
+  if (methodName === "_pushNativeOutput") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [uint8ArrayArgument([105, 98, 101, 120])],
+      "object",
+    );
+  }
+  if (methodName === "_transform") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [
+        zlibInputArgument(ownerExportName),
+        jsonArgument("utf8"),
+        noopArgument(),
+      ],
+      "undefined",
+    );
+  }
+  if (methodName === "_writeNative") {
+    if (!ZLIB_NATIVE_OWNER_SET.has(ownerExportName)) return null;
+    return zlibOwnerCall(
+      ownerExportName,
+      [
+        zlibInputArgument(ownerExportName),
+        jsonArgument(0),
+        jsonArgument(false),
+      ],
+      "object",
+      true,
+    );
+  }
+  if (methodName === "close") {
+    return zlibOwnerCall(ownerExportName, [noopArgument()], "object");
+  }
+  if (methodName === "flush") {
+    return zlibOwnerCall(ownerExportName, [noopArgument()], "object");
+  }
+  if (methodName === "params") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [jsonArgument(-1), jsonArgument(0), noopArgument()],
+      "object",
+    );
+  }
+  if (methodName === "reset") {
+    return zlibOwnerCall(ownerExportName, [], "object");
+  }
+  if (methodName === "setEncoding") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [jsonArgument("utf8")],
+      "object",
+    );
+  }
+  if (methodName === "write") {
+    return zlibOwnerCall(
+      ownerExportName,
+      [zlibInputArgument(ownerExportName), noopArgument()],
+      "boolean",
+    );
+  }
+  return null;
+}
+
 const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
@@ -469,6 +648,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_path: "node-path-pure-v1",
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",
+  node_zlib: "node-zlib-bounded-v1",
 });
 
 function callTemplateFor(descriptor) {
@@ -483,6 +663,9 @@ function callTemplateFor(descriptor) {
   }
   if (!spec && descriptor.sourceKey === "node_buffer") {
     spec = bufferPrototypeSpec(descriptor.exportName);
+  }
+  if (!spec && descriptor.sourceKey === "node_zlib") {
+    spec = zlibPrototypeSpec(descriptor.exportName);
   }
   const templateId = ownValue(CALL_TEMPLATE_IDS, descriptor.sourceKey);
   if (!spec || !templateId) return null;
@@ -499,6 +682,7 @@ function callTemplateFor(descriptor) {
         "call-tracker-owner",
         "construct-target",
         "constructed-owner",
+        "zlib-owner",
       ]).has(setupKind)) ||
     (!prototypeAccess &&
       !new Set(["construct-target", "root-call"]).has(setupKind))

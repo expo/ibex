@@ -129,6 +129,24 @@
       }
       return bindings[argument.name];
     }
+    if (argument.kind === "zlib-input") {
+      if (argument.ownerExportName === "Inflate") {
+        return moduleValue.deflateSync("ibex");
+      }
+      if (argument.ownerExportName === "Gunzip") {
+        return moduleValue.gzipSync("ibex");
+      }
+      if (argument.ownerExportName === "InflateRaw") {
+        return moduleValue.deflateRawSync("ibex");
+      }
+      if (argument.ownerExportName === "Unzip") {
+        return moduleValue.gzipSync("ibex");
+      }
+      if (argument.ownerExportName === "BrotliDecompress") {
+        return moduleValue.brotliCompressSync("ibex");
+      }
+      return "ibex";
+    }
     throw new TypeError("unknown authored builtin argument kind");
   }
 
@@ -141,6 +159,7 @@
   }
 
   try {
+    var cleanupPerformed = false;
     var moduleValue = require(config.moduleSpecifier);
     var resolved = resolveExport(moduleValue, config.sourceDescriptor);
     if (resolved.error) return resolved.error;
@@ -222,6 +241,31 @@
         setup.trackedExpectedCalls,
       );
       dispatchKind = "prototype-call";
+    } else if (setup.kind === "zlib-owner") {
+      var zlibOwner = moduleValue[setup.ownerExportName];
+      if (typeof zlibOwner !== "function") {
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+        });
+      }
+      receiver = Reflect.construct(zlibOwner, []);
+      if (
+        setup.ensureNativeStream &&
+        (typeof receiver._ensureNativeStream !== "function" ||
+          receiver._ensureNativeStream() !== true)
+      ) {
+        if (typeof receiver._closeNativeStream === "function") {
+          receiver._closeNativeStream();
+          cleanupPerformed = true;
+        }
+        return failure("setup-mismatch", {
+          setupKind: setup.kind,
+          ownerExportName: setup.ownerExportName,
+          expectedNativeStream: true,
+        });
+      }
+      dispatchKind = "prototype-call";
     } else {
       return failure("unsupported-setup", { setupKind: setup.kind });
     }
@@ -231,10 +275,21 @@
       moduleValue,
       bindings,
     );
-    if (dispatchKind === "construct") {
-      result = Reflect.construct(target, callArguments);
-    } else {
-      result = Reflect.apply(target, receiver, callArguments);
+    try {
+      if (dispatchKind === "construct") {
+        result = Reflect.construct(target, callArguments);
+      } else {
+        result = Reflect.apply(target, receiver, callArguments);
+      }
+    } finally {
+      if (
+        setup.kind === "zlib-owner" &&
+        receiver &&
+        typeof receiver._closeNativeStream === "function"
+      ) {
+        receiver._closeNativeStream();
+        cleanupPerformed = true;
+      }
     }
     var actualResultType = valueType(result);
     if (actualResultType !== config.bodyEntryProof.resultType) {
@@ -244,15 +299,21 @@
         dispatchKind: dispatchKind,
       });
     }
-    return failure("return", {
+    var success = {
       valueType: actualResultType,
       dispatchKind: dispatchKind,
       bodyEntryProof: config.bodyEntryProof.kind,
-    });
+    };
+    if (setup.kind === "zlib-owner") {
+      success.cleanupPerformed = cleanupPerformed;
+    }
+    return failure("return", success);
   } catch (error) {
-    return failure("throw", {
+    var thrown = {
       errorName: String((error && error.name) || "Error"),
       errorMessage: String((error && error.message) || error),
-    });
+    };
+    if (cleanupPerformed) thrown.cleanupPerformed = true;
+    return failure("throw", thrown);
   }
 })
