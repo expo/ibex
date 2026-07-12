@@ -17,6 +17,7 @@ import { ErrorEvent } from '../events/ErrorEvent';
 import { getNativeModule } from '../native/NativeModules';
 import { Blob } from '../blob/Blob';
 import { requireCapability, Capabilities } from '../security/Capabilities';
+import { URL as ExactURL } from '../url/URL';
 
 // WebSocket ready states
 const CONNECTING = 0;
@@ -49,7 +50,7 @@ function getBaseUrl(): string | undefined {
   return undefined;
 }
 
-function networkConnectCapabilityForWebSocketUrl(parsedUrl: URL): string {
+function networkConnectCapabilityForWebSocketUrl(parsedUrl: ExactURL): string {
   const host = parsedUrl.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
   const port = parsedUrl.port || (parsedUrl.protocol === 'wss:' ? '443' : '80');
   return `${Capabilities.NETWORK_CONNECT}:${host}:${port}`;
@@ -123,7 +124,9 @@ export class WebSocket extends EventTarget {
     super();
 
     // Normalize URL
-    const urlString = url instanceof URL ? url.href : String(url);
+    const urlString = url && typeof url === 'object' && typeof (url as any).href === 'string'
+      ? (url as any).href
+      : String(url);
 
     if (urlString.includes('#')) {
       throw new DOMException(
@@ -133,9 +136,16 @@ export class WebSocket extends EventTarget {
     }
 
     // Validate URL
-    let parsedUrl: URL;
+    let parsedUrl: ExactURL;
     try {
-      parsedUrl = new URL(urlString, getBaseUrl());
+      const baseUrl = getBaseUrl();
+      // Absolute URLs are base-independent. Avoid routing them through the
+      // bootstrap URL implementation's relative-resolution path: on Hermes
+      // that path can truncate `ws://host:port/` to `host:port`, handing the
+      // native security boundary an endpoint with no scheme.
+      parsedUrl = /^[A-Za-z][A-Za-z0-9+.-]*:/.test(urlString) || baseUrl === undefined
+        ? new ExactURL(urlString)
+        : new ExactURL(urlString, baseUrl);
     } catch {
       throw new DOMException('Invalid URL', 'SyntaxError');
     }

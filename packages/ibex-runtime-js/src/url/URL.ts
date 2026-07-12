@@ -86,7 +86,7 @@ function canonicalizeSpecialHost(value: string): string {
     return value.toLowerCase();
   }
   const parsed = new hostURL(`https://${value}`);
-  return parsed.hostname;
+  return parsed.hostname || value.toLowerCase();
 }
 
 function toHex(code: number): string {
@@ -609,23 +609,35 @@ export class URL {
     if (typeof hostURL === "function") {
       try {
         const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
-        this._protocol = parsed.protocol;
-        this._username = parsed.username;
-        this._password = parsed.password;
-        this._hostname = parsed.hostname;
-        this._port = parsed.port;
-        this._pathname = parsed.pathname;
-        this._search = parsed.search;
-        this._hash = parsed.hash;
-        // Host implementations expose hostname "" both for empty hosts
-        // (file:///x) and absent hosts (mailto:x); the serialized href is the
-        // only reliable signal. A null-host URL never serializes "//" right
-        // after the scheme (paths starting "//" get a "/." guard).
-        this._hasHost = parsed.href.startsWith(`${parsed.protocol}//`);
-        return;
+        const parsedProtocol = String(parsed.protocol);
+        const parsedHostname = String(parsed.hostname);
+        const parsedHref = String(parsed.href);
+        const discardedRequiredAuthority =
+          SPECIAL_SCHEMES.has(parsedProtocol.slice(0, -1)) &&
+          parsedProtocol !== "file:" &&
+          (parsedHostname === "" || !parsedHref.startsWith(`${parsedProtocol}//`));
+        if (!discardedRequiredAuthority) {
+          this._protocol = parsed.protocol;
+          this._username = parsed.username;
+          this._password = parsed.password;
+          this._hostname = parsed.hostname;
+          this._port = parsed.port;
+          this._pathname = parsed.pathname;
+          this._search = parsed.search;
+          this._hash = parsed.hash;
+          // Host implementations expose hostname "" both for empty hosts
+          // (file:///x) and absent hosts (mailto:x); the serialized href is the
+          // only reliable signal. A null-host URL never serializes "//" right
+          // after the scheme (paths starting "//" get a "/." guard).
+          this._hasHost = parsedHref.startsWith(`${parsed.protocol}//`);
+          return;
+        }
       } catch {
         throw _makeURLError(input, baseStr);
       }
+      // The bootstrap URL shim can recognize a scheme while silently dropping
+      // its authority. Re-run that structurally impossible result through the
+      // runtime's closed parser; never pass the truncated endpoint onward.
     }
 
     const parsed = parseBasicUrl(input, base);

@@ -42,7 +42,18 @@ server.on('connection', (sock) => {
 
 function connect(port) {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket('ws://127.0.0.1:' + port + '/');
+    const url = 'ws://127.0.0.1:' + port + '/';
+    const canonicalUrl = new URL(url).href;
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (error) {
+      reject(new Error(
+        'connect construction failed for ' + url +
+        ' (canonical ' + canonicalUrl + '): ' + error
+      ));
+      return;
+    }
     ws.onopen = () => resolve(ws);
     ws.onerror = (e) => reject(new Error('connect failed: ' + (e && e.message)));
   });

@@ -611,10 +611,19 @@ inline std::string formatNetworkEndpoint(const std::string& host, int port) {
   return host + ":" + std::to_string(port);
 }
 
-inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
+inline bool parseNetworkUrl(
+    const std::string& url,
+    ParsedNetworkUrl& parsed,
+    const char** failureReason = nullptr) {
+  const auto fail = [failureReason](const char* reason) {
+    if (failureReason != nullptr) {
+      *failureReason = reason;
+    }
+    return false;
+  };
   auto scheme_end = url.find("://");
   if (scheme_end == std::string::npos || scheme_end == 0) {
-    return false;
+    return fail("missing scheme");
   }
   parsed.scheme = asciiLower(url.substr(0, scheme_end));
   size_t authority_start = scheme_end + 3;
@@ -627,7 +636,7 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
     authority = authority.substr(at + 1);
   }
   if (authority.empty()) {
-    return false;
+    return fail("missing authority");
   }
 
   parsed.port = defaultPortForNetworkScheme(parsed.scheme);
@@ -635,29 +644,29 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
   if (authority[0] == '[') {
     auto close = authority.find(']');
     if (close == std::string::npos) {
-      return false;
+      return fail("unterminated IPv6 host");
     }
     host = authority.substr(1, close - 1);
     if (close + 1 < authority.size()) {
       if (authority[close + 1] != ':') {
-        return false;
+        return fail("invalid IPv6 authority suffix");
       }
       auto port_str = authority.substr(close + 2);
       if (!parseNetworkPort(port_str, parsed.port)) {
-        return false;
+        return fail("invalid port");
       }
     }
   } else {
     auto first_colon = authority.find(':');
     auto colon = authority.rfind(':');
     if (first_colon != std::string::npos && first_colon != colon) {
-      return false;
+      return fail("unbracketed IPv6 host");
     }
     if (colon != std::string::npos) {
       host = authority.substr(0, colon);
       auto port_str = authority.substr(colon + 1);
       if (!parseNetworkPort(port_str, parsed.port)) {
-        return false;
+        return fail("invalid port");
       }
     } else {
       host = authority;
@@ -665,7 +674,7 @@ inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {
   }
 
   if (host.empty() || parsed.port < 0 || parsed.port > 65535) {
-    return false;
+    return fail("invalid host or port");
   }
   parsed.host = asciiLower(host);
   return true;

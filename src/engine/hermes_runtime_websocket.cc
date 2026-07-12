@@ -205,9 +205,16 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         auto protocols =
             args[1].isString() ? args[1].toString(runtime).utf8(runtime) : std::string("");
         ParsedNetworkUrl parsedUrl;
-        if (!parseNetworkUrl(url, parsedUrl) ||
-            (parsedUrl.scheme != "ws" && parsedUrl.scheme != "wss")) {
-          throw facebook::jsi::JSError(runtime, "__exactWsConnect: invalid network URL");
+        const char* parseFailure = "unknown parse failure";
+        if (!parseNetworkUrl(url, parsedUrl, &parseFailure)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              std::string("__exactWsConnect: malformed network URL (") +
+                  parseFailure + ")");
+        }
+        if (parsedUrl.scheme != "ws" && parsedUrl.scheme != "wss") {
+          throw facebook::jsi::JSError(
+              runtime, "__exactWsConnect: unsupported network URL scheme");
         }
         // @ref LLP 0013#policy — WebSocket native I/O is the security boundary;
         // endpoint-scoped grants must authorize the concrete peer, not just JS.
