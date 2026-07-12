@@ -1028,16 +1028,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(classifiedNames.size).toBe(48);
   });
 
-  test("environment enumeration remains per-concrete-key WP7 refinement", () => {
+  test("environment enumeration selects empty or per-key authorized branches", () => {
     const classified = classifyObservedSurface(
       surface("native-op", "__exactGetAllEnv"),
       context,
     );
     expect(classified.edge.classification).toBe("effects");
     expect(edgeActions(classified)).toEqual(["env:read"]);
-    expect(classified.edge.effectMode).toBe("conditional-unrefined");
-    expect(classified.edge.refinementOwner).toBe("WP7");
-    expect(classified.edge.rationale).toMatch(/every concrete key/u);
+    expect(classified.edge.effectMode).toBe("conditional");
+    expect(classified.edge.logicalBranches.map((branch) => branch.id)).toEqual([
+      "empty",
+      "nonempty",
+    ]);
   });
 
   test("normalizers and positive sources come only from capability definitions", () => {
@@ -1064,19 +1066,18 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ]);
   });
 
-  test("parameter-dependent effects remain explicitly unrefined and unclaimable", () => {
-    for (const name of ["__exactSpawn"]) {
-      const classified = classifyObservedSurface(
-        surface("native-op", name),
-        context,
-      );
-      expect(classified.edge.effectMode).toBe("conditional-unrefined");
-      expect(classified.edge.refinementOwner).toMatch(/^WP/);
-      expect(classified.edge.rationale.length).toBeGreaterThan(20);
-      expect(classified.implementationRows[0].fixtureObligations).toContain(
-        `${classified.implementationRows[0].branchId}.conditional-refinement`,
-      );
-    }
+  test("process launch selects exact executable, environment, and stdio branches", () => {
+    const classified = classifyObservedSurface(
+      surface("native-op", "__exactSpawn"),
+      context,
+    );
+    expect(classified.edge.effectMode).toBe("conditional");
+    expect(classified.edge.logicalBranches.map((branch) => branch.id)).toEqual([
+      "direct-isolated",
+      "explicit-environment",
+      "inherited-descriptors",
+      "searched-isolated",
+    ]);
   });
 
   test("SQLite storage and statement state select exact retained-resource branches", () => {
@@ -1212,7 +1213,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           "stdio:read",
           "stdio:write",
         ],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["node_child_process", "ChildProcess.kill", "closed", ["process:signal"]],
       ["node_child_process", "ChildProcess.send", "closed", ["ipc:channel"]],
@@ -1395,21 +1396,21 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "Interface",
         "effects",
         ["stdio:raw", "stdio:read", "stdio:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_readline",
         "createInterface",
         "effects",
         ["stdio:raw", "stdio:read", "stdio:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_readline",
         "Interface.resume",
         "effects",
         ["stdio:read"],
-        "conditional-unrefined",
+        "conditional",
       ],
     ];
 
@@ -1520,7 +1521,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "env:read",
       );
       expect(classified.edge.effectMode, `${sourceKey}:${exportName}`).toBe(
-        "conditional-unrefined",
+        "conditional",
       );
     }
 
@@ -1534,7 +1535,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         context,
       );
       expect(edgeActions(classified), name).toContain("env:read");
-      expect(classified.edge.effectMode, name).toBe("conditional-unrefined");
+      expect(classified.edge.effectMode, name).toBe("conditional");
     }
   });
 
@@ -1714,7 +1715,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "fs:read",
         "fs:write",
       ]);
-      expect(classified.edge.effectMode, name).toBe("conditional-unrefined");
+      expect(classified.edge.effectMode, name).toBe("conditional");
     }
 
     const transpile = classifyObservedSurface(
@@ -1730,7 +1731,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "stdio:read",
       "stdio:write",
     ]);
-    expect(transpile.edge.effectMode).toBe("conditional-unrefined");
+    expect(transpile.edge.effectMode).toBe("conditional");
     expect(transpile.edge.lifetimeContract).toBe("child-process");
 
     for (const name of [
@@ -1754,7 +1755,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "stdio:read",
         "stdio:write",
       ]);
-      expect(classified.edge.effectMode, name).toBe("conditional-unrefined");
+      expect(classified.edge.effectMode, name).toBe("conditional");
     }
 
     const normalizedTarget = classifyObservedSurface(
@@ -1873,7 +1874,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       surface("loader", "operation:load:status"),
       context,
     );
-    expect(status.edge.effectMode).toBe("conditional-unrefined");
+    expect(status.edge.effectMode).toBe("conditional");
     expect(edgeActions(status)).toEqual([
       "env:read",
       "fs:list",
@@ -2132,7 +2133,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         );
         expect(classified.edge.classification, alias).toBe("effects");
         expect(edgeActions(classified), alias).toEqual(["env:read"]);
-        expect(classified.edge.effectMode, alias).toBe("conditional-unrefined");
+        expect(classified.edge.effectMode, alias).toBe("conjunctive");
       }
     }
 
@@ -2619,7 +2620,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       context,
     );
     expect(dynamicEnvironment.edge.classification).toBe("effects");
-    expect(dynamicEnvironment.edge.effectMode).toBe("conditional-unrefined");
+    expect(dynamicEnvironment.edge.effectMode).toBe("conjunctive");
     expect(edgeActions(dynamicEnvironment)).toEqual(["env:read"]);
     const escapedProcessEnvironment = classifyObservedSurface(
       surface(
@@ -2629,9 +2630,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
       context,
     );
-    expect(escapedProcessEnvironment.edge.effectMode).toBe(
-      "conditional-unrefined",
-    );
+    expect(escapedProcessEnvironment.edge.effectMode).toBe("conjunctive");
     expect(edgeActions(escapedProcessEnvironment)).toEqual(["env:read"]);
 
     for (const observed of [
@@ -2670,8 +2669,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       expect(classified.edge.classification, name).toBe("effects");
       expect(edgeActions(classified), name).toEqual(["env:read"]);
-      expect(classified.edge.effectMode, name).toBe("conditional-unrefined");
-      expect(classified.edge.refinementOwner, name).toBe("WP7");
+      expect(classified.edge.effectMode, name).toBe("conjunctive");
     }
 
     for (const [label, classification, semantic] of [
@@ -2839,21 +2837,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     for (const [environmentName, expectedActions, expectedMode] of [
-      [
-        "IBEX_POLICY",
-        ["env:read", "fs:list", "fs:read"],
-        "conditional-unrefined",
-      ],
-      [
-        "IBEX_REPO_ROOT",
-        ["env:read", "fs:list", "fs:read"],
-        "conditional-unrefined",
-      ],
-      [
-        "PATH",
-        ["env:read", "fs:list", "process:spawn"],
-        "conditional-unrefined",
-      ],
+      ["IBEX_POLICY", ["env:read", "fs:list", "fs:read"], "conditional"],
+      ["IBEX_REPO_ROOT", ["env:read", "fs:list", "fs:read"], "conditional"],
+      ["PATH", ["env:read", "fs:list", "process:spawn"], "conditional"],
       ["IBEX_DNS_SERVER", ["env:read", "network:resolve"], "conditional"],
       ["RES_OPTIONS", ["env:read", "network:resolve"], "conditional"],
       [
@@ -2861,46 +2847,38 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         ["env:read", "network:listen"],
         "conditional",
       ],
-      [
-        "EXACT_SECURITY_LOG",
-        ["env:read", "stdio:write"],
-        "conditional-unrefined",
-      ],
+      ["EXACT_SECURITY_LOG", ["env:read", "stdio:write"], "conditional"],
       [
         "IBEX_SUPPRESS_CONSOLE_MIRROR",
         ["env:read", "stdio:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "EXACT_ANDROID_CACHE_DIR",
         ["env:read", "env:write", "fs:list", "fs:read", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "EXACT_ANDROID_EXTERNAL_FILES_DIR",
         ["env:read", "env:write", "fs:list", "fs:read", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "EXACT_TRANSPILE_SCRIPT",
         ["env:read", "fs:list", "fs:read", "process:spawn"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "EXACT_EXECUTABLE",
         ["env:read", "fs:list", "process:spawn"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "EXACT_COMPAT_EXECUTABLE",
         ["env:read", "fs:list", "process:spawn"],
-        "conditional-unrefined",
+        "conditional",
       ],
-      [
-        "COMSPEC",
-        ["env:read", "fs:list", "process:spawn"],
-        "conditional-unrefined",
-      ],
+      ["COMSPEC", ["env:read", "fs:list", "process:spawn"], "conditional"],
       [
         "EXACT_WINHTTP_ENABLE_HTTP2",
         ["env:read", "network:fetch"],
@@ -3524,8 +3502,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     });
     expect(edgeByObservedKey.get("native-op:__exactGetAllEnv")).toMatchObject({
       classification: "effects",
-      effectMode: "conditional-unrefined",
-      refinementOwner: "WP7",
+      effectMode: "conditional",
       effects: [{ cap: "env:read" }],
     });
     expect(
@@ -3727,8 +3704,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     ]) {
       expect(edgeByObservedKey.get(`startup:${name}`), name).toMatchObject({
         classification: "effects",
-        effectMode: "conditional-unrefined",
-        refinementOwner: "WP7",
+        effectMode: "conjunctive",
         effects: [{ cap: "env:read" }],
       });
     }

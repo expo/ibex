@@ -208,23 +208,13 @@ describe("LLP 0021 capsec contract", () => {
     }
   });
 
-  test("conditional-unrefined edges cannot be promoted on any target", () => {
+  test("production registry contains no conditional-unrefined edges", () => {
     const contract = loadAndValidateContract();
-    const conditional = contract.coverage.edges.find(
-      (edge) => edge.effectMode === "conditional-unrefined",
-    );
-    expect(conditional).toBeDefined();
-    const mutatedCells = structuredClone(contract.targetCells);
-    mutatedCells.cells.find(
-      (cell) => cell.edgeId === conditional.id,
-    ).disposition = "enforced";
-    expect(() =>
-      validateImplementationMutation(
-        contract,
-        contract.implementation,
-        mutatedCells,
+    expect(
+      contract.coverage.edges.filter(
+        (edge) => edge.effectMode === "conditional-unrefined",
       ),
-    ).toThrow(/conditional-unrefined edge cannot be promoted/);
+    ).toEqual([]);
   });
 
   test("target cells reject unknown and wrong-target implementation branches", () => {

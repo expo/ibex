@@ -7128,6 +7128,338 @@ function androidMediaOperationEffectSpec(fact) {
   );
 }
 
+function intlHostDefaultsEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "explicit",
+        when: [{ fact: "system.intl.defaults", equals: "explicit" }],
+        actions: [],
+      },
+      {
+        id: "host-default",
+        when: [{ fact: "system.intl.defaults", equals: "host-default" }],
+        actions: ["sys:read"],
+      },
+    ],
+    "system",
+    "WP7",
+  );
+}
+
+function retainedStdioEffectSpec(fact, variants, options = {}) {
+  return conditionalBranchEffectSpec(
+    variants.map(([id, actions]) => ({
+      id,
+      when: [{ fact, equals: id }],
+      actions,
+    })),
+    "stdio",
+    "WP7",
+    {
+      lifetimeContract: "socket-stream",
+      effectOwnerSource: "descriptor-owner",
+      principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+      ...options,
+    },
+  );
+}
+
+function readlineConstructionEffectSpec() {
+  return retainedStdioEffectSpec("stdio.readline.streams", [
+    ["input", ["stdio:read"]],
+    ["input-output", ["stdio:read", "stdio:write"]],
+    ["terminal-input", ["stdio:raw", "stdio:read"]],
+    ["terminal-input-output", ["stdio:raw", "stdio:read", "stdio:write"]],
+  ]);
+}
+
+function readlineOperationEffectSpec(fact = "stdio.readline.operation") {
+  return retainedStdioEffectSpec(fact, [
+    ["memory", []],
+    ["input", ["stdio:read"]],
+    ["output", ["stdio:write"]],
+    ["input-output", ["stdio:read", "stdio:write"]],
+  ]);
+}
+
+function ttyDirectionEffectSpec() {
+  return retainedStdioEffectSpec("stdio.tty.direction", [
+    ["input", ["stdio:read"]],
+    ["output", ["stdio:write"]],
+  ]);
+}
+
+function debugLogEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "disabled",
+        when: [{ fact: "stdio.debuglog.state", equals: "disabled" }],
+        actions: ["env:read"],
+      },
+      {
+        id: "enabled",
+        when: [{ fact: "stdio.debuglog.state", equals: "enabled" }],
+        actions: ["env:read", "stdio:write"],
+      },
+    ],
+    "stdio",
+    "WP7",
+  );
+}
+
+function dynamicEnvironmentPropertyEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "read",
+        when: [{ fact: "environment.property.operation", equals: "read" }],
+        actions: ["env:read"],
+      },
+      {
+        id: "write",
+        when: [{ fact: "environment.property.operation", equals: "write" }],
+        actions: ["env:write"],
+      },
+    ],
+    "environment",
+    "WP7",
+  );
+}
+
+function environmentValueEffectSpec(actions, domain, fact, options = {}) {
+  const baseline = actions.filter((action) => action === "env:read");
+  const branches = [
+    {
+      id: "absent",
+      when: [{ fact, equals: "absent" }],
+      actions: baseline,
+    },
+    {
+      id: "present",
+      when: [{ fact, equals: "present" }],
+      actions,
+    },
+  ];
+  if (actions.includes("env:write")) {
+    branches.push({
+      id: "propagated",
+      when: [{ fact, equals: "propagated" }],
+      actions,
+    });
+  }
+  return conditionalBranchEffectSpec(branches, domain, "WP7", options);
+}
+
+function dynamicEnvironmentAccessEffectSpec(actions) {
+  if (actions.length === 1) {
+    return effectSpec(actions, "environment", "WP7");
+  }
+  const variants = [];
+  if (actions.includes("env:read")) variants.push(["read", ["env:read"]]);
+  if (actions.includes("env:write")) {
+    variants.push(["write", ["env:write"]], ["unset", ["env:write"]]);
+  }
+  return conditionalBranchEffectSpec(
+    variants.map(([id, branchActions]) => ({
+      id,
+      when: [{ fact: "environment.dynamic-access.direction", equals: id }],
+      actions: branchActions,
+    })),
+    "environment",
+    "WP7",
+  );
+}
+
+function environmentEnumerationEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "empty",
+        when: [{ fact: "environment.enumeration", equals: "empty" }],
+        actions: [],
+      },
+      {
+        id: "nonempty",
+        when: [{ fact: "environment.enumeration", equals: "nonempty" }],
+        actions: ["env:read"],
+      },
+    ],
+    "environment",
+    "WP7",
+  );
+}
+
+function processLaunchEffectSpec() {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "direct-isolated",
+        when: [{ fact: "process.launch.mode", equals: "direct-isolated" }],
+        actions: ["process:spawn"],
+      },
+      {
+        id: "searched-isolated",
+        when: [{ fact: "process.launch.mode", equals: "searched-isolated" }],
+        actions: ["fs:list", "process:spawn"],
+      },
+      {
+        id: "explicit-environment",
+        when: [{ fact: "process.launch.mode", equals: "explicit-environment" }],
+        actions: ["env:read", "env:write", "fs:list", "process:spawn"],
+      },
+      {
+        id: "inherited-descriptors",
+        when: [
+          { fact: "process.launch.mode", equals: "inherited-descriptors" },
+        ],
+        actions: [
+          "env:read",
+          "env:write",
+          "fs:list",
+          "process:spawn",
+          "stdio:read",
+          "stdio:write",
+        ],
+      },
+    ],
+    "process",
+    "WP7",
+    { lifetimeContract: "child-process" },
+  );
+}
+
+function loaderSourceSelectionEffectSpec(options) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "builtin-or-memory",
+        when: [{ fact: "loader.source.kind", equals: "builtin-or-memory" }],
+        actions: [],
+      },
+      {
+        id: "metadata",
+        when: [{ fact: "loader.source.kind", equals: "metadata" }],
+        actions: ["fs:list"],
+      },
+      {
+        id: "on-disk",
+        when: [{ fact: "loader.source.kind", equals: "on-disk" }],
+        actions: ["fs:list", "fs:read"],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
+function fullLoaderEffectSpec(options) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "builtin-or-memory",
+        when: [{ fact: "loader.execution.route", equals: "builtin-or-memory" }],
+        actions: [],
+      },
+      {
+        id: "disk-source",
+        when: [{ fact: "loader.execution.route", equals: "disk-source" }],
+        actions: ["fs:list", "fs:read"],
+      },
+      {
+        id: "cached-transform",
+        when: [{ fact: "loader.execution.route", equals: "cached-transform" }],
+        actions: ["env:read", "fs:list", "fs:read", "fs:write"],
+      },
+      {
+        id: "external-transform",
+        when: [
+          { fact: "loader.execution.route", equals: "external-transform" },
+        ],
+        actions: [
+          "env:read",
+          "fs:list",
+          "fs:read",
+          "fs:write",
+          "process:spawn",
+          "stdio:read",
+          "stdio:write",
+        ],
+      },
+    ],
+    "loader",
+    "WP7",
+    { ...options, lifetimeContract: "child-process" },
+  );
+}
+
+function loaderToolingEffectSpec(options) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "embedded-tool",
+        when: [{ fact: "loader.tooling.source", equals: "embedded-tool" }],
+        actions: ["fs:list", "fs:read"],
+      },
+      {
+        id: "environment-tool",
+        when: [{ fact: "loader.tooling.source", equals: "environment-tool" }],
+        actions: ["env:read", "fs:list", "fs:read"],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
+function loaderCacheEffectSpec(options, includeRead) {
+  const diskActions = [
+    "fs:list",
+    ...(includeRead ? ["fs:read"] : []),
+    "fs:write",
+  ];
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "default-cache",
+        when: [{ fact: "loader.cache.location", equals: "default-cache" }],
+        actions: diskActions,
+      },
+      {
+        id: "environment-cache",
+        when: [{ fact: "loader.cache.location", equals: "environment-cache" }],
+        actions: ["env:read", ...diskActions],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
+function loaderExecutableRouteEffectSpec(options) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "direct",
+        when: [{ fact: "loader.executable.route", equals: "direct" }],
+        actions: ["fs:list"],
+      },
+      {
+        id: "environment",
+        when: [{ fact: "loader.executable.route", equals: "environment" }],
+        actions: ["env:read", "fs:list"],
+      },
+    ],
+    "loader",
+    "WP7",
+    options,
+  );
+}
+
 function closedSpec(action, implementationOwner, rationale) {
   return { classification: "closed", action, implementationOwner, rationale };
 }
@@ -7203,12 +7535,7 @@ function builtinModuleInitializationClassification(source) {
     return effectSpec(["sys:read"], "system", "WP7");
   }
   if (BUILTIN_ROOT_ENVIRONMENT_READ_SOURCES.has(source)) {
-    return conditionalEffectSpec(
-      ["env:read"],
-      "environment",
-      "WP7",
-      "Loading this builtin reads process environment configuration used to initialize its shared module state.",
-    );
+    return effectSpec(["env:read"], "environment", "WP7");
   }
   return null;
 }
@@ -7308,20 +7635,7 @@ function builtinExportClassification(surface) {
       return closedSpec("ipc:channel", "WP7", "Ambient process IPC is closed.");
     }
     if (/^(?:execve)$/u.test(name)) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "Process replacement effects depend on executable, environment, cwd, and inherited descriptors.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (/^(?:env)$/u.test(name)) {
       return closedSpec(
@@ -7530,36 +7844,10 @@ function builtinExportClassification(surface) {
         name,
       )
     ) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "Child-process effects depend on executable, cwd, environment, and inherited-versus-captured stdio.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (/^childprocessspawn$/u.test(name)) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "ChildProcess.spawn effects depend on executable, cwd, environment, and inherited-versus-captured stdio.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (/^childprocesskill$/u.test(name)) {
       return closedSpec(
@@ -7923,20 +8211,7 @@ function builtinExportClassification(surface) {
 
   if (source === "node_cluster") {
     if (/^fork$/u.test(name)) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "Cluster fork inherits the child-process executable, environment, cwd, and stdio branches.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (/^disconnect$/u.test(name)) {
       return closedSpec(
@@ -8020,29 +8295,16 @@ function builtinExportClassification(surface) {
       return effectSpec(["stdio:write"], "stdio", "WP7");
     }
     if (/^(?:createinterface|interface|interfaceconstructor)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["stdio:raw", "stdio:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "Readline construction depends on the supplied input/output streams and may enable raw mode for a terminal input.",
-      );
+      return readlineConstructionEffectSpec();
     }
     if (/^emitkeypressevents$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["stdio:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "Keypress decoding depends on the supplied input stream and may coordinate terminal output.",
-      );
+      return readlineOperationEffectSpec("stdio.readline.keypress-streams");
     }
     if (/^interfaceresume$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["stdio:read"],
-        "stdio",
-        "WP7",
-        "Interface.resume resumes consumption from the retained input stream when it is readable.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return retainedStdioEffectSpec("stdio.readline.resume-state", [
+        ["paused", []],
+        ["readable", ["stdio:read"]],
+      ]);
     }
     if (/^interface(?:close|pause)$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP7");
@@ -8051,22 +8313,10 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("authority-release", "WP7");
     }
     if (/^interface\._on(?:data|end|keypress)$/u.test(api)) {
-      return conditionalEffectSpec(
-        ["stdio:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "Readline delivery handlers consume already-retained input and may update terminal output; WP7 must bind the exact input/output descriptor provenance.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return readlineOperationEffectSpec("stdio.readline.delivery-streams");
     }
     if (/^interface(?:\.|$)/u.test(api)) {
-      return conditionalEffectSpec(
-        ["stdio:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "Readline Interface methods may consume an authenticated input stream, update in-memory editing state, or write to the configured output stream.",
-        { lifetimeContract: "socket-stream" },
-      );
+      return readlineOperationEffectSpec();
     }
     if (/^(?:csi|promises)$/u.test(name)) {
       return nonCapabilitySpec("module-reachability-only", "WP7");
@@ -8079,12 +8329,7 @@ function builtinExportClassification(surface) {
     if (/isatty/u.test(name))
       return effectSpec(["stdio:query"], "stdio", "WP7");
     if (/readstream|writestream/u.test(name)) {
-      return conditionalEffectSpec(
-        ["stdio:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "TTY stream authority depends on the authenticated descriptor and direction.",
-      );
+      return ttyDirectionEffectSpec();
     }
   }
 
@@ -8348,12 +8593,7 @@ function builtinExportClassification(surface) {
 
   if (source === "node_util") {
     if (/^debuglog$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["env:read", "stdio:write"],
-        "stdio",
-        "WP7",
-        "util.debuglog conditionally reads debug configuration and writes formatted diagnostics to stderr.",
-      );
+      return debugLogEffectSpec();
     }
     if (
       /^(?:textdecoder|textencoder|errnomap|extend|callbackify|deprecate|format|formatwithoptions|getsystemerrorname|inherits|inspect|isdeepstrictequal|parseargs|promisify|types)$/u.test(
@@ -8536,22 +8776,7 @@ function loaderClassification(surface) {
     effectOwnerSource: "loader-referrer",
     gate: "loader-admission",
   };
-  const fullLoaderEffects = (rationale) =>
-    conditionalEffectSpec(
-      [
-        "env:read",
-        "fs:list",
-        "fs:read",
-        "fs:write",
-        "process:spawn",
-        "stdio:read",
-        "stdio:write",
-      ],
-      "loader",
-      "WP7",
-      rationale,
-      { ...loaderOptions, lifetimeContract: "child-process" },
-    );
+  const fullLoaderEffects = () => fullLoaderEffectSpec(loaderOptions);
 
   // Escape hatches precede both source-derived function and kind families.
   if (/wasi|wasm/u.test(name)) {
@@ -8598,13 +8823,7 @@ function loaderClassification(surface) {
 
   if (name.startsWith("entry:")) {
     if (/^entry:(?:require-resolve|resolve-path)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        "Resolve-only loader entry points inspect filesystem and package metadata without evaluating the target module.",
-        loaderOptions,
-      );
+      return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (name === "entry:load-internal") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
@@ -8689,26 +8908,14 @@ function loaderClassification(surface) {
         functionName,
       )
     ) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        "Resolution helpers may inspect path and package metadata or read a package manifest.",
-        loaderOptions,
-      );
+      return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
       /^(?:compute_transpile_tooling_hash|module_cache_key|transpile_tooling_hash)$/u.test(
         functionName,
       )
     ) {
-      return conditionalEffectSpec(
-        ["env:read", "fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        "Cache-key helpers inspect source/tool metadata and may read an environment-selected transpile script.",
-        loaderOptions,
-      );
+      return loaderToolingEffectSpec(loaderOptions);
     }
     if (functionName === "ensure_transpile_cache_dir") {
       return effectSpec(
@@ -8723,22 +8930,10 @@ function loaderClassification(surface) {
         functionName,
       )
     ) {
-      return conditionalEffectSpec(
-        ["env:read", "fs:list", "fs:write"],
-        "loader",
-        "WP7",
-        "Cache-directory selection reads host path controls and creates and probes a writable directory.",
-        loaderOptions,
-      );
+      return loaderCacheEffectSpec(loaderOptions, false);
     }
     if (/^(?:find_js_runner|transpile_script_path)$/u.test(functionName)) {
-      return conditionalEffectSpec(
-        ["env:read", "fs:list"],
-        "loader",
-        "WP7",
-        "Subprocess routing reads environment/path configuration and discovers an executable or transform script.",
-        loaderOptions,
-      );
+      return loaderExecutableRouteEffectSpec(loaderOptions);
     }
     if (
       /^(?:load_module_source|load_source|resolve|run_transpile_command|run_transpile_subprocess|transpile_module)$/u.test(
@@ -8770,21 +8965,7 @@ function loaderClassification(surface) {
         "function:rust:resolve",
       ]).has(name)
     ) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "fs:list",
-          "fs:read",
-          "fs:write",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "loader",
-        "WP7",
-        "This loader entry may resolve and read source, populate the transpile cache, and invoke an environment-selected transform process.",
-        { ...loaderOptions, lifetimeContract: "child-process" },
-      );
+      return fullLoaderEffectSpec(loaderOptions);
     }
     if (name === "function:rust:normalize_import_target") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
@@ -8795,30 +8976,10 @@ function loaderClassification(surface) {
         "function:rust:resolve_transpile_cache_dir",
       ]).has(name)
     ) {
-      return conditionalEffectSpec(
-        ["env:read", "fs:list", "fs:read", "fs:write"],
-        "loader",
-        "WP7",
-        "Transpile-cache selection reads environment controls and filesystem metadata and may create, probe, or remove cache paths.",
-        loaderOptions,
-      );
+      return loaderCacheEffectSpec(loaderOptions, true);
     }
     if (name === "function:rust:transpile_module") {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "fs:list",
-          "fs:read",
-          "fs:write",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "loader",
-        "WP7",
-        "Transpilation canonicalizes and reads source, reads/writes the cache, and may launch an environment-selected transform with inherited stdio.",
-        { ...loaderOptions, lifetimeContract: "child-process" },
-      );
+      return fullLoaderEffectSpec(loaderOptions);
     }
     if (
       new Set([
@@ -8842,13 +9003,7 @@ function loaderClassification(surface) {
         "function:rust:resolve_with_oxc",
       ]).has(name)
     ) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        "This reviewed loader function selects metadata-only, builtin, in-memory, or on-disk branches; WP7 must select the exact source branch.",
-        loaderOptions,
-      );
+      return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
       new Set([
@@ -8896,13 +9051,7 @@ function loaderClassification(surface) {
       "require-resolve",
     ]).has(name)
   ) {
-    return conditionalEffectSpec(
-      ["fs:list", "fs:read"],
-      "loader",
-      "WP7",
-      "The reviewed loader branch may resolve metadata and read source from disk; builtin and in-memory variants must be refined separately.",
-      loaderOptions,
-    );
+    return loaderSourceSelectionEffectSpec(loaderOptions);
   }
   if (
     new Set([
@@ -9145,12 +9294,7 @@ function startupEnvironmentClassification(surface) {
       actions.push("env:write");
     }
     if (actions.length === 0) return null;
-    return conditionalEffectSpec(
-      actions,
-      "environment",
-      "WP7",
-      "A dynamic environment-key access must normalize and authorize the concrete key and direction at runtime.",
-    );
+    return dynamicEnvironmentAccessEffectSpec(actions);
   }
 
   if (surface.name === "env:__exactEnvProxy") {
@@ -9199,24 +9343,22 @@ function startupEnvironmentClassification(surface) {
     ) &&
     writesEnvironment
   ) {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       [
         ...(accessDirections.includes("read") ? ["env:read"] : []),
         "env:write",
         ...(environmentName === "EXACT_QUIET" ? ["stdio:write"] : []),
       ],
       environmentName === "EXACT_QUIET" ? "stdio" : "environment",
-      "WP7",
-      `${environmentName} is read as runtime configuration and propagated or removed in a child environment.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (HARNESS_STARTUP_ENVIRONMENT_CONTROLS.has(environmentName)) {
     if (writesEnvironment) {
-      return conditionalEffectSpec(
+      return environmentValueEffectSpec(
         ["env:read", "env:write"],
         "environment",
-        "WP7",
-        `${environmentName} is read as harness configuration and propagated into a child environment.`,
+        `environment.startup.${environmentName.toLowerCase()}`,
       );
     }
     return nonCapabilitySpec("runtime-bootstrap-state", "WP9");
@@ -9231,27 +9373,24 @@ function startupEnvironmentClassification(surface) {
     if (accessDirections.length > 0 && !accessDirections.includes("read")) {
       return effectSpec(["env:write"], "environment", "WP7");
     }
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "env:write", "fs:list", "fs:read", "fs:write"],
       "loader",
-      "WP7",
-      `${environmentName} is installed as host environment metadata and selects mutable runtime cache, file, or persistent-storage paths.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (FILE_STARTUP_ENVIRONMENT_CONTROLS.has(environmentName)) {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "fs:list", "fs:read"],
       "loader",
-      "WP7",
-      `${environmentName} selects a host path whose discovery and contents are consumed during runtime startup.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (DIAGNOSTIC_STARTUP_ENVIRONMENT_CONTROLS.has(environmentName)) {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "stdio:write"],
       "stdio",
-      "WP7",
-      `${environmentName} conditionally enables diagnostic output to process stdio.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (
@@ -9263,28 +9402,25 @@ function startupEnvironmentClassification(surface) {
       "TERM",
     ]).has(environmentName)
   ) {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "stdio:write"],
       "stdio",
-      "WP7",
-      `${authoredEnvironmentName} changes process diagnostic or terminal output.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (environmentName === "COLUMNS" || environmentName === "LINES") {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "stdio:query"],
       "stdio",
-      "WP7",
-      `${authoredEnvironmentName} supplies terminal dimensions used by stdio queries.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
     );
   }
   if (ORDINARY_STARTUP_ENVIRONMENT_READS.has(environmentName)) {
     return writesEnvironment
-      ? conditionalEffectSpec(
+      ? environmentValueEffectSpec(
           ["env:read", "env:write"],
           "environment",
-          "WP7",
-          `${authoredEnvironmentName} is read as runtime input and may also be installed as trusted bootstrap output.`,
+          `environment.startup.${environmentName.toLowerCase()}`,
         )
       : effectSpec(["env:read"], "environment", "WP7");
   }
@@ -9296,11 +9432,10 @@ function startupEnvironmentClassification(surface) {
     );
   }
   if (environmentName === "EXACT_TRANSPILE_SCRIPT") {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "fs:list", "fs:read", "process:spawn"],
       "loader",
-      "WP7",
-      "EXACT_TRANSPILE_SCRIPT selects, reads, and spawns an operator-supplied transform program.",
+      "environment.startup.exact_transpile_script",
       { lifetimeContract: "child-process" },
     );
   }
@@ -9309,7 +9444,7 @@ function startupEnvironmentClassification(surface) {
     environmentName === "EXACT_COMPAT_EXECUTABLE" ||
     environmentName === "COMSPEC"
   ) {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       [
         "env:read",
         ...(writesEnvironment ? ["env:write"] : []),
@@ -9317,17 +9452,15 @@ function startupEnvironmentClassification(surface) {
         "process:spawn",
       ],
       "process",
-      "WP7",
-      `${environmentName} selects executable routing for child-process launch.`,
+      `environment.startup.${environmentName.toLowerCase()}`,
       { lifetimeContract: "child-process" },
     );
   }
   if (environmentName === "PATH") {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "fs:list", "process:spawn"],
       "process",
-      "WP7",
-      "PATH controls executable discovery for startup subprocesses and tool fallbacks.",
+      "environment.startup.path",
       { lifetimeContract: "child-process" },
     );
   }
@@ -9348,20 +9481,18 @@ function startupEnvironmentClassification(surface) {
     );
   }
   if (environmentName === "IBEX_BIN") {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "fs:list", "process:spawn"],
       "process",
-      "WP7",
-      "IBEX_BIN selects the executable used for a child runtime launch.",
+      "environment.startup.ibex_bin",
       { lifetimeContract: "child-process" },
     );
   }
   if (environmentName === "TZ") {
-    return conditionalEffectSpec(
+    return environmentValueEffectSpec(
       ["env:read", "sys:read"],
       "system",
-      "WP7",
-      "TZ selects host time-zone behavior consumed by date and locale APIs.",
+      "environment.startup.tz",
     );
   }
   if (environmentName === "WPT_SERVER_URL") {
@@ -9737,24 +9868,14 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     member === "env.[[dynamic-table:host-process-env-properties]]"
   ) {
     if (!dynamicHostOverlay) return null;
-    return conditionalEffectSpec(
-      ["env:read", "env:write"],
-      "environment",
-      "WP7",
-      "The host process.env overlay represents arbitrary named environment reads and writes until exact property operations are split.",
-    );
+    return dynamicEnvironmentPropertyEffectSpec();
   }
 
   if (globalName === "intl") {
     if (member === "") {
       return nonCapabilitySpec("module-reachability-only", "WP7");
     }
-    return conditionalEffectSpec(
-      ["sys:read"],
-      "system",
-      "WP7",
-      "Intl constructors and operations may consult the host default locale, time zone, or supported locale data unless every relevant option is explicit.",
-    );
+    return intlHostDefaultsEffectSpec();
   }
 
   if (globalName === "[[dynamic-table:native-global-name]]") {
@@ -9931,20 +10052,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return nonCapabilitySpec("authority-control-plane", "WP4");
     }
     if (/^(?:\$|spawn|spawnsync)$/u.test(member)) {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "Bun-compatible process launch depends on executable discovery, cwd, environment, and inherited or captured stdio.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (member === "fetch") {
       return effectSpec(["network:fetch"], "network", "WP6", {
@@ -10119,12 +10227,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     }
     if (/^env(?:\.|$)/u.test(member)) {
       if (member === "env.[[dynamic-table:env-obj-properties]]") {
-        return conditionalEffectSpec(
-          ["env:read", "env:write"],
-          "environment",
-          "WP7",
-          "The process.env property table represents arbitrary named environment reads and writes until exact property operations are split.",
-        );
+        return dynamicEnvironmentPropertyEffectSpec();
       }
       return closedSpec(
         "env:process-write",
@@ -10168,20 +10271,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       );
     }
     if (member === "execve") {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "env:write",
-          "fs:list",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "process",
-        "WP7",
-        "Process replacement depends on executable discovery, environment, cwd, and inherited descriptors.",
-        { lifetimeContract: "child-process" },
-      );
+      return processLaunchEffectSpec();
     }
     if (
       /^(?:channel(?:\.|$)|connected|disconnect|send|\[\[dynamic-table:(?:channel-handle-key|exact-channel-handle-key|k-channel-handle)\]\](?:\.|$))/u.test(
@@ -10559,39 +10649,18 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
       return nonCapabilitySpec("pure-in-memory-compute", "WP7");
     }
     if (globalName === "require" && member === "resolve") {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "loader",
-        "WP7",
-        "require.resolve may inspect package metadata and resolve an on-disk module without evaluating it.",
-        {
-          principalSources: ["loader-referrer"],
-          effectOwnerSource: "loader-referrer",
-          gate: "loader-admission",
-        },
-      );
+      return loaderSourceSelectionEffectSpec({
+        principalSources: ["loader-referrer"],
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+      });
     }
     if (member === "") {
-      return conditionalEffectSpec(
-        [
-          "env:read",
-          "fs:list",
-          "fs:read",
-          "fs:write",
-          "process:spawn",
-          "stdio:read",
-          "stdio:write",
-        ],
-        "loader",
-        "WP7",
-        "Module loading may resolve and read source, populate the transpile cache, and invoke an environment-selected transform process.",
-        {
-          principalSources: ["loader-referrer"],
-          effectOwnerSource: "loader-referrer",
-          gate: "loader-admission",
-          lifetimeContract: "child-process",
-        },
-      );
+      return fullLoaderEffectSpec({
+        principalSources: ["loader-referrer"],
+        effectOwnerSource: "loader-referrer",
+        gate: "loader-admission",
+      });
     }
     return null;
   }
@@ -11844,20 +11913,7 @@ function classifyConcreteSurface(surface) {
     });
   }
   if (/spawn|execsync|childprocess/u.test(text)) {
-    return conditionalEffectSpec(
-      [
-        "env:read",
-        "env:write",
-        "fs:list",
-        "process:spawn",
-        "stdio:read",
-        "stdio:write",
-      ],
-      "process",
-      "WP7",
-      "Spawn effects depend on executable/cwd/environment and inherited-versus-captured stdio options; WP7 must select the exact conjunctive set.",
-      { lifetimeContract: "child-process" },
-    );
+    return processLaunchEffectSpec();
   }
 
   // Stdio is separate from generic process and crypto source files.
@@ -11884,12 +11940,7 @@ function classifyConcreteSurface(surface) {
 
   // Environment and system-information reads are independently typed.
   if (/getallenv/u.test(name)) {
-    return conditionalEffectSpec(
-      ["env:read"],
-      "environment",
-      "WP7",
-      "Environment enumeration must normalize and authorize every concrete key selected at runtime before reading its value.",
-    );
+    return environmentEnumerationEffectSpec();
   }
   if (/getenv|envget/u.test(name)) {
     return effectSpec(["env:read"], "environment", "WP7");
