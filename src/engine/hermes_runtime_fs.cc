@@ -699,6 +699,53 @@ static void writeArmedBytes(
   }
 }
 
+static void createArmedDirectory(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    int mode) {
+  // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Directory creation is authorized against a retained parent, then commits the actual created directory identity.
+  constexpr uint32_t kMkdirSurface = 12;
+  uint64_t principal = currentPrincipalId();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 0, kMkdirSurface, -1, -1, 0, 1,
+          nullptr) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  auto parentAndName = splitParentAndName(path);
+  auto parentPath = std::move(parentAndName.first);
+  auto name = std::move(parentAndName.second);
+  int parentRaw = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+  if (parentRaw < 0) throwFsError(runtime, "mkdir", path);
+  auto parent = retainedFd(parentRaw);
+  if (name.empty() ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 3, kMkdirSurface, parentRaw, -1, 0, 1,
+          nullptr) != 1 ||
+      ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 4, kMkdirSurface, parentRaw, -1, 0, 1,
+          nullptr) != 1) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  if (::mkdirat(parentRaw, name.c_str(), static_cast<mode_t>(mode)) != 0) {
+    throwFsError(runtime, "mkdir", path);
+  }
+  int directoryRaw = ::openat(
+      parentRaw, name.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (directoryRaw < 0) {
+    int saved = errno;
+    ::unlinkat(parentRaw, name.c_str(), AT_REMOVEDIR);
+    errno = saved;
+    throwFsError(runtime, "mkdir", path);
+  }
+  auto directory = retainedFd(directoryRaw);
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 1, kMkdirSurface, parentRaw, directoryRaw,
+          0, 1, nullptr) != 1) {
+    ::unlinkat(parentRaw, name.c_str(), AT_REMOVEDIR);
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+}
+
 // Parse a Node open() flags argument (a string like "r"/"w+"/"ax", or numeric
 // POSIX flags) into POSIX open(2) flags. Shared by __exactFsOpen and the async
 // readFile/writeFile natives, which perform their own open on a worker thread.
@@ -1558,6 +1605,52 @@ static FsAsyncResult fsPathOpWork(
     return fsAsyncString(std::move(out));
   }
   if (op == "mkdir") {
+    if (ex_host_is_armed() == 1) {
+      constexpr uint32_t kMkdirSurface = 12;
+      if (x != 0) {
+        return fsAsyncError(ENOTSUP, "mkdir", a);
+      }
+      if (ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 0, kMkdirSurface, -1, -1, 0, 1,
+              nullptr) != 1) {
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      auto parentAndName = splitParentAndName(a);
+      const auto& parentPath = parentAndName.first;
+      const auto& name = parentAndName.second;
+      int parentRaw = ::open(
+          parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+      if (parentRaw < 0) return fsAsyncError(errno, "mkdir", a);
+      auto parent = retainedFd(parentRaw);
+      if (name.empty() ||
+          ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 3, kMkdirSurface, parentRaw, -1, 0, 1,
+              nullptr) != 1 ||
+          ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 4, kMkdirSurface, parentRaw, -1, 0, 1,
+              nullptr) != 1) {
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      if (::mkdirat(parentRaw, name.c_str(), 0777) != 0) {
+        return fsAsyncError(errno, "mkdir", a);
+      }
+      int directoryRaw = ::openat(
+          parentRaw, name.c_str(),
+          O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+      if (directoryRaw < 0) {
+        int saved = errno;
+        ::unlinkat(parentRaw, name.c_str(), AT_REMOVEDIR);
+        return fsAsyncError(saved, "mkdir", a);
+      }
+      auto directory = retainedFd(directoryRaw);
+      if (ex_host_authorize_typed_fs_open(
+              principal, a.c_str(), 1, kMkdirSurface, parentRaw,
+              directoryRaw, 0, 1, nullptr) != 1) {
+        ::unlinkat(parentRaw, name.c_str(), AT_REMOVEDIR);
+        return fsAsyncError(EACCES, "mkdir", a);
+      }
+      return fsAsyncOk();
+    }
     std::string firstMissing;
     if (x != 0) {
       std::string prefix = !a.empty() && a[0] == '/' ? "/" : "";
@@ -2326,15 +2419,24 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactMkdir: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "fs:write:" + path;
-        if (!checkCapability(cap)) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
         int32_t recursive = 0;
         if (count > 1 && args[1].isBool()) {
           recursive = args[1].getBool() ? 1 : 0;
         } else if (count > 1 && args[1].isNumber()) {
           recursive = args[1].asNumber() != 0 ? 1 : 0;
+        }
+        if (ex_host_is_armed() == 1) {
+          if (recursive != 0) {
+            throw facebook::jsi::JSError(
+                runtime,
+                "recursive mkdir is closed under armed capability startup");
+          }
+          createArmedDirectory(runtime, path, 0777);
+          return facebook::jsi::Value::undefined();
+        }
+        std::string cap = "fs:write:" + path;
+        if (!checkCapability(cap)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         if (ex_host_fs_mkdir(path.c_str(), recursive) != 0) {
           throwFsError(runtime, "mkdir", path);
@@ -4128,7 +4230,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         } else if (op == "mkdir" || op == "rmdir" || op == "unlink" ||
                    op == "chmod" || op == "truncate" || op == "chown" ||
                    op == "utime") {
-          if (!checkCapability("fs:write:" + a)) {
+          if (!(op == "mkdir" && ex_host_is_armed() == 1) &&
+              !checkCapability("fs:write:" + a)) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
         } else if (op == "lchown" || op == "lchmod" || op == "lutime") {

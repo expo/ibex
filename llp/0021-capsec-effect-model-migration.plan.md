@@ -675,7 +675,12 @@ no-follow descriptor under its own list edge. Whole-file replace,
 append, and worker-backed write use their own edges, authorize absent-create or
 existing state before `openat`, commit the actual regular file before delayed
 truncation, and recheck before each write/flush. The remaining path-based
-filesystem operations are still pending.
+filesystem operations are still pending. Non-recursive synchronous and
+worker-backed directory creation now use the `mkdir` edge: they authorize the
+requested path, retain and verify the parent, preauthorize absent creation,
+create with `mkdirat`, and commit the opened directory identity, rolling the
+new directory back if commit fails. Recursive creation remains closed until
+every created component can run that full sequence independently.
 
 ### WP6 — Convert network effects and protected peers
 

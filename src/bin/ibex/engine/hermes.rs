@@ -2310,6 +2310,8 @@ mod tests {
         let async_created = root.join("async-created.txt");
         let async_whole = root.join("async-whole.txt");
         let whole_created = root.join("whole-created.txt");
+        let directory_created = root.join("created-directory");
+        let async_directory_created = root.join("async-created-directory");
         std::fs::write(&existing, b"old contents").unwrap();
         let link = root.join("existing-link");
         std::os::unix::fs::symlink(&existing, &link).unwrap();
@@ -2337,6 +2339,7 @@ mod tests {
                 __exactWriteFile({existing:?}, 'whole');
                 __exactAppendFile({existing:?}, '+tail');
                 __exactWriteFile({whole_created:?}, 'fresh');
+                __exactMkdir({directory_created:?}, false);
                 return 'ok';
             }})()"#,
             existing = existing.to_str().unwrap(),
@@ -2344,6 +2347,7 @@ mod tests {
             root = root.to_str().unwrap(),
             link = link.to_str().unwrap(),
             whole_created = whole_created.to_str().unwrap(),
+            directory_created = directory_created.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
@@ -2351,6 +2355,25 @@ mod tests {
         assert_eq!(std::fs::read(&existing).unwrap(), b"whole+tail");
         assert_eq!(std::fs::read(&created).unwrap(), b"ma");
         assert_eq!(std::fs::read(&whole_created).unwrap(), b"fresh");
+        assert!(directory_created.is_dir());
+
+        let async_mkdir_script = format!(
+            r#"globalThis.__armedAsyncMkdir = 'pending';
+               __exactFsPathAsync('mkdir', {path:?}, '', 0, 0, 0).then(function() {{
+                 globalThis.__armedAsyncMkdir = 'ok';
+               }}, function(error) {{
+                 globalThis.__armedAsyncMkdir = 'error:' + error.message;
+               }});"#,
+            path = async_directory_created.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_mkdir_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_mkdir = engine
+            .eval_immediate("globalThis.__armedAsyncMkdir")
+            .await
+            .unwrap();
+        assert_eq!(async_mkdir.as_deref(), Some("ok"));
+        assert!(async_directory_created.is_dir());
 
         let async_script = format!(
             r#"globalThis.__armedAsyncOpen = 'pending';
@@ -2459,6 +2482,8 @@ mod tests {
         let root = std::fs::canonicalize(root).unwrap();
         let existing = root.join("existing.txt");
         let absent = root.join("absent.txt");
+        let absent_directory = root.join("absent-directory");
+        let async_absent_directory = root.join("async-absent-directory");
         std::fs::write(&existing, b"must survive").unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
@@ -2478,16 +2503,37 @@ mod tests {
                 try {{ __exactAppendFile({existing:?}, 'lost'); }} catch (_) {{ denied++; }}
                 try {{ __exactAppendFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsWriteFileAsync({absent:?}, 'created', 'w', 438, true); }} catch (_) {{ denied++; }}
+                try {{ __exactMkdir({absent_directory:?}, false); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             existing = existing.to_str().unwrap(),
             absent = absent.to_str().unwrap(),
+            absent_directory = absent_directory.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("11"));
+        assert_eq!(outcome.as_deref(), Some("12"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
+        assert!(!absent_directory.exists());
+
+        let async_script = format!(
+            r#"globalThis.__armedDeniedAsyncMkdir = 'pending';
+               __exactFsPathAsync('mkdir', {path:?}, '', 0, 0, 0).then(function() {{
+                 globalThis.__armedDeniedAsyncMkdir = 'unexpected-allow';
+               }}, function() {{
+                 globalThis.__armedDeniedAsyncMkdir = 'denied';
+               }});"#,
+            path = async_absent_directory.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_outcome = engine
+            .eval_immediate("globalThis.__armedDeniedAsyncMkdir")
+            .await
+            .unwrap();
+        assert_eq!(async_outcome.as_deref(), Some("denied"));
+        assert!(!async_absent_directory.exists());
         let _ = std::fs::remove_dir_all(root);
     }
 
