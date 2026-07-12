@@ -1045,6 +1045,22 @@ builtin dependencies without creating package import edges, but that exemption
 is scoped to synchronous body evaluation and does not suppress capability
 terminal checks or survive through an exported `require` closure.
 
+Bounded non-capability callable recipes are grouped by exact source template,
+not inferred from `typeof value === "function"`. The first authored families
+cover `assert`, `buffer`, `events`, `path`, `punycode`, and `querystring`: each
+recipe fixes its setup, receiver, arguments, dispatch mode, and expected return
+type. Prototype recipes construct the declared owner (with dedicated bounded
+Buffer and CallTracker fixtures), then dispatch the exact source-inventoried
+prototype function. Evidence requires a normal return from that dispatch; an
+argument/receiver binding error or any other throw fails the recipe and cannot
+stand in for body entry. On the macOS/aarch64 candidate this adds 233 callable
+executions (43 root calls, 6 constructions, and 184 prototype calls) to the 336
+data/accessor executions, all against the same mapped Hermes identity. Loaded
+execution also exposed lazy builtin assignments that were swallowed by locked
+inherited primordial properties; those Buffer and AssertionError prototype
+members are now installed as explicit writable/configurable own properties
+without weakening primordial lockdown.
+
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.

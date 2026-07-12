@@ -94,7 +94,7 @@ describe("source-bound builtin public probes", () => {
     });
   });
 
-  test("leaves callable and prototype surfaces residual", () => {
+  test("calls only source-authored root functions with bounded arguments", () => {
     expect(
       probeFor({
         sourceKey: "node_path",
@@ -102,7 +102,52 @@ describe("source-bound builtin public probes", () => {
         moduleSpecifiers: ["node:path", "path"],
         valueShape: "callable",
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-call-invocation/1",
+        kind: "builtin-export-call",
+        templateId: "node-path-pure-v1",
+        arguments: [{ kind: "json", value: "/ibex/file.txt" }],
+        setup: { kind: "root-call" },
+        bodyEntryProof: {
+          kind: "normal-return-from-source-call",
+          resultType: "string",
+        },
+        expectedResult: "normal-return",
+      },
+    });
+  });
+
+  test("constructs explicit receivers for authored prototype methods", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_buffer",
+        exportName: "Buffer.readUInt32LE",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["buffer", "node:buffer"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-buffer-bounded-v1",
+        arguments: [{ kind: "json", value: 0 }],
+        setup: {
+          kind: "buffer-owner",
+          ownerExportName: "Buffer",
+          bytes: [0, 1, 2, 3, 4, 5, 6, 7],
+        },
+        sourceDescriptor: {
+          access: {
+            kind: "prototype-property",
+            path: ["Buffer", "prototype", "readUInt32LE"],
+          },
+        },
+        bodyEntryProof: { resultType: "number" },
+      },
+    });
+  });
+
+  test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({
         sourceKey: "exact_crypto",
@@ -110,6 +155,23 @@ describe("source-bound builtin public probes", () => {
         exportIdioms: ["exported-constructor-prototype"],
         moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
         valueShape: "data",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_assert",
+        exportName: "fail",
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["assert", "node:assert"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_path",
+        exportName: "__proto__",
+        moduleSpecifiers: ["node:path", "path"],
+        valueShape: "callable",
       }),
     ).toBeNull();
   });

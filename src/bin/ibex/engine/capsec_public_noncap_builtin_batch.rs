@@ -58,14 +58,25 @@ struct BuiltinInvocation {
     export_name: String,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    template_id: Option<String>,
     arguments: Vec<serde_json::Value>,
     setup: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    body_entry_proof: Option<BodyEntryProof>,
     required_authority: Vec<serde_json::Value>,
     expected_result: String,
     expected_typed_decision_count: usize,
     expected_typed_stages: Vec<String>,
     allowed_coverage_edge_ids: Vec<String>,
     expected_action_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BodyEntryProof {
+    kind: String,
+    result_type: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -221,6 +232,187 @@ fn expected_access(descriptor: &BuiltinSourceDescriptor) -> Option<BuiltinAccess
     })
 }
 
+fn assert_object_keys(value: &serde_json::Value, expected: &[&str], context: &str) {
+    let object = value
+        .as_object()
+        .unwrap_or_else(|| panic!("{context} must be an object"));
+    let actual = object.keys().map(String::as_str).collect::<BTreeSet<_>>();
+    let expected = expected.iter().copied().collect::<BTreeSet<_>>();
+    assert_eq!(actual, expected, "{context} has unexpected fields");
+}
+
+fn validate_byte_array(value: &serde_json::Value, context: &str) {
+    let bytes = value
+        .as_array()
+        .unwrap_or_else(|| panic!("{context} must be an array"));
+    assert!(!bytes.is_empty() && bytes.len() <= 64, "{context} is unbounded");
+    assert!(
+        bytes
+            .iter()
+            .all(|byte| byte.as_u64().is_some_and(|byte| byte <= u8::MAX.into())),
+        "{context} contains a non-byte value"
+    );
+}
+
+fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: bool) {
+    let object = argument
+        .as_object()
+        .expect("authored builtin argument must be an object");
+    let kind = object["kind"]
+        .as_str()
+        .expect("authored builtin argument has no kind");
+    match kind {
+        "json" => {
+            assert_object_keys(argument, &["kind", "value"], "JSON argument");
+            assert!(
+                serde_json::to_vec(&object["value"]).unwrap().len() <= 1024,
+                "JSON argument is unbounded"
+            );
+        }
+        "noop-function" | "event-emitter" => {
+            assert_object_keys(argument, &["kind"], "authored special argument");
+        }
+        "throwing-function" => {
+            assert_object_keys(
+                argument,
+                &["errorMessage", "kind"],
+                "throwing function argument",
+            );
+            let message = object["errorMessage"]
+                .as_str()
+                .expect("throwing function message must be text");
+            assert!(!message.is_empty() && message.len() <= 128);
+        }
+        "regexp" => {
+            assert_object_keys(argument, &["flags", "kind", "source"], "regexp argument");
+            let source = object["source"]
+                .as_str()
+                .expect("regexp source must be text");
+            let flags = object["flags"]
+                .as_str()
+                .expect("regexp flags must be text");
+            assert!(source.len() <= 128 && flags.len() <= 8);
+            assert!(flags.chars().all(|flag| "dgimsuvy".contains(flag)));
+        }
+        "buffer" | "uint8-array" => {
+            assert_object_keys(argument, &["bytes", "kind"], "byte array argument");
+            validate_byte_array(&object["bytes"], "authored argument bytes");
+        }
+        "bigint" => {
+            assert_object_keys(argument, &["kind", "value"], "bigint argument");
+            object["value"]
+                .as_str()
+                .expect("bigint argument must be decimal text")
+                .parse::<i128>()
+                .expect("bigint argument must be bounded decimal text");
+        }
+        "setup-value" => {
+            assert!(allow_setup_value, "setup value used outside its authored setup");
+            assert_object_keys(argument, &["kind", "name"], "setup value argument");
+            assert_eq!(object["name"], "tracked");
+        }
+        other => panic!("unsupported authored builtin argument kind {other}"),
+    }
+}
+
+fn descriptor_is_prototype(descriptor: &BuiltinSourceDescriptor) -> bool {
+    matches!(
+        descriptor.access.kind.as_str(),
+        "prototype-property" | "inherited-prototype-property"
+    )
+}
+
+fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourceDescriptor) {
+    let setup = invocation
+        .setup
+        .as_object()
+        .expect("authored builtin call setup must be an object");
+    let kind = setup["kind"]
+        .as_str()
+        .expect("authored builtin call setup has no kind");
+    let prototype = descriptor_is_prototype(descriptor);
+    let mut allow_setup_value = false;
+    match kind {
+        "root-call" => {
+            assert_object_keys(&invocation.setup, &["kind"], "root call setup");
+            assert!(!prototype, "root call cannot dispatch a prototype surface");
+        }
+        "construct-target" => {
+            assert_object_keys(&invocation.setup, &["kind"], "target constructor setup");
+            if prototype {
+                assert!(descriptor.export_name.ends_with(".constructor"));
+            }
+        }
+        "constructed-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["constructorArguments", "kind", "ownerExportName"],
+                "constructed owner setup",
+            );
+            assert!(prototype);
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("constructed owner name must be text");
+            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            let constructor_arguments = setup["constructorArguments"]
+                .as_array()
+                .expect("constructor arguments must be an array");
+            assert!(constructor_arguments.len() <= 4);
+            for argument in constructor_arguments {
+                validate_authored_argument(argument, false);
+            }
+        }
+        "buffer-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["bytes", "kind", "ownerExportName"],
+                "buffer owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_buffer");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("buffer owner name must be text");
+            assert!(matches!(owner, "Buffer" | "SlowBuffer"));
+            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            validate_byte_array(&setup["bytes"], "buffer receiver bytes");
+        }
+        "call-tracker-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["kind", "ownerExportName", "trackedExpectedCalls"],
+                "CallTracker owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_assert");
+            assert_eq!(setup["ownerExportName"], "CallTracker");
+            assert_eq!(setup["trackedExpectedCalls"], 1);
+            assert_eq!(
+                descriptor.access.path.first().map(String::as_str),
+                Some("CallTracker")
+            );
+            allow_setup_value = true;
+        }
+        other => panic!("unsupported authored builtin setup kind {other}"),
+    }
+    assert!(invocation.arguments.len() <= 8);
+    for argument in &invocation.arguments {
+        validate_authored_argument(argument, allow_setup_value);
+    }
+}
+
+fn expected_template_id(source_key: &str) -> Option<&'static str> {
+    match source_key {
+        "node_assert" => Some("node-assert-bounded-v1"),
+        "node_buffer" => Some("node-buffer-bounded-v1"),
+        "node_events" => Some("node-events-bounded-v1"),
+        "node_path" => Some("node-path-pure-v1"),
+        "node_punycode" => Some("node-punycode-pure-v1"),
+        "node_querystring" => Some("node-querystring-pure-v1"),
+        _ => None,
+    }
+}
+
 fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     let invocation = &probe.invocation;
     let descriptor: BuiltinSourceDescriptor =
@@ -232,28 +424,21 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     assert_eq!(recipe.status, "fully-executable");
     assert_eq!(probe.kind, "public-surface-invocation");
     assert!(!probe.command.is_empty());
-    assert_eq!(
-        invocation.invocation_schema,
-        "ibex/capsec-builtin-export-invocation/1"
-    );
-    assert_eq!(invocation.kind, "builtin-export-read");
-    assert_eq!(invocation.expected_result, "return");
+    let is_read = invocation.invocation_schema == "ibex/capsec-builtin-export-invocation/1"
+        && invocation.kind == "builtin-export-read";
+    let is_call = invocation.invocation_schema == "ibex/capsec-builtin-call-invocation/1"
+        && invocation.kind == "builtin-export-call";
+    assert!(is_read || is_call, "unsupported non-capability builtin probe");
     assert_eq!(invocation.expected_typed_decision_count, 0);
     assert!(invocation.expected_typed_stages.is_empty());
     assert!(invocation.allowed_coverage_edge_ids.is_empty());
     assert!(invocation.expected_action_ids.is_empty());
-    assert!(invocation.arguments.is_empty());
     assert!(invocation.required_authority.is_empty());
-    assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
     assert_eq!(descriptor.kind, "builtin-export");
     assert!(!descriptor.source_key.is_empty());
     assert_ne!(descriptor.source_key, "node_os");
     assert_eq!(descriptor.export_name, invocation.export_name);
     assert!(!descriptor.source_ref.is_empty());
-    assert!(matches!(
-        descriptor.value_shape.as_str(),
-        "accessor" | "data"
-    ));
     if let Some(platforms) = descriptor.platform_availability.as_deref() {
         assert!(!platforms.is_empty());
         assert!(is_sorted_set(platforms));
@@ -274,12 +459,46 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         expected_access(&descriptor).as_ref(),
         Some(&descriptor.access)
     );
-    assert!(matches!(
-        descriptor.access.kind.as_str(),
-        "export-property" | "module-value"
-    ));
-    if descriptor.value_shape == "accessor" {
-        assert_eq!(descriptor.access.kind, "export-property");
+    if is_read {
+        assert_eq!(invocation.expected_result, "return");
+        assert!(invocation.template_id.is_none());
+        assert!(invocation.body_entry_proof.is_none());
+        assert!(invocation.arguments.is_empty());
+        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        assert!(matches!(
+            descriptor.value_shape.as_str(),
+            "accessor" | "data"
+        ));
+        assert!(matches!(
+            descriptor.access.kind.as_str(),
+            "export-property" | "module-value"
+        ));
+        if descriptor.value_shape == "accessor" {
+            assert_eq!(descriptor.access.kind, "export-property");
+        }
+    } else {
+        assert_eq!(invocation.expected_result, "normal-return");
+        assert_eq!(descriptor.value_shape, "callable");
+        assert!(matches!(
+            descriptor.access.kind.as_str(),
+            "export-property"
+                | "module-value"
+                | "prototype-property"
+                | "inherited-prototype-property"
+        ));
+        let expected_template = expected_template_id(&descriptor.source_key)
+            .expect("unsupported non-capability builtin call source");
+        assert_eq!(invocation.template_id.as_deref(), Some(expected_template));
+        let proof = invocation
+            .body_entry_proof
+            .as_ref()
+            .expect("authored builtin call requires a body-entry proof");
+        assert_eq!(proof.kind, "normal-return-from-source-call");
+        assert!(matches!(
+            proof.result_type.as_str(),
+            "bigint" | "boolean" | "function" | "number" | "object" | "string" | "undefined"
+        ));
+        validate_call_setup(invocation, &descriptor);
     }
     assert_eq!(
         probe.surface_observed_key,
@@ -310,8 +529,19 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .filter(|recipe| {
             recipe.status == "fully-executable"
                 && recipe.public_surface_probe.as_ref().is_some_and(|probe| {
-                    probe.invocation.invocation_schema == "ibex/capsec-builtin-export-invocation/1"
-                        && probe.invocation.kind == "builtin-export-read"
+                    matches!(
+                        (
+                            probe.invocation.invocation_schema.as_str(),
+                            probe.invocation.kind.as_str()
+                        ),
+                        (
+                            "ibex/capsec-builtin-export-invocation/1",
+                            "builtin-export-read"
+                        ) | (
+                            "ibex/capsec-builtin-call-invocation/1",
+                            "builtin-export-call"
+                        )
+                    )
                 })
         })
         .inspect(|recipe| validate_probe(recipe, recipe.public_surface_probe.as_ref().unwrap()))
@@ -319,16 +549,11 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
 }
 
 fn invocation_script(invocation: &BuiltinInvocation) -> String {
-    let descriptor: BuiltinSourceDescriptor =
-        serde_json::from_value(invocation.source_descriptor.clone())
-            .expect("non-capability builtin source descriptor must be typed");
-    let access = &descriptor.access;
+    const HARNESS: &str = include_str!("capsec_public_noncap_builtin_invocation.js");
     format!(
-        "JSON.stringify((function(){{var m={};var e={};var access={};var shape={};try{{var value=require(m);var own=Object.prototype.hasOwnProperty;if(access.kind!==\"module-value\"){{for(var i=0;i<access.path.length;i++){{var key=access.path[i];if(value===null||(typeof value!==\"object\"&&typeof value!==\"function\"))return {{kind:\"missing\",moduleSpecifier:m,exportName:e,segment:key,available:[]}};if(!own.call(value,key))return {{kind:\"missing\",moduleSpecifier:m,exportName:e,segment:key,available:Object.getOwnPropertyNames(value).slice(0,32)}};if(i===access.path.length-1){{var propertyDescriptor=Object.getOwnPropertyDescriptor(value,key);if(shape===\"accessor\"&&(!propertyDescriptor||typeof propertyDescriptor.get!==\"function\"))return {{kind:\"shape-mismatch\",moduleSpecifier:m,exportName:e,expectedShape:shape}};if(shape===\"data\"&&(!propertyDescriptor||!(\"value\" in propertyDescriptor)))return {{kind:\"shape-mismatch\",moduleSpecifier:m,exportName:e,expectedShape:shape}};}}value=value[key];}}}}if(shape===\"data\"&&typeof value===\"function\")return {{kind:\"shape-mismatch\",moduleSpecifier:m,exportName:e,expectedShape:shape,actualType:typeof value}};return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
-        serde_json::to_string(&invocation.module_specifier).expect("serialize builtin module"),
-        serde_json::to_string(&invocation.export_name).expect("serialize builtin export"),
-        serde_json::to_string(access).expect("serialize builtin access path"),
-        serde_json::to_string(&descriptor.value_shape).expect("serialize builtin value shape")
+        "JSON.stringify(({})({}))",
+        HARNESS.trim(),
+        serde_json::to_string(invocation).expect("serialize authored builtin invocation")
     )
 }
 
@@ -349,20 +574,20 @@ async fn execute_recipe(
     let encoded = engine
         .eval_immediate(&invocation_script(&probe.invocation))
         .await
-        .expect("execute public builtin read")
-        .expect("public builtin read returned no result");
+        .expect("execute public builtin probe")
+        .expect("public builtin probe returned no result");
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("public builtin returned invalid JSON");
     if invocation_result["kind"] != "return" {
         return Err(format!(
-            "{}: public export read failed: {invocation_result}",
+            "{}: public builtin probe failed: {invocation_result}",
             recipe.fixture_id
         ));
     }
     if !legacy.is_empty() || !typed.is_empty() {
         return Err(format!(
-            "{}: non-capability export read observed {} legacy and {} typed decisions",
+            "{}: non-capability builtin probe observed {} legacy and {} typed decisions",
             recipe.fixture_id,
             legacy.len(),
             typed.len()
@@ -426,7 +651,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     let recipes = noncap_builtin_recipes(&catalog);
     assert!(
         !recipes.is_empty(),
-        "recipe catalog contains no non-capability builtin reads"
+        "recipe catalog contains no non-capability builtin probes"
     );
     let builtin_imports = recipes
         .iter()
@@ -451,7 +676,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     assert_ne!(crate::host::abi::install_host(host), 0);
     let _reset = HostResetGuard;
     let identity_before = HermesEngine::loaded_engine_identity()
-        .expect("attest exact loaded Hermes before noncap builtin public recipes");
+        .expect("attest exact loaded Hermes before noncap builtin public probes");
     let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
         .expect("create exact noncap builtin engine");
     engine
@@ -467,7 +692,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         }
         if index % 256 == 255 {
             eprintln!(
-                "CapSec public non-capability builtin reads passed: {}/{}",
+                "CapSec public non-capability builtin probes passed: {}/{}",
                 index + 1,
                 recipes.len()
             );
@@ -475,17 +700,17 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     }
     assert!(
         failures.is_empty(),
-        "{} non-capability builtin public reads failed:\n{}",
+        "{} non-capability builtin public probes failed:\n{}",
         failures.len(),
         failures.join("\n")
     );
     executions.sort_by(|left, right| left["fixtureId"].as_str().cmp(&right["fixtureId"].as_str()));
     assert_eq!(executions.len(), recipes.len());
     let identity_after = HermesEngine::loaded_engine_identity()
-        .expect("attest exact loaded Hermes after noncap builtin public recipes");
+        .expect("attest exact loaded Hermes after noncap builtin public probes");
     assert_eq!(identity_after, identity_before);
     ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
-        .expect("re-verify mapped Hermes after noncap builtin public recipes");
+        .expect("re-verify mapped Hermes after noncap builtin public probes");
     let artifact = PublicBatchArtifact {
         public_batch_evidence_schema: "ibex/capsec-public-batch-evidence/1",
         recipe_catalog_digest: catalog.recipe_catalog_digest,
@@ -501,6 +726,88 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
         .expect("serialize noncap builtin public evidence artifact");
     output.write_all(b"\n").expect("finish builtin evidence");
     output.sync_all().expect("sync builtin evidence artifact");
+}
+
+fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocation {
+    BuiltinInvocation {
+        invocation_schema: "ibex/capsec-builtin-call-invocation/1".to_owned(),
+        kind: "builtin-export-call".to_owned(),
+        module_specifier: "node:path".to_owned(),
+        export_name: "basename".to_owned(),
+        source_descriptor: serde_json::json!({
+            "kind": "builtin-export",
+            "sourceKey": "node_path",
+            "exportName": "basename",
+            "exportIdioms": ["object-binding", "object-source"],
+            "moduleSpecifiers": ["node:path", "path"],
+            "sourceRef": "src/builtins/path.js#exports:basename",
+            "valueShape": "callable",
+            "access": {"kind": "export-property", "path": ["basename"]},
+        }),
+        source_descriptor_digest: "test-only".to_owned(),
+        template_id: Some("node-path-pure-v1".to_owned()),
+        arguments: vec![argument],
+        setup: serde_json::json!({"kind": "root-call"}),
+        body_entry_proof: Some(BodyEntryProof {
+            kind: "normal-return-from-source-call".to_owned(),
+            result_type: "string".to_owned(),
+        }),
+        required_authority: Vec::new(),
+        expected_result: "normal-return".to_owned(),
+        expected_typed_decision_count: 0,
+        expected_typed_stages: Vec::new(),
+        allowed_coverage_edge_ids: Vec::new(),
+        expected_action_ids: Vec::new(),
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn authored_call_harness_never_counts_a_throw_as_body_entry() {
+    let _lock = hermes_engine_test_lock().lock().await;
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+            snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:path"]);
+        });
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    let _reset = HostResetGuard;
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&digest))
+        .expect("create exact authored-call marker engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact authored-call marker runtime");
+
+    let invalid = path_basename_call_invocation(serde_json::json!({
+        "kind": "json",
+        "value": null,
+    }));
+    let invalid_encoded = engine
+        .eval_immediate(&invocation_script(&invalid))
+        .await
+        .expect("execute invalid authored call")
+        .expect("invalid authored call returned no result");
+    let invalid_result: serde_json::Value =
+        serde_json::from_str(&invalid_encoded).expect("invalid call result must be JSON");
+    assert_eq!(invalid_result["kind"], "throw");
+    assert!(invalid_result.get("bodyEntryProof").is_none());
+
+    let valid = path_basename_call_invocation(serde_json::json!({
+        "kind": "json",
+        "value": "/ibex/file.txt",
+    }));
+    let valid_encoded = engine
+        .eval_immediate(&invocation_script(&valid))
+        .await
+        .expect("execute valid authored call")
+        .expect("valid authored call returned no result");
+    let valid_result: serde_json::Value =
+        serde_json::from_str(&valid_encoded).expect("valid call result must be JSON");
+    assert_eq!(valid_result["kind"], "return");
+    assert_eq!(
+        valid_result["bodyEntryProof"],
+        "normal-return-from-source-call"
+    );
+    assert_eq!(valid_result["valueType"], "string");
 }
 
 #[tokio::test(flavor = "current_thread")]

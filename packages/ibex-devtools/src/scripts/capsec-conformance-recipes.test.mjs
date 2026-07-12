@@ -419,6 +419,62 @@ describe("exact-target CapSec executable recipes", () => {
     expect(moduleLoader.residualReasons).toEqual([]);
   });
 
+  test("authors bounded normal-return calls for exact non-capability families", () => {
+    const publicCalls = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1",
+    );
+    expect(publicCalls.length).toBeGreaterThan(200);
+    expect(
+      new Set(
+        publicCalls.map(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceKey,
+        ),
+      ),
+    ).toEqual(
+      new Set([
+        "node_assert",
+        "node_buffer",
+        "node_events",
+        "node_path",
+        "node_punycode",
+        "node_querystring",
+      ]),
+    );
+    expect(
+      publicCalls.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.publicSurfaceProbe.invocation.kind ===
+            "builtin-export-call" &&
+          recipe.publicSurfaceProbe.invocation.expectedResult ===
+            "normal-return" &&
+          recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
+            "normal-return-from-source-call" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0,
+      ),
+    ).toBe(true);
+    expect(
+      publicCalls.some((recipe) =>
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.access.kind.includes(
+          "prototype",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      publicCalls.some(
+        (recipe) =>
+          recipe.publicSurfaceProbe.surfaceObservedKey ===
+          "builtin:export:node_assert:fail",
+      ),
+    ).toBe(false);
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>
