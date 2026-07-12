@@ -2662,6 +2662,11 @@ mod tests {
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_public_closed_batch {
+        include!("capsec_public_closed_batch.rs");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_public_target_absence_batch {
         include!("capsec_public_target_absence_batch.rs");
     }

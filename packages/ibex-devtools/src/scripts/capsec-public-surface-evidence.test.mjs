@@ -291,6 +291,115 @@ function absenceRuntimeObservation(recipe, symbolPresent = false) {
   };
 }
 
+function completeClosedCatalog() {
+  const sourceDescriptor = {
+    kind: "closed-startup-environment",
+    environmentName: "EX_SKIP_STARTUP_MODULE_LOADER",
+    sourceRefs: [
+      "src/engine/hermes_bootstrap.cc#env_flag_enabled:EX_SKIP_STARTUP_MODULE_LOADER:read",
+    ],
+    sourceMetadata: {
+      evidenceType: "static-runtime-environment-control",
+      authoredNames: ["EX_SKIP_STARTUP_MODULE_LOADER"],
+    },
+  };
+  const recipe = {
+    fixtureId: "fixture.startup.closed",
+    planDigest: "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    classification: "closed",
+    scenario: "closed",
+    edgeIds: ["edge.closed"],
+    implementationBranchIds: ["edge.closed.main"],
+    enforcementBranchIds: ["edge.closed.main"],
+    actionIds: [],
+    terminalObservedKey: "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "edge.closed.main",
+    },
+    route: {
+      surfaceObservedKeys: ["startup:env:EX_SKIP_STARTUP_MODULE_LOADER"],
+      alternatives: [
+        {
+          terminalObservedKey:
+            "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
+          proofPaths: ["startup:env:EX_SKIP_STARTUP_MODULE_LOADER"],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
+      command: ["ibex", "capsec-public-closed"],
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        surfaceKind: "startup",
+        surfaceName: "env:EX_SKIP_STARTUP_MODULE_LOADER",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: {
+          kind: "startup-environment",
+          environmentName: "EX_SKIP_STARTUP_MODULE_LOADER",
+        },
+        expectedResult: "closed",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes: [recipe],
+    summary: {
+      requiredFixtures: 1,
+      fullyExecutableFixtures: 1,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { closed: 1 },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "closed",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        mechanism: invocation.operation.kind,
+        errorName: "ClosedSurface",
+        errorMessage:
+          "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER",
+        engineExecuted: false,
+        projectCodeExecuted,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 describe("CapSec public-surface promotion evidence", () => {
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
@@ -372,6 +481,27 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not prove absence/);
+  });
+
+  test("accepts a closed surface only when project code did not execute", () => {
+    const catalog = completeClosedCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe, true),
+        coverage,
+      }),
+    ).toThrow(/did not fail closed/);
   });
 
   test("rejects adapter-only evidence explicitly", () => {

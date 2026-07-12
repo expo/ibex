@@ -250,6 +250,23 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: target-absence runtime invocation descriptor drift`,
       );
     }
+  } else if (
+    invocation?.invocationSchema === "ibex/capsec-closed-surface-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceKind", "surfaceName"],
+      `${recipe.fixtureId}: closed-surface runtime invocation`,
+    );
+    if (
+      invocation.kind !== "closed-surface" ||
+      invocation.surfaceKind !== authored.surfaceKind ||
+      invocation.surfaceName !== authored.surfaceName
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
+      );
+    }
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported runtime invocation schema`);
   }
@@ -329,6 +346,48 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.symbolPresent !== false
     ) {
       throw new Error(`${recipe.fixtureId}: target-absence probe did not prove absence`);
+    }
+  } else if (authored.expectedResult === "closed") {
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "surfaceKind",
+        "surfaceName",
+        "mechanism",
+        "errorName",
+        "errorMessage",
+        "engineExecuted",
+        "projectCodeExecuted",
+      ],
+      `${recipe.fixtureId}: closed-surface runtime result`,
+    );
+    if (
+      invocation.result.kind !== "closed" ||
+      invocation.result.surfaceKind !== authored.surfaceKind ||
+      invocation.result.surfaceName !== authored.surfaceName ||
+      invocation.result.mechanism !== authored.operation?.kind ||
+      invocation.result.errorName !== "ClosedSurface" ||
+      typeof invocation.result.errorMessage !== "string" ||
+      invocation.result.errorMessage.length === 0 ||
+      typeof invocation.result.engineExecuted !== "boolean" ||
+      invocation.result.projectCodeExecuted !== false
+    ) {
+      throw new Error(`${recipe.fixtureId}: public closed surface did not fail closed`);
+    }
+    if (
+      authored.operation?.kind === "startup-environment" &&
+      (invocation.result.engineExecuted !== false ||
+        !invocation.result.errorMessage.includes(
+          "rejects closed environment controls",
+        ) ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.environmentName,
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: closed startup control reached engine execution or the wrong rejection`,
+      );
     }
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported expected public result`);

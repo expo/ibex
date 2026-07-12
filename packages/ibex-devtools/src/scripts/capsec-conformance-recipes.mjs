@@ -18,6 +18,7 @@ import { canonicalJson } from "./capsec-contract.mjs";
 import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
 import { authoredNonCapabilityBuiltinProbe } from "./capsec-builtin-public-probe-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
+import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
@@ -804,6 +805,13 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
       liveByObservedKey,
     });
+    const closedPublicSurfaceProbe = authoredClosedPublicProbe({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+      coverageByObservedKey,
+    });
     const effectBuiltinPublicSurfaceProbe = authoredBuiltinPublicProbe({
       plan,
       scenario,
@@ -826,6 +834,7 @@ export function buildConformanceRecipeCatalog({
     });
     const authoredPublicSurfaceProbes = [
       targetAbsenceProbe,
+      closedPublicSurfaceProbe,
       effectBuiltinPublicSurfaceProbe,
       nonCapabilityBuiltinPublicSurfaceProbe,
       nativePublicSurface.probe,

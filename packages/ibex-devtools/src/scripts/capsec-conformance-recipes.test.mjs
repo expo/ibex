@@ -317,6 +317,56 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
+  test("binds closed startup environment controls to the production entry", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "startup-environment",
+    );
+    expect(rows).toHaveLength(19);
+    expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
+    );
+    const moduleLoader = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.operation.environmentName ===
+        "EX_SKIP_STARTUP_MODULE_LOADER",
+    );
+    expect(moduleLoader.publicSurfaceProbe).toMatchObject({
+      kind: "public-surface-invocation",
+      surfaceObservedKey: "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
+      command: [
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--features",
+        "capsec-conformance-observer",
+        "capsec_public_closed_recipe_batch",
+        "--",
+        "--test-threads=1",
+      ],
+      invocation: {
+        invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+        kind: "closed-surface",
+        sourceDescriptor: {
+          kind: "closed-startup-environment",
+          environmentName: "EX_SKIP_STARTUP_MODULE_LOADER",
+          sourceRefs: [
+            "src/engine/hermes_bootstrap.cc#env_flag_enabled:EX_SKIP_STARTUP_MODULE_LOADER:read",
+          ],
+        },
+        operation: {
+          kind: "startup-environment",
+          environmentName: "EX_SKIP_STARTUP_MODULE_LOADER",
+        },
+        expectedResult: "closed",
+        expectedTypedDecisionCount: 0,
+      },
+    });
+    expect(moduleLoader.residualReasons).toEqual([]);
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>
