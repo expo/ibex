@@ -71,6 +71,15 @@ pub(crate) struct BuiltinManifestRegistration {
     source_key: &'static str,
 }
 
+/// Whether the generated builtin manifest owns this exact public specifier.
+/// @ref LLP 0004#one-source-many-specifiers — every authored alias belongs to
+/// the builtin import axis even when it is not spelled with a `node:` prefix.
+pub(crate) fn is_registered_builtin_specifier(specifier: &str) -> bool {
+    BUILTIN_MANIFEST_REGISTRATIONS
+        .iter()
+        .any(|registration| registration.specifier == specifier)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BuiltinManifestDebugEntry {
     pub specifier: &'static str,

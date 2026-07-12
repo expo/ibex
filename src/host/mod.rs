@@ -2856,7 +2856,10 @@ fn typed_import_allowed(
     ) {
         return false;
     }
-    if crate::module_loader::RUNTIME_GATED_NODE_BUILTINS.contains(&builtin_root) {
+    if crate::module_loader::is_registered_builtin_specifier(specifier) {
+        if !crate::module_loader::RUNTIME_GATED_NODE_BUILTINS.contains(&builtin_root) {
+            return policy.builtins.iter().any(|allowed| allowed == specifier);
+        }
         return policy.builtins.iter().any(|allowed| {
             let allowed = allowed.strip_prefix("node:").unwrap_or(allowed);
             allowed.split('/').next().unwrap_or(allowed) == builtin_root
@@ -3722,6 +3725,54 @@ mod tests {
             "worker_threads",
         ] {
             assert!(!host.check_import("7", specifier), "{specifier}");
+        }
+    }
+
+    #[test]
+    fn armed_import_axis_recognizes_every_exact_generated_builtin_alias() {
+        let allowed = [
+            "bun:sqlite",
+            "exact:clipboard",
+            "exact:sqlite",
+            "internal/fs/utils",
+            "ws",
+        ];
+        let host = example_armed_host_with(|value| {
+            value["principals"][1]["imports"]["builtins"] = serde_json::json!([
+                "bun:sqlite",
+                "exact:clipboard",
+                "exact:sqlite",
+                "internal/fs/utils",
+                "made-up-builtin",
+                "ws"
+            ]);
+        });
+        host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
+        for specifier in allowed {
+            assert!(host.check_import("7", specifier), "{specifier}");
+        }
+        for specifier in [
+            "exact:clipboard/subpath",
+            "internal/fs/unknown",
+            "made-up-builtin",
+        ] {
+            assert!(!host.check_import("7", specifier), "{specifier}");
+        }
+
+        let denied = example_armed_host_with(|_| {});
+        denied.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
+        for specifier in allowed {
+            assert!(!denied.check_import("7", specifier), "{specifier}");
         }
     }
 
