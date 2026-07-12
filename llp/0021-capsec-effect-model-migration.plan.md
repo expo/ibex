@@ -677,6 +677,12 @@ Acceptance:
   ordinary handle.
 - Closed rows have denial/absence fixtures on every advertised target.
 
+Implementation status (2026-07-11): the armed host decodes explicit builtin
+and package import axes from the authenticated snapshot. Numeric engine module
+IDs bind only to a matching package name plus locator from that snapshot;
+unknown or mismatched registrations fail closed. Root and package import checks
+therefore no longer consult `PolicyFile` once armed.
+
 ### WP8 — Port handles, dynamic authority, and audit evidence
 
 Rebase attenuated handles, revocation cascades, dynamic permission ceilings,

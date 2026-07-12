@@ -23,7 +23,7 @@ pub mod policy;
 pub mod process;
 
 use crate::module_loader::{ModuleLoader, ResolvedModule};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, RwLock};
 
@@ -128,6 +128,13 @@ pub struct Host {
     /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
     decision_context: Option<Arc<capsec_semantics::decision::VerifiedDecisionContext>>,
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
+    typed_imports: Arc<
+        BTreeMap<
+            capsec_semantics::model::Principal,
+            capsec_semantics::arming::PrincipalImportPolicy,
+        >,
+    >,
+    typed_module_principals: Arc<RwLock<HashMap<String, capsec_semantics::model::Principal>>>,
 }
 
 impl Host {
@@ -206,6 +213,8 @@ impl Host {
             typed_evidence: Arc::new(RwLock::new(VecDeque::with_capacity(
                 MAX_TYPED_EVIDENCE_ENTRIES,
             ))),
+            typed_imports: Arc::new(BTreeMap::new()),
+            typed_module_principals: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -240,9 +249,11 @@ impl Host {
             )),
         )?;
         let decision_context = Arc::new(armed_snapshot.decision_context(profile.definitions)?);
+        let typed_imports = Arc::new(armed_snapshot.import_policies()?);
         let mut host = Self::new(config);
         host.armed_snapshot = Some(armed_snapshot);
         host.decision_context = Some(decision_context);
+        host.typed_imports = typed_imports;
         Ok(host)
     }
 
@@ -453,6 +464,22 @@ impl Host {
     /// frame's Domain packageId (engine truth, not a forgeable thread-local).
     pub fn register_module_package(&self, module_id: &str, package: &str, locator: Option<&str>) {
         if self.decision_context.is_some() {
+            let matched = self.typed_imports.keys().find(|principal| match principal {
+                capsec_semantics::model::Principal::Package {
+                    name,
+                    locator: armed_locator,
+                    ..
+                } => {
+                    name.as_str() == package
+                        && locator.is_some_and(|value| value == armed_locator.as_str())
+                }
+                _ => false,
+            });
+            if let (Some(principal), Ok(mut mappings)) =
+                (matched, self.typed_module_principals.write())
+            {
+                mappings.insert(module_id.to_owned(), principal.clone());
+            }
             return;
         }
         self.capability_manager
@@ -467,7 +494,24 @@ impl Host {
     /// proceed under the active mode (audit logs but allows).
     pub fn check_import(&self, module_id: &str, specifier: &str) -> bool {
         if self.decision_context.is_some() {
-            return false;
+            let principal = if module_id == "0" {
+                self.typed_imports
+                    .keys()
+                    .find(|principal| principal.is_root())
+                    .cloned()
+            } else {
+                self.typed_module_principals
+                    .read()
+                    .ok()
+                    .and_then(|mappings| mappings.get(module_id).cloned())
+            };
+            let Some(principal) = principal else {
+                return false;
+            };
+            let Some(policy) = self.typed_imports.get(&principal) else {
+                return false;
+            };
+            return typed_import_allowed(policy, specifier);
         }
         self.capability_manager.check_import(module_id, specifier)
     }
@@ -542,6 +586,44 @@ fn classify_network_peer(
         IpAddr::V6(address) if is_reserved_v6(address) => PeerClass::Reserved,
         _ => PeerClass::Public,
     })
+}
+
+fn typed_import_allowed(
+    policy: &capsec_semantics::arming::PrincipalImportPolicy,
+    specifier: &str,
+) -> bool {
+    let without_node = specifier.strip_prefix("node:").unwrap_or(specifier);
+    let builtin_root = without_node.split('/').next().unwrap_or(without_node);
+    if crate::module_loader::RUNTIME_GATED_NODE_BUILTINS.contains(&builtin_root) {
+        return policy.builtins.iter().any(|allowed| {
+            let allowed = allowed.strip_prefix("node:").unwrap_or(allowed);
+            allowed.split('/').next().unwrap_or(allowed) == builtin_root
+        });
+    }
+
+    let requested_package = package_name_from_specifier(specifier);
+    policy.packages.iter().any(|allowed| {
+        allowed == specifier || package_name_from_specifier(allowed) == requested_package
+    })
+}
+
+fn package_name_from_specifier(specifier: &str) -> &str {
+    if specifier.starts_with('@') {
+        let Some(slash) = specifier.find('/') else {
+            return specifier;
+        };
+        let package_end = specifier[slash + 1..]
+            .find(['/', '@'])
+            .map(|relative| slash + 1 + relative)
+            .unwrap_or(specifier.len());
+        return &specifier[..package_end];
+    }
+    let root = specifier.split('/').next().unwrap_or(specifier);
+    if let Some(version) = root.find('@') {
+        &root[..version]
+    } else {
+        root
+    }
 }
 
 fn is_metadata_peer(address: IpAddr) -> bool {
@@ -709,6 +791,16 @@ mod tests {
         assert!(!host.check_capability("0", "fs:read:/anything"));
         assert!(!host.check_capability_stack(&["0"], "fs:read:/anything"));
         assert!(!host.check_import("0", "node:fs"));
+        assert!(host.check_import("0", "image-lib"));
+        assert!(host.check_import("0", "image-lib/subpath"));
+        assert!(!host.check_import("0", "other-lib"));
+        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        assert!(host.check_import("7", "node:fs"));
+        assert!(host.check_import("7", "node:fs/promises"));
+        assert!(!host.check_import("7", "node:http"));
+        assert!(!host.check_import("7", "other-lib"));
+        host.register_module_package("8", "image-lib", Some("image-lib@9.9.9"));
+        assert!(!host.check_import("8", "node:fs"));
         assert!(!host.runtime_grant_root("fs:read:/anything"));
         assert_eq!(host.grant_status("fs:read:/anything"), 0);
         let principal = serde_json::json!({

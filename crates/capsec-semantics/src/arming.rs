@@ -48,6 +48,13 @@ pub struct SnapshotGenerations {
     pub handle: Generation,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrincipalImportPolicy {
+    pub builtins: Vec<String>,
+    pub packages: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ArmedSnapshot {
     document: Arc<Value>,
@@ -263,6 +270,23 @@ impl ArmedSnapshot {
         })
     }
 
+    /// Immutable import axes keyed by the same integrity-bound principals used
+    /// by effect decisions.
+    pub fn import_policies(&self) -> Result<BTreeMap<Principal, PrincipalImportPolicy>> {
+        let principal_rows: Vec<SnapshotPrincipalRow> =
+            serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
+                .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
+        let mut policies = BTreeMap::new();
+        for row in principal_rows {
+            require_sorted_unique_strings(&row.imports.builtins, "builtin imports")?;
+            require_sorted_unique_strings(&row.imports.packages, "package imports")?;
+            if policies.insert(row.principal, row.imports).is_some() {
+                return refused("armed snapshot contains a duplicate principal import policy");
+            }
+        }
+        Ok(policies)
+    }
+
     /// Arm the neutral decision evaluator directly from the authenticated
     /// snapshot and a validated product definition set.
     pub fn decision_context(&self, definitions: DefinitionSet) -> Result<VerifiedDecisionContext> {
@@ -287,8 +311,7 @@ struct SnapshotPrincipalRow {
     floor: Vec<AuthoritySelector>,
     denials: Vec<AuthoritySelector>,
     escalation_ceiling: Vec<AuthoritySelector>,
-    #[allow(dead_code)]
-    imports: Value,
+    imports: PrincipalImportPolicy,
     #[allow(dead_code)]
     endowments: Vec<String>,
 }
@@ -334,6 +357,13 @@ fn bind_authorities(
 
 fn digest_field(value: &Value, field: &str) -> Result<Digest> {
     Digest::new(required_str(value, field)?).map_err(Error::InvalidModel)
+}
+
+fn require_sorted_unique_strings(values: &[String], label: &str) -> Result<()> {
+    if values.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return refused(format!("{label} must be sorted and unique"));
+    }
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -461,6 +491,14 @@ mod tests {
             authority.process_ceiling,
             AuthorityCeiling::Unbounded
         ));
+        let imports = armed.import_policies().unwrap();
+        let package_imports = imports
+            .iter()
+            .find(|(principal, _)| principal.is_package())
+            .map(|(_, policy)| policy)
+            .unwrap();
+        assert_eq!(package_imports.builtins, ["node:fs"]);
+        assert!(package_imports.packages.is_empty());
 
         let profile = crate::registry::ValidatedProfile::from_json(
             include_bytes!(concat!(
