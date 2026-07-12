@@ -4189,6 +4189,57 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn fs_enqueue_exception_releases_runtime_pin_before_destroy() {
+        struct EnvReset;
+        impl Drop for EnvReset {
+            fn drop(&mut self) {
+                std::env::remove_var("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+            }
+        }
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let file = tempdir.path().join("read.txt");
+        fs::write(&file, b"data").unwrap();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let engine = HermesEngine::new().unwrap();
+        // The closed-startup check has already run. This control exists only
+        // for deterministic post-construction native failure injection.
+        std::env::set_var("IBEX_TEST_FS_WORKER_THROW_ENQUEUE", "1");
+        let _reset = EnvReset;
+        engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__enqueueFailure = 'pending';
+                  __exactFsReadFileAsync({:?}, 'r', 0).then(
+                    function() {{ globalThis.__enqueueFailure = 'unexpected-success'; }},
+                    function() {{ globalThis.__enqueueFailure = 'rejected'; }}
+                  );
+                  return 'started';
+                }})()"#,
+                file.to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+        std::env::remove_var("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let destroy = std::thread::spawn(move || {
+            shared.shutdown();
+            let _ = done_tx.send(());
+        });
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("enqueue failure must not leave destroy waiting on a leaked worker pin");
+        destroy.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn diagnostic_allow_all_cannot_use_or_close_an_armed_runtime_fd_or_socket() {
         let _guard = hermes_engine_test_lock().lock().await;
         let tempdir = tempfile::tempdir().unwrap();

@@ -6299,6 +6299,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_ARMED_CREATE_PAUSE_MS",
     "env:IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
     "env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
+    "env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
     "env:LINES",
     "env:NODE_CHANNEL_FD",
@@ -9373,6 +9374,7 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
   "IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
   "IBEX_TEST_FS_WORKER_MAX_QUEUE",
+  "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
 ]);
 
 const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
@@ -11359,6 +11361,9 @@ function embedderAbiClassification(name) {
     ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
+    if (name === "exhermescurrentruntimenonce") {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
     if (
       new Set([
         "exhermescallbackbacklog",
@@ -11516,7 +11521,7 @@ function hostAbiClassification(name) {
         lifetimeContract: "listener",
       });
     }
-    if (new Set(["exhosthttpcleanup_runtime", "exhosthttpcleanupruntime", "exhosthttpclose"]).has(name)) {
+    if (/^exhosthttp(?:cleanup_runtime|cleanupruntime|close)$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP6");
     }
     if (

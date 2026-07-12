@@ -22,6 +22,7 @@
 #include <new>
 #include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/poll.h>
 #include <sys/resource.h>
@@ -1342,6 +1343,21 @@ struct FsAsyncResult {
   double tooLargeSize = 0;
 };
 
+class FsAsyncLifetime {
+ public:
+  explicit FsAsyncLifetime(ExactHermesRuntime* handle) : handle_(handle) {}
+  void activate() noexcept { active_ = true; }
+  ~FsAsyncLifetime() {
+    if (!active_) return;
+    handle_->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
+    exactUnpinRuntimeNativeWorker(handle_);
+  }
+
+ private:
+  ExactHermesRuntime* handle_;
+  bool active_{false};
+};
+
 static FsAsyncResult fsAsyncOk(FsAsyncResult::Kind kind = FsAsyncResult::Kind::Undefined) {
   FsAsyncResult result;
   result.ok = true;
@@ -1376,6 +1392,10 @@ class FsWorkerPool {
   }
 
   bool enqueue(std::function<void()> job, std::string& error) {
+    if (const char* fail = std::getenv("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
+        fail && std::strcmp(fail, "1") == 0) {
+      throw std::runtime_error("injected FS worker enqueue failure");
+    }
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (queue_.size() >= maxQueue()) {
@@ -1415,20 +1435,25 @@ class FsWorkerPool {
       return;
     }
     total_ += 1;
-    std::thread([this]() {
-      for (;;) {
-        std::function<void()> job;
-        {
-          std::unique_lock<std::mutex> lock(mutex_);
-          idle_ += 1;
-          cv_.wait(lock, [this] { return !queue_.empty(); });
-          idle_ -= 1;
-          job = std::move(queue_.front());
-          queue_.pop_front();
+    try {
+      std::thread([this]() {
+        for (;;) {
+          std::function<void()> job;
+          {
+            std::unique_lock<std::mutex> lock(mutex_);
+            idle_ += 1;
+            cv_.wait(lock, [this] { return !queue_.empty(); });
+            idle_ -= 1;
+            job = std::move(queue_.front());
+            queue_.pop_front();
+          }
+          job();
         }
-        job();
-      }
-    }).detach();
+      }).detach();
+    } catch (...) {
+      total_ -= 1;
+      throw;
+    }
   }
 };
 
@@ -1518,20 +1543,13 @@ static facebook::jsi::Value startFsAsync(
         auto reject =
             std::make_shared<facebook::jsi::Function>(args[1].asObject(rt).asFunction(rt));
 
-        if (!exactPinRuntimeNativeWorker(handle)) {
-          throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
-        }
-        // Mark the op in flight before dispatching so the event loop stays
-        // alive across the worker call even with no other pending work.
-        handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
-
         std::string enqueueError;
         auto resultPtr = std::make_shared<FsAsyncResult>();
-        bool queued = FsWorkerPool::instance().enqueue(
+        auto lifetime = std::make_shared<FsAsyncLifetime>(handle);
+        std::function<void()> worker =
             [handle, principal, principalStack, workPtr, resolve, reject,
-             resultPtr]() mutable {
-              auto workerPin = std::unique_ptr<ExactHermesRuntime, void (*)(ExactHermesRuntime*)>(
-                  handle, exactUnpinRuntimeNativeWorker);
+             resultPtr, lifetime]() mutable {
+              try {
               // shared_ptr wrapper: std::function requires a copyable callable,
               // and a readFile result can be hundreds of MB — share it instead
               // of copying, and move the bytes into the JS heap at delivery.
@@ -1620,16 +1638,35 @@ static facebook::jsi::Value startFsAsync(
                       }
                     }
                   }, &delivered);
-              handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
               if (!delivered && resultPtr->ok && resultPtr->registerOpenedFd) {
                 ::close(static_cast<int>(resultPtr->number));
                 if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
               }
-            },
-            enqueueError);
+              } catch (...) {
+                // No exception may escape an immortal detached worker. The
+                // result's openedFdGuard closes any unpublished descriptor,
+                // while FsAsyncLifetime releases keepalive + runtime pin.
+                *workPtr = {};
+              }
+            };
+
+        if (!exactPinRuntimeNativeWorker(handle)) {
+          throw facebook::jsi::JSError(rt, "FS async: runtime is shutting down");
+        }
+        // Activate the noexcept shared guard immediately after the pin/count.
+        // Any later allocation, queue insertion, or exception releases both.
+        handle->pending_fs_ops.fetch_add(1, std::memory_order_relaxed);
+        lifetime->activate();
+
+        bool queued = false;
+        try {
+          queued = FsWorkerPool::instance().enqueue(std::move(worker), enqueueError);
+        } catch (const std::exception& error) {
+          enqueueError = error.what();
+        } catch (...) {
+          enqueueError = "FS worker enqueue failed";
+        }
         if (!queued) {
-          handle->pending_fs_ops.fetch_sub(1, std::memory_order_relaxed);
-          exactUnpinRuntimeNativeWorker(handle);
           if (onEnqueueFailure) onEnqueueFailure();
           // The Promise may retain its executor (and therefore workPtr) after
           // synchronous rejection. No worker owns this callable because

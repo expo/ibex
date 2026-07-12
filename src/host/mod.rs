@@ -1641,10 +1641,14 @@ impl Host {
                 return false;
             };
             if is_module_path_specifier(specifier) {
-                // Root may select a first-party entry/path. Package path loads
-                // are authorized only after resolution against exact graph
-                // principals in `resolve_module_meta_for_principal`.
-                return principal.is_root();
+                // A raw relative/absolute spelling has no trustworthy target
+                // principal yet. Defer (without granting an edge) to
+                // `resolve_module_meta_for_principal`, which authenticates the
+                // exact resolved root/object and permits only same-principal
+                // paths or an explicit graph edge. Returning false here broke
+                // every package's own `require('./submodule')` before that
+                // authoritative post-resolution check could run.
+                return true;
             }
             return typed_import_allowed(policy, specifier);
         }
@@ -1715,10 +1719,16 @@ impl Host {
                 let root = meta.package_root.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("authenticated package module has no package root")
                 })?;
+                let components = host_path_components(path)?;
+                let principal = snapshot
+                    .owner_for_host_components(&components)?
+                    .ok_or_else(|| anyhow::anyhow!("authenticated package source has no owner"))?;
+                let binding = snapshot.root_binding_for_host_components(&principal, &components)?;
                 let bytes = crate::module_loader::authenticated_package_source(
                     root,
                     path,
                     expected_integrity,
+                    &binding.object,
                 )
                 .with_context(|| {
                     format!("failed to reauthenticate package source {}", path.display())
@@ -1780,19 +1790,63 @@ impl Host {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
-        let mut meta = self.module_loader.resolve_meta(specifier, referrer)?;
+        let armed_resolution = if let Some(snapshot) = self.armed_snapshot.as_deref() {
+            let root_principal = self
+                .typed_imports
+                .keys()
+                .find(|principal| principal.is_root())
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
+            let requester = if let Some(module) = requester_module_id {
+                self.typed_principal_for_module(module).ok_or_else(|| {
+                    anyhow::anyhow!("module resolution has no authenticated requesting principal")
+                })?
+            } else if let Some(referrer) = referrer {
+                let absolute = lexical_absolute_path(referrer)?;
+                let components = host_path_components(&absolute)?;
+                let principal = snapshot
+                    .owner_for_host_components(&components)?
+                    .unwrap_or_else(|| root_principal.clone());
+                let binding = snapshot.root_binding_for_host_components(&principal, &components)?;
+                validate_armed_binding_object(&binding)?;
+                principal
+            } else {
+                root_principal.clone()
+            };
+            let plan = preflight_armed_module_resolution(
+                snapshot,
+                &self.typed_imports,
+                &root_principal,
+                &requester,
+                specifier,
+                referrer,
+                self.module_loader.is_builtin_specifier(specifier),
+            )?;
+            Some((snapshot, root_principal, requester, plan))
+        } else {
+            None
+        };
+
+        // No filesystem/package-manifest probing is allowed before the armed
+        // preflight above authenticates the requester and constrains the
+        // lexical target to a bound root or exact graph edge. In particular,
+        // require.resolve must not reveal existent-vs-missing unauthorized
+        // targets through resolver errors or timing.
+        let mut meta = match armed_resolution
+            .as_ref()
+            .map(|(_, _, _, plan)| plan)
+        {
+            Some(ArmedModuleResolution::BoundPackage { name, root }) => self
+                .module_loader
+                .resolve_meta_from_bound_package(specifier, name, root)?,
+            _ => self.module_loader.resolve_meta(specifier, referrer)?,
+        };
         if let Some(path) = meta.path.as_ref() {
-            if let Some(snapshot) = self.armed_snapshot.as_deref() {
+            if let Some((snapshot, root_principal, requester, _)) = armed_resolution.as_ref() {
                 let canonical = std::fs::canonicalize(path).with_context(|| {
                     format!("failed to authenticate module path {}", path.display())
                 })?;
                 let components = host_path_components(&canonical)?;
-                let root_principal = self
-                    .typed_imports
-                    .keys()
-                    .find(|principal| principal.is_root())
-                    .cloned()
-                    .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
                 let target_principal = snapshot
                     .owner_for_host_components(&components)?
                     .unwrap_or_else(|| root_principal.clone());
@@ -1800,27 +1854,7 @@ impl Host {
                     snapshot.root_binding_for_host_components(&target_principal, &components)?;
                 validate_armed_binding_object(&binding)?;
 
-                let requester = if let Some(module) = requester_module_id {
-                    self.typed_principal_for_module(module).ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "module resolution has no authenticated requesting principal"
-                        )
-                    })?
-                } else {
-                    referrer
-                        .and_then(|path| {
-                            let canonical = std::fs::canonicalize(path).ok()?;
-                            let components = host_path_components(&canonical).ok()?;
-                            snapshot
-                                .owner_for_host_components(&components)
-                                .ok()
-                                .flatten()
-                                .or_else(|| Some(root_principal.clone()))
-                        })
-                        .unwrap_or_else(|| root_principal.clone())
-                };
-
-                if requester != target_principal {
+                if *requester != target_principal {
                     let allowed = match &target_principal {
                         capsec_semantics::model::Principal::Package { locator, .. } => {
                             self.typed_imports.get(&requester).is_some_and(|policy| {
@@ -1889,6 +1923,140 @@ impl Host {
         }
         Ok(meta)
     }
+}
+
+fn lexical_absolute_path(path: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut normalized = std::path::PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(std::path::MAIN_SEPARATOR.to_string()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !normalized.pop() {
+                    anyhow::bail!("module path escapes above its absolute root");
+                }
+            }
+            std::path::Component::Normal(component) => normalized.push(component),
+        }
+    }
+    Ok(normalized)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum ArmedModuleResolution {
+    Generic,
+    BoundPackage {
+        name: String,
+        root: std::path::PathBuf,
+    },
+}
+
+fn preflight_armed_module_resolution(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+    imports: &BTreeMap<
+        capsec_semantics::model::Principal,
+        capsec_semantics::arming::PrincipalImportPolicy,
+    >,
+    root_principal: &capsec_semantics::model::Principal,
+    requester: &capsec_semantics::model::Principal,
+    specifier: &str,
+    referrer: Option<&std::path::Path>,
+    builtin: bool,
+) -> anyhow::Result<ArmedModuleResolution> {
+    let requester_policy = imports
+        .get(requester)
+        .ok_or_else(|| anyhow::anyhow!("requester has no authenticated import policy"))?;
+
+    if specifier.starts_with('#') {
+        let referrer =
+            referrer.ok_or_else(|| anyhow::anyhow!("package import alias requires a referrer"))?;
+        let referrer = lexical_absolute_path(referrer)?;
+        let components = host_path_components(&referrer)?;
+        let binding = snapshot.root_binding_for_host_components(requester, &components)?;
+        validate_armed_binding_object(&binding)?;
+        return Ok(ArmedModuleResolution::Generic);
+    }
+
+    if !is_module_path_specifier(specifier) {
+        if !typed_import_allowed(requester_policy, specifier) {
+            anyhow::bail!("Import denied by authenticated package graph");
+        }
+        if builtin {
+            return Ok(ArmedModuleResolution::Generic);
+        }
+        let requested_name = package_name_from_specifier(specifier);
+        let candidates = imports
+            .keys()
+            .filter(|principal| match principal {
+                capsec_semantics::model::Principal::Package { name, locator, .. } => {
+                    name.as_str() == requested_name
+                        && requester_policy
+                            .packages
+                            .iter()
+                            .any(|allowed| allowed == locator.as_str())
+                }
+                _ => false,
+            })
+            .collect::<Vec<_>>();
+        // A bare spelling cannot select between two authenticated locators of
+        // the same package name without consulting ambient filesystem layout.
+        // Reject that ambiguous graph instead of reintroducing ambient search.
+        if candidates.len() != 1 {
+            anyhow::bail!("Import denied by authenticated package graph");
+        }
+        let principal = candidates[0];
+        let bindings = snapshot
+            .root_bindings()?
+            .into_iter()
+            .filter(|binding| {
+                binding.logical_root == capsec_semantics::model::LogicalRoot::Package
+                    && binding.owner.as_ref() == Some(principal)
+            })
+            .collect::<Vec<_>>();
+        if bindings.len() != 1 {
+            anyhow::bail!("allowed package lacks one exact authenticated root");
+        }
+        validate_armed_binding_object(&bindings[0])?;
+        return Ok(ArmedModuleResolution::BoundPackage {
+            name: requested_name.to_owned(),
+            root: host_path_from_binding(&bindings[0])?,
+        });
+    }
+
+    let target = if std::path::Path::new(specifier).is_absolute() {
+        lexical_absolute_path(std::path::Path::new(specifier))?
+    } else {
+        let base = referrer
+            .and_then(std::path::Path::parent)
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or(std::env::current_dir()?);
+        lexical_absolute_path(&base.join(specifier))?
+    };
+    let components = host_path_components(&target)?;
+    let target_principal = snapshot
+        .owner_for_host_components(&components)?
+        .unwrap_or_else(|| root_principal.clone());
+    let binding = snapshot.root_binding_for_host_components(&target_principal, &components)?;
+    validate_armed_binding_object(&binding)?;
+    if requester != &target_principal {
+        let allowed = match &target_principal {
+            capsec_semantics::model::Principal::Package { locator, .. } => requester_policy
+                .packages
+                .iter()
+                .any(|allowed| allowed == locator.as_str()),
+            _ => false,
+        };
+        if !allowed {
+            anyhow::bail!("Import denied by authenticated package graph");
+        }
+    }
+    Ok(ArmedModuleResolution::Generic)
 }
 
 fn normalize_host_path_for_binding(
