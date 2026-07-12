@@ -111,11 +111,9 @@ process-global `Host` singleton.
   call replaces the current host rather than failing `[observed]`
   (`src/host/abi.rs:108-118`, test `install_host_replaces_existing_host` at
   `src/host/abi.rs:1857`).
-- `ex_host_install()` is the C entry point that installs a default permissive
-  ("legacy"/allow-all) host `[observed]` (`src/host/abi.rs:586-592`). The source
-  comment says the iOS/Swift path calls this, while the CLI calls
-  `install_host` with a configured `Host` `[observed]`
-  (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`).
+- `ex_host_install()` installs only a closed, unarmed compatibility host. A
+  production embedder must replace it with `ex_host_install_armed(...)` and
+  create Hermes with the authenticated digest; absence or mismatch refuses.
 - `EXACT_HOST_ABI_VERSION` is `1`, returned by `ex_host_version()` `[observed]`
   (`src/host/abi.rs:62, 579-581`).
 
@@ -123,12 +121,9 @@ process-global `Host` singleton.
 
 `Host` (`src/host/mod.rs:71-76`) holds a `HostConfig`, an
 `Arc<CapabilityManager>`, and an `Arc<ModuleLoader>` `[observed]`. Constructors
-include `Host::new(config)`, `Host::default_legacy()` (permissive), and
-`Host::strict()` `[observed]` (`src/host/mod.rs:80, 130, 138`). `HostConfig`
-itself defaults to `SecurityMode::Enforce`, so "default host" is ambiguous:
-Rust configuration defaults enforce, while `ex_host_install()` intentionally
-installs the legacy permissive host `[observed]`
-(`src/host/mod.rs:57-68, 129-143`; `src/host/abi.rs:586-592`). `Host` exposes
+include `Host::new(config)` and `Host::new_armed(...)`; the latter is the
+production constructor. `HostConfig` and `ex_host_install()` are closed by
+default and do not parse a policy path. `Host` exposes
 `check_capability`, `is_allow_all`, and `resolve_module` `[observed]`
 (`src/host/mod.rs:146-174`). `SecurityMode` is `Permissive | Audit | Enforce`
 `[observed]` (`src/host/mod.rs:37-45`); the legacy `strict`/`capability`
@@ -203,13 +198,13 @@ strictly parses and authenticates caller-owned bytes, copies them into an
 immutable host decision context, and `ex_hermes_create_armed(digest)` creates
 Hermes only when that installed context has the exact digest. Mismatch or
 absence returns failure before a runtime exists. The ordinary
-`ex_host_install`/`ex_hermes_create` pair remains the legacy compatibility
-surface until WP9 removes weakening defaults.
+`ex_host_install` entry point installs a closed unarmed placeholder, not an
+allow-all production runtime.
 
 1. Host installs itself first: a Rust embedder can call
    `install_host(Host::new(...))`; the local `ibex` binary does this from CLI
-   security flags, while the C entry point `ex_host_install()` installs the
-   legacy permissive host `[observed]`
+   security configuration, while the C entry point `ex_host_install()` installs
+   only the closed placeholder; production uses `ex_host_install_armed`
    (`src/host/abi.rs:107-121, 586-592`). The CLI/iOS split is recorded in a
    source comment and now in the local binary implementation `[observed]`
    (`src/host/abi.rs:586-588`; `src/bin/ibex/runtime.rs`;

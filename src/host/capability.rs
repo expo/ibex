@@ -897,9 +897,9 @@ impl CapabilityManager {
     /// Summarize would-deny decisions for operator-facing audit output.
     /// Returns an empty string when nothing was flagged.
     ///
-    /// @ref LLP 0013#phase-1 — `ibex run --capsec audit` feeds the compat
-    /// corpus: the would-deny set is exactly the grants an app must declare
-    /// before it can move to `--capsec enforce`.
+    /// @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths —
+    /// `ibex capsec audit` is the separate foreground diagnostic workflow;
+    /// ordinary production execution never selects this legacy reporter.
     pub fn audit_report(&self) -> String {
         let Ok(log) = self.audit_log.read() else {
             return String::new();

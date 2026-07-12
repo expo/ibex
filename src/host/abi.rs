@@ -857,12 +857,13 @@ pub extern "C" fn ex_host_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn ex_host_init() {}
 
-/// Install the host singleton with default (permissive) configuration.
+/// Install a closed, unarmed host singleton for ABI compatibility.
 /// Called from iOS/Swift before creating a runtime.
-/// On the CLI, `install_host()` is called with a configured Host instead.
+/// Production embedders must replace it through `ex_host_install_armed`
+/// before calling the armed Hermes constructor.
 #[no_mangle]
 pub extern "C" fn ex_host_install() {
-    install_host(Host::default_legacy());
+    install_host(Host::new(crate::host::HostConfig::default()));
 }
 
 /// Explicit fail-closed embedder arming entry point. Returns 0 only after the

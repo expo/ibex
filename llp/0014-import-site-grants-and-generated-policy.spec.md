@@ -8,6 +8,14 @@
 **Revised:** 2026-07-11 (ENG-24147 typed authoring and canonical policy generation)
 **Related:** LLP 0013 (compartments/capability enforcement — this spec defines its grant-authoring surface); LLP 0007 (bundler pipeline the generator rides); LLP 0004 (package manifests)
 
+> **Current implementation (2026-07-11):** authoring produces the versioned,
+> digest-bound canonical typed policy defined by LLP 0021. References below to
+> the unversioned `PolicyFile`, permissive execution, environment endowments,
+> or audit/enforce mode selection describe the superseded rollout and must not
+> be used as current CLI or deployment guidance. Production accepts only
+> `purpose: production`, `mode: enforce`; audit is the separate foreground
+> `ibex capsec audit` workflow.
+
 ## Summary
 
 The app's capability policy is **generated, not hand-authored**. First-party

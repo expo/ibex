@@ -15,6 +15,14 @@
 **Revised:** 2026-07-10 (ENG-24144 factual drift repair: manifest count is 57 after `network:resolve`; package-selector precedence and enforced host fences recorded; typed successor contract is LLP 0021)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
+> **Current implementation (2026-07-11):** LLP 0021 supersedes this RFC's
+> legacy string-policy, mode-selection, and rollout mechanics. Ordinary
+> execution is typed, armed, enforce-only, and structurally locked down. The
+> old permissive/audit flags and `PolicyFile` passages below are retained only
+> as historical rationale; they are not operator guidance. Foreground diagnosis
+> is `ibex capsec audit`, and the sole advertised complete profile is the
+> conformant `aarch64-apple-darwin` target recorded in LLP 0021 §WP10.
+
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
 > (`IBEX_HERMES_SOURCE_COMMIT` on the `260318099.0.0-stable` release branch
 > `[observed]` (`scripts/hermes-version.sh`)), verified against the local
@@ -609,8 +617,9 @@ each point; anything stronger is overclaiming (Risk 3):
   *dynamic-code escape*, *sloppy-`this` escape*, prototype patching,
   identity forgery, host tampering. This suite is the durable asset the
   fork phases and every future rebase are measured against.
-- **Deliverable**: `ibex run --capsec audit` (or equivalent); compat report
-  including the strict-mode and direct-eval semantic deltas.
+- **Historical deliverable**: the rollout used an audit selector. The current
+  equivalent is the non-durable `ibex capsec audit` command; compat reports
+  include lockdown and direct-eval semantic deltas.
 - **Kill criterion**: unmanageable breakage across top dependencies →
   remain audit-only indefinitely (still valuable: honest attribution +
   drift detection) and do not start fork phases.

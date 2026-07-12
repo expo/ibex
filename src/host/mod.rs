@@ -161,47 +161,14 @@ pub struct Host {
 impl Host {
     /// Create a new host with the given configuration
     pub fn new(config: HostConfig) -> Self {
-        let mut config = config;
-        // Prefer the policy the caller already parsed (the CLI path loads the
-        // artifact exactly once per startup and threads it through HostConfig —
-        // ENG-22644); fall back to loading from `policy_path` for embedders
-        // that only provide a path.
-        let mut policy_file = config.policy.clone();
-
-        if policy_file.is_none() {
-            if let Some(policy_path) = config.policy_path.as_ref() {
-                if policy_path.exists() {
-                    match policy::PolicyFile::load(policy_path) {
-                        Ok(policy) => {
-                            // Do NOT re-apply the policy's declared `mode` here: the
-                            // caller's mode wins. On the CLI path build_host_config
-                            // already resolves the Auto default from the policy mode
-                            // upstream, and an explicit `--capsec` (enforce, audit, or
-                            // permissive) must win — the previous re-application let a
-                            // committed `{"mode":"permissive"}` silently downgrade an
-                            // explicit `--capsec enforce` (fail-open), and conversely
-                            // would have upgraded an explicit `--capsec permissive` a
-                            // policy's enforce. (ENG-22632)
-                            policy_file = Some(Arc::new(policy));
-                        }
-                        Err(err) => {
-                            // A configured policy that exists but cannot be parsed must
-                            // FAIL CLOSED: continuing unpoliced would run permissively
-                            // (silently unprotected). Escalate to enforce so a missing
-                            // grant denies rather than allows. On the CLI path
-                            // build_host_config already rejects this before we get here;
-                            // this covers the embedder/ABI path. (ENG-22620)
-                            eprintln!(
-                                "error: failed to load capability policy {}: {}; failing closed (enforce)",
-                                policy_path.display(),
-                                err
-                            );
-                            config.mode = SecurityMode::Enforce;
-                        }
-                    }
-                }
-            }
-        }
+        // The legacy string-policy plane is diagnostic/test-only. Production
+        // hosts arm an authenticated typed snapshot through `new_armed`; this
+        // constructor never reads a policy path and only accepts an already
+        // parsed legacy artifact for the separately named Audit workflow.
+        // @ref LLP 0021#wp11--reconcile-the-corpus-and-remove-the-legacy-plane
+        let policy_file = (config.mode == SecurityMode::Audit)
+            .then(|| config.policy.clone())
+            .flatten();
 
         let mut manager = capability::CapabilityManager::new(config.mode);
         // Translate the embedder's host-boundary fields into the enforced

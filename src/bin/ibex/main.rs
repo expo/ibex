@@ -1331,7 +1331,7 @@ async fn eval_code(cli: &Cli, code: &str, print_result: bool) -> Result<()> {
 
 /// Start the interactive REPL
 async fn start_repl(cli: &Cli) -> Result<()> {
-    // REPL respects --capsec mode (defaults to permissive)
+    // REPL uses the same enforced, armed runtime posture as ordinary execution.
     // User can override with --capsec capability or --capsec strict for security testing
     let runtime = runtime::Runtime::from_cli(cli)?;
     suppress_runtime_banner(&runtime).await?;

@@ -959,6 +959,13 @@ revise LLP 0016's assessment, update LLP 0002/0004/0005 where their contracts
 change, refresh demos and documentation, and delete dead code/generators/tests
 for the legacy plane.
 
+Implementation status (2026-07-11): production CLI/runtime construction no
+longer loads or executes `PolicyFile`; only the explicitly diagnostic legacy
+Audit constructor may receive an already parsed value for historical test
+coverage. LLP 0013, LLP 0014, and LLP 0016 now identify their old mode, flag,
+and string-policy passages as superseded. The canonical typed artifact, armed
+snapshot, and target-bound conformance report are the current contracts.
+
 Acceptance:
 
 - `./ref-check` passes and all capsec `@ref`s point to current semantics.

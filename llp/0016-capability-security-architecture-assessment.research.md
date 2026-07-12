@@ -10,6 +10,14 @@
 authoring); LLP 0006 (design principles); LLP 0002 (host ABI); LLP 0004
 (module loading); LLP 0012 (runtime identity)
 
+> **Reassessment (2026-07-11):** LLP 0021 resolves the assessment's
+> permissive-default, optional-lockdown, advisory-attribution, string-policy,
+> and durable-audit findings for the advertised `aarch64-apple-darwin`
+> profile. Production now arms an immutable typed snapshot and refuses other
+> targets or incomplete prerequisites. Historical findings below remain useful
+> provenance, but their old flags and downgrade procedures are not current
+> operator guidance.
+
 ## Summary and verdict
 
 This document is an architectural review of Ibex's capability-security

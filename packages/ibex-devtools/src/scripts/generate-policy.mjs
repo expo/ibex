@@ -6,7 +6,7 @@
  * same Rolldown resolution the bundle uses; honors grant declarations only in
  * root-principal (non-node_modules) modules; composes them with the LLP 0013
  * request/delegation cascade; emits a reproducible, provenance-carrying
- * PolicyFile artifact. `--check` is the CI drift gate.
+ * canonical typed policy artifact. `--check` is the CI drift gate.
  *
  * Usage:
  *   generate-policy.mjs --entry <file> [--out <file>] [--mode enforce|audit]

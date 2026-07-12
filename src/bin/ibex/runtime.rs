@@ -1760,6 +1760,11 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         .map(|name| format!("node:{name}"))
         .collect::<Vec<_>>();
     root_builtins.sort();
+    let mut root_package_imports = policy_principals
+        .iter()
+        .filter_map(|row| row["principal"]["locator"].as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    root_package_imports.sort();
     let mut snapshot_principals = vec![serde_json::json!({
         "principal": {"kind": "root", "identity": "project-root"},
         "floor": [],
@@ -1767,7 +1772,7 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         "escalationCeiling": [],
         "imports": {
             "builtins": root_builtins,
-            "packages": policy_principals.iter().filter_map(|row| row["principal"]["locator"].as_str()).collect::<Vec<_>>()
+            "packages": root_package_imports
         },
         "endowments": [],
     })];
