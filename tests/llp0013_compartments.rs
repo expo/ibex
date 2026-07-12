@@ -108,6 +108,11 @@ fn clear_closed_production_environment(command: &mut Command) {
 fn stale_llp0013_policy_cannot_reopen_production() {
     let directory = tempfile::tempdir().expect("create legacy-policy fixture directory");
     std::fs::write(
+        directory.path().join("package.json"),
+        r#"{"name":"legacy-policy-refusal","private":true}"#,
+    )
+    .expect("write authenticated project manifest");
+    std::fs::write(
         directory.path().join("ibex-policy.json"),
         r#"{"mode":"enforce","allow":["fs","process","network"]}"#,
     )

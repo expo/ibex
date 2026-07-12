@@ -63,6 +63,7 @@ extern "C" {
     fn ex_hermes_create_armed(
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
+    #[cfg(all(test, unix))]
     fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
