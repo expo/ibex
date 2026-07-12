@@ -122,6 +122,9 @@ const TARGET_ABSENCE_BATCH_COMMAND: [&str; 9] = [
     "--",
     "--test-threads=1",
 ];
+const EXPECTED_ABSENT_FIXTURES: usize = 110;
+const EXPECTED_TARGET_ABSENCE_FIXTURES: usize = 102;
+const EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES: usize = 8;
 
 fn tagged_jcs_digest(value: &serde_json::Value) -> String {
     let bytes = capsec_semantics::canonical::to_jcs_bytes(value)
@@ -537,10 +540,37 @@ async fn capsec_public_target_absence_batch() {
         .enumerate()
         .filter_map(|(index, recipe)| target_absence_probe(recipe).map(|_| index))
         .collect::<Vec<_>>();
+    let absent_fixtures = catalog
+        .recipes
+        .iter()
+        .filter(|recipe| recipe.scenario == "absent")
+        .count();
+    let native_global_absence_fixtures = catalog
+        .recipes
+        .iter()
+        .filter(|recipe| {
+            recipe.scenario == "absent"
+                && recipe.public_surface_probe.as_ref().is_some_and(|probe| {
+                    probe["invocation"]["invocationSchema"]
+                        == "ibex/capsec-native-global-invocation/1"
+                })
+        })
+        .count();
+    assert_eq!(absent_fixtures, EXPECTED_ABSENT_FIXTURES);
+    assert_eq!(
+        native_global_absence_fixtures,
+        EXPECTED_NATIVE_GLOBAL_ABSENCE_FIXTURES,
+        "native-global absence probes execute in the native public batch"
+    );
     assert_eq!(
         recipe_indexes.len(),
-        109,
-        "expected every exact-target absence fixture"
+        EXPECTED_TARGET_ABSENCE_FIXTURES,
+        "expected every target-absence invocation fixture"
+    );
+    assert_eq!(
+        recipe_indexes.len() + native_global_absence_fixtures,
+        absent_fixtures,
+        "every absent fixture must execute in exactly one public batch"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
@@ -551,8 +581,9 @@ async fn capsec_public_target_absence_batch() {
     for (position, index) in recipe_indexes.into_iter().enumerate() {
         let recipe = &catalog.recipes[index];
         eprintln!(
-            "CapSec target-absence fixture {}/109: {}",
+            "CapSec target-absence fixture {}/{}: {}",
             position + 1,
+            EXPECTED_TARGET_ABSENCE_FIXTURES,
             recipe.fixture_id
         );
         executions.push(
