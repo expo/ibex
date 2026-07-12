@@ -2484,7 +2484,9 @@ mod tests {
         let absent = root.join("absent.txt");
         let absent_directory = root.join("absent-directory");
         let async_absent_directory = root.join("async-absent-directory");
+        let retained_directory = root.join("retained-directory");
         std::fs::write(&existing, b"must survive").unwrap();
+        std::fs::create_dir(&retained_directory).unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
 
@@ -2504,18 +2506,24 @@ mod tests {
                 try {{ __exactAppendFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsWriteFileAsync({absent:?}, 'created', 'w', 438, true); }} catch (_) {{ denied++; }}
                 try {{ __exactMkdir({absent_directory:?}, false); }} catch (_) {{ denied++; }}
+                try {{ __exactUnlink({existing:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactRmdir({retained_directory:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('unlink', {existing:?}, '', 0, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('rmdir', {retained_directory:?}, '', 0, 0, 0); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             existing = existing.to_str().unwrap(),
             absent = absent.to_str().unwrap(),
             absent_directory = absent_directory.to_str().unwrap(),
+            retained_directory = retained_directory.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("12"));
+        assert_eq!(outcome.as_deref(), Some("16"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         assert!(!absent_directory.exists());
+        assert!(retained_directory.is_dir());
 
         let async_script = format!(
             r#"globalThis.__armedDeniedAsyncMkdir = 'pending';

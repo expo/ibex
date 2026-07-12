@@ -680,7 +680,11 @@ worker-backed directory creation now use the `mkdir` edge: they authorize the
 requested path, retain and verify the parent, preauthorize absent creation,
 create with `mkdirat`, and commit the opened directory identity, rolling the
 new directory back if commit fails. Recursive creation remains closed until
-every created component can run that full sequence independently.
+every created component can run that full sequence independently. Path removal
+also remains closed in armed execution: retaining a target descriptor and then
+calling name-based `unlinkat` would still permit a swap between identity check
+and deletion, so sync and async denial fixtures require the original file or
+directory to survive until a genuinely race-safe removal strategy is adopted.
 
 ### WP6 — Convert network effects and protected peers
 
