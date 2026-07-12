@@ -1814,6 +1814,7 @@ export function scanStaticBuiltinExports(
   const callValuedBindings = new Map();
   const valueShapeFacts = new Map();
   const prototypeFacts = new Map();
+  const ownPrototypeFacts = new Map();
   const prototypeValueShapeFacts = new Map();
   const inheritedPrototypeFacts = new Map();
   const knownPrototypeOwners = new Set();
@@ -2721,7 +2722,7 @@ export function scanStaticBuiltinExports(
     }
     calls.add(call);
   };
-  const addPrototypeFact = (owner, name) => {
+  const recordPrototypeFact = (owner, name) => {
     if (!owner || !name) return;
     let names = prototypeFacts.get(owner);
     if (!names) {
@@ -2730,8 +2731,18 @@ export function scanStaticBuiltinExports(
     }
     names.add(name);
   };
+  const addPrototypeFact = (owner, name) => {
+    recordPrototypeFact(owner, name);
+    if (!owner || !name) return;
+    let names = ownPrototypeFacts.get(owner);
+    if (!names) {
+      names = new Set();
+      ownPrototypeFacts.set(owner, names);
+    }
+    names.add(name);
+  };
   const markInheritedPrototypeFact = (owner, name) => {
-    addPrototypeFact(owner, name);
+    recordPrototypeFact(owner, name);
     let names = inheritedPrototypeFacts.get(owner);
     if (!names) {
       names = new Set();
@@ -4797,7 +4808,8 @@ export function scanStaticBuiltinExports(
         addFact(
           ROOT_EXPORT_OBJECT,
           `${exportName}.${methodName}`,
-          inheritedPrototypeFacts.get(localName)?.has(methodName)
+          inheritedPrototypeFacts.get(localName)?.has(methodName) &&
+            !ownPrototypeFacts.get(localName)?.has(methodName)
             ? "exported-constructor-inherited-prototype"
             : "exported-constructor-prototype",
         );

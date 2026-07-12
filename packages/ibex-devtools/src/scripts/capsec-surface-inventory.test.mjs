@@ -812,6 +812,33 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
   });
 
+  test("own prototype overrides take precedence over inherited facts", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function Base() {}
+        Base.prototype.run = function inheritedRun() {};
+        function Public() {}
+        Public.prototype = Object.create(Base.prototype);
+        Public.prototype.constructor = Public;
+        Public.prototype.run = function ownRun() {};
+        module.exports = { Public: Public };
+      `,
+      {
+        sourceKey: "node_prototype_override",
+        sourcePath: "src/builtins/prototype-override.js",
+      },
+    );
+    const idioms = (exportName) =>
+      rows.find((row) => row.metadata.exportName === exportName).metadata
+        .exportIdioms;
+    expect(idioms("Public.constructor")).toEqual([
+      "exported-constructor-prototype",
+    ]);
+    expect(idioms("Public.run")).toEqual([
+      "exported-constructor-prototype",
+    ]);
+  });
+
   test("builtin exports retain exact transitive routes to native enforcement calls", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`
