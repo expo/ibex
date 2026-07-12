@@ -391,6 +391,36 @@ function _pemSourceToString(source) {
 	if (_isArrayBufferView(source)) return _bufferFromBytes(source).toString ? _bufferFromBytes(source).toString("utf8") : String(source);
 	return String(source);
 }
+var _maxClientIdentityBytes = 16 * 1024 * 1024;
+function _normalizePfxIdentity(source, fallbackPassphrase) {
+	if (source === void 0 || source === null) return null;
+	var selected = source;
+	var passphrase = fallbackPassphrase;
+	if (Array.isArray(selected)) {
+		if (selected.length !== 1) throw _createError("ERR_TLS_PFX_UNSUPPORTED", "This TLS transport accepts exactly one pfx client identity");
+		selected = selected[0];
+	}
+	if (selected && typeof selected === "object" && !_isArrayBufferView(selected) && !(typeof ArrayBuffer !== "undefined" && selected instanceof ArrayBuffer) && !(typeof Buffer !== "undefined" && Buffer.isBuffer && Buffer.isBuffer(selected))) {
+		if (!hasOwn.call(selected, "buf")) throw _createError("ERR_INVALID_ARG_TYPE", "The \"pfx\" identity object must contain a buf property");
+		if (selected.passphrase !== void 0 && selected.passphrase !== null) passphrase = String(selected.passphrase);
+		selected = selected.buf;
+	}
+	var bytes;
+	if (typeof selected === "string") {
+		if (selected.length > _maxClientIdentityBytes) throw _createError("ERR_TLS_PFX_TOO_LARGE", "The \"pfx\" client identity exceeds the 16 MiB limit");
+		bytes = typeof Uint8Array !== "undefined" ? new Uint8Array(selected.length) : [];
+		for (var i = 0; i < selected.length; i++) bytes[i] = selected.charCodeAt(i) & 255;
+	} else if (_isArrayBufferView(selected) || typeof ArrayBuffer !== "undefined" && selected instanceof ArrayBuffer) {
+		if ((typeof selected.byteLength === "number" ? selected.byteLength : typeof selected.length === "number" ? selected.length : 0) > _maxClientIdentityBytes) throw _createError("ERR_TLS_PFX_TOO_LARGE", "The \"pfx\" client identity exceeds the 16 MiB limit");
+		bytes = selected;
+	} else throw _createError("ERR_INVALID_ARG_TYPE", "The \"pfx\" option must be a string, Buffer, TypedArray, DataView, ArrayBuffer, or one identity object");
+	var buffer = _bufferFromBytes(bytes);
+	if (!buffer || typeof buffer.toString !== "function") throw _createError("ERR_TLS_PFX_UNSUPPORTED", "Unable to encode the pfx client identity");
+	return {
+		encoded: buffer.toString("base64"),
+		passphrase: passphrase === void 0 || passphrase === null ? null : String(passphrase)
+	};
+}
 function _bufferFromBase64(value) {
 	if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") return Buffer.from(value, "base64");
 	var binary = atob(value);
@@ -1415,6 +1445,7 @@ TLSSocket.prototype.setEncoding = function(enc) {
 	return this;
 };
 TLSSocket.prototype.read = function(size) {
+	if (this._writeHeld && !this._bridged) return null;
 	if (this._bridged) {
 		this._bridgeReadDepth = (this._bridgeReadDepth || 0) + 1;
 		try {
@@ -1590,7 +1621,7 @@ TLSSocket.prototype.on = function(eventName, listener) {
 };
 TLSSocket.prototype.addListener = TLSSocket.prototype.on;
 TLSSocket.prototype.pipe = function(dest, options) {
-	if (this._bridged) {
+	if (this._bridged || this._writeHeld) {
 		var source = this;
 		var shouldEnd = !options || options.end !== false;
 		function onData(chunk) {
@@ -2270,30 +2301,31 @@ function _startTlsBridge(socket, netSocket, options, host, port) {
 	socket._bridgeShutdownQueued = false;
 	socket.pending = true;
 	socket._secureEstablished = false;
-	_tlsReleaseHeldWrites(socket, "bridge");
-	var servername = options.servername || options.sni || null;
-	var config = {
-		servername: servername ? String(servername) : null,
-		host: host ? String(host) : null,
-		alpn: _alpnProtocolsToList(options.ALPNProtocols),
-		ca: options.ca !== void 0 && options.ca !== null ? _pemSourceToString(options.ca) : null,
-		cert: options.cert !== void 0 && options.cert !== null ? _pemSourceToString(options.cert) : null,
-		key: options.key !== void 0 && options.key !== null ? _pemSourceToString(options.key) : null,
-		passphrase: options.passphrase !== void 0 && options.passphrase !== null ? String(options.passphrase) : null,
-		hasPfx: options.pfx !== void 0 && options.pfx !== null,
-		hasSession: options.session !== void 0 && options.session !== null,
-		cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, "client"),
-		minVersion: options.minVersion || null,
-		maxVersion: options.maxVersion || null
-	};
 	var engineId;
 	try {
+		var servername = options.servername || options.sni || null;
+		var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
+		var config = {
+			servername: servername ? String(servername) : null,
+			host: host ? String(host) : null,
+			alpn: _alpnProtocolsToList(options.ALPNProtocols),
+			ca: options.ca !== void 0 && options.ca !== null ? _pemSourceToString(options.ca) : null,
+			cert: options.cert !== void 0 && options.cert !== null ? _pemSourceToString(options.cert) : null,
+			key: options.key !== void 0 && options.key !== null ? _pemSourceToString(options.key) : null,
+			passphrase: pfxIdentity ? pfxIdentity.passphrase : options.passphrase !== void 0 && options.passphrase !== null ? String(options.passphrase) : null,
+			pfx: pfxIdentity ? pfxIdentity.encoded : null,
+			hasSession: options.session !== void 0 && options.session !== null,
+			cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, "client"),
+			minVersion: options.minVersion || null,
+			maxVersion: options.maxVersion || null
+		};
 		engineId = __exactTlsEngineNew(JSON.stringify(config));
 	} catch (engineErr) {
 		socket.destroy(engineErr);
 		return;
 	}
 	socket._tlsEngineId = engineId;
+	_tlsReleaseHeldWrites(socket, "bridge");
 	_tlsBridgePumpOut(socket);
 }
 function connect() {
@@ -2301,9 +2333,7 @@ function connect() {
 	var options = parsed.options || {};
 	var cb = parsed.callback;
 	var bridgeCipherSuites = _resolveCipherSuites(options, "client");
-	if (options.pfx !== void 0 && options.pfx !== null) throw _createError("ERR_TLS_PFX_UNSUPPORTED", "pfx client identities are not supported; provide cert and key PEM options");
 	if (options.session !== void 0 && options.session !== null) throw _createError("ERR_TLS_SESSION_UNSUPPORTED", "TLS session resumption input is not supported by this transport");
-	if (options.passphrase !== void 0 && options.passphrase !== null) throw _createError("ERR_TLS_PASSPHRASE_UNSUPPORTED", "encrypted client private keys are not supported by this transport");
 	if (options.maxVersion === "TLSv1" || options.maxVersion === "TLSv1.1") throw _createError("ERR_TLS_INVALID_PROTOCOL_VERSION", "This TLS transport supports maximum versions TLSv1.2 and TLSv1.3");
 	var socket = new TLSSocket(options.socket || null, options);
 	socket._bridgeCipherSuites = bridgeCipherSuites;
