@@ -10,14 +10,14 @@ fn async_open_carries_the_scheduling_principal_into_fd_registration() {
     let register_body = &POSIX_FS_RUNTIME[register_start..register_end];
 
     assert!(register_body.contains("uint64_t owner"));
-    assert!(register_body.contains("FdEntry{owner,"));
+    assert!(register_body.contains("FdEntry{exactCurrentRuntimeNonce(), owner,"));
     assert!(
         !register_body.contains("currentPrincipalId()"),
         "fd ownership must not be re-derived from delivery-time frames"
     );
     assert!(POSIX_FS_RUNTIME.contains("uint64_t openedOwner = 0;"));
     assert!(POSIX_FS_RUNTIME.contains("resultPtr->openedOwner = principal;"));
-    assert!(
-        POSIX_FS_RUNTIME.contains("static_cast<int>(resultPtr->number), resultPtr->openedOwner")
-    );
+    assert!(POSIX_FS_RUNTIME.contains(
+        "resultPtr->openedCanRead, resultPtr->openedCanWrite,\n                              resultPtr->openedOwner,"
+    ));
 }
