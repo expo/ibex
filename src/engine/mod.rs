@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 extern "C" {
+    fn ex_hermes_bytecode_version() -> u32;
     fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
     fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
 }
@@ -261,6 +262,15 @@ pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, Str
         .map_err(Clone::clone)
 }
 
+/// HBC version accepted by the mapped Hermes engine. This deliberately does
+/// not consult a separately discovered CLI binary.
+pub fn loaded_engine_bytecode_version() -> Result<u32, String> {
+    let version = unsafe { ex_hermes_bytecode_version() };
+    (version != 0)
+        .then_some(version)
+        .ok_or_else(|| "loaded Hermes engine did not expose its bytecode version".into())
+}
+
 pub fn verify_loaded_engine_binary_identity(
     expected: &LoadedEngineBinaryIdentity,
 ) -> Result<LoadedEngineBinaryIdentity, String> {
@@ -344,6 +354,7 @@ mod tests {
         assert!(identity.engine_artifact_path.is_absolute());
         assert!(identity.binary_digest.starts_with("sha256-"));
         assert_eq!(identity.target_architecture, std::env::consts::ARCH);
+        assert!(super::loaded_engine_bytecode_version().unwrap() > 0);
         assert_eq!(
             super::verify_loaded_engine_binary_identity(&identity).unwrap(),
             identity

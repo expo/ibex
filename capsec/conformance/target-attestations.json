@@ -1,0 +1,5 @@
+{
+  "targetAttestationSchema": "ibex/capsec-target-attestations/1",
+  "profile": "ibex/capsec/1",
+  "attestations": []
+}

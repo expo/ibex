@@ -1,6 +1,6 @@
 // @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory — the
-// production inventory, bindings, and unsupported target matrix are generated
-// from one fail-closed discovery/classification path.
+// production inventory, bindings, and report-derived target matrix are
+// generated from one fail-closed discovery/classification path.
 
 import { afterAll, describe, expect, test } from "bun:test";
 import fs from "node:fs";
@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  buildTargetCells,
   generatedRegistryPaths,
   generatedRegistryOutputCatalog,
   renderCapsecRegistry,
@@ -38,6 +39,69 @@ afterAll(() => {
 });
 
 describe("LLP 0021 WP1 capsec registry generator", () => {
+  test("derives promoted dispositions only from conformant report cells", () => {
+    const target = {
+      triple: "aarch64-apple-darwin",
+      features: ["native-lockdown"],
+    };
+    const coverage = {
+      edges: [
+        { id: "edge.effects", classification: "effects", effectMode: "conjunctive" },
+        { id: "edge.closed", classification: "closed" },
+        { id: "edge.absent", classification: "closed" },
+      ],
+    };
+    const implementationRows = [
+      {
+        edgeId: "edge.effects",
+        branchId: "edge.effects.main",
+        targetVariant: "all",
+        targetApplicability: { kind: "all" },
+      },
+      {
+        edgeId: "edge.closed",
+        branchId: "edge.closed.main",
+        targetVariant: "all",
+        targetApplicability: { kind: "all" },
+      },
+      {
+        edgeId: "edge.absent",
+        branchId: "edge.absent.windows",
+        targetVariant: "windows",
+        targetApplicability: { kind: "operating-system", value: "windows" },
+      },
+    ];
+    const reportCells = [
+      ["edge.effects", ["edge.effects.main"], ["fixture.effects"]],
+      ["edge.closed", ["edge.closed.main"], ["fixture.closed"]],
+      ["edge.absent", [], ["fixture.absent"]],
+    ].map(([edgeId, implementationBranchIds, requiredFixtures]) => ({
+      edgeId,
+      implementationBranchIds,
+      requiredFixtures,
+      status: "conformant",
+    }));
+    const cells = buildTargetCells(coverage, [target], implementationRows, [
+      {
+        attestation: { reportRawContentDigest: "sha256-report" },
+        report: {
+          bindings: { target },
+          conformanceDigest: "sha256-conformance",
+          cells: reportCells,
+        },
+      },
+    ]).cells;
+    expect(cells.map(({ edgeId, disposition, fixtures }) => ({
+      edgeId,
+      disposition,
+      fixtures,
+    }))).toEqual([
+      { edgeId: "edge.absent", disposition: "absent", fixtures: ["fixture.absent"] },
+      { edgeId: "edge.closed", disposition: "closed", fixtures: ["fixture.closed"] },
+      { edgeId: "edge.effects", disposition: "enforced", fixtures: ["fixture.effects"] },
+    ]);
+  });
+
   test(
     "renders byte-identically",
     async () => {
@@ -67,7 +131,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
   );
 
   test(
-    "joins every observed edge and makes no WP1 conformance claim",
+    "joins every observed edge and makes no unattested conformance claim",
     async () => {
       const result = await renderBaseline();
       const edgeIds = result.coverage.edges.map((edge) => edge.id);
@@ -87,6 +151,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
             cell.disposition === "unsupported" && cell.fixtures.length === 0,
         ),
       ).toBe(true);
+      expect(result.targetAdvertisements.advertisements).toEqual([]);
       const implementationById = new Map(
         result.implementationManifest.surfaces.map((row) => [
           row.branchId,
@@ -127,7 +192,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       const catalogSuffixes = generatedRegistryOutputCatalog
         .map((row) => row.path)
         .sort();
-      expect(renderedPaths).toHaveLength(10);
+      expect(renderedPaths).toHaveLength(11);
       expect(
         renderedPaths.map((filePath) =>
           catalogSuffixes.find((suffix) => filePath.endsWith(`/${suffix}`)),

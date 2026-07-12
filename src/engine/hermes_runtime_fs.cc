@@ -402,8 +402,9 @@ static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const cha
     }
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
-  if (entry->runtimeNonce != exactCurrentRuntimeNonce() ||
-      (!isAllowAll() && entry->owner != principal)) {
+  // Resource identity is posture-independent: allow-all bypasses capability
+  // grants, not the runtime/principal ownership of a forgeable numeric fd.
+  if (entry->runtimeNonce != exactCurrentRuntimeNonce() || entry->owner != principal) {
     throw facebook::jsi::JSError(
         runtime, fsErrorMessage(EACCES, syscall, entry->path, ""));
   }

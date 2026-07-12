@@ -12,8 +12,7 @@
   "sourceDatasets": [
     "registry/capability-definitions.json",
     "registry/coverage-edges.json",
-    "registry/policy-rules.json",
-    "registry/target-cells.json"
+    "registry/policy-rules.json"
   ],
   "candidateTargets": [
     {
@@ -111815,6 +111814,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
+      "observedKey": "host-abi:ex_hermes_bytecode_version",
+      "branchId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_bytecode_version"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_bytecode_version"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_bytecode_version"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_bytecode_version"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_bytecode_version"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv.default.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.callback.backlog.1nq6srg",
       "observedKey": "host-abi:ex_hermes_callback_backlog",
       "branchId": "surface.host.abi.ex.hermes.callback.backlog.1nq6srg.default",
@@ -111944,6 +111975,40 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.create.diagnostic.1t314ff.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.current.principal.id.1m53qbn",
+      "observedKey": "host-abi:ex_hermes_current_principal_id",
+      "branchId": "surface.host.abi.ex.hermes.current.principal.id.1m53qbn.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.current.principal.id.1m53qbn.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_current_principal_id"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_current_principal_id"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_current_principal_id"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_current_principal_id"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_current_principal_id"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.current.principal.id.1m53qbn.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.current.principal.id.1m53qbn.default.non-capability",
+        "surface.host.abi.ex.hermes.current.principal.id.1m53qbn.default.post-lockdown-invariant"
       ]
     },
     {
@@ -120415,11 +120480,13 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -120456,11 +120523,13 @@
           "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -120600,7 +120669,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -120609,8 +120677,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -120721,11 +120793,13 @@
         "sourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -120762,11 +120836,13 @@
           "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -120906,7 +120982,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -120915,8 +120990,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -121034,11 +121113,13 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -121075,11 +121156,13 @@
         "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
         "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+        "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-        "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+        "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -121219,7 +121302,6 @@
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -121228,8 +121310,12 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -121355,11 +121441,13 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -121418,11 +121506,13 @@
           "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
@@ -121615,7 +121705,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -121624,8 +121713,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -121736,11 +121829,13 @@
         "sourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -121799,11 +121894,13 @@
           "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
@@ -121996,7 +122093,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -122005,8 +122101,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -122124,11 +122224,13 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -122187,11 +122289,13 @@
         "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+        "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-        "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+        "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
@@ -122384,7 +122488,6 @@
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -122393,8 +122496,12 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -122520,11 +122627,13 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -122590,11 +122699,13 @@
           "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:call:Some:count-2",
@@ -122926,7 +123037,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -122935,8 +123045,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -123047,11 +123161,13 @@
         "sourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -123117,11 +123233,13 @@
           "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#module_kind_from_path:external:call:Some:count-2",
@@ -123453,7 +123571,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -123462,8 +123579,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -123581,11 +123702,13 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -123651,11 +123774,13 @@
         "src/module_loader/mod.rs#load_source:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+        "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-        "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+        "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:call:Some:count-2",
@@ -123987,7 +124112,6 @@
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -123996,8 +124120,12 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -124184,11 +124312,13 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -124225,11 +124355,13 @@
           "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -124373,7 +124505,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -124382,8 +124513,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -124494,11 +124629,13 @@
         "sourceRefs": [
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+          "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
           "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -124535,11 +124672,13 @@
           "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
           "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+          "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-          "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+          "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
           "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
           "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -124683,7 +124822,6 @@
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
           "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -124692,8 +124830,12 @@
           "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+          "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
           "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -124811,11 +124953,13 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:call:Ok:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:as_bytes:count-2",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:display:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:finalize:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:into:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:is_ok:count-1",
-        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:to_str:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:update:count-6",
+        "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:method:with_context:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:Sha256::new:count-2",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:std::env::var:count-1",
         "src/module_loader/mod.rs#compute_transpile_tooling_hash:external:qualified:transpile::selected_engine_cache_tag:count-1",
@@ -124852,11 +124996,13 @@
         "src/module_loader/mod.rs#find_js_runner:external:qualified:which::which:count-2",
         "src/module_loader/mod.rs#module_cache_key:external:call:Ok:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:as_bytes:count-3",
+        "src/module_loader/mod.rs#module_cache_key:external:method:display:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:finalize:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:to_path_buf:count-1",
-        "src/module_loader/mod.rs#module_cache_key:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#module_cache_key:external:method:to_str:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:method:update:count-8",
+        "src/module_loader/mod.rs#module_cache_key:external:method:with_context:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:Sha256::new:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#prune_transpile_cache_to_limit:external:call:Ok:count-1",
@@ -125000,7 +125146,6 @@
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:method:with_file_name:count-1",
         "src/module_loader/mod.rs#unique_staged_transpile_input:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:call:Some:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:and_then:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:as_nanos:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:duration_since:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:fetch_add:count-1",
@@ -125009,8 +125154,12 @@
         "src/module_loader/mod.rs#unique_tmp_path:external:method:join:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:map:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:method:parent:count-1",
-        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-2",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:push:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:to_os_string:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:method:unwrap_or_else:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:AtomicU64::new:count-1",
+        "src/module_loader/mod.rs#unique_tmp_path:external:qualified:OsStr::new:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:PathBuf::from:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:SystemTime::now:count-1",
         "src/module_loader/mod.rs#unique_tmp_path:external:qualified:getrandom::getrandom:count-1",
@@ -126829,7 +126978,7 @@
       "edgeId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
       "observedKey": "loader:function:rust:resolve_meta_from_bound_package",
       "branchId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b.main",
-      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -126853,21 +127002,27 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.malformed-branch-facts",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.no-effect",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.allow",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.deny",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.malformed",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.wrong-principal",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.allow",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.deny",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.malformed",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.wrong-principal"
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.cached-transform.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.disk-source.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.0so6s2k.logical.external-transform.wrong-principal"
       ]
     },
     {
@@ -127051,7 +127206,7 @@
       "edgeId": "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
       "observedKey": "loader:function:rust:resolve_with_oxc_at",
       "branchId": "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0.main",
-      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -127075,21 +127230,27 @@
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.malformed-branch-facts",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.no-effect",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.allow",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.deny",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.malformed",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.wrong-principal",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.allow",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.branch-selection",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.deny",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.malformed",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.missing-attribution",
-        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.wrong-principal"
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.cached-transform.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.disk-source.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.05qf64e.logical.external-transform.wrong-principal"
       ]
     },
     {
@@ -247068,19 +247229,19 @@
       "edgeId": "surface.startup.env.exact.repo.root.0b6zh2k",
       "observedKey": "startup:env:EXACT_REPO_ROOT",
       "branchId": "surface.startup.env.exact.repo.root.0b6zh2k.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi",
+      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:EXACT_REPO_ROOT"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/hermes.rs#env::var:EXACT_REPO_ROOT:read",
-          "src/bin/ibex/runtime.rs#env::var:EXACT_REPO_ROOT:read"
+          "src/bin/ibex/engine/hermes.rs#env::var_os:EXACT_REPO_ROOT:read",
+          "src/bin/ibex/runtime.rs#env::var_os:EXACT_REPO_ROOT:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/hermes.rs#env::var:EXACT_REPO_ROOT:read",
-          "src/bin/ibex/runtime.rs#env::var:EXACT_REPO_ROOT:read"
+          "src/bin/ibex/engine/hermes.rs#env::var_os:EXACT_REPO_ROOT:read",
+          "src/bin/ibex/runtime.rs#env::var_os:EXACT_REPO_ROOT:read"
         ],
         "terminalObservedKey": "startup:env:EXACT_REPO_ROOT"
       },
@@ -247090,23 +247251,23 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/hermes.rs#env::var:EXACT_REPO_ROOT:read",
-        "src/bin/ibex/runtime.rs#env::var:EXACT_REPO_ROOT:read"
+        "src/bin/ibex/engine/hermes.rs#env::var_os:EXACT_REPO_ROOT:read",
+        "src/bin/ibex/runtime.rs#env::var_os:EXACT_REPO_ROOT:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.exact.repo.root.read.0gwc2mi.logical.present.wrong-principal"
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.allow",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.branch-selection",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.deny",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.malformed",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.missing-attribution",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.absent.wrong-principal",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.allow",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.branch-selection",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.deny",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.malformed",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.missing-attribution",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.exact.repo.root.read.023id7i.logical.present.wrong-principal"
       ]
     },
     {
@@ -248158,19 +248319,19 @@
       "edgeId": "surface.startup.env.ibex.repo.root.0qhf2d7",
       "observedKey": "startup:env:IBEX_REPO_ROOT",
       "branchId": "surface.startup.env.ibex.repo.root.0qhf2d7.main",
-      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp",
+      "enforcementBranchId": "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
           "startup:env:IBEX_REPO_ROOT"
         ],
         "proofSourceRefs": [
-          "src/bin/ibex/engine/hermes.rs#env::var:IBEX_REPO_ROOT:read",
-          "src/bin/ibex/runtime.rs#env::var:IBEX_REPO_ROOT:read"
+          "src/bin/ibex/engine/hermes.rs#env::var_os:IBEX_REPO_ROOT:read",
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_REPO_ROOT:read"
         ],
         "sourceRefs": [
-          "src/bin/ibex/engine/hermes.rs#env::var:IBEX_REPO_ROOT:read",
-          "src/bin/ibex/runtime.rs#env::var:IBEX_REPO_ROOT:read"
+          "src/bin/ibex/engine/hermes.rs#env::var_os:IBEX_REPO_ROOT:read",
+          "src/bin/ibex/runtime.rs#env::var_os:IBEX_REPO_ROOT:read"
         ],
         "terminalObservedKey": "startup:env:IBEX_REPO_ROOT"
       },
@@ -248180,23 +248341,23 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/bin/ibex/engine/hermes.rs#env::var:IBEX_REPO_ROOT:read",
-        "src/bin/ibex/runtime.rs#env::var:IBEX_REPO_ROOT:read"
+        "src/bin/ibex/engine/hermes.rs#env::var_os:IBEX_REPO_ROOT:read",
+        "src/bin/ibex/runtime.rs#env::var_os:IBEX_REPO_ROOT:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.absent.wrong-principal",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.allow",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.branch-selection",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.deny",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.malformed",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.missing-attribution",
-        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.ibex.repo.root.read.1wbwiqp.logical.present.wrong-principal"
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.allow",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.branch-selection",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.deny",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.malformed",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.missing-attribution",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.absent.wrong-principal",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.allow",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.branch-selection",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.deny",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.malformed",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.missing-attribution",
+        "enforcement.src.bin.ibex.engine.hermes.rs.env.var.os.ibex.repo.root.read.1w0cv91.logical.present.wrong-principal"
       ]
     },
     {
@@ -253281,7 +253442,9 @@
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.env.var.0w7v7ss",
         "surface.loader.operation.cache.status.02xnv4z",
@@ -253441,7 +253604,7 @@
         "surface.startup.env.userprofile.1sxunkp",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 196 observed effect edges."
+      "rationale": "Covered by 198 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -254283,7 +254446,9 @@
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.create.dir.all.0tfm41d",
         "surface.loader.operation.cache.remove.dir.all.1w3ptdd",
@@ -254415,7 +254580,7 @@
         "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 280 observed effect edges."
+      "rationale": "Covered by 282 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -255652,6 +255817,8 @@
         "surface.loader.function.rust.load.source.1lpnc7u",
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -255701,7 +255868,7 @@
         "surface.startup.env.ibex.hermes.tool.dir.0878egj",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 73 observed effect edges."
+      "rationale": "Covered by 75 observed effect edges."
     },
     {
       "definitionId": "process:umask",
@@ -256370,6 +256537,8 @@
         "surface.loader.function.rust.load.source.1lpnc7u",
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -256419,7 +256588,7 @@
         "surface.native.op.global.process.stdin.setencoding.0rna4tr",
         "surface.native.op.global.require.00nyxb6"
       ],
-      "rationale": "Covered by 132 observed effect edges."
+      "rationale": "Covered by 134 observed effect edges."
     },
     {
       "definitionId": "stdio:write",
@@ -256516,6 +256685,8 @@
         "surface.loader.function.rust.load.source.1lpnc7u",
         "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.cache.status.02xnv4z",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -256587,7 +256758,7 @@
         "surface.startup.env.node.pending.deprecation.08gz4k2",
         "surface.startup.env.term.1uw6gat"
       ],
-      "rationale": "Covered by 161 observed effect edges."
+      "rationale": "Covered by 163 observed effect edges."
     },
     {
       "definitionId": "storage:persist",
@@ -257103,6 +257274,7 @@
         "surface.cli.positional.ibex.20eval.code.arity.1.1.1c791es",
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53",
         "surface.cli.repl.13s1r60",
+        "surface.host.abi.ex.hermes.bytecode.version.1ay7fmv",
         "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "surface.host.abi.ex.hermes.eval.1t7nlsx",
         "surface.native.op.exactallownativessyntax.08ves7l",
@@ -257114,7 +257286,7 @@
         "surface.startup.script.bytecode.1d41kkw",
         "surface.startup.script.eval.19993vd"
       ],
-      "rationale": "Closed by 41 observed surface edges."
+      "rationale": "Closed by 42 observed surface edges."
     },
     {
       "definitionId": "wasi:instantiate",
@@ -257190,54 +257362,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-XINH9FqGIJ8Z50xn56iU6JhJE_YN_meir6wTPXY9_MI"
+      "rawContentDigest": "sha256-h-tMp98vuLSe5-YwWlVeRlelaBfAH2mdWuERzj2OdH4"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-zfTNzI41r5HkgxkP0rV0r7w6xs6jkMzqkR_RhQ8RaXo"
-    },
-    {
-      "kind": "markdown",
-      "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-w_kQbiQqdl2JG_7D76OWk8bE9BbqnQpjAh4w17D3XL4"
+      "rawContentDigest": "sha256-DbmOPhITyYrwv-FEE4oSUrfidaoSZmzybf2OtBcUDK8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-8flKf_UrqzvzpDoh0MZ8ak464R21qe-jfvK_m5YZgGw"
-    },
-    {
-      "kind": "registry",
-      "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-vMHue0-xeZYWSpeioE25w5c9gXPSknfn6Tpz2Xd7Y1Y"
+      "rawContentDigest": "sha256-K-LpLH4gkjdkdT2aY-njWWKTT7sYRdhBIwL4S_t_9CQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-CxoL7hdR_NqsIUi6D5AAy3K2GUSXAWp-BxYxicpRmiE"
+      "rawContentDigest": "sha256-IAE2KDbgzq0gyWvvi3Cqu1zgkysIRDtaF8vIRQcNEQ8"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-8feI-crm2Ic24mfy0ycvNJBzzJ0qUog9KkxXBgE6xMA"
+      "rawContentDigest": "sha256-W_60NNEhxX1S2G-qalNy5aloeifn4vcpxjm5tvIcomg"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Sh9JeCEoMoMUkSbG7NHURO1S90oWkUU3NysAIrhsGiY"
+      "rawContentDigest": "sha256-xv0LYrO1gF3lulLxoz5TQP9C3qMSN93I6RpuXxdGk8U"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-4Mi_na9BV3lR22UPwqUj4x8vGWdgXyPlE0qoq7k5hAQ"
+      "rawContentDigest": "sha256-2Npecv3W0e7HJdjrTdLu-PqAJEFdAm7QhqZadCPSnmA"
     }
   ],
   "counts": {
-    "observedReferences": 11927,
-    "logicalSurfaces": 6972,
-    "enforcementBranches": 7163,
-    "coverageEdges": 6972,
-    "targetCells": 6972
+    "observedReferences": 11957,
+    "logicalSurfaces": 6974,
+    "enforcementBranches": 7165,
+    "coverageEdges": 6974,
+    "targetCells": 6974
   }
 }

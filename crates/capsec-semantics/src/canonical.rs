@@ -208,7 +208,6 @@ impl DigestContract {
             "schema/implementation-manifest",
             "schema/legacy-reconciliation",
             "schema/target-cell",
-            "target-cells",
             "vocab-digest",
         ];
         let rows = [

@@ -5050,10 +5050,12 @@ function reviewedNameSet(names, label) {
 const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
   [
     "ex_android_initialize",
+    "ex_hermes_bytecode_version",
     "ex_hermes_callback_backlog",
     "ex_hermes_create",
     "ex_hermes_create_armed",
     "ex_hermes_create_diagnostic",
+    "ex_hermes_current_principal_id",
     "ex_hermes_current_runtime_nonce",
     "ex_hermes_debugger_enable",
     "ex_hermes_debugger_eval",
@@ -9176,7 +9178,7 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|is_builtin_specifier|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
         functionName,
       )
     ) {
@@ -9282,10 +9284,15 @@ function loaderClassification(surface) {
         "function:rust:load_module_source",
         "function:rust:load_source",
         "function:rust:load_source_bytes",
+        "function:rust:resolve_meta_from_bound_package",
         "function:rust:resolve",
+        "function:rust:resolve_with_oxc_at",
       ]).has(name)
     ) {
       return fullLoaderEffectSpec(loaderOptions);
+    }
+    if (name === "function:rust:is_builtin_specifier") {
+      return nonCapabilitySpec("module-reachability-only", "WP7");
     }
     if (name === "function:rust:normalize_import_target") {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
@@ -11494,7 +11501,10 @@ function embedderAbiClassification(name) {
     ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
-    if (name === "exhermescurrentruntimenonce") {
+    if (
+      name === "exhermescurrentprincipalid" ||
+      name === "exhermescurrentruntimenonce"
+    ) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
     }
     if (

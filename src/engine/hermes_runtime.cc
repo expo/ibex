@@ -193,6 +193,10 @@ extern "C" uint64_t ex_hermes_current_runtime_nonce() {
   return exactCurrentRuntimeNonce();
 }
 
+extern "C" uint64_t ex_hermes_current_principal_id() {
+  return currentPrincipalId();
+}
+
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
 // @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
 // attribution bridge, cached from HermesRuntime::getVMRuntimeUnsafe() when the
@@ -2888,6 +2892,15 @@ extern "C" int32_t ex_hermes_engine_mapped_object(
 #else
   return -1;
 #endif
+}
+
+extern "C" uint32_t ex_hermes_bytecode_version() {
+  // The root object is supplied by the same mapped Hermes image as the runtime
+  // factory used above. Keep HBC compatibility bound to that engine instead of
+  // inferring it from an independently discovered `hermes` executable.
+  auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+      facebook::hermes::makeHermesRootAPI());
+  return root == nullptr ? 0 : root->getBytecodeVersion();
 }
 
 extern "C" uint64_t ex_host_claim_armed_context(const char* digest);

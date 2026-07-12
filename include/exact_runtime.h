@@ -54,10 +54,20 @@ int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
                                       uint64_t* out_inode);
 
+/// Bytecode version accepted by the loaded Hermes engine. This is runtime
+/// truth from the mapped engine's root API, not a sibling CLI executable.
+/// Returns zero when the root API is unavailable.
+uint32_t ex_hermes_bytecode_version(void);
+
 /// Runtime nonce selected by the active engine entry-point scope. Zero means
 /// no runtime is active on this thread. Native registries use this as an owner
 /// namespace; it is not a user-visible identifier.
 uint64_t ex_hermes_current_runtime_nonce(void);
+
+/// Principal selected by exact frame attribution for the active engine entry
+/// point. Consumers must pair it with a nonzero runtime nonce; zero is also the
+/// legitimate root principal.
+uint64_t ex_hermes_current_principal_id(void);
 
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);

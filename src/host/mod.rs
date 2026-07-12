@@ -2182,15 +2182,32 @@ fn authenticated_target_cells(
 ) -> capsec_semantics::Result<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>> {
     use capsec_semantics::decision::TargetCellDisposition;
     use capsec_semantics::Error;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
 
-    let rules: serde_json::Value = serde_json::from_str(
-        crate::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
-    )
-    .map_err(|error| Error::InvalidModel(format!("invalid checked policy rules: {error}")))?;
-    let cells: serde_json::Value = serde_json::from_str(
-        crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
-    )
+    let cells_text = crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON;
+    let cells: serde_json::Value = serde_json::from_str(cells_text)
     .map_err(|error| Error::InvalidModel(format!("invalid checked target cells: {error}")))?;
+    let advertisements: serde_json::Value = serde_json::from_str(
+        crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON,
+    )
+    .map_err(|error| {
+        Error::InvalidModel(format!("invalid checked target advertisements: {error}"))
+    })?;
+    let target_cells_digest = format!(
+        "sha256-{}",
+        URL_SAFE_NO_PAD.encode(Sha256::digest(cells_text.as_bytes()))
+    );
+    if advertisements
+        .get("targetCellsRawContentDigest")
+        .and_then(serde_json::Value::as_str)
+        != Some(target_cells_digest.as_str())
+    {
+        return Err(Error::ArmRefused(
+            "target advertisement does not bind the checked target-cell bytes".into(),
+        ));
+    }
     let target = snapshot.engine_target()?;
     let features = snapshot.engine_features()?;
     if features.windows(2).any(|pair| pair[0] >= pair[1]) {
@@ -2203,22 +2220,41 @@ fn authenticated_target_cells(
         .cloned()
         .map(serde_json::Value::String)
         .collect::<Vec<_>>();
-    let advertised = rules
-        .pointer("/initialProfile/advertisedTargets")
+    let advertised = advertisements
+        .get("advertisements")
         .and_then(serde_json::Value::as_array)
-        .is_some_and(|targets| {
-            targets.iter().any(|candidate| {
-                candidate.get("triple").and_then(serde_json::Value::as_str) == Some(target.as_str())
+        .map(|targets| {
+            targets
+                .iter()
+                .filter(|candidate| {
+                    candidate
+                        .pointer("/target/triple")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(target.as_str())
                     && candidate
-                        .get("features")
+                        .pointer("/target/features")
                         .and_then(serde_json::Value::as_array)
                         == Some(&feature_values)
-            })
-        });
-    if !advertised {
+                })
+                .collect::<Vec<_>>()
+        })
+        .ok_or_else(|| Error::InvalidModel("target advertisements lack rows".into()))?;
+    if advertised.len() != 1 {
         return Err(Error::ArmRefused(format!(
-            "engine target {target} with its exact features is not advertised"
+            "engine target {target} with its exact features has no unique verified advertisement"
         )));
+    }
+    let loaded_engine = crate::engine::loaded_engine_binary_identity()
+        .map_err(Error::ArmRefused)
+        .and_then(|identity| {
+            serde_json::to_value(identity).map_err(|error| {
+                Error::InvalidModel(format!("cannot encode loaded engine identity: {error}"))
+            })
+        })?;
+    if advertised[0].get("engine") != Some(&loaded_engine) {
+        return Err(Error::ArmRefused(
+            "target conformance report does not identify the exact loaded engine artifact".into(),
+        ));
     }
 
     let rows = cells
@@ -2908,6 +2944,13 @@ mod tests {
     }
 
     fn example_armed_host_with(mutator: impl FnOnce(&mut serde_json::Value)) -> Host {
+        let snapshot = example_armed_snapshot_with(mutator);
+        unsafe { Host::new_armed_for_test(HostConfig::default(), Arc::new(snapshot)).unwrap() }
+    }
+
+    fn example_armed_snapshot_with(
+        mutator: impl FnOnce(&mut serde_json::Value),
+    ) -> capsec_semantics::arming::ArmedSnapshot {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
@@ -2953,8 +2996,19 @@ mod tests {
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
         };
-        let snapshot = ArmedSnapshot::load(&bytes, &expected).unwrap();
-        unsafe { Host::new_armed_for_test(HostConfig::default(), Arc::new(snapshot)).unwrap() }
+        ArmedSnapshot::load(&bytes, &expected).unwrap()
+    }
+
+    #[test]
+    fn production_target_claim_requires_a_verified_report_advertisement() {
+        let snapshot = example_armed_snapshot_with(|_| {});
+        let error = authenticated_target_cells(&snapshot).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("has no unique verified advertisement"),
+            "unexpected refusal: {error}"
+        );
     }
 
     #[test]

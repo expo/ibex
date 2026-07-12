@@ -63,15 +63,7 @@ const EXPECTED_IMPLEMENTATION_OUTPUTS = Object.freeze([
     kind: "markdown",
   }),
   Object.freeze({
-    path: "capsec/generated/target-matrix.md",
-    kind: "markdown",
-  }),
-  Object.freeze({
     path: "capsec/registry/coverage-edges.json",
-    kind: "registry",
-  }),
-  Object.freeze({
-    path: "capsec/registry/target-cells.json",
     kind: "registry",
   }),
   Object.freeze({
@@ -102,6 +94,10 @@ const SCHEMA_IDS = {
     "https://ibex.dev/capsec/schema/capability-definitions.schema.json",
   coverage: "https://ibex.dev/capsec/schema/coverage-edge.schema.json",
   targetCells: "https://ibex.dev/capsec/schema/target-cell.schema.json",
+  targetAdvertisements:
+    "https://ibex.dev/capsec/schema/target-advertisements.schema.json",
+  targetAttestations:
+    "https://ibex.dev/capsec/schema/target-attestations.schema.json",
   rules: "https://ibex.dev/capsec/schema/policy-rules.schema.json",
   policy: "https://ibex.dev/capsec/schema/canonical-policy.schema.json",
   armed: "https://ibex.dev/capsec/schema/armed-snapshot.schema.json",
@@ -409,7 +405,6 @@ const EXPECTED_DIGEST_PROJECTIONS = {
       "schema/implementation-manifest",
       "schema/legacy-reconciliation",
       "schema/target-cell",
-      "target-cells",
       "vocab-digest",
     ],
     omitFields: [],
@@ -641,13 +636,6 @@ function assembleRegistryDigestBundle(rules, vocabDigest) {
     [
       "schema/target-cell",
       readJsonStrict(path.join(capsecRoot, "schema/target-cell.schema.json")),
-    ],
-    [
-      "target-cells",
-      readConfinedGeneratedJson(
-        path.join(capsecRoot, "registry/target-cells.json"),
-        "generated capsec target cells",
-      ),
     ],
     [
       "vocab-digest",
@@ -2654,14 +2642,13 @@ export function validateImplementationManifestSemantics(
     "registry/capability-definitions.json",
     "registry/coverage-edges.json",
     "registry/policy-rules.json",
-    "registry/target-cells.json",
   ];
   if (
     canonicalJson(implementation.sourceDatasets) !==
     canonicalJson(expectedSourceDatasets)
   ) {
     throw new Error(
-      "implementation manifest does not name the exact four source datasets",
+      "implementation manifest does not name the exact source-derived datasets",
     );
   }
 
@@ -2994,6 +2981,13 @@ export function loadAndValidateContract() {
     generatedImplementationManifestPath,
     "generated capsec implementation manifest",
   );
+  const targetAdvertisements = readConfinedGeneratedJson(
+    path.join(capsecRoot, "generated/target-advertisements.json"),
+    "generated capsec target advertisements",
+  );
+  const targetAttestations = readJsonStrict(
+    path.join(capsecRoot, "conformance/target-attestations.json"),
+  );
   validateWith(
     ajv,
     SCHEMA_IDS.definitions,
@@ -3024,6 +3018,18 @@ export function loadAndValidateContract() {
     SCHEMA_IDS.implementation,
     implementation,
     "implementation manifest",
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.targetAdvertisements,
+    targetAdvertisements,
+    "target advertisements",
+  );
+  validateWith(
+    ajv,
+    SCHEMA_IDS.targetAttestations,
+    targetAttestations,
+    "target attestations",
   );
   assertDigestProjectionContract(rules);
 
@@ -3497,14 +3503,76 @@ export function loadAndValidateContract() {
         `production target cell ${index} cannot promote a conditional-unrefined edge`,
       );
     }
-    if (implementation.status === "inventory-only-until-conformance") {
-      if (cell.disposition !== "unsupported" || cell.fixtures.length !== 0) {
-        throw new Error(
-          `WP1 target cell ${index} makes an unproved conformance claim`,
-        );
-      }
-    }
   });
+
+  if (
+    targetAdvertisements.targetCellsRawContentDigest !==
+    rawFileDigest("registry/target-cells.json")
+  ) {
+    throw new Error(
+      "target advertisements do not bind the exact generated target-cell bytes",
+    );
+  }
+  const attestationByTarget = new Map(
+    targetAttestations.attestations.map((row) => [
+      canonicalJson(row.target),
+      row,
+    ]),
+  );
+  const advertisedTargetKeys = targetAdvertisements.advertisements.map((row) =>
+    canonicalJson(row.target),
+  );
+  assertUnique(advertisedTargetKeys, "target advertisements");
+  assertSorted(advertisedTargetKeys, "target advertisements");
+  if (
+    canonicalJson(advertisedTargetKeys) !==
+    canonicalJson([...attestationByTarget.keys()].sort(compareUtf8Text))
+  ) {
+    throw new Error(
+      "target advertisements are not the exact mechanically verified attestation set",
+    );
+  }
+  for (const advertisement of targetAdvertisements.advertisements) {
+    const targetKey = canonicalJson(advertisement.target);
+    const attestation = attestationByTarget.get(targetKey);
+    if (
+      !attestation ||
+      advertisement.conformanceDigest !== attestation.conformanceDigest ||
+      advertisement.reportRawContentDigest !==
+        attestation.reportRawContentDigest ||
+      advertisement.sourceRevision !== attestation.sourceRevision ||
+      advertisement.sourceTreeDigest !== attestation.sourceTreeDigest ||
+      advertisement.engine.binaryDigest !== attestation.engineBinaryDigest ||
+      advertisement.engine.targetArchitecture !==
+        advertisement.target.triple.split("-")[0] ||
+      canonicalJson(advertisement.engine.structuralFeatures) !==
+        canonicalJson(advertisement.target.features)
+    ) {
+      throw new Error(
+        "target advertisement differs from its exact report attestation",
+      );
+    }
+  }
+  for (const target of rules.initialProfile.candidateTargets) {
+    const targetKey = canonicalJson(target);
+    const advertised = advertisedTargetKeys.includes(targetKey);
+    const exactCells = targetCells.cells.filter(
+      (cell) => canonicalJson(cell.target) === targetKey,
+    );
+    if (
+      exactCells.some((cell) =>
+        advertised
+          ? cell.disposition === "unsupported"
+          : cell.disposition !== "unsupported",
+      )
+    ) {
+      throw new Error(
+        advertised
+          ? "advertised target retains an unsupported cell"
+          : "unadvertised target contains a promoted cell",
+      );
+    }
+  }
 
   const targetCellExamples = readJsonStrict(
     path.join(examplesDir, "target-cells.canonical.json"),
@@ -3657,6 +3725,8 @@ export function loadAndValidateContract() {
     ["digest vectors", digestVectors],
     ["production coverage", coverage],
     ["production target cells", targetCells],
+    ["target advertisements", targetAdvertisements],
+    ["target attestations", targetAttestations],
     ["implementation manifest", implementation],
     ["coverage examples", coverageExamples],
     ["target cell examples", targetCellExamples],
@@ -3714,6 +3784,8 @@ export function loadAndValidateContract() {
     digestVectors,
     coverage,
     targetCells,
+    targetAdvertisements,
+    targetAttestations,
     coverageExamples,
     targetCellExamples,
     policy,

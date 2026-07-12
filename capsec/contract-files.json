@@ -17,6 +17,8 @@
     "schema/implementation-manifest.schema.json",
     "schema/legacy-reconciliation.schema.json",
     "schema/policy-rules.schema.json",
+    "schema/target-advertisements.schema.json",
+    "schema/target-attestations.schema.json",
     "schema/target-cell.schema.json"
   ],
   "registries": [
@@ -73,6 +75,7 @@
     "generated/implementation-manifest.json",
     "generated/legacy-capability-reconciliation.md",
     "generated/surface-inventory.md",
+    "generated/target-advertisements.json",
     "generated/target-matrix.md"
   ]
 }

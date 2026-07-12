@@ -36,33 +36,11 @@ import {
   packageIntegrity,
   resolveTypedDelegations,
 } from './capsec-policy-authoring.mjs';
-
-async function packageTreeIntegrity(directory) {
-  const records = [];
-  async function walk(current, relative) {
-    const entries = await fs.readdir(current, { withFileTypes: true });
-    entries.sort((a, b) => Buffer.from(a.name).compare(Buffer.from(b.name)));
-    for (const entry of entries) {
-      if (entry.name === 'node_modules' || entry.name === '.git') continue;
-      const absolute = path.join(current, entry.name);
-      const rel = relative ? `${relative}/${entry.name}` : entry.name;
-      const stat = await fs.lstat(absolute);
-      if (stat.isSymbolicLink()) {
-        throw new Error(`package content contains an unauthenticated symlink: ${rel}`);
-      }
-      if (stat.isDirectory()) {
-        await walk(absolute, rel);
-      } else if (stat.isFile()) {
-        records.push([rel, packageIntegrity(await fs.readFile(absolute))]);
-      } else {
-        throw new Error(`package content contains an unsupported file type: ${rel}`);
-      }
-    }
-  }
-  await walk(directory, '');
-  records.sort((a, b) => Buffer.from(a[0]).compare(Buffer.from(b[0])));
-  return packageIntegrity(JSON.stringify(records));
-}
+import {
+  authenticateAnalyzedPackageTree,
+  packageRelativeModulePath,
+  packageRootForModuleId,
+} from './policy-package-snapshot.mjs';
 
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
@@ -125,6 +103,11 @@ const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
 const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
 const packageMetadata = new Map(); // identity -> integrity-bound package principal
 const typedRequests = new Map(); // identity -> package requests/delegations (never grants)
+// Exact bytes observed by Rolldown's graph analysis. The later content-tree
+// snapshot must contain these same bytes and the same manifest; otherwise a
+// package can race analysis A with executable tree B and inherit A's grants.
+// @ref LLP 0021#decision-staging-and-principal-semantics
+const analyzedPackages = new Map(); // package root -> { manifestBytes, manifest, sources }
 
 // Resolve an import edge's target to its version-qualified identity by walking
 // the importer's node_modules chain, exactly as the bundler's resolver does.
@@ -183,6 +166,47 @@ const collector = createImportGrantsPlugin({
 
 const graphPlugin = {
   name: 'import-grants-graph',
+  async load(id) {
+    const pkg = packageOfModuleId(id);
+    if (!pkg) return null;
+    const packageRoot = packageRootForModuleId(id, pkg);
+    if (!packageRoot) return null;
+    let relativeModule;
+    try {
+      relativeModule = packageRelativeModulePath(packageRoot, id);
+      const [sourceBytes, manifestBytes] = await Promise.all([
+        fs.readFile(path.resolve(String(id).split('\0', 1)[0])),
+        fs.readFile(path.join(packageRoot, 'package.json')),
+      ]);
+      let analysis = analyzedPackages.get(packageRoot);
+      if (!analysis) {
+        analysis = {
+          manifestBytes,
+          manifest: JSON.parse(manifestBytes.toString('utf8')),
+          sources: new Map(),
+        };
+        analyzedPackages.set(packageRoot, analysis);
+      } else if (!analysis.manifestBytes.equals(manifestBytes)) {
+        throw new Error('package manifest changed while Rolldown loaded its modules');
+      }
+      const digest = packageIntegrity(sourceBytes);
+      const prior = analysis.sources.get(relativeModule);
+      if (prior && prior !== digest) {
+        throw new Error('package module changed while Rolldown loaded its graph');
+      }
+      analysis.sources.set(relativeModule, digest);
+      // Returning the captured bytes makes the analysis input and the recorded
+      // digest one atomic value rather than two pathname reads with a race.
+      return { code: sourceBytes.toString('utf8') };
+    } catch (error) {
+      generationErrors.push({
+        message: `cannot pin package analysis input: ${error.message}`,
+        file: id,
+        line: 0,
+      });
+      return null;
+    }
+  },
   resolveId(specifier, importer) {
     if (!importer) return null;
     const to = packageNameOfSpecifier(specifier);
@@ -190,7 +214,7 @@ const graphPlugin = {
     recordEdge(importer, to);
     return null; // observe only; default resolution proceeds
   },
-  transform(code, id) {
+  async transform(code, id) {
     const pkg = packageOfModuleId(id);
     const extracted = extractImportSpecifiersDetailed(code);
     if (!extracted.parseable && pkg) {
@@ -207,16 +231,51 @@ const graphPlugin = {
       if (to) recordEdge(id, to);
     }
     if (pkg) {
-      const identity = packageIdentityOfModuleId(id) || pkg;
+      const packageRoot = packageRootForModuleId(id, pkg);
+      if (!packageRoot) {
+        generationErrors.push({
+          message: 'package module has no stable package root',
+          file: id,
+          line: 0,
+        });
+        return null;
+      }
+      const analysis = analyzedPackages.get(packageRoot);
+      if (!analysis) {
+        generationErrors.push({
+          message: 'package transform did not originate from a pinned analysis input',
+          file: id,
+          line: 0,
+        });
+        return null;
+      }
+      let relativeModule;
+      try {
+        relativeModule = packageRelativeModulePath(packageRoot, id);
+      } catch (error) {
+        generationErrors.push({ message: error.message, file: id, line: 0 });
+        return null;
+      }
+      const analyzedDigest = packageIntegrity(Buffer.from(code, 'utf8'));
+      const priorDigest = analysis.sources.get(relativeModule);
+      if (!priorDigest || priorDigest !== analyzedDigest) {
+        generationErrors.push({
+          message: 'Rolldown analyzed bytes other than its pinned package source',
+          file: id,
+          line: 0,
+        });
+      }
+
+      const identity =
+        typeof analysis.manifest.version === 'string'
+          ? `${analysis.manifest.name || pkg}@${analysis.manifest.version}`
+          : analysis.manifest.name || pkg;
       packageIdentities.add(identity);
       if (!packageDirs.has(pkg)) packageDirs.set(pkg, new Set());
       // Normalize backslashes to agree with packageOfModuleId (ENG-22619): on
       // Windows the raw id uses `\`, so an un-normalized scan misses the marker
       // and silently drops the package's directory (hence its ibex manifest).
-      const nid = id.replace(/\\/g, '/');
-      const marker = 'node_modules/';
-      const idx = nid.lastIndexOf(marker);
-      if (idx !== -1) packageDirs.get(pkg).add(nid.slice(0, idx + marker.length) + pkg);
+      packageDirs.get(pkg).add(packageRoot);
 
       // @ref LLP 0014#the-generated-artifact — observe each package module's
       // static builtin imports so the emitted `builtins` list is a true
@@ -244,8 +303,9 @@ const config = createRolldownConfig({
   define: runtimeImportMetaDefine,
   compartments: false,
 });
-// The collector must see modules BEFORE the shared pipeline's strip pass.
-config.plugins = [collector, graphPlugin, ...config.plugins];
+// Capture exact raw package bytes before any transform. The collector still
+// sees modules before the shared pipeline's strip pass.
+config.plugins = [graphPlugin, collector, ...config.plugins];
 
 const bundle = await rolldown(config);
 await bundle.generate({ format: 'cjs', exports: 'auto', codeSplitting: false });
@@ -286,18 +346,23 @@ if (generationErrors.length) {
 // edge (the ENG-22818 defect). (ENG-22818)
 for (const [pkg, dirs] of packageDirs) {
   for (const dir of dirs) {
-    let manifest;
-    let manifestText;
-    try {
-      manifestText = await fs.readFile(path.join(dir, 'package.json'), 'utf8');
-      manifest = JSON.parse(manifestText);
-    } catch {
+    const analysis = analyzedPackages.get(dir);
+    if (!analysis) {
+      generationErrors.push({
+        message: 'package tree has no captured Rolldown analysis inputs',
+        file: path.join(dir, 'package.json'),
+        line: 0,
+      });
       continue;
     }
-    const identity = packageIdentityOfModuleId(path.join(dir, 'index.js')) || pkg;
+    const manifest = analysis.manifest;
+    const identity =
+      typeof manifest.version === 'string'
+        ? `${manifest.name || pkg}@${manifest.version}`
+        : manifest.name || pkg;
     let integrity;
     try {
-      integrity = await packageTreeIntegrity(dir);
+      integrity = await authenticateAnalyzedPackageTree(dir, analysis);
     } catch (error) {
       generationErrors.push({
         message: `cannot authenticate package content: ${error.message}`,

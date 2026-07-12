@@ -1237,16 +1237,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         int syncStdinFdRedirect = parseSyncFdMode(stdinMode);
         int syncStdoutFdRedirect = parseSyncFdMode(stdoutMode);
         int syncStderrFdRedirect = parseSyncFdMode(stderrMode);
-        if (!isAllowAll()) {
-          if (syncStdinFdRedirect >= 0) {
-            exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
-          }
-          if (syncStdoutFdRedirect >= 0) {
-            exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
-          }
-          if (syncStderrFdRedirect >= 0) {
-            exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
-          }
+        if (syncStdinFdRedirect >= 0) {
+          exactRequireFdReadable(runtime, syncStdinFdRedirect, "__exactSpawnSync stdio[0]");
+        }
+        if (syncStdoutFdRedirect >= 0) {
+          exactRequireFdWritable(runtime, syncStdoutFdRedirect, "__exactSpawnSync stdio[1]");
+        }
+        if (syncStderrFdRedirect >= 0) {
+          exactRequireFdWritable(runtime, syncStderrFdRedirect, "__exactSpawnSync stdio[2]");
         }
         ScopedSpawnFd safeSyncStdin(syncStdinFdRedirect);
         ScopedSpawnFd safeSyncStdout(syncStdoutFdRedirect);
@@ -1966,10 +1964,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           std::lock_guard<std::mutex> lock(s_spawnMutex);
           for (const auto& pair : s_spawnedProcesses) {
             const auto& proc = pair.second;
-            if (!proc || proc->runtimeNonce != runtimeNonce) {
-              continue;
-            }
-            if (!isAllowAll() && proc->owner != principal) {
+            if (!proc || proc->runtimeNonce != runtimeNonce ||
+                proc->owner != principal) {
               continue;
             }
             if (fd == proc->stdinFd) {
@@ -1993,7 +1989,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         };
 
         auto requireRedirectFd = [&](int fd, bool needsRead, bool needsWrite, const char* syscall) {
-          if (fd < 0 || isAllowAll()) {
+          if (fd < 0) {
             return;
           }
           if (currentPrincipalOwnsSpawnFd(fd, needsRead, needsWrite)) {
