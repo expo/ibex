@@ -23,6 +23,7 @@
     "check:capsec-contract": "bun packages/ibex-devtools/src/scripts/capsec-contract.mjs --check",
     "check:capsec-registry": "bun packages/ibex-devtools/src/scripts/generate-capsec-registry.mjs --check",
     "check:example-policy": "bun packages/ibex-devtools/src/scripts/check-generated-policies.mjs",
+    "test:android-java": "scripts/test-android-java.sh",
     "test": "bun test packages",
     "test:hermes-compat": "node packages/ibex-devtools/src/scripts/run-hermes-compat-corpus.mjs && node packages/ibex-devtools/src/scripts/run-hermes-compat-loader.mjs"
   },

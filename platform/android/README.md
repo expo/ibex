@@ -11,14 +11,17 @@ Ibex Android platform integration is split between native C++ and Android Java:
   globals consumed by clipboard, location, camera, locale, screen,
   appearance/accessibility, app state/linking/dimensions, display-linked
   animation frames, and React Native compatibility shims.
-- `java/dev/ibex/runtime/IbexNetworking.java` owns the Android app integration.
+- `java/dev/ibex/runtime/IbexNetworking.java` owns the Android app integration;
+  `IbexWebSocketFlowController.java` is its dependency-free, behavior-tested
+  receive-side queue and flow-control state machine.
   It uses OkHttp for HTTP/WebSocket and Android framework services for the
   other platform data.
 
 Embedding apps need to:
 
-1. Add `platform/android/java` to the Android source set, or copy
-   `dev.ibex.runtime.IbexNetworking` into the app.
+1. Add `platform/android/java` to the Android source set. If an embedder copies
+   sources instead, copy both classes in `dev.ibex.runtime`; the WebSocket flow
+   controller is a package-private implementation detail of the bridge.
 2. Add OkHttp to the app dependencies, for example
    `implementation("com.squareup.okhttp3:okhttp:5.4.0")`.
 3. Call `ex_android_initialize(JavaVM*, Context)` from a JNI thread before
@@ -100,3 +103,9 @@ runtime falls back to its timer-based animation frame scheduler.
 
 The bridge configures OkHttp with redirects disabled because Ibex's JS fetch
 layer implements Fetch redirect policy itself.
+
+The paused WebSocket receive queue is covered by executable host-JVM tests of
+the same production state machine used by the OkHttp listener. Run them with
+`bun run test:android-java`. The suite covers text and binary FIFO delivery,
+independent count/byte floods, overflow error followed by close code 1009,
+transport close/error cleanup, and repeated flow-control pause/resume cycles.

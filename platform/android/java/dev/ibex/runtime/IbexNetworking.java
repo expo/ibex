@@ -752,11 +752,11 @@ public final class IbexNetworking {
       WebSocket socket = client.newWebSocket(builder.build(), new WebSocketListener() {
         @Override
         public void onOpen(WebSocket webSocket, Response response) {
-          if (entry.closed) {
+          entry.socket = webSocket;
+          if (entry.flow.isClosed()) {
             webSocket.cancel();
             return;
           }
-          entry.socket = webSocket;
           nativeWebSocketDidOpen(
               wsId,
               response == null ? "" : valueOrEmpty(response.header("Sec-WebSocket-Protocol")),
@@ -765,14 +765,14 @@ public final class IbexNetworking {
 
         @Override
         public void onMessage(WebSocket webSocket, String text) {
-          deliverOrQueue(entry, new WsMessage(
+          entry.flow.receive(
               text == null ? EMPTY_BYTES : text.getBytes(StandardCharsets.UTF_8),
-              true));
+              true);
         }
 
         @Override
         public void onMessage(WebSocket webSocket, ByteString bytes) {
-          deliverOrQueue(entry, new WsMessage(bytes == null ? EMPTY_BYTES : bytes.toByteArray(), false));
+          entry.flow.receive(bytes == null ? EMPTY_BYTES : bytes.toByteArray(), false);
         }
 
         @Override
@@ -783,26 +783,32 @@ public final class IbexNetworking {
         @Override
         public void onClosed(WebSocket webSocket, int code, String reason) {
           webSockets.remove(wsId, entry);
-          clearPendingMessages(entry);
+          entry.flow.transportClosed();
           nativeWebSocketDidClose(wsId, code, valueOrEmpty(reason), true);
         }
 
         @Override
         public void onFailure(WebSocket webSocket, Throwable error, Response response) {
           webSockets.remove(wsId, entry);
-          clearPendingMessages(entry);
           String message = error == null ? "WebSocket error" : error.getMessage();
-          nativeWebSocketDidError(wsId, valueOrEmpty(message));
+          // Overflow reports its own deterministic error before asking OkHttp
+          // to close. Suppress the secondary transport error if cancellation
+          // is how OkHttp completes that already-terminal transition.
+          if (entry.flow.transportFailed()) {
+            nativeWebSocketDidError(wsId, valueOrEmpty(message));
+          }
           nativeWebSocketDidClose(wsId, 1006, valueOrEmpty(message), false);
         }
       });
       entry.socket = socket;
-      if (entry.closed) {
+      if (entry.flow.isClosed()) {
         socket.cancel();
       }
     } catch (RuntimeException error) {
       webSockets.remove(wsId, entry);
-      nativeWebSocketDidError(wsId, error.getMessage());
+      if (entry.flow.transportFailed()) {
+        nativeWebSocketDidError(wsId, error.getMessage());
+      }
       nativeWebSocketDidClose(wsId, 1006, "WebSocket connect failed", false);
     }
   }
@@ -810,7 +816,7 @@ public final class IbexNetworking {
   public static void sendWebSocket(int wsId, byte[] data, boolean isText) {
     WsEntry entry = webSockets.get(wsId);
     WebSocket socket = entry == null ? null : entry.socket;
-    if (entry == null || entry.closed || socket == null) {
+    if (entry == null || entry.flow.isClosed() || socket == null) {
       return;
     }
     byte[] bytes = data == null ? EMPTY_BYTES : data;
@@ -828,12 +834,7 @@ public final class IbexNetworking {
     WsEntry entry = webSockets.get(wsId);
     WebSocket socket = entry == null ? null : entry.socket;
     if (entry != null) {
-      synchronized (entry) {
-        entry.closed = true;
-        entry.pending.clear();
-        entry.pendingBytes = 0;
-        entry.draining = false;
-      }
+      entry.flow.close();
     }
     if (socket != null) {
       socket.close(validCloseCode(code), valueOrEmpty(reason));
@@ -845,9 +846,7 @@ public final class IbexNetworking {
     if (entry == null) {
       return;
     }
-    synchronized (entry) {
-      entry.paused = true;
-    }
+    entry.flow.pause();
   }
 
   public static void resumeWebSocket(int wsId) {
@@ -855,43 +854,7 @@ public final class IbexNetworking {
     if (entry == null) {
       return;
     }
-    synchronized (entry) {
-      if (entry.closed || entry.draining) {
-        return;
-      }
-      // Keep newly arriving frames queued until the pre-existing backlog is
-      // drained. Clearing `paused` without a separate drain state lets an
-      // OkHttp callback deliver a new frame ahead of an older queued frame.
-      entry.paused = false;
-      entry.draining = true;
-    }
-    for (;;) {
-      WsMessage message;
-      synchronized (entry) {
-        if (entry.closed) {
-          entry.draining = false;
-          return;
-        }
-        message = entry.pending.poll();
-        if (message == null) {
-          entry.draining = false;
-          return;
-        }
-        entry.pendingBytes -= message.bytes.length;
-      }
-      deliverMessage(entry.id, message);
-      synchronized (entry) {
-        if (entry.closed) {
-          entry.draining = false;
-          return;
-        }
-        if (entry.flowControlled) {
-          entry.paused = true;
-          entry.draining = false;
-          return;
-        }
-      }
-    }
+    entry.flow.resume();
   }
 
   public static void setWebSocketFlowControlled(int wsId, boolean enabled) {
@@ -899,9 +862,7 @@ public final class IbexNetworking {
     if (entry == null) {
       return;
     }
-    synchronized (entry) {
-      entry.flowControlled = enabled;
-    }
+    entry.flow.setFlowControlled(enabled);
   }
 
   public static byte[] dnsQuery(String hostname, int qtype) throws Exception {
@@ -1986,61 +1947,6 @@ public final class IbexNetworking {
     return builder.toString();
   }
 
-  private static void deliverOrQueue(WsEntry entry, WsMessage message) {
-    WebSocket overflowSocket = null;
-    boolean overflow = false;
-    synchronized (entry) {
-      if (entry.closed) {
-        return;
-      }
-      if (entry.paused || entry.draining) {
-        long nextBytes = entry.pendingBytes + message.bytes.length;
-        if (entry.pending.size() >= MAX_WS_PENDING_MESSAGES
-            || nextBytes > MAX_WS_PENDING_BYTES) {
-          entry.closed = true;
-          entry.pending.clear();
-          entry.pendingBytes = 0;
-          entry.draining = false;
-          overflowSocket = entry.socket;
-          overflow = true;
-        } else {
-          entry.pending.add(message);
-          entry.pendingBytes = nextBytes;
-          return;
-        }
-      }
-      if (!overflow && entry.flowControlled) {
-        entry.paused = true;
-      }
-    }
-    if (overflow) {
-      nativeWebSocketDidError(entry.id, "WebSocket receive queue overflow");
-      if (overflowSocket != null) {
-        // 1009 is the protocol-defined "message too big" close code and gives
-        // callers a deterministic terminal outcome instead of silently
-        // dropping data or growing the Java heap without bound.
-        if (!overflowSocket.close(1009, "Receive queue overflow")) {
-          overflowSocket.cancel();
-        }
-      }
-      return;
-    }
-    deliverMessage(entry.id, message);
-  }
-
-  private static void clearPendingMessages(WsEntry entry) {
-    synchronized (entry) {
-      entry.closed = true;
-      entry.pending.clear();
-      entry.pendingBytes = 0;
-      entry.draining = false;
-    }
-  }
-
-  private static void deliverMessage(int wsId, WsMessage message) {
-    nativeWebSocketDidMessage(wsId, message.bytes, message.isText);
-  }
-
   private static final class ByteArrayRequestBody extends RequestBody {
     private final byte[] data;
 
@@ -2066,26 +1972,34 @@ public final class IbexNetworking {
 
   private static final class WsEntry {
     final int id;
-    final ArrayDeque<WsMessage> pending = new ArrayDeque<>();
-    long pendingBytes;
+    final IbexWebSocketFlowController flow;
     volatile WebSocket socket;
-    volatile boolean closed;
-    boolean paused;
-    boolean draining;
-    boolean flowControlled;
 
     WsEntry(int id) {
       this.id = id;
-    }
-  }
+      this.flow = new IbexWebSocketFlowController(
+          MAX_WS_PENDING_MESSAGES,
+          MAX_WS_PENDING_BYTES,
+          new IbexWebSocketFlowController.Listener() {
+            @Override
+            public void onMessage(byte[] bytes, boolean isText) {
+              nativeWebSocketDidMessage(id, bytes, isText);
+            }
 
-  private static final class WsMessage {
-    final byte[] bytes;
-    final boolean isText;
+            @Override
+            public void onError(String message) {
+              nativeWebSocketDidError(id, message);
+            }
 
-    WsMessage(byte[] bytes, boolean isText) {
-      this.bytes = bytes == null ? EMPTY_BYTES : bytes;
-      this.isText = isText;
+            @Override
+            public void onCloseRequested(int code, String reason) {
+              webSockets.remove(id, WsEntry.this);
+              WebSocket currentSocket = socket;
+              if (currentSocket != null && !currentSocket.close(code, reason)) {
+                currentSocket.cancel();
+              }
+            }
+          });
     }
   }
 
