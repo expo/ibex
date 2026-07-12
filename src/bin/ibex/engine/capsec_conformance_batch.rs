@@ -361,46 +361,37 @@ fn validate_response(item: &WorkItem<'_>, response: &serde_json::Value) -> CaseE
     }
 }
 
-async fn execute_chunk(
-    engine: &HermesEngine,
-    items: &[WorkItem<'_>],
-) -> Vec<CaseEvidence> {
-    let requests = items
-        .iter()
-        .map(|item| {
-            serde_json::json!({
-                "operation": item.probe.operation,
-                "request": {
-                    "terminalBranchId": item.probe.terminal_branch_id,
-                    "decisionSetJson": item.case.decision_set_json,
-                    "gatesJson": item.case.gates_json,
-                }
-            })
-        })
-        .collect::<Vec<_>>();
-    let script = format!(
-        "JSON.stringify(({}).map(function(r){{try{{return {{value:__hostCall(r.operation,r.request)}};}}catch(e){{return {{threw:String(e)}};}}}}))",
-        serde_json::to_string(&requests).expect("serialize adapter request chunk")
-    );
-    let encoded = engine
-        .eval_immediate(&script)
-        .await
-        .expect("execute adapter request chunk in Hermes")
-        .expect("Hermes adapter request chunk returned no result");
-    let responses: Vec<serde_json::Value> =
-        serde_json::from_str(&encoded).expect("Hermes adapter chunk returned invalid JSON");
-    assert_eq!(responses.len(), items.len());
+fn execute_adapter_chunk(items: &[WorkItem<'_>]) -> Vec<CaseEvidence> {
     items
         .iter()
-        .zip(responses)
-        .map(|(item, wrapper)| {
-            if let Some(error) = wrapper["threw"].as_str() {
+        .map(|item| {
+            assert_eq!(
+                item.probe.operation, "capsec.conformance.evaluate",
+                "{}:{}: unsupported diagnostic adapter operation",
+                item.recipe.fixture_id, item.case.stage
+            );
+            let request = serde_json::json!({
+                "terminalBranchId": item.probe.terminal_branch_id,
+                "decisionSetJson": item.case.decision_set_json,
+                "gatesJson": item.case.gates_json,
+            });
+            let response_text = evaluate_capsec_conformance_adapter(
+                &serde_json::to_string(&request).expect("serialize adapter request"),
+            )
+            .unwrap_or_else(|error| {
                 panic!(
-                    "{}:{}: Hermes host call threw: {error}",
+                    "{}:{}: direct typed adapter failed: {error}",
                     item.recipe.fixture_id, item.case.stage
-                );
-            }
-            validate_response(item, &wrapper["value"])
+                )
+            });
+            let response = capsec_semantics::strict_json::parse_strict(&response_text)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{}:{}: direct typed adapter returned invalid JSON: {error}",
+                        item.recipe.fixture_id, item.case.stage
+                    )
+                });
+            validate_response(item, &response)
         })
         .collect()
 }
@@ -421,6 +412,10 @@ async fn capsec_executable_recipe_adapter_batch() {
         install_armed_test_host_at(None, false, false, false, required_floor(&catalog));
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before adapter recipes");
+    // Adapter evidence remains bound to an exact loaded-engine identity for
+    // stale-artifact detection, but adapter cases are diagnostic and execute
+    // in-process. They never cross a public JavaScript bridge and never count
+    // as public-surface execution evidence.
     let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
         .expect("create recipe engine with exact armed snapshot");
     engine
@@ -444,7 +439,7 @@ async fn capsec_executable_recipe_adapter_batch() {
     let mut fixtures = BTreeMap::<String, FixtureEvidence>::new();
     let mut passed_cases = 0usize;
     for chunk in work.chunks(64) {
-        let evidence = execute_chunk(&engine, chunk).await;
+        let evidence = execute_adapter_chunk(chunk);
         for (item, case_evidence) in chunk.iter().zip(evidence) {
             fixtures
                 .entry(item.recipe.fixture_id.clone())

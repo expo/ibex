@@ -219,7 +219,9 @@ fn host_call_response(payload: String) -> *mut std::os::raw::c_char {
 }
 
 #[cfg(all(test, feature = "capsec-conformance-observer"))]
-fn capsec_conformance_host_call(args: &str) -> Result<String> {
+/// Test-only in-process typed adapter. It is deliberately not routed through
+/// `exact_agent_host_call` or exposed as a JavaScript global.
+fn evaluate_capsec_conformance_adapter(args: &str) -> Result<String> {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase", deny_unknown_fields)]
     struct Request {
@@ -286,14 +288,6 @@ extern "C" fn exact_agent_host_call(
             .to_string_lossy()
             .into_owned()
     };
-
-    #[cfg(all(test, feature = "capsec-conformance-observer"))]
-    if operation == "capsec.conformance.evaluate" {
-        return match capsec_conformance_host_call(&args) {
-            Ok(json) => host_call_response(format!("+{json}")),
-            Err(error) => host_call_response(format!("-{error}")),
-        };
-    }
 
     match crate::agent_logs::handle_host_call(&operation, &args) {
         Ok(json) => host_call_response(format!("+{json}")),
@@ -3645,15 +3639,13 @@ cp \"$input\" \"$out\"\n";
 
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
-    async fn capsec_conformance_host_call_crosses_hermes_and_the_typed_adapter() {
+    async fn capsec_conformance_adapter_is_direct_and_not_a_public_bridge_route() {
         let _lock = hermes_engine_test_lock().lock().await;
         let floor = serde_json::json!({
             "cap": "sys:read",
             "resource": {"kind": "system-info", "name": "platform"}
         });
-        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
-        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
-        engine.load_runtime().await.unwrap();
+        let (_reset, _digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
         let decision = serde_json::json!({
             "decisionSetSchema": "ibex/capsec-decision-set/1",
             "operationId": "conformance-sys-read",
@@ -3686,16 +3678,8 @@ cp \"$input\" \"$out\"\n";
             "decisionSetJson": serde_json::to_string(&decision).unwrap(),
             "gatesJson": serde_json::to_string(&gates).unwrap()
         });
-        let script = format!(
-            "JSON.stringify(__hostCall('capsec.conformance.evaluate', {}))",
-            serde_json::to_string(&request).unwrap()
-        );
         let result: serde_json::Value = serde_json::from_str(
-            engine
-                .eval_immediate(&script)
-                .await
-                .unwrap()
-                .as_deref()
+            &evaluate_capsec_conformance_adapter(&serde_json::to_string(&request).unwrap())
                 .unwrap(),
         )
         .unwrap();
@@ -3710,6 +3694,18 @@ cp \"$input\" \"$out\"\n";
             "sys:read"
         );
         assert_eq!(result["legacyObservations"], serde_json::json!([]));
+
+        let operation = CString::new("capsec.conformance.evaluate").unwrap();
+        let request = CString::new(serde_json::to_string(&request).unwrap()).unwrap();
+        let generic_result = unsafe {
+            CString::from_raw(exact_agent_host_call(operation.as_ptr(), request.as_ptr()))
+        };
+        assert!(
+            generic_result
+                .to_string_lossy()
+                .contains("Unknown host call"),
+            "the diagnostic adapter must not be reachable through the generic bridge"
+        );
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
