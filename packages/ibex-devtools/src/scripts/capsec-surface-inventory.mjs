@@ -1832,6 +1832,7 @@ export function scanStaticBuiltinExports(
   const resolvedOpaqueShapeNodes = new Set();
   const unresolvedPrototypeRegistrations = new Map();
   const requiredModuleBindings = new Set();
+  const requiredModuleBindingSpecifiers = new Map();
   const callableDefinitions = javascriptFunctionDefinitions(program);
   const callableDefinitionsByName = new Map();
   for (const definition of callableDefinitions) {
@@ -1843,6 +1844,7 @@ export function scanStaticBuiltinExports(
     definitions.push(definition);
   }
   const qualifiedCallableDefinitions = new Map();
+  const qualifiedCallableOpaqueAlternatives = new Set();
   const classDefinitionNames = new Set();
   const localValueExpressions = new Map();
   const staticObjectBindings = new Set();
@@ -1863,6 +1865,28 @@ export function scanStaticBuiltinExports(
       qualifiedCallableDefinitions.set(name, definitions);
     }
     definitions.push(node);
+  };
+  const callableValueAlternatives = (expression) => {
+    if (callbackFunction(expression)) {
+      return { callbacks: [expression], opaque: false };
+    }
+    if (expression?.type === "LogicalExpression") {
+      const left = callableValueAlternatives(expression.left);
+      const right = callableValueAlternatives(expression.right);
+      return {
+        callbacks: [...left.callbacks, ...right.callbacks],
+        opaque: left.opaque || right.opaque,
+      };
+    }
+    if (expression?.type === "ConditionalExpression") {
+      const consequent = callableValueAlternatives(expression.consequent);
+      const alternate = callableValueAlternatives(expression.alternate);
+      return {
+        callbacks: [...consequent.callbacks, ...alternate.callbacks],
+        opaque: consequent.opaque || alternate.opaque,
+      };
+    }
+    return { callbacks: [], opaque: true };
   };
   walkAst(program, (node) => {
     if (
@@ -1906,17 +1930,19 @@ export function scanStaticBuiltinExports(
       staticObjectBindings.add(node.id.name);
       for (const property of node.init.properties) {
         if (property.computed || property.key?.type !== "Identifier") continue;
-        const callable =
-          property.type === "ObjectMethod"
-            ? property
-            : property.type === "ObjectProperty" && callbackFunction(property.value)
-              ? property.value
-              : null;
-        if (callable) {
-          addQualifiedCallable(
-            `${node.id.name}.${property.key.name}`,
-            callable,
-          );
+        const name = `${node.id.name}.${property.key.name}`;
+        if (property.type === "ObjectMethod") {
+          addQualifiedCallable(name, property);
+          continue;
+        }
+        if (property.type === "ObjectProperty") {
+          const alternatives = callableValueAlternatives(property.value);
+          for (const callable of alternatives.callbacks) {
+            addQualifiedCallable(name, callable);
+          }
+          if (alternatives.callbacks.length > 0 && alternatives.opaque) {
+            qualifiedCallableOpaqueAlternatives.add(name);
+          }
         }
       }
       return;
@@ -2001,15 +2027,26 @@ export function scanStaticBuiltinExports(
     name === "__hostCall" ||
     name === "__hostCallAsync";
   const intrinsicGlobalReceivers = new Set([
+    "AggregateError",
     "Array",
     "ArrayBuffer",
     "Atomics",
     "BigInt",
+    "BigInt64Array",
+    "BigUint64Array",
     "Boolean",
     "Buffer",
     "DataView",
     "Date",
     "Error",
+    "EvalError",
+    "FinalizationRegistry",
+    "Float32Array",
+    "Float64Array",
+    "Function",
+    "Int8Array",
+    "Int16Array",
+    "Int32Array",
     "Intl",
     "JSON",
     "Map",
@@ -2018,32 +2055,84 @@ export function scanStaticBuiltinExports(
     "Object",
     "Promise",
     "Proxy",
+    "RangeError",
     "Reflect",
+    "ReferenceError",
     "RegExp",
     "Set",
+    "SharedArrayBuffer",
     "String",
     "Symbol",
+    "SyntaxError",
+    "TextDecoder",
+    "TextEncoder",
+    "TypeError",
+    "Uint8ClampedArray",
+    "Uint16Array",
+    "Uint32Array",
     "Uint8Array",
+    "URIError",
     "URL",
     "URLSearchParams",
+    "WeakRef",
     "WeakMap",
     "WeakSet",
+    "WebAssembly",
   ]);
-  const isProvenIntrinsicReceiver = (expression) =>
-    Boolean(
-      expression &&
-        ((expression.type === "Identifier" &&
-          intrinsicGlobalReceivers.has(expression.name) &&
-          !declaredIdentifiers.has(expression.name)) ||
-          new Set([
-            "ArrayExpression",
-            "BigIntLiteral",
-            "BooleanLiteral",
-            "NumericLiteral",
-            "RegExpLiteral",
-            "StringLiteral",
-          ]).has(expression.type)),
-    );
+  const intrinsicLiteralTypes = new Set([
+    "ArrayExpression",
+    "BigIntLiteral",
+    "BooleanLiteral",
+    "NumericLiteral",
+    "RegExpLiteral",
+    "StringLiteral",
+  ]);
+  const mutatedIntrinsicRoots = new Set();
+  const intrinsicRootName = (expression) => {
+    if (!expression) return null;
+    if (
+      expression.type === "Identifier" &&
+      intrinsicGlobalReceivers.has(expression.name) &&
+      !declaredIdentifiers.has(expression.name) &&
+      !assignedIdentifiers.has(expression.name)
+    ) {
+      return expression.name;
+    }
+    if (
+      expression.type === "MemberExpression" &&
+      !expression.computed &&
+      expression.property?.type === "Identifier"
+    ) {
+      return intrinsicRootName(expression.object);
+    }
+    return null;
+  };
+  walkAst(program, (node) => {
+    if (
+      (node.type === "AssignmentExpression" ||
+        node.type === "UpdateExpression") &&
+      node.left
+    ) {
+      const root = intrinsicRootName(node.left);
+      if (root) mutatedIntrinsicRoots.add(root);
+      return;
+    }
+    if (node.type === "UnaryExpression" && node.operator === "delete") {
+      const root = intrinsicRootName(node.argument);
+      if (root) mutatedIntrinsicRoots.add(root);
+      return;
+    }
+    const mutation = mutationCallName(node);
+    if (!mutation) return;
+    const root = intrinsicRootName(node.arguments[0]);
+    if (root) mutatedIntrinsicRoots.add(root);
+  });
+  const isProvenIntrinsicReceiver = (expression) => {
+    if (!expression) return false;
+    if (intrinsicLiteralTypes.has(expression.type)) return true;
+    const root = intrinsicRootName(expression);
+    return root !== null && !mutatedIntrinsicRoots.has(root);
+  };
   const isProvenIntrinsicValue = (expression, localBindings) => {
     if (!expression) return false;
     if (isProvenIntrinsicReceiver(expression)) return true;
@@ -2115,6 +2204,15 @@ export function scanStaticBuiltinExports(
 
   const staticEnforcementCall = (call) => {
     if (call?.type !== "CallExpression") return null;
+    if (
+      call.callee?.type === "MemberExpression" &&
+      !call.callee.computed &&
+      new Set(["apply", "call"]).has(call.callee.property?.name)
+    ) {
+      const invokedReference = terminalReference(call.callee.object);
+      if (invokedReference?.ambiguity) return invokedReference;
+      if (invokedReference?.name) return { name: invokedReference.name };
+    }
     const alias =
       call.callee?.type === "Identifier"
         ? terminalAliases.get(call.callee.name)
@@ -2149,14 +2247,42 @@ export function scanStaticBuiltinExports(
     "parseInt",
     "unescape",
   ]);
+  const requiredExportInvocation = (callee) => {
+    let target = callee;
+    if (
+      target?.type === "MemberExpression" &&
+      !target.computed &&
+      new Set(["apply", "call"]).has(directMemberName(target))
+    ) {
+      target = target.object;
+    }
+    const segments = [];
+    while (
+      target?.type === "MemberExpression" &&
+      !target.computed &&
+      target.property?.type === "Identifier"
+    ) {
+      segments.unshift(target.property.name);
+      target = target.object;
+    }
+    if (target?.type !== "Identifier") return null;
+    const binding = requiredModuleBindingSpecifiers.get(target.name);
+    if (!binding) return null;
+    return {
+      exportName: [...binding.exportSegments, ...segments].join(".") || "default",
+      moduleSpecifier: binding.moduleSpecifier,
+    };
+  };
   const routeForCallable = (name, active = new Set()) => {
     if (routeMemo.has(name)) return routeMemo.get(name);
-    if (active.has(name)) return { ambiguous: [], paths: [], terminals: [] };
+    if (active.has(name)) {
+      return { ambiguous: [], dependencies: [], paths: [], terminals: [] };
+    }
     const qualified = name.includes(".");
     const definitions = qualified
       ? (qualifiedCallableDefinitions.get(name) ?? [])
       : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
-    if (definitions.length !== 1) {
+    if (definitions.length === 0 || (!qualified && definitions.length > 1)) {
       const result = {
         ambiguous:
           definitions.length > 1
@@ -2167,6 +2293,7 @@ export function scanStaticBuiltinExports(
               ? []
               : [`unresolved-call:${name}`],
         paths: [],
+        dependencies: [],
         terminals: [],
       };
       routeMemo.set(name, result);
@@ -2179,25 +2306,72 @@ export function scanStaticBuiltinExports(
     let intrinsicChanged = true;
     while (intrinsicChanged) {
       intrinsicChanged = false;
-      walkDirectFunctionBody(definitions[0], (node) => {
-        if (
-          node.type !== "VariableDeclarator" ||
-          node.id?.type !== "Identifier" ||
-          localIntrinsicBindings.has(node.id.name) ||
-          assignedIdentifiers.has(node.id.name) ||
-          !isProvenIntrinsicValue(node.init, localIntrinsicBindings)
-        ) {
-          return;
-        }
-        localIntrinsicBindings.add(node.id.name);
-        intrinsicChanged = true;
-      });
+      for (const definition of definitions) {
+        walkDirectFunctionBody(definition, (node) => {
+          if (
+            node.type !== "VariableDeclarator" ||
+            node.id?.type !== "Identifier" ||
+            localIntrinsicBindings.has(node.id.name) ||
+            assignedIdentifiers.has(node.id.name) ||
+            !isProvenIntrinsicValue(node.init, localIntrinsicBindings)
+          ) {
+            return;
+          }
+          localIntrinsicBindings.add(node.id.name);
+          intrinsicChanged = true;
+        });
+      }
     }
     const terminalNames = new Set();
     const routePaths = new Set();
-    const directAmbiguities = new Set();
+    const directAmbiguities = new Set([
+      ...(definitions.length > 1 ? [name] : []),
+      ...(qualifiedCallableOpaqueAlternatives.has(name)
+        ? [`dynamic-callable-alternative:${name}`]
+        : []),
+    ]);
+    const requiredDependencies = new Map();
+    const addRequiredDependency = (dependency) => {
+      const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+      let paths = requiredDependencies.get(key)?.paths;
+      if (!paths) {
+        paths = new Set();
+        requiredDependencies.set(key, { ...dependency, paths });
+      }
+      paths.add(
+        `${name} -> require:${dependency.moduleSpecifier}:${dependency.exportName}`,
+      );
+    };
     const calleeNames = new Set();
-    walkDirectFunctionBody(definitions[0], (node) => {
+    const analyzeDefinition = (node) => {
+      if (node.type === "NewExpression") {
+        const dependency = requiredExportInvocation(node.callee);
+        if (dependency) {
+          addRequiredDependency(dependency);
+          return;
+        }
+        if (node.callee?.type === "Identifier") {
+          if (
+            intrinsicGlobalReceivers.has(node.callee.name) &&
+            !declaredIdentifiers.has(node.callee.name) &&
+            !assignedIdentifiers.has(node.callee.name)
+          ) {
+            return;
+          }
+          calleeNames.add(node.callee.name);
+          return;
+        }
+        if (
+          node.callee?.type === "MemberExpression" &&
+          isProvenIntrinsicReceiver(node.callee.object)
+        ) {
+          return;
+        }
+        directAmbiguities.add(
+          `dynamic-constructor:${node.callee?.type ?? "unknown"}`,
+        );
+        return;
+      }
       if (node.type !== "CallExpression") return;
       const terminal = staticEnforcementCall(node);
       if (terminal?.name) {
@@ -2209,12 +2383,34 @@ export function scanStaticBuiltinExports(
         directAmbiguities.add(terminal.ambiguity);
         return;
       }
+      const dependency = requiredExportInvocation(node.callee);
+      if (dependency) {
+        addRequiredDependency(dependency);
+        return;
+      }
       if (node.callee?.type === "MemberExpression" && node.callee.computed) {
         directAmbiguities.add("computed-call");
         return;
       }
       if (node.callee?.type === "Identifier") {
         calleeNames.add(node.callee.name);
+      } else if (
+        node.callee?.type === "MemberExpression" &&
+        new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
+        node.callee.object?.type === "Identifier" &&
+        (callableDefinitionsByName.get(node.callee.object.name) ?? []).length ===
+          1
+      ) {
+        calleeNames.add(node.callee.object.name);
+      } else if (
+        owner &&
+        node.callee?.type === "MemberExpression" &&
+        new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
+        node.callee.object?.type === "MemberExpression" &&
+        node.callee.object.object?.type === "ThisExpression"
+      ) {
+        const method = directMemberName(node.callee.object);
+        if (method) calleeNames.add(`${owner}.${method}`);
       } else if (
         owner &&
         node.callee?.type === "MemberExpression" &&
@@ -2241,8 +2437,15 @@ export function scanStaticBuiltinExports(
         directAmbiguities.add(
           `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,
         );
+      } else {
+        directAmbiguities.add(
+          `dynamic-call-target:${node.callee?.type ?? "unknown"}`,
+        );
       }
-    });
+    };
+    for (const definition of definitions) {
+      walkDirectFunctionBody(definition, analyzeDefinition);
+    }
     const ambiguous = new Set(directAmbiguities);
     for (const callee of calleeNames) {
       const route = routeForCallable(callee, nextActive);
@@ -2251,9 +2454,36 @@ export function scanStaticBuiltinExports(
         routePaths.add(`${name} -> ${routePath}`);
       }
       for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+      for (const dependency of route.dependencies) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = requiredDependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          requiredDependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`${name} -> ${dependencyPath}`);
+        }
+      }
     }
     const result = {
       ambiguous: uniqueSorted(ambiguous),
+      dependencies: [...requiredDependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
       paths: uniqueSorted(routePaths),
       terminals: uniqueSorted(terminalNames),
     };
@@ -2301,6 +2531,7 @@ export function scanStaticBuiltinExports(
     const terminalNames = new Set();
     const routePaths = new Set();
     const ambiguous = new Set();
+    const dependencies = new Map();
     const analyzedCallbacks = new Set();
     const mergeRoute = (prefix, route) => {
       for (const terminal of route.terminals) terminalNames.add(terminal);
@@ -2308,6 +2539,21 @@ export function scanStaticBuiltinExports(
         routePaths.add(`${prefix} -> ${routePath}`);
       }
       for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+      for (const dependency of route.dependencies ?? []) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = dependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          dependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`${prefix} -> ${dependencyPath}`);
+        }
+      }
     };
     const analyzeCallback = (label, callback) => {
       if (analyzedCallbacks.has(callback)) return;
@@ -2386,9 +2632,27 @@ export function scanStaticBuiltinExports(
         routeForCallable(target),
       );
     }
-    if (terminalNames.size === 0 && ambiguous.size === 0) return null;
+    if (
+      terminalNames.size === 0 &&
+      ambiguous.size === 0 &&
+      dependencies.size === 0
+    ) {
+      return null;
+    }
     return {
       ambiguous: uniqueSorted(ambiguous),
+      dependencies: [...dependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
       paths: uniqueSorted(routePaths),
       terminals: uniqueSorted(terminalNames),
     };
@@ -2422,12 +2686,46 @@ export function scanStaticBuiltinExports(
     }
     const terminals = uniqueSorted(routes.flatMap((route) => route.terminals));
     const ambiguous = uniqueSorted(routes.flatMap((route) => route.ambiguous));
+    const dependencies = new Map();
+    for (const route of routes) {
+      for (const dependency of route.dependencies ?? []) {
+        const key = `${dependency.moduleSpecifier}\u0000${dependency.exportName}`;
+        let accumulated = dependencies.get(key)?.paths;
+        if (!accumulated) {
+          accumulated = new Set();
+          dependencies.set(key, {
+            exportName: dependency.exportName,
+            moduleSpecifier: dependency.moduleSpecifier,
+            paths: accumulated,
+          });
+        }
+        for (const dependencyPath of dependency.paths) {
+          accumulated.add(`export:${exportName} -> ${dependencyPath}`);
+        }
+      }
+    }
     const paths = uniqueSorted(
       routes.flatMap((route) =>
         route.paths.map((routePath) => `export:${exportName} -> ${routePath}`),
       ),
     );
-    return { ambiguous, paths, terminals };
+    return {
+      ambiguous,
+      dependencies: [...dependencies.values()]
+        .map((dependency) => ({
+          exportName: dependency.exportName,
+          moduleSpecifier: dependency.moduleSpecifier,
+          paths: uniqueSorted(dependency.paths),
+        }))
+        .sort((left, right) =>
+          compareText(
+            `${left.moduleSpecifier}\u0000${left.exportName}`,
+            `${right.moduleSpecifier}\u0000${right.exportName}`,
+          ),
+        ),
+      paths,
+      terminals,
+    };
   };
 
   walkAst(program, (node) => {
@@ -2438,9 +2736,16 @@ export function scanStaticBuiltinExports(
       node.init.callee?.type === "Identifier" &&
       node.init.callee.name === "require" &&
       node.init.arguments[0]?.type === "StringLiteral" &&
-      node.init.arguments[0].value.length > 0
+      node.init.arguments[0].value.length > 0 &&
+      !assignedIdentifiers.has(node.id.name) &&
+      !declaredIdentifiers.has("require") &&
+      !assignedIdentifiers.has("require")
     ) {
       requiredModuleBindings.add(node.id.name);
+      requiredModuleBindingSpecifiers.set(node.id.name, {
+        exportSegments: [],
+        moduleSpecifier: node.init.arguments[0].value,
+      });
     }
   });
   const isClosedModuleMember = (expression) =>
@@ -4970,6 +5275,9 @@ export function scanStaticBuiltinExports(
         ambiguousCallees: enforcementRoute.ambiguous,
         kind: "static-builtin-call-graph",
         paths: enforcementRoute.paths,
+        ...(enforcementRoute.dependencies.length > 0
+          ? { requiredExportCalls: enforcementRoute.dependencies }
+          : {}),
         terminals: enforcementRoute.terminals,
       },
       bootstrapInternalModuleSpecifiers: bootstrapInternalSpecifiers,
@@ -9944,6 +10252,124 @@ export async function scanModuleSpecifiers(
   return scanModuleSpecifierEntries(moduleExports, sourcePath);
 }
 
+// @ref LLP 0021#wp1--generate-the-registry-and-completeness-inventory —
+// literal immutable builtin dependencies join to exact source/export routes;
+// unresolved or tampered receivers remain explicit ambiguity.
+function composeRequiredBuiltinRoutes(exports, aliases) {
+  const sourceKeyBySpecifier = new Map(
+    aliases.map((alias) => [alias.name, alias.metadata.sourceKey]),
+  );
+  const rowBySourceExport = new Map(
+    exports
+      .filter(
+        (row) =>
+          typeof row.metadata?.sourceKey === "string" &&
+          typeof row.metadata?.exportName === "string",
+      )
+      .map((row) => [
+        `${row.metadata.sourceKey}\u0000${row.metadata.exportName}`,
+        row,
+      ]),
+  );
+  const states = new Map();
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    if (evidence?.kind !== "static-builtin-call-graph") continue;
+    states.set(row.observedKey, {
+      ambiguous: new Set(evidence.ambiguousCallees ?? []),
+      baseTerminals: new Set(evidence.terminals ?? []),
+      derivedPaths: new Map(),
+      paths: new Set(evidence.paths ?? []),
+      terminals: new Set(evidence.terminals ?? []),
+    });
+  }
+
+  const resolvedDependencies = new Map();
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    if (evidence?.kind !== "static-builtin-call-graph") continue;
+    const dependencies = [];
+    for (const dependency of evidence.requiredExportCalls ?? []) {
+      const sourceKey = sourceKeyBySpecifier.get(dependency.moduleSpecifier);
+      const target = sourceKey
+        ? rowBySourceExport.get(`${sourceKey}\u0000${dependency.exportName}`)
+        : null;
+      dependencies.push({ dependency, target });
+      if (!target) {
+        states
+          .get(row.observedKey)
+          .ambiguous.add(
+            `unresolved-required-export:${dependency.moduleSpecifier}:${dependency.exportName}`,
+          );
+      }
+    }
+    resolvedDependencies.set(row.observedKey, dependencies);
+  }
+
+  const betterPath = (candidate, existing) =>
+    existing === undefined ||
+    candidate.length < existing.length ||
+    (candidate.length === existing.length && compareText(candidate, existing) < 0);
+  let changed = true;
+  let iterations = 0;
+  while (changed && iterations <= states.size) {
+    changed = false;
+    iterations += 1;
+    for (const row of exports) {
+      const state = states.get(row.observedKey);
+      if (!state) continue;
+      for (const { dependency, target } of
+        resolvedDependencies.get(row.observedKey) ?? []) {
+        const targetState = target ? states.get(target.observedKey) : null;
+        if (!targetState) continue;
+        for (const ambiguity of targetState.ambiguous) {
+          if (!state.ambiguous.has(ambiguity)) {
+            state.ambiguous.add(ambiguity);
+            changed = true;
+          }
+        }
+        for (const terminal of targetState.terminals) {
+          if (!state.terminals.has(terminal)) {
+            state.terminals.add(terminal);
+            changed = true;
+          }
+          if (state.baseTerminals.has(terminal)) continue;
+          const targetPath =
+            targetState.derivedPaths.get(terminal) ??
+            [...targetState.paths]
+              .filter((routePath) => routePath.endsWith(` -> ${terminal}`))
+              .sort((left, right) =>
+                left.length - right.length || compareText(left, right),
+              )[0] ??
+            `export:${dependency.exportName} -> ${terminal}`;
+          for (const dependencyPath of dependency.paths) {
+            const candidate = `${dependencyPath} -> ${targetPath}`;
+            const existing = state.derivedPaths.get(terminal);
+            if (betterPath(candidate, existing)) {
+              state.derivedPaths.set(terminal, candidate);
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  if (changed) {
+    throw new Error("builtin required-export route composition did not converge");
+  }
+  for (const row of exports) {
+    const evidence = row.metadata?.enforcementRouteEvidence;
+    const state = states.get(row.observedKey);
+    if (!evidence || !state) continue;
+    evidence.ambiguousCallees = uniqueSorted(state.ambiguous);
+    evidence.paths = uniqueSorted([
+      ...state.paths,
+      ...state.derivedPaths.values(),
+    ]);
+    evidence.terminals = uniqueSorted(state.terminals);
+  }
+}
+
 /** Discover both manifest aliases and the statically named exports they expose. */
 export async function scanBuiltinSurfaces(
   modulePath,
@@ -10016,6 +10442,8 @@ export async function scanBuiltinSurfaces(
       }),
     );
   }
+
+  composeRequiredBuiltinRoutes(exports, aliases);
 
   const inheritedReviewRows = exports
     .filter((row) => row.metadata?.inheritedShape === true)

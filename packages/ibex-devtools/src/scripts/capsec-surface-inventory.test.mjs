@@ -1071,6 +1071,175 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(evidence("intrinsic").ambiguousCallees).toEqual([]);
   });
 
+  test("builtin routes follow only immutable constructor and callable provenance", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function NativeHandle() {
+          globalThis.__exactOpenHandle('/tmp/input');
+        }
+        NativeHandle.prototype.read = function read() {
+          return globalThis.__exactReadHandle();
+        };
+        function construct() { return new NativeHandle(); }
+        function readImpl() { return globalThis.__exactReadHandle(); }
+        function invokeWithCall() { return readImpl.call(null); }
+        function intrinsicCall() {
+          return Array.prototype.slice.call(arguments);
+        }
+        function staticRequire() {
+          require('node:path');
+          return readImpl();
+        }
+        function dynamicConstructor(Constructor) { return new Constructor(); }
+        function opaqueTarget(factory) { return factory()(); }
+        module.exports = {
+          construct,
+          invokeWithCall,
+          intrinsicCall,
+          staticRequire,
+          dynamicConstructor,
+          opaqueTarget,
+        };
+      `,
+      {
+        sourceKey: "node_route_provenance",
+        sourcePath: "src/builtins/route-provenance.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find(
+        (row) => row.name === `export:node_route_provenance:${name}`,
+      ).metadata.enforcementRouteEvidence;
+    expect(evidence("construct").terminals).toEqual(["__exactOpenHandle"]);
+    expect(evidence("invokeWithCall").terminals).toEqual([
+      "__exactReadHandle",
+    ]);
+    expect(evidence("intrinsicCall").ambiguousCallees).toEqual([]);
+    // Even a literal require can cross the package import gate when it runs
+    // after builtin evaluation, so it remains a conservative route edge.
+    expect(evidence("staticRequire").ambiguousCallees).toContain(
+      "unresolved-call:require",
+    );
+    expect(evidence("staticRequire").terminals).toEqual([
+      "__exactReadHandle",
+    ]);
+    expect(evidence("dynamicConstructor").ambiguousCallees).toContain(
+      "unresolved-call:Constructor",
+    );
+    expect(evidence("opaqueTarget").ambiguousCallees).toContain(
+      "dynamic-call-target:CallExpression",
+    );
+  });
+
+  test("builtin route provenance fails closed under intrinsic and terminal tampering", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        Array.prototype.slice = service.slice;
+        function mutatedIntrinsic() {
+          return Array.prototype.slice.call(arguments);
+        }
+        function dynamicTerminalCall() {
+          return service.__exactReadHandle.call(service);
+        }
+        function shadowedRequire(require) { return require('node:path'); }
+        module.exports = {
+          mutatedIntrinsic,
+          dynamicTerminalCall,
+          shadowedRequire,
+        };
+      `,
+      {
+        sourceKey: "node_route_tampering",
+        sourcePath: "src/builtins/route-tampering.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find(
+        (row) => row.name === `export:node_route_tampering:${name}`,
+      ).metadata.enforcementRouteEvidence;
+    expect(evidence("mutatedIntrinsic").ambiguousCallees).toContain(
+      "dynamic-call-receiver:call",
+    );
+    expect(evidence("dynamicTerminalCall").ambiguousCallees).toContain(
+      "dynamic-terminal-receiver:__exactReadHandle",
+    );
+    expect(evidence("dynamicTerminalCall").terminals).toEqual([]);
+    expect(evidence("shadowedRequire").ambiguousCallees).toContain(
+      "unresolved-call:require",
+    );
+  });
+
+  test("builtin routes retain terminals from opaque callable alternatives", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        const api = {
+          read: service.read || function readFallback() {
+            return globalThis.__exactReadHandle();
+          },
+          choose: flag
+            ? function readChoice() { return globalThis.__exactReadHandle(); }
+            : function writeChoice() { return globalThis.__exactWriteHandle(); },
+        };
+        module.exports = api;
+      `,
+      {
+        sourceKey: "node_route_alternatives",
+        sourcePath: "src/builtins/route-alternatives.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find(
+        (row) => row.name === `export:node_route_alternatives:${name}`,
+      ).metadata.enforcementRouteEvidence;
+    expect(evidence("read").terminals).toEqual(["__exactReadHandle"]);
+    expect(evidence("read").ambiguousCallees).toContain(
+      "dynamic-callable-alternative:api.read",
+    );
+    expect(evidence("choose").terminals).toEqual([
+      "__exactReadHandle",
+      "__exactWriteHandle",
+    ]);
+    expect(evidence("choose").ambiguousCallees).toContain("api.choose");
+  });
+
+  test("builtin routes retain exact required-export provenance and reject tampering", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        var safeFs = require('node:fs');
+        var mutableFs = require('node:fs');
+        mutableFs = service;
+        var path = require('node:path');
+        function read() { return safeFs.readFileSync('/tmp/input'); }
+        function tampered() { return mutableFs.readFileSync('/tmp/input'); }
+        function computed() { return path['resolve']('/tmp/input'); }
+        module.exports = { read, tampered, computed };
+      `,
+      {
+        sourceKey: "node_required_routes",
+        sourcePath: "src/builtins/required-routes.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find(
+        (row) => row.name === `export:node_required_routes:${name}`,
+      ).metadata.enforcementRouteEvidence;
+    expect(evidence("read").requiredExportCalls).toEqual([
+      {
+        exportName: "readFileSync",
+        moduleSpecifier: "node:fs",
+        paths: [
+          "export:read -> read -> require:node:fs:readFileSync",
+        ],
+      },
+    ]);
+    expect(evidence("tampered").requiredExportCalls).toBeUndefined();
+    expect(evidence("tampered").ambiguousCallees).toContain(
+      "dynamic-call-receiver:readFileSync",
+    );
+    expect(evidence("computed").requiredExportCalls).toBeUndefined();
+    expect(evidence("computed").ambiguousCallees).toContain("computed-call");
+  });
+
   test("inherited CommonJS export shapes are enumerated or closed explicitly", () => {
     for (const source of [
       "module.exports = Object.create({ hidden() {} });",
@@ -3333,6 +3502,22 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "internal/fs/promises",
         "node:fs/promises",
       ],
+    });
+    expect(
+      exports.find(
+        (row) => row.name === "export:node_fs_promises:writeFile",
+      )?.metadata.enforcementRouteEvidence,
+    ).toMatchObject({
+      requiredExportCalls: [
+        {
+          exportName: "writeFileSync",
+          moduleSpecifier: "node:fs",
+        },
+      ],
+      terminals: expect.arrayContaining([
+        "__exactFsOpen",
+        "__exactFsWrite",
+      ]),
     });
     expect(
       exports.find(

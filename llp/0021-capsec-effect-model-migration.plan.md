@@ -586,6 +586,14 @@ The ENG-24145 baseline contains 6,804 logical surfaces and coverage edges,
 specifier aliases. Inherited CommonJS and authored shared-runtime class shapes
 are traversed exactly when their base is source-resolvable; otherwise a
 review-bound dynamic-table sentinel closes the entire inherited property domain.
+Builtin enforcement-route discovery likewise follows only immutable source
+provenance: direct calls, constructor bodies, locally authored callable
+alternatives, and literal CommonJS dependencies joined to the exact manifest
+source key and export. Reassigned or computed dependency receivers, opaque
+callable alternatives, intrinsic mutation, and unresolved cross-source exports
+remain explicit ambiguities. Multiple source-proven terminals are retained
+rather than guessed away; WP10 still requires bounded public arguments to show
+which route the bound engine actually executes.
 It also includes 178 host-ABI surfaces: the complete 84/36/10
 `ex_host_*`/`ex_hermes_*`/`ex_worklet_*` families, one `ex_android_*` entry,
 and 39 Java plus 8 JNI Android bridge routes. All 6,804 candidate-target cells
