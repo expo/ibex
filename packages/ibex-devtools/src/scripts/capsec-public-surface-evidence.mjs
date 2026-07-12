@@ -318,21 +318,6 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
   } else if (authored.expectedResult === "absent") {
-    exactKeys(
-      invocation.result,
-      [
-        "kind",
-        "surfaceKind",
-        "surfaceName",
-        "targetTriple",
-        "compiledTargetOs",
-        "compiledTargetArch",
-        "probeMode",
-        "symbolName",
-        "symbolPresent",
-      ],
-      `${recipe.fixtureId}: target-absence runtime result`,
-    );
     const probeMode = authored.sourceDescriptor?.probeMode;
     if (
       invocation.result.kind !== "absent" ||
@@ -341,11 +326,57 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.result.targetTriple !== authored.targetTriple ||
       invocation.result.compiledTargetOs !== "macos" ||
       invocation.result.compiledTargetArch !== "aarch64" ||
-      invocation.result.probeMode !== probeMode?.kind ||
-      invocation.result.symbolName !== probeMode?.symbolName ||
-      invocation.result.symbolPresent !== false
+      invocation.result.probeMode !== probeMode?.kind
     ) {
       throw new Error(`${recipe.fixtureId}: target-absence probe did not prove absence`);
+    }
+    if (probeMode?.kind === "runtime-global-property") {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "targetTriple",
+          "compiledTargetOs",
+          "compiledTargetArch",
+          "probeMode",
+          "globalName",
+          "memberName",
+          "surfacePresent",
+        ],
+        `${recipe.fixtureId}: native-global target-absence runtime result`,
+      );
+      if (
+        invocation.result.globalName !== probeMode.globalName ||
+        invocation.result.memberName !== probeMode.memberName ||
+        invocation.result.surfacePresent !== false
+      ) {
+        throw new Error(`${recipe.fixtureId}: runtime-global probe did not prove absence`);
+      }
+    } else {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "targetTriple",
+          "compiledTargetOs",
+          "compiledTargetArch",
+          "probeMode",
+          "symbolName",
+          "symbolPresent",
+        ],
+        `${recipe.fixtureId}: symbol target-absence runtime result`,
+      );
+      if (
+        !["dynamic-symbol", "platform-bridge"].includes(probeMode?.kind) ||
+        invocation.result.symbolName !== probeMode.symbolName ||
+        invocation.result.symbolPresent !== false
+      ) {
+        throw new Error(`${recipe.fixtureId}: symbol probe did not prove absence`);
+      }
     }
   } else if (authored.expectedResult === "closed") {
     exactKeys(

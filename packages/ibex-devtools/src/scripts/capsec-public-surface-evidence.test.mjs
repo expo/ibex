@@ -264,6 +264,26 @@ function completeAbsenceCatalog() {
 
 function absenceRuntimeObservation(recipe, symbolPresent = false) {
   const invocation = recipe.publicSurfaceProbe.invocation;
+  const probeMode = invocation.sourceDescriptor.probeMode;
+  const result = {
+    kind: "absent",
+    surfaceKind: invocation.surfaceKind,
+    surfaceName: invocation.surfaceName,
+    targetTriple: invocation.targetTriple,
+    compiledTargetOs: "macos",
+    compiledTargetArch: "aarch64",
+    probeMode: probeMode.kind,
+    ...(probeMode.kind === "runtime-global-property"
+      ? {
+          globalName: probeMode.globalName,
+          memberName: probeMode.memberName,
+          surfacePresent: symbolPresent,
+        }
+      : {
+          symbolName: probeMode.symbolName,
+          symbolPresent,
+        }),
+  };
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
     invocation: {
@@ -274,21 +294,51 @@ function absenceRuntimeObservation(recipe, symbolPresent = false) {
       surfaceName: invocation.surfaceName,
       targetTriple: invocation.targetTriple,
       sourceDescriptorDigest: invocation.sourceDescriptorDigest,
-      result: {
-        kind: "absent",
-        surfaceKind: invocation.surfaceKind,
-        surfaceName: invocation.surfaceName,
-        targetTriple: invocation.targetTriple,
-        compiledTargetOs: "macos",
-        compiledTargetArch: "aarch64",
-        probeMode: invocation.sourceDescriptor.probeMode.kind,
-        symbolName: invocation.sourceDescriptor.probeMode.symbolName,
-        symbolPresent,
-      },
+      result,
     },
     legacyObservationCount: 0,
     typedDecisions: [],
   };
+}
+
+function completeNativeAbsenceCatalog() {
+  const catalog = structuredClone(completeAbsenceCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "target-absent-native-operation",
+    surfaceKind: "native-op",
+    surfaceName: "__exactAndroidLocation.getPermissionStatus",
+    sourceRefs: [
+      "src/engine/hermes_runtime_android.cc#jsi-global:__exactAndroidLocation.getPermissionStatus",
+    ],
+    targetVariants: ["android"],
+    sourceMetadata: {
+      installationBranches: [
+        {
+          sourceRefs: [
+            "src/engine/hermes_runtime_android.cc#jsi-global:__exactAndroidLocation.getPermissionStatus",
+          ],
+          targetVariant: "android",
+        },
+      ],
+    },
+    probeMode: {
+      kind: "runtime-global-property",
+      globalName: "__exactAndroidLocation",
+      memberName: "getPermissionStatus",
+    },
+  };
+  recipe.fixtureId = "fixture.native-op.absent";
+  recipe.terminalObservedKey = "native-op:__exactAndroidLocation.getPermissionStatus";
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "native-op",
+    surfaceName: "__exactAndroidLocation.getPermissionStatus",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
 }
 
 function completeClosedCatalog() {
@@ -464,6 +514,27 @@ describe("CapSec public-surface promotion evidence", () => {
 
   test("accepts exact-target ABI absence only after a runtime symbol lookup", () => {
     const catalog = completeAbsenceCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: absenceRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: absenceRuntimeObservation(recipe, true),
+        coverage,
+      }),
+    ).toThrow(/did not prove absence/);
+  });
+
+  test("accepts native target absence only after exact runtime inspection", () => {
+    const catalog = completeNativeAbsenceCatalog();
     const recipe = catalog.recipes[0];
     expect(() =>
       buildPublicFixtureEvidence({

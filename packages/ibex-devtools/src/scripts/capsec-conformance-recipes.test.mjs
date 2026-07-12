@@ -140,7 +140,7 @@ describe("exact-target CapSec executable recipes", () => {
       recipes.summary.residualReasons["public-surface-invocation-not-authored"],
     ).toBe(publicFixtures - authoredEnforcementFixtures);
     expect(
-      recipes.summary.residualReasons["target-absence-probe-not-authored"],
+      recipes.summary.residualReasons["target-absence-probe-not-authored"] ?? 0,
     ).toBe(absenceFixtures - authoredAbsenceFixtures);
     expect(publicFixtures + absenceFixtures).toBe(expectedFixtureIds.length);
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
@@ -274,11 +274,11 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(false);
   });
 
-  test("binds host ABI target absence to source variants and a runtime lookup", () => {
+  test("binds target absence to source variants and exact runtime lookups", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(56);
+    expect(rows).toHaveLength(109);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -315,6 +315,37 @@ describe("exact-target CapSec executable recipes", () => {
     expect(ios.publicSurfaceProbe.invocation).not.toHaveProperty(
       "terminalObservedKey",
     );
+    const androidGlobal = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.surfaceName ===
+        "__exactAndroidLocation.getPermissionStatus",
+    );
+    expect(androidGlobal.publicSurfaceProbe).toMatchObject({
+      surfaceObservedKey: "native-op:__exactAndroidLocation.getPermissionStatus",
+      invocation: {
+        invocationSchema: "ibex/capsec-target-absence-invocation/1",
+        kind: "target-absence",
+        surfaceKind: "native-op",
+        targetTriple: "aarch64-apple-darwin",
+        sourceDescriptor: {
+          kind: "target-absent-native-operation",
+          targetVariants: ["android"],
+          sourceMetadata: {
+            installationBranches: expect.any(Array),
+          },
+          probeMode: {
+            kind: "runtime-global-property",
+            globalName: "__exactAndroidLocation",
+            memberName: "getPermissionStatus",
+          },
+        },
+        expectedResult: "absent",
+        expectedTypedDecisionCount: 0,
+      },
+    });
+    expect(
+      androidGlobal.publicSurfaceProbe.invocation.sourceDescriptorDigest,
+    ).toMatch(/^sha256-/u);
   });
 
   test("binds closed startup environment controls to the production entry", () => {

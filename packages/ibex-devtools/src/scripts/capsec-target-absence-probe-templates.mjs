@@ -1,8 +1,9 @@
 /**
- * Author exact-target absence probes from source-discovered ABI definitions.
- * An absent surface cannot be invoked; the runtime batch instead proves that
- * the bound target is incompatible with every defining target variant and
- * checks that the platform bridge symbol is absent from the loaded process.
+ * Author exact-target absence probes from source-discovered ABI definitions
+ * and native-global installation branches. An absent surface cannot be
+ * invoked; the runtime batch instead proves that the bound target is
+ * incompatible with every defining target variant and checks that the symbol
+ * or native-global property is absent from the loaded process.
  *
  * @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
  * unsupported-target claims require executed evidence on the exact target.
@@ -54,6 +55,107 @@ function absenceProbeMode(surfaceName, metadata) {
   return null;
 }
 
+function nativeOperationProbeMode(surfaceName, metadata) {
+  const globalName = metadata?.globalName;
+  const memberName = metadata?.memberName ?? null;
+  const exportName = metadata?.exportName;
+  if (
+    typeof globalName !== "string" ||
+    globalName.length === 0 ||
+    (memberName !== null &&
+      (typeof memberName !== "string" || memberName.length === 0))
+  ) {
+    return null;
+  }
+  const expectedExportName =
+    memberName === null ? globalName : `${globalName}.${memberName}`;
+  const normalizedSurfaceName = surfaceName.startsWith("global:")
+    ? surfaceName.slice("global:".length)
+    : surfaceName;
+  if (
+    exportName !== expectedExportName ||
+    normalizedSurfaceName !== expectedExportName
+  ) {
+    return null;
+  }
+  return {
+    kind: "runtime-global-property",
+    globalName,
+    memberName,
+  };
+}
+
+function authoredNativeOperationAbsenceProbe({ plan, target, edge, live }) {
+  const surfaceObservedKey = `native-op:${edge.surface.name}`;
+  if (surfaceObservedKey !== plan.terminalObservedKey) return null;
+  const metadata = live?.metadata;
+  const branches = metadata?.installationBranches;
+  const targetVariants = canonicalStrings(
+    Array.isArray(branches)
+      ? branches.map((branch) => branch?.targetVariant)
+      : [],
+  );
+  const sourceKeys = new Set(
+    Array.isArray(metadata?.sourceKeys)
+      ? metadata.sourceKeys
+      : [metadata?.sourceKey],
+  );
+  if (
+    live?.kind !== "native-op" ||
+    live.name !== edge.surface.name ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    !Array.isArray(branches) ||
+    branches.length === 0 ||
+    !sourceKeys.has("native_jsi_global") ||
+    targetVariants.length === 0 ||
+    targetVariants.some((variant) => !["android", "ios"].includes(variant)) ||
+    branches.some(
+      (branch) =>
+        typeof branch.sourceRefs === "undefined" ||
+        !Array.isArray(branch.sourceRefs) ||
+        branch.sourceRefs.length === 0 ||
+        branch.sourceRefs.some(
+          (sourceRef) =>
+            typeof sourceRef !== "string" ||
+            !live.sourceRefs.includes(sourceRef),
+        ),
+    )
+  ) {
+    return null;
+  }
+  const probeMode = nativeOperationProbeMode(edge.surface.name, metadata);
+  if (!probeMode) return null;
+  const sourceDescriptor = {
+    kind: "target-absent-native-operation",
+    surfaceKind: edge.surface.kind,
+    surfaceName: edge.surface.name,
+    sourceRefs: canonicalStrings(live.sourceRefs),
+    targetVariants,
+    sourceMetadata: structuredClone(metadata),
+    probeMode,
+  };
+  return {
+    kind: "target-absence-probe",
+    surfaceObservedKey,
+    command: [...TARGET_ABSENCE_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-target-absence-invocation/1",
+      kind: "target-absence",
+      surfaceKind: edge.surface.kind,
+      surfaceName: edge.surface.name,
+      targetTriple: target.triple,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      expectedResult: "absent",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredTargetAbsenceProbe({
   plan,
   scenario,
@@ -73,13 +175,25 @@ export function authoredTargetAbsenceProbe({
   if (
     !edge ||
     edge.id !== plan.expectedObservation.edgeId ||
-    edge.surface?.kind !== "host-abi"
+    !["host-abi", "native-op"].includes(edge.surface?.kind)
   ) {
     return null;
   }
   const surfaceObservedKey = `host-abi:${edge.surface.name}`;
+  const live = liveByObservedKey.get(
+    edge.surface.kind === "host-abi"
+      ? surfaceObservedKey
+      : `native-op:${edge.surface.name}`,
+  );
+  if (edge.surface.kind === "native-op") {
+    return authoredNativeOperationAbsenceProbe({
+      plan,
+      target,
+      edge,
+      live,
+    });
+  }
   if (surfaceObservedKey !== plan.terminalObservedKey) return null;
-  const live = liveByObservedKey.get(surfaceObservedKey);
   const metadata = live?.metadata;
   const definitions = metadata?.definitions;
   const targetVariants = canonicalStrings(

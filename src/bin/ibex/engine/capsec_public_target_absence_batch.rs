@@ -83,6 +83,12 @@ enum TargetAbsenceProbeMode {
         #[serde(rename = "symbolName")]
         symbol_name: String,
     },
+    RuntimeGlobalProperty {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "memberName")]
+        member_name: Option<String>,
+    },
 }
 
 impl TargetAbsenceProbeMode {
@@ -90,14 +96,16 @@ impl TargetAbsenceProbeMode {
         match self {
             Self::DynamicSymbol { .. } => "dynamic-symbol",
             Self::PlatformBridge { .. } => "platform-bridge",
+            Self::RuntimeGlobalProperty { .. } => "runtime-global-property",
         }
     }
 
-    fn symbol_name(&self) -> &str {
+    fn symbol_name(&self) -> Option<&str> {
         match self {
             Self::DynamicSymbol { symbol_name } | Self::PlatformBridge { symbol_name } => {
-                symbol_name
+                Some(symbol_name)
             }
+            Self::RuntimeGlobalProperty { .. } => None,
         }
     }
 }
@@ -237,6 +245,39 @@ fn symbol_present(symbol_name: &str) -> bool {
     }
 }
 
+async fn runtime_global_property_present(
+    engine: &HermesEngine,
+    global_name: &str,
+    member_name: Option<&str>,
+) -> bool {
+    let global_name = serde_json::to_string(global_name).expect("serialize global name");
+    let member_name = serde_json::to_string(&member_name).expect("serialize member name");
+    let source = format!(
+        r#"(() => {{
+          const root = Object.getOwnPropertyDescriptor(globalThis, {global_name});
+          if (root === undefined) return false;
+          const member = {member_name};
+          if (member === null) return true;
+          if (!Object.prototype.hasOwnProperty.call(root, "value")) return true;
+          const value = root.value;
+          if (value === null || (typeof value !== "object" && typeof value !== "function")) {{
+            return false;
+          }}
+          return Object.prototype.hasOwnProperty.call(value, member);
+        }})()"#
+    );
+    match engine
+        .eval_immediate(&source)
+        .await
+        .expect("inspect exact runtime global without invoking accessors")
+        .as_deref()
+    {
+        Some("true") => true,
+        Some("false") => false,
+        other => panic!("runtime-global absence probe returned {other:?}"),
+    }
+}
+
 async fn execute_target_absence_recipe(
     recipe: &Recipe,
     catalog_target: &Target,
@@ -280,8 +321,6 @@ async fn execute_target_absence_recipe(
         tagged_value_digest(&invocation.source_descriptor)
     );
     let descriptor = &invocation.source_descriptor;
-    assert_eq!(descriptor.kind, "target-absent-host-abi");
-    assert_eq!(descriptor.surface_kind, "host-abi");
     assert_eq!(descriptor.surface_kind, invocation.surface_kind);
     assert_eq!(descriptor.surface_name, invocation.surface_name);
     assert!(!descriptor.source_refs.is_empty());
@@ -301,25 +340,58 @@ async fn execute_target_absence_recipe(
             .expect("target-absence edge has no source implementation variants"),
         &descriptor_variants
     );
-    if let Some(definitions) = descriptor.source_metadata["definitions"].as_array() {
-        assert!(!definitions.is_empty());
-        for definition in definitions {
-            assert!(descriptor.source_refs.iter().any(|source_ref| {
-                definition["sourceRef"].as_str() == Some(source_ref.as_str())
-            }));
-            assert!(descriptor_variants.contains(
-                definition["targetVariant"]
-                    .as_str()
-                    .expect("source definition has no target variant")
-            ));
+    match descriptor.surface_kind.as_str() {
+        "host-abi" => {
+            assert_eq!(descriptor.kind, "target-absent-host-abi");
+            assert!(descriptor.probe_mode.symbol_name().is_some());
+            if let Some(definitions) = descriptor.source_metadata["definitions"].as_array() {
+                assert!(!definitions.is_empty());
+                for definition in definitions {
+                    assert!(descriptor.source_refs.iter().any(|source_ref| {
+                        definition["sourceRef"].as_str() == Some(source_ref.as_str())
+                    }));
+                    assert!(descriptor_variants.contains(
+                        definition["targetVariant"]
+                            .as_str()
+                            .expect("source definition has no target variant")
+                    ));
+                }
+            } else {
+                assert_eq!(
+                    descriptor.source_metadata["targetVariant"]
+                        .as_str()
+                        .expect("source metadata has no target variant"),
+                    descriptor.target_variants[0]
+                );
+            }
         }
-    } else {
-        assert_eq!(
-            descriptor.source_metadata["targetVariant"]
-                .as_str()
-                .expect("source metadata has no target variant"),
-            descriptor.target_variants[0]
-        );
+        "native-op" => {
+            assert_eq!(descriptor.kind, "target-absent-native-operation");
+            assert!(matches!(
+                &descriptor.probe_mode,
+                TargetAbsenceProbeMode::RuntimeGlobalProperty { .. }
+            ));
+            let branches = descriptor.source_metadata["installationBranches"]
+                .as_array()
+                .expect("native target absence has no installation branches");
+            assert!(!branches.is_empty());
+            for branch in branches {
+                assert!(descriptor_variants.contains(
+                    branch["targetVariant"]
+                        .as_str()
+                        .expect("native installation branch has no target variant")
+                ));
+                let source_refs = branch["sourceRefs"]
+                    .as_array()
+                    .expect("native installation branch has no source refs");
+                assert!(!source_refs.is_empty());
+                assert!(source_refs.iter().all(|source_ref| descriptor
+                    .source_refs
+                    .iter()
+                    .any(|expected| source_ref.as_str() == Some(expected.as_str()))));
+            }
+        }
+        other => panic!("unsupported target-absence surface kind {other}"),
     }
     let (surface_kind, surface_name) = coverage
         .get(&recipe.edge_ids[0])
@@ -352,24 +424,55 @@ async fn execute_target_absence_recipe(
     assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
         &session_id
     ));
-    let symbol_name = descriptor.probe_mode.symbol_name();
-    let is_present = symbol_present(symbol_name);
+    let result = match &descriptor.probe_mode {
+        TargetAbsenceProbeMode::DynamicSymbol { symbol_name }
+        | TargetAbsenceProbeMode::PlatformBridge { symbol_name } => {
+            let is_present = symbol_present(symbol_name);
+            assert!(!is_present, "target-absent symbol {symbol_name} is loaded");
+            serde_json::json!({
+                "kind": "absent",
+                "surfaceKind": surface_kind,
+                "surfaceName": surface_name,
+                "targetTriple": catalog_target.triple,
+                "compiledTargetOs": std::env::consts::OS,
+                "compiledTargetArch": std::env::consts::ARCH,
+                "probeMode": descriptor.probe_mode.kind(),
+                "symbolName": symbol_name,
+                "symbolPresent": is_present,
+            })
+        }
+        TargetAbsenceProbeMode::RuntimeGlobalProperty {
+            global_name,
+            member_name,
+        } => {
+            let is_present =
+                runtime_global_property_present(&engine, global_name, member_name.as_deref()).await;
+            assert!(
+                !is_present,
+                "target-absent runtime global property {global_name}{} is installed",
+                member_name
+                    .as_deref()
+                    .map(|member| format!(".{member}"))
+                    .unwrap_or_default()
+            );
+            serde_json::json!({
+                "kind": "absent",
+                "surfaceKind": surface_kind,
+                "surfaceName": surface_name,
+                "targetTriple": catalog_target.triple,
+                "compiledTargetOs": std::env::consts::OS,
+                "compiledTargetArch": std::env::consts::ARCH,
+                "probeMode": descriptor.probe_mode.kind(),
+                "globalName": global_name,
+                "memberName": member_name,
+                "surfacePresent": is_present,
+            })
+        }
+    };
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
-    assert!(!is_present, "target-absent symbol {symbol_name} is loaded");
     assert!(legacy.is_empty());
     assert!(typed.is_empty());
 
-    let result = serde_json::json!({
-        "kind": "absent",
-        "surfaceKind": surface_kind,
-        "surfaceName": surface_name,
-        "targetTriple": catalog_target.triple,
-        "compiledTargetOs": std::env::consts::OS,
-        "compiledTargetArch": std::env::consts::ARCH,
-        "probeMode": descriptor.probe_mode.kind(),
-        "symbolName": symbol_name,
-        "symbolPresent": is_present,
-    });
     let runtime_observation = serde_json::json!({
         "observationSchema": "ibex/capsec-runtime-public-observation/1",
         "invocation": {
@@ -434,8 +537,8 @@ async fn capsec_public_target_absence_batch() {
         .collect::<Vec<_>>();
     assert_eq!(
         recipe_indexes.len(),
-        56,
-        "expected every non-native exact-target absence fixture"
+        109,
+        "expected every exact-target absence fixture"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
@@ -446,7 +549,7 @@ async fn capsec_public_target_absence_batch() {
     for (position, index) in recipe_indexes.into_iter().enumerate() {
         let recipe = &catalog.recipes[index];
         eprintln!(
-            "CapSec target-absence fixture {}/56: {}",
+            "CapSec target-absence fixture {}/109: {}",
             position + 1,
             recipe.fixture_id
         );
