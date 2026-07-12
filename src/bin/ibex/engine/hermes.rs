@@ -727,6 +727,12 @@ struct RuntimeHandle {
 
 struct SharedRuntime {
     raw: AtomicPtr<HermesRuntimeOpaque>,
+    // Hermes/JSI values have thread-affine destruction. Keep the creator here
+    // as a Rust-side fail-safe so a legal `Arc<dyn Engine + Send + Sync>` last
+    // drop on another thread leaks the native runtime instead of crossing the
+    // C ABI and terminating the process.
+    // @ref LLP 0003#the-event-loop — Hermes is driven and destroyed on one owner thread.
+    owner_thread: std::thread::ThreadId,
     // Serializes runtime-thread FFI (`ex_hermes_eval`/`ex_hermes_poll`) and
     // gates destruction against it. CDP debugger ops deliberately do NOT take
     // this lock — see `with_debugger`.
@@ -738,6 +744,14 @@ struct SharedRuntime {
     // counter before freeing, so no debugger op ever touches a freed runtime.
     // (ENG-22958)
     debugger_inflight: AtomicUsize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[must_use = "runtime shutdown may be rejected when called off the owner thread"]
+enum RuntimeShutdown {
+    Destroyed,
+    AlreadyShutdown,
+    WrongThread,
 }
 
 /// Decrements the in-flight debugger counter on scope exit (incl. early return
@@ -777,6 +791,7 @@ impl SharedRuntime {
         }
         Ok(Self {
             raw: AtomicPtr::new(raw),
+            owner_thread: std::thread::current().id(),
             ffi_lock: std::sync::Mutex::new(()),
             debugger_inflight: AtomicUsize::new(0),
         })
@@ -785,6 +800,9 @@ impl SharedRuntime {
     /// Runtime-thread FFI (eval/poll/enable). Serialized by `ffi_lock`; only
     /// ever called from the runtime's owning thread.
     fn with_runtime<T>(&self, f: impl FnOnce(*mut HermesRuntimeOpaque) -> T) -> Result<T> {
+        if std::thread::current().id() != self.owner_thread {
+            anyhow::bail!("Hermes runtime operation must run on its owner thread");
+        }
         let _guard = match self.ffi_lock.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -817,7 +835,22 @@ impl SharedRuntime {
         Ok(f(raw))
     }
 
-    fn shutdown(&self) {
+    /// Rejecting before swapping `raw` leaves an owner-held clone able to
+    /// reclaim it. A clean runtime may be observed from any thread without
+    /// touching thread-affine JSI state.
+    fn shutdown(&self) -> RuntimeShutdown {
+        if self.raw.load(Ordering::SeqCst).is_null() {
+            return RuntimeShutdown::AlreadyShutdown;
+        }
+        if std::thread::current().id() != self.owner_thread {
+            let mut stderr = std::io::stderr().lock();
+            let _ = std::io::Write::write_all(
+                &mut stderr,
+                b"warning: refusing to destroy a Hermes runtime off its owner thread; \
+                  leaking it if no owner-thread handle remains\n",
+            );
+            return RuntimeShutdown::WrongThread;
+        }
         // Null the pointer under `ffi_lock` so no runtime-thread op is mid-call
         // and later runtime-thread ops bail instead of using a freed pointer.
         let raw = {
@@ -835,11 +868,13 @@ impl SharedRuntime {
         while self.debugger_inflight.load(Ordering::SeqCst) != 0 {
             std::thread::yield_now();
         }
-        if !raw.is_null() {
-            unsafe {
-                ex_hermes_destroy(raw);
-            }
+        if raw.is_null() {
+            return RuntimeShutdown::AlreadyShutdown;
         }
+        unsafe {
+            ex_hermes_destroy(raw);
+        }
+        RuntimeShutdown::Destroyed
     }
 }
 
@@ -861,7 +896,11 @@ impl RuntimeHandle {
 
 impl Drop for RuntimeHandle {
     fn drop(&mut self) {
-        self.shared.shutdown();
+        match self.shared.shutdown() {
+            RuntimeShutdown::Destroyed
+            | RuntimeShutdown::AlreadyShutdown
+            | RuntimeShutdown::WrongThread => {}
+        }
     }
 }
 
@@ -3615,6 +3654,36 @@ cp \"$input\" \"$out\"\n";
         }
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn off_owner_runtime_handle_drop_is_fail_safe_and_owner_can_reclaim() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = HostResetGuard;
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let handle = RuntimeHandle::new(None).expect("diagnostic runtime");
+        let shared = handle.shared();
+
+        std::thread::spawn(move || {
+            assert!(
+                handle.with_runtime(|_| ()).is_err(),
+                "runtime-thread FFI must reject a non-owner caller"
+            );
+            drop(handle);
+        })
+        .join()
+        .unwrap();
+        assert!(
+            !shared.raw.load(Ordering::SeqCst).is_null(),
+            "off-owner drop must leave the runtime intact for its owner"
+        );
+
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        assert_eq!(shared.shutdown(), RuntimeShutdown::AlreadyShutdown);
+        assert!(shared.raw.load(Ordering::SeqCst).is_null());
+    }
+
     #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_creation_requires_exact_installed_snapshot_digest() {
@@ -3637,7 +3706,7 @@ cp \"$input\" \"$out\"\n";
 
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
-        runtime.shutdown();
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -3677,7 +3746,7 @@ cp \"$input\" \"$out\"\n";
         let (_reset_host, digest) = install_armed_test_host();
         let runtime = SharedRuntime::new(Some(&digest))
             .expect("clearing injection must restore armed runtime creation");
-        runtime.shutdown();
+        assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
     }
 
     #[cfg(feature = "capsec-conformance-observer")]
@@ -4315,7 +4384,7 @@ cp \"$input\" \"$out\"\n";
                         (status, value)
                     })
                     .unwrap();
-                runtime.shutdown();
+                assert_eq!(runtime.shutdown(), RuntimeShutdown::Destroyed);
                 value
             })
         };
@@ -6173,25 +6242,35 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
         assert_eq!(started.as_deref(), Some("started"));
         let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let destroy = std::thread::spawn(move || {
-            shared.shutdown();
-            done_tx.send(()).unwrap();
+        let fifo_for_writer = fifo.clone();
+        let shutdown_returned = Arc::new(AtomicBool::new(false));
+        let shutdown_returned_for_writer = Arc::clone(&shutdown_returned);
+        let (begin_tx, begin_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            begin_rx.recv().unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            assert!(
+                !shutdown_returned_for_writer.load(Ordering::Acquire),
+                "owner-thread destroy returned while the worker still held a runtime lifetime pin"
+            );
+            let mut writer = std::fs::OpenOptions::new()
+                .write(true)
+                .open(fifo_for_writer)
+                .unwrap();
+            writer.write_all(b"release").unwrap();
         });
 
+        // JSI/Hermes destruction is owner-thread-only. Release the blocked
+        // worker from another thread while shutdown waits on this thread.
+        let started_waiting = std::time::Instant::now();
+        begin_tx.send(()).unwrap();
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        shutdown_returned.store(true, Ordering::Release);
+        writer.join().unwrap();
         assert!(
-            done_rx
-                .recv_timeout(std::time::Duration::from_millis(100))
-                .is_err(),
+            started_waiting.elapsed() >= std::time::Duration::from_millis(100),
             "destroy must wait while the worker owns a runtime lifetime pin"
         );
-        let mut writer = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
-        writer.write_all(b"release").unwrap();
-        drop(writer);
-        done_rx
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .unwrap();
-        destroy.join().unwrap();
     }
 
     #[cfg(unix)]
@@ -6234,15 +6313,15 @@ cp \"$input\" \"$out\"\n";
             .unwrap();
         std::env::remove_var("IBEX_TEST_FS_WORKER_THROW_ENQUEUE");
         let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let destroy = std::thread::spawn(move || {
-            shared.shutdown();
-            let _ = done_tx.send(());
-        });
-        done_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("enqueue failure must not leave destroy waiting on a leaked worker pin");
-        destroy.join().unwrap();
+        // Shutdown must execute on the runtime owner thread. A leaked worker
+        // pin would make this call exceed the bound (and eventually the test
+        // harness timeout) instead of being hidden by off-thread destruction.
+        let started = std::time::Instant::now();
+        assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "enqueue failure must not leave destroy waiting on a leaked worker pin"
+        );
     }
 
     #[cfg(all(unix, feature = "capsec-conformance-observer"))]
