@@ -18,8 +18,8 @@ use crate::decision::{
 };
 use crate::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN};
 use crate::model::{
-    ActionId, AuthoritySelector, Digest, Generation, NonEmptyString, ObjectIdentity, Principal,
-    SafeUint,
+    ActionId, AuthoritySelector, Digest, Generation, LogicalPath, LogicalRoot, NonEmptyString,
+    ObjectIdentity, PathComponent, Principal, SafeUint,
 };
 use crate::registry::DefinitionSet;
 use crate::strict_json::parse_strict;
@@ -53,6 +53,18 @@ pub struct SnapshotGenerations {
 pub struct PrincipalImportPolicy {
     pub builtins: Vec<String>,
     pub packages: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ArmedRootBinding {
+    pub logical_root: LogicalRoot,
+    #[serde(default)]
+    pub owner: Option<Principal>,
+    #[serde(default)]
+    pub logical_path: Option<LogicalPath>,
+    pub host_path: LogicalPath,
+    pub object: ObjectIdentity,
 }
 
 #[derive(Clone, Debug)]
@@ -153,6 +165,57 @@ impl ArmedSnapshot {
 
     pub fn document(&self) -> &Value {
         &self.document
+    }
+
+    pub fn root_bindings(&self) -> Result<Vec<ArmedRootBinding>> {
+        serde_json::from_value(value_at(&self.document, &["rootBindings"])?.clone())
+            .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))
+    }
+
+    /// Convert an absolute host path into the most-specific authenticated
+    /// logical root available to this principal. Package bindings are usable
+    /// only by their exact package owner; absolute bindings are exact rather
+    /// than ambient filesystem roots.
+    pub fn logical_path_for_host_components(
+        &self,
+        principal: &Principal,
+        host_components: &[PathComponent],
+    ) -> Result<LogicalPath> {
+        let mut candidates = self
+            .root_bindings()?
+            .into_iter()
+            .filter(|binding| {
+                binding.host_path.root == LogicalRoot::Absolute
+                    && binding.host_path.host_bound == Some(true)
+                    && host_components.starts_with(&binding.host_path.components)
+                    && match binding.logical_root {
+                        LogicalRoot::Package => binding.owner.as_ref() == Some(principal),
+                        _ => binding.owner.is_none(),
+                    }
+                    && (binding.logical_root != LogicalRoot::Absolute
+                        || host_components.len() == binding.host_path.components.len())
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            right
+                .host_path
+                .components
+                .len()
+                .cmp(&left.host_path.components.len())
+        });
+        let binding = candidates.into_iter().next().ok_or_else(|| {
+            Error::ArmRefused("host path has no authenticated logical-root binding".into())
+        })?;
+        if binding.logical_root == LogicalRoot::Absolute {
+            return binding.logical_path.ok_or_else(|| {
+                Error::ArmRefused("absolute root binding is missing its logical path".into())
+            });
+        }
+        Ok(LogicalPath {
+            root: binding.logical_root,
+            components: host_components[binding.host_path.components.len()..].to_vec(),
+            host_bound: None,
+        })
     }
 
     /// Reconstruct the exact semantic identity authenticated by this snapshot.
@@ -464,6 +527,61 @@ mod tests {
         bytes.fill(b'x');
         assert_eq!(armed.digest(), &loaded_digest);
         assert_eq!(armed.document()["capsVocab"], expected.profile);
+    }
+
+    #[test]
+    fn maps_host_paths_through_exact_authenticated_root_bindings() {
+        let (bytes, expected) = fixture();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let root: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "root",
+            "identity": "project-root"
+        }))
+        .unwrap();
+        let package: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        }))
+        .unwrap();
+        let component = |value: &str| PathComponent::utf8(value).unwrap();
+
+        let project = armed
+            .logical_path_for_host_components(
+                &root,
+                &[
+                    component("Users"),
+                    component("example"),
+                    component("project"),
+                    component("config.json"),
+                ],
+            )
+            .unwrap();
+        assert_eq!(project.root, LogicalRoot::Project);
+        assert_eq!(project.components, vec![component("config.json")]);
+
+        let package_path = [
+            component("Users"),
+            component("example"),
+            component("project"),
+            component("node_modules"),
+            component("image-lib"),
+            component("photo.jpg"),
+        ];
+        let mapped = armed
+            .logical_path_for_host_components(&package, &package_path)
+            .unwrap();
+        assert_eq!(mapped.root, LogicalRoot::Package);
+        assert_eq!(mapped.components, vec![component("photo.jpg")]);
+        let root_view = armed
+            .logical_path_for_host_components(&root, &package_path)
+            .unwrap();
+        assert_eq!(root_view.root, LogicalRoot::Project);
+
+        assert!(armed
+            .logical_path_for_host_components(&root, &[component("etc"), component("passwd")],)
+            .is_err());
     }
 
     #[test]

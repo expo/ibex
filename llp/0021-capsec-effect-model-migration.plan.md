@@ -731,6 +731,10 @@ set. The bearer stratum considers only those IDs, and rejects duplicate,
 unsorted, unknown, or wrong-holder presentation as invalid attribution. Merely
 minting a handle for a principal therefore never turns possession into ambient
 principal authority.
+Armed root bindings are decoded into typed values and host paths normalize
+through the longest authenticated binding. Package roots match only their exact
+package owner, project roots do not borrow package identity, absolute bindings
+remain exact, and paths outside every armed binding refuse before a decision.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

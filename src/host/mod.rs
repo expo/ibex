@@ -289,6 +289,49 @@ impl Host {
         self.decision_context.as_ref()
     }
 
+    pub fn typed_principal_for_module(
+        &self,
+        module_id: &str,
+    ) -> Option<capsec_semantics::model::Principal> {
+        self.decision_context.as_ref()?;
+        if module_id == "0" {
+            return self
+                .typed_imports
+                .keys()
+                .find(|principal| principal.is_root())
+                .cloned();
+        }
+        self.typed_module_principals
+            .read()
+            .ok()
+            .and_then(|mappings| mappings.get(module_id).cloned())
+    }
+
+    pub fn typed_logical_path(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+        path: &std::path::Path,
+    ) -> capsec_semantics::Result<capsec_semantics::model::LogicalPath> {
+        let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed path normalization requested without an armed snapshot".into(),
+            )
+        })?;
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|error| {
+                    capsec_semantics::Error::ArmRefused(format!(
+                        "cannot resolve current directory for typed path: {error}"
+                    ))
+                })?
+                .join(path)
+        };
+        let components = host_path_components(&path)?;
+        snapshot.logical_path_for_host_components(principal, &components)
+    }
+
     /// Evaluate one complete typed effect set against the immutable authority
     /// context. Armed execution never falls back to the legacy string manager.
     pub fn evaluate_typed_decision(
@@ -940,6 +983,44 @@ impl Host {
     }
 }
 
+fn host_path_components(
+    path: &std::path::Path,
+) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
+    use capsec_semantics::model::PathComponent;
+    use std::path::Component;
+
+    path.components()
+        .filter_map(|component| match component {
+            Component::Prefix(prefix) => Some(host_path_component(prefix.as_os_str())),
+            Component::RootDir | Component::CurDir => None,
+            Component::ParentDir => Some(Err(capsec_semantics::Error::ArmRefused(
+                "typed host path contains an unresolved parent component".into(),
+            ))),
+            Component::Normal(value) => Some(host_path_component(value)),
+        })
+        .collect::<capsec_semantics::Result<Vec<PathComponent>>>()
+}
+
+fn host_path_component(
+    value: &std::ffi::OsStr,
+) -> capsec_semantics::Result<capsec_semantics::model::PathComponent> {
+    use capsec_semantics::model::PathComponent;
+    if let Some(value) = value.to_str() {
+        return PathComponent::utf8(value.to_owned())
+            .map_err(capsec_semantics::Error::InvalidModel);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathComponent::binary(value.as_bytes().to_vec())
+            .map_err(capsec_semantics::Error::InvalidModel)
+    }
+    #[cfg(not(unix))]
+    Err(capsec_semantics::Error::ArmRefused(
+        "non-Unicode host path cannot be represented on this target".into(),
+    ))
+}
+
 fn classify_network_peer(
     address: capsec_semantics::model::IpAddress,
 ) -> Option<capsec_semantics::model::PeerClass> {
@@ -1194,6 +1275,16 @@ mod tests {
         use capsec_semantics::model::DecisionSet;
 
         let host = example_armed_host();
+        let root = host.typed_principal_for_module("0").unwrap();
+        let mapped = host
+            .typed_logical_path(
+                &root,
+                std::path::Path::new("/Users/example/project/images/photo.jpg"),
+            )
+            .unwrap();
+        assert_eq!(mapped.root, capsec_semantics::model::LogicalRoot::Project);
+        assert_eq!(mapped.components.len(), 2);
+        assert!(host.typed_principal_for_module("999").is_none());
         assert!(!host.check_capability("0", "fs:read:/anything"));
         assert!(!host.check_capability_stack(&["0"], "fs:read:/anything"));
         assert!(!host.check_import("0", "node:fs"));
