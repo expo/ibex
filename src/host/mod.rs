@@ -942,6 +942,7 @@ impl Host {
     pub fn mint_typed_handle(
         &self,
         actor: capsec_semantics::model::Principal,
+        constrained_principals: &[capsec_semantics::model::Principal],
         holder: capsec_semantics::model::Principal,
         selector: capsec_semantics::model::AuthoritySelector,
         parent_handle_id: Option<&capsec_semantics::model::NonEmptyString>,
@@ -1013,6 +1014,32 @@ impl Host {
                 .contains_package_logical_root()
                 .then(|| actor.is_package().then(|| actor.clone()))
                 .flatten();
+            if constrained_principals.is_empty()
+                || !constrained_principals
+                    .iter()
+                    .any(|principal| principal == &actor)
+            {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "handle mint requires the authenticated actor in its constrained stack".into(),
+                ));
+            }
+            for principal in constrained_principals {
+                let principal_package_owner = selector
+                    .resource
+                    .contains_package_logical_root()
+                    .then(|| principal.is_package().then(|| principal.clone()))
+                    .flatten();
+                if !current.static_authority_covers(
+                    principal,
+                    &selector,
+                    principal_package_owner.as_ref(),
+                )? {
+                    return Err(capsec_semantics::Error::ArmRefused(
+                        "handle authority is not covered by every constrained principal's static floor"
+                            .into(),
+                    ));
+                }
+            }
             if !current.static_authority_covers(&actor, &selector, package_owner.as_ref())? {
                 return Err(capsec_semantics::Error::ArmRefused(
                     "handle authority is not covered by the owner's static floor".into(),
@@ -1074,7 +1101,8 @@ impl Host {
         let request: TypedHandleMintRequest = serde_json::from_value(value)
             .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
         self.mint_typed_handle(
-            request.actor,
+            request.actor.clone(),
+            &[request.actor],
             request.holder,
             request.authority,
             request.parent_handle_id.as_ref(),
@@ -1085,6 +1113,7 @@ impl Host {
     pub fn mint_typed_handle_json_for_actor(
         &self,
         actor: capsec_semantics::model::Principal,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
         request_json: &[u8],
     ) -> capsec_semantics::Result<capsec_semantics::model::NonEmptyString> {
         let text = std::str::from_utf8(request_json).map_err(|error| {
@@ -1102,6 +1131,7 @@ impl Host {
         }
         self.mint_typed_handle(
             actor,
+            &constrained_principals,
             request.holder,
             request.authority,
             request.parent_handle_id.as_ref(),
@@ -2443,11 +2473,23 @@ mod tests {
             DecisionOutcome::Deny
         );
         let parent_request = serde_json::to_vec(&serde_json::json!({
-            "actor": owner,
-            "holder": holder,
-            "authority": tree
+            "actor": owner.clone(),
+            "holder": holder.clone(),
+            "authority": tree.clone()
         }))
         .unwrap();
+        let ungranted_deputy: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "runtime",
+            "identity": "ungranted-deputy"
+        }))
+        .unwrap();
+        assert!(host
+            .mint_typed_handle_json_for_actor(
+                owner.clone(),
+                vec![owner.clone(), ungranted_deputy],
+                &parent_request,
+            )
+            .is_err());
         let parent = host.mint_typed_handle_json(&parent_request).unwrap();
         let wrong_holder: Principal = serde_json::from_value(serde_json::json!({
             "kind": "runtime",
@@ -2475,7 +2517,14 @@ mod tests {
             DecisionOutcome::Allow
         );
         let child = host
-            .mint_typed_handle(holder.clone(), holder.clone(), photo, Some(&parent), None)
+            .mint_typed_handle(
+                holder.clone(),
+                &[holder.clone()],
+                holder.clone(),
+                photo,
+                Some(&parent),
+                None,
+            )
             .unwrap();
         assert_ne!(parent, child);
         decision.context.presented_handle_ids = vec![parent.clone(), child];
@@ -2510,7 +2559,7 @@ mod tests {
         }))
         .unwrap();
         assert!(host
-            .mint_typed_handle(owner, holder, outside, None, None)
+            .mint_typed_handle(owner.clone(), &[owner], holder, outside, None, None)
             .is_err());
     }
 

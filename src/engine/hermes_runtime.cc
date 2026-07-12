@@ -256,6 +256,8 @@ extern "C" int32_t ex_host_typed_dynamic_revoke(uint64_t module_id,
                                                   const uint8_t* request,
                                                   size_t request_len);
 extern "C" char* ex_host_typed_handle_mint(uint64_t module_id,
+                                            const uint64_t* module_ids,
+                                            size_t module_ids_len,
                                             const uint8_t* request,
                                             size_t request_len);
 extern "C" int32_t ex_host_typed_handle_revoke(uint64_t module_id,
@@ -1602,8 +1604,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
               runtime, "{\"error\":\"typed handle request is not serializable\"}");
         }
         auto request = serialized.asString(runtime).utf8(runtime);
+        auto principals = exactCollectTypedPrincipalStack();
         char* response = ex_host_typed_handle_mint(
             currentPrincipalId(),
+            principals.data(), principals.size(),
             reinterpret_cast<const uint8_t*>(request.data()), request.size());
         if (!response) {
           return facebook::jsi::String::createFromUtf8(

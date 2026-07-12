@@ -1549,19 +1549,37 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
 #[no_mangle]
 pub unsafe extern "C" fn ex_host_typed_handle_mint(
     module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
     request: *const u8,
     request_len: usize,
 ) -> *mut c_char {
-    if request.is_null() {
+    if request.is_null() || module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
         return as_json_cstring(&json!({"error": "null typed handle request"}));
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
     let result = with_host(
         |host| {
             let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
                 return as_json_cstring(&json!({"error": "authenticated handle actor is unknown"}));
             };
-            match host.mint_typed_handle_json_for_actor(actor, request) {
+            let mut constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => {
+                    return as_json_cstring(
+                        &json!({"error": "constrained handle principal is unknown"}),
+                    )
+                }
+            };
+            constrained_principals
+                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
+            constrained_principals.dedup();
+            match host.mint_typed_handle_json_for_actor(actor, constrained_principals, request) {
                 Ok(handle_id) => {
                     notify_runtime_authority_change();
                     as_json_cstring(&json!({"handleId": handle_id.as_str()}))

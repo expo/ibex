@@ -834,6 +834,11 @@ by it; handle mint actors must match it, and handle revocation is limited to the
 authenticated owner or current holder. Forged package identities and unknown
 grant or handle IDs therefore refuse at the bridge instead of becoming ambient
 authority or cross-principal revocation.
+For a new handle, the bridge also carries the canonical full Hermes principal
+stack into the host. The requested selector must be covered by every
+constrained principal's static floor, so an authorized inner actor cannot use
+an ungranted caller as a deputy to mint authority. Re-attenuation remains bound
+to an explicitly presented parent held by the authenticated actor.
 Successful typed grant, revocation, mint, and cascade-revocation publications
 wake the runtime. Each event-loop poll compares the authenticated negative,
 dynamic, and handle generations; changes emit a frozen generation tuple through

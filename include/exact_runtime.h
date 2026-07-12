@@ -329,6 +329,8 @@ int ex_host_typed_dynamic_revoke(uint64_t module_id,
 /// Mint/re-attenuate and revoke typed bearer handles. Mint returns a heap-owned
 /// JSON handle/error envelope; revoke returns 1/0/-1 like dynamic revocation.
 char* ex_host_typed_handle_mint(uint64_t module_id,
+                                const uint64_t* module_ids,
+                                size_t module_ids_len,
                                 const uint8_t* request,
                                 size_t request_len);
 int ex_host_typed_handle_revoke(uint64_t module_id,
