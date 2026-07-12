@@ -18,6 +18,7 @@ import { canonicalJson } from "./capsec-contract.mjs";
 import { fixtureExecutionPlans } from "./capsec-conformance.mjs";
 import { authoredNonCapabilityBuiltinProbe } from "./capsec-builtin-public-probe-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
+import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
 
 const compareText = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const canonicalSet = (values) => [...new Set(values)].sort(compareText);
@@ -100,8 +101,9 @@ function exampleForAction(examples, action, resourceKind = null) {
   const sourceAction = DERIVED_ACTION_SOURCE.get(action) ?? action;
   const candidates = examples.filter((row) => row.cap === sourceAction);
   const selected =
-    candidates.find((row) => requestedResourceKind(row.resource) === resourceKind) ??
-    candidates[0];
+    candidates.find(
+      (row) => requestedResourceKind(row.resource) === resourceKind,
+    ) ?? candidates[0];
   if (!selected) return null;
   const result = clone(selected);
   result.cap = action;
@@ -209,7 +211,8 @@ function effectsForPlan(plan, coverageByEdge) {
   const rows = [];
   for (const edgeId of plan.edgeIds) {
     const edge = coverageByEdge.get(edgeId);
-    if (!edge) throw new Error(`${plan.fixtureId}: unknown coverage edge ${edgeId}`);
+    if (!edge)
+      throw new Error(`${plan.fixtureId}: unknown coverage edge ${edgeId}`);
     const logicalBranch = edge.logicalBranches?.find((branch) =>
       plan.fixtureId.includes(`.logical.${branch.id}.`),
     );
@@ -221,11 +224,15 @@ function effectsForPlan(plan, coverageByEdge) {
   for (const effect of rows) {
     const prior = unique.get(effect.cap);
     if (prior && canonicalJson(prior) !== canonicalJson(effect)) {
-      throw new Error(`${plan.fixtureId}: action ${effect.cap} has conflicting stage plans`);
+      throw new Error(
+        `${plan.fixtureId}: action ${effect.cap} has conflicting stage plans`,
+      );
     }
     unique.set(effect.cap, effect);
   }
-  return [...unique.values()].sort((left, right) => compareText(left.cap, right.cap));
+  return [...unique.values()].sort((left, right) =>
+    compareText(left.cap, right.cap),
+  );
 }
 
 function adapterProbeForPlan(
@@ -272,7 +279,9 @@ function adapterProbeForPlan(
   const templateByAction = new Map(
     plan.actionIds.map((action, index) => [action, templates[index]]),
   );
-  const stages = canonicalSet(semanticEffects.flatMap((effect) => effect.stages));
+  const stages = canonicalSet(
+    semanticEffects.flatMap((effect) => effect.stages),
+  );
   const malformed = scenario === "malformed";
   const probeCases = stages.map((stage, stageIndex) => {
     const activeEffects = semanticEffects.filter((effect) =>
@@ -315,8 +324,7 @@ function adapterProbeForPlan(
         malformed && stageIndex === 0
           ? { adapter: "error", legacyObservations: 0, typedObservations: 0 }
           : {
-              adapter:
-                scenario === "allow" && !malformed ? "allow" : "deny",
+              adapter: scenario === "allow" && !malformed ? "allow" : "deny",
               legacyObservations: 0,
               typedObservations: 1,
             },
@@ -333,9 +341,8 @@ function adapterProbeForPlan(
       operation: "capsec.conformance.evaluate",
       terminalBranchId: plan.expectedObservation.branchId,
       cases: probeCases,
-      requiredFloor: scenario === "allow"
-        ? templates.map(({ selector }) => selector)
-        : [],
+      requiredFloor:
+        scenario === "allow" ? templates.map(({ selector }) => selector) : [],
     },
   };
 }
@@ -384,7 +391,8 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
       continue;
     }
     const route = row.enforcementRoute;
-    const accumulated = alternatives.get(route.terminalObservedKey) ?? new Set();
+    const accumulated =
+      alternatives.get(route.terminalObservedKey) ?? new Set();
     for (const proofPath of route.proofPaths) accumulated.add(proofPath);
     alternatives.set(route.terminalObservedKey, accumulated);
   }
@@ -587,8 +595,7 @@ function nativePublicProbeForPlan({
   if (NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT.has(invocation.globalName)) {
     return {
       probe: null,
-      unavailableReason:
-        "native-public-global-removed-by-structural-lockdown",
+      unavailableReason: "native-public-global-removed-by-structural-lockdown",
     };
   }
   const template = NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName);
@@ -673,7 +680,7 @@ function residualReasons({
 }) {
   const reasons = [];
   if (plan.expectedObservation.kind === "target-absence") {
-    reasons.push("target-absence-probe-not-authored");
+    if (!publicSurfaceProbe) reasons.push("target-absence-probe-not-authored");
     return reasons;
   } else if (!publicSurfaceProbe) {
     reasons.push("public-surface-invocation-not-authored");
@@ -681,12 +688,9 @@ function residualReasons({
       reasons.push(publicSurfaceUnavailableReason);
     }
   }
-  if (plan.classification === "closed") {
+  if (plan.classification === "closed" && !publicSurfaceProbe) {
     reasons.push("closed-surface-denial-probe-not-authored");
-  } else if (
-    plan.classification === "non-capability" &&
-    !publicSurfaceProbe
-  ) {
+  } else if (plan.classification === "non-capability" && !publicSurfaceProbe) {
     if (scenario === "non-capability") {
       reasons.push("non-capability-no-decision-probe-not-authored");
     } else {
@@ -695,15 +699,23 @@ function residualReasons({
   } else if (plan.classification === "effects" && !adapterProbe) {
     if (plan.actionIds.length === 0) {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
-    } else if (scenario === "branch-selection" || scenario === "malformed-branch-facts") {
+    } else if (
+      scenario === "branch-selection" ||
+      scenario === "malformed-branch-facts"
+    ) {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
     } else if (scenario === "conditional-refinement") {
       reasons.push("conditional-refinement-probe-not-authored");
     } else {
-      reasons.push(adapterUnavailableReason ?? "typed-decision-template-unavailable");
+      reasons.push(
+        adapterUnavailableReason ?? "typed-decision-template-unavailable",
+      );
     }
   }
-  if (route.alternatives.length === 0 && plan.expectedObservation.kind !== "target-absence") {
+  if (
+    route.alternatives.length === 0 &&
+    plan.expectedObservation.kind !== "target-absence"
+  ) {
     reasons.push("no-static-enforcement-terminal");
   }
   if (route.alternatives.length > 1 && !publicSurfaceProbe) {
@@ -736,7 +748,9 @@ function summarize(recipes) {
       (recipe) => recipe.status !== "fully-executable",
     ).length,
     byScenario: Object.fromEntries(
-      Object.entries(byScenario).sort(([left], [right]) => compareText(left, right)),
+      Object.entries(byScenario).sort(([left], [right]) =>
+        compareText(left, right),
+      ),
     ),
     residualReasons: Object.fromEntries(
       Object.entries(residualReasons).sort(([left], [right]) =>
@@ -783,6 +797,13 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
     );
     const adapterProbe = adapter.probe;
+    const targetAbsenceProbe = authoredTargetAbsenceProbe({
+      plan,
+      scenario,
+      target,
+      coverageByEdge,
+      liveByObservedKey,
+    });
     const effectBuiltinPublicSurfaceProbe = authoredBuiltinPublicProbe({
       plan,
       scenario,
@@ -804,6 +825,7 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
     });
     const authoredPublicSurfaceProbes = [
+      targetAbsenceProbe,
       effectBuiltinPublicSurfaceProbe,
       nonCapabilityBuiltinPublicSurfaceProbe,
       nativePublicSurface.probe,
@@ -847,7 +869,8 @@ export function buildConformanceRecipeCatalog({
   });
   recipes.sort((left, right) => compareText(left.fixtureId, right.fixtureId));
   const duplicate = recipes.find(
-    (recipe, index) => index > 0 && recipe.fixtureId === recipes[index - 1].fixtureId,
+    (recipe, index) =>
+      index > 0 && recipe.fixtureId === recipes[index - 1].fixtureId,
   );
   if (duplicate) throw new Error(`duplicate recipe ${duplicate.fixtureId}`);
   const result = {
@@ -883,9 +906,7 @@ function validatePublicSurfaceProbe(recipe) {
     !allowedSurfaces.includes(probe.surfaceObservedKey) ||
     !Array.isArray(probe.command) ||
     probe.command.length === 0 ||
-    !probe.command.every(
-      (part) => typeof part === "string" && part.length > 0,
-    )
+    !probe.command.every((part) => typeof part === "string" && part.length > 0)
   ) {
     throw new Error(
       `${recipe.fixtureId}: complete recipe lacks an exact authored public-surface probe`,
@@ -898,8 +919,7 @@ export function validateRecipeCatalog(
   { expectedFixtureIds = null, target = null } = {},
 ) {
   if (
-    recipeCatalog?.recipeCatalogSchema !==
-      "ibex/capsec-executable-recipes/1" ||
+    recipeCatalog?.recipeCatalogSchema !== "ibex/capsec-executable-recipes/1" ||
     recipeCatalog.profile !== "ibex/capsec/1" ||
     !Array.isArray(recipeCatalog.recipes) ||
     !recipeCatalog.summary ||
@@ -927,7 +947,9 @@ export function validateRecipeCatalog(
     canonicalJson(fixtureIds) !==
       canonicalJson(canonicalSet(expectedFixtureIds))
   ) {
-    throw new Error("recipe catalog does not cover the exact required fixture set");
+    throw new Error(
+      "recipe catalog does not cover the exact required fixture set",
+    );
   }
   if (
     canonicalJson(recipeCatalog.summary) !==
@@ -958,7 +980,9 @@ export function assertRecipeCatalogComplete(recipeCatalog, options = {}) {
       !Array.isArray(recipe.residualReasons) ||
       recipe.residualReasons.length !== 0
     ) {
-      throw new Error(`${recipe.fixtureId}: complete catalog retains a residual`);
+      throw new Error(
+        `${recipe.fixtureId}: complete catalog retains a residual`,
+      );
     }
     validatePublicSurfaceProbe(recipe);
   }

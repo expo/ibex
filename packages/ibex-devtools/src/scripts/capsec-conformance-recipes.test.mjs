@@ -72,9 +72,9 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(recipes.summary.requiredFixtures).toBe(expectedFixtureIds.length);
     expect(recipes.recipes).toHaveLength(expectedFixtureIds.length);
-    expect(new Set(recipes.recipes.map((recipe) => recipe.fixtureId)).size).toBe(
-      expectedFixtureIds.length,
-    );
+    expect(
+      new Set(recipes.recipes.map((recipe) => recipe.fixtureId)).size,
+    ).toBe(expectedFixtureIds.length);
     expect(recipes.recipes.map((recipe) => recipe.fixtureId)).toEqual(
       expectedFixtureIds,
     );
@@ -128,14 +128,20 @@ describe("exact-target CapSec executable recipes", () => {
     const absenceFixtures = recipes.recipes.filter(
       (recipe) => recipe.expectedObservation.kind === "target-absence",
     ).length;
+    const authoredAbsenceFixtures = recipes.recipes.filter(
+      (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
+    ).length;
+    const authoredEnforcementFixtures = recipes.recipes.filter(
+      (recipe) =>
+        recipe.expectedObservation.kind === "enforcement-branch" &&
+        recipe.publicSurfaceProbe !== null,
+    ).length;
     expect(
-      recipes.summary.residualReasons[
-        "public-surface-invocation-not-authored"
-      ],
-    ).toBe(publicFixtures - authoredPublicFixtures);
+      recipes.summary.residualReasons["public-surface-invocation-not-authored"],
+    ).toBe(publicFixtures - authoredEnforcementFixtures);
     expect(
       recipes.summary.residualReasons["target-absence-probe-not-authored"],
-    ).toBe(absenceFixtures);
+    ).toBe(absenceFixtures - authoredAbsenceFixtures);
     expect(publicFixtures + absenceFixtures).toBe(expectedFixtureIds.length);
     expect(() => assertRecipeCatalogComplete(recipes)).toThrow(
       /executable recipe catalog is incomplete/,
@@ -176,9 +182,9 @@ describe("exact-target CapSec executable recipes", () => {
       expectedTypedDecisionCount: 1,
       expectedTypedStages: ["requested"],
     });
-    expect(
-      allow.publicSurfaceProbe.invocation.allowedCoverageEdgeIds,
-    ).toEqual(["surface.native.op.exactgetcpucount.1k05aty"]);
+    expect(allow.publicSurfaceProbe.invocation.allowedCoverageEdgeIds).toEqual([
+      "surface.native.op.exactgetcpucount.1k05aty",
+    ]);
     expect(allow.publicSurfaceProbe.invocation).not.toHaveProperty(
       "terminalObservedKey",
     );
@@ -216,9 +222,7 @@ describe("exact-target CapSec executable recipes", () => {
             "src/engine/hermes_runtime_net.cc#jsi-global:__exactTcpConnect",
         },
         setup: [{ kind: "tcp-loopback-listener" }],
-        allowedCoverageEdgeIds: [
-          "surface.native.op.exacttcpconnect.1cs9rhu",
-        ],
+        allowedCoverageEdgeIds: ["surface.native.op.exacttcpconnect.1cs9rhu"],
         expectedActionIds: ["network:connect"],
       });
       expect(invocation.sourceDescriptorDigest).toMatch(/^sha256-/u);
@@ -270,6 +274,49 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(false);
   });
 
+  test("binds host ABI target absence to source variants and a runtime lookup", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
+    );
+    expect(rows).toHaveLength(56);
+    expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
+    expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
+    );
+    const ios = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.surfaceName ===
+        "ex_hermes_dispatch_event",
+    );
+    expect(ios.publicSurfaceProbe).toMatchObject({
+      surfaceObservedKey: "host-abi:ex_hermes_dispatch_event",
+      invocation: {
+        invocationSchema: "ibex/capsec-target-absence-invocation/1",
+        kind: "target-absence",
+        targetTriple: "aarch64-apple-darwin",
+        sourceDescriptor: {
+          kind: "target-absent-host-abi",
+          targetVariants: ["ios"],
+          sourceMetadata: {
+            definitions: expect.any(Array),
+          },
+          probeMode: {
+            kind: "dynamic-symbol",
+            symbolName: "ex_hermes_dispatch_event",
+          },
+        },
+        expectedResult: "absent",
+        expectedTypedDecisionCount: 0,
+      },
+    });
+    expect(ios.publicSurfaceProbe.invocation.sourceDescriptorDigest).toMatch(
+      /^sha256-/u,
+    );
+    expect(ios.publicSurfaceProbe.invocation).not.toHaveProperty(
+      "terminalObservedKey",
+    );
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>
@@ -280,8 +327,8 @@ describe("exact-target CapSec executable recipes", () => {
     );
     expect(recipe).toBeDefined();
     expect(
-      recipe.route.alternatives.map((alternative) =>
-        alternative.terminalObservedKey,
+      recipe.route.alternatives.map(
+        (alternative) => alternative.terminalObservedKey,
       ),
     ).toEqual(
       expect.arrayContaining([

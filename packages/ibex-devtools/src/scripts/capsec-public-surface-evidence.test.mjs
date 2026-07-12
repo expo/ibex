@@ -186,6 +186,111 @@ function completeArtifact(catalog = completeCatalog()) {
   });
 }
 
+function completeAbsenceCatalog() {
+  const sourceDescriptor = {
+    kind: "target-absent-host-abi",
+    surfaceKind: "host-abi",
+    surfaceName: "ex_android_initialize",
+    sourceRefs: [
+      "src/engine/native_android_networking.cc#ex_android_initialize",
+    ],
+    targetVariants: ["android"],
+    sourceMetadata: {
+      definitions: [
+        {
+          language: "c++",
+          sourceRef:
+            "src/engine/native_android_networking.cc#ex_android_initialize",
+          targetVariant: "android",
+          unsafe: false,
+          weak: false,
+        },
+      ],
+    },
+    probeMode: { kind: "dynamic-symbol", symbolName: "ex_android_initialize" },
+  };
+  const recipe = {
+    fixtureId: "fixture.host-abi.absent",
+    planDigest: "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    classification: "non-capability",
+    scenario: "absent",
+    edgeIds: ["edge.absent"],
+    implementationBranchIds: [],
+    enforcementBranchIds: [],
+    actionIds: [],
+    terminalObservedKey: "host-abi:ex_android_initialize",
+    expectedObservation: { kind: "target-absence", edgeId: "edge.absent" },
+    route: { surfaceObservedKeys: [], alternatives: [], ambiguousCallees: [] },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "target-absence-probe",
+      surfaceObservedKey: "host-abi:ex_android_initialize",
+      command: ["ibex", "capsec-public-target-absence"],
+      invocation: {
+        invocationSchema: "ibex/capsec-target-absence-invocation/1",
+        kind: "target-absence",
+        surfaceKind: "host-abi",
+        surfaceName: "ex_android_initialize",
+        targetTriple: target.triple,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        expectedResult: "absent",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes: [recipe],
+    summary: {
+      requiredFixtures: 1,
+      fullyExecutableFixtures: 1,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { absent: 1 },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function absenceRuntimeObservation(recipe, symbolPresent = false) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      targetTriple: invocation.targetTriple,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "absent",
+        surfaceKind: invocation.surfaceKind,
+        surfaceName: invocation.surfaceName,
+        targetTriple: invocation.targetTriple,
+        compiledTargetOs: "macos",
+        compiledTargetArch: "aarch64",
+        probeMode: invocation.sourceDescriptor.probeMode.kind,
+        symbolName: invocation.sourceDescriptor.probeMode.symbolName,
+        symbolPresent,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 describe("CapSec public-surface promotion evidence", () => {
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
@@ -246,6 +351,27 @@ describe("CapSec public-surface promotion evidence", () => {
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
+  });
+
+  test("accepts exact-target ABI absence only after a runtime symbol lookup", () => {
+    const catalog = completeAbsenceCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: absenceRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: absenceRuntimeObservation(recipe, true),
+        coverage,
+      }),
+    ).toThrow(/did not prove absence/);
   });
 
   test("rejects adapter-only evidence explicitly", () => {

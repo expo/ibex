@@ -231,6 +231,25 @@ function validateRuntimeInvocation(observation, recipe) {
     ) {
       throw new Error(`${recipe.fixtureId}: builtin runtime invocation descriptor drift`);
     }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-target-absence-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceKind", "surfaceName", "targetTriple"],
+      `${recipe.fixtureId}: target-absence runtime invocation`,
+    );
+    if (
+      invocation.kind !== "target-absence" ||
+      invocation.surfaceKind !== authored.surfaceKind ||
+      invocation.surfaceName !== authored.surfaceName ||
+      invocation.targetTriple !== authored.targetTriple
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: target-absence runtime invocation descriptor drift`,
+      );
+    }
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported runtime invocation schema`);
   }
@@ -280,6 +299,36 @@ function validateRuntimeInvocation(observation, recipe) {
       !invocation.result.errorMessage.includes("Permission denied")
     ) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
+    }
+  } else if (authored.expectedResult === "absent") {
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "surfaceKind",
+        "surfaceName",
+        "targetTriple",
+        "compiledTargetOs",
+        "compiledTargetArch",
+        "probeMode",
+        "symbolName",
+        "symbolPresent",
+      ],
+      `${recipe.fixtureId}: target-absence runtime result`,
+    );
+    const probeMode = authored.sourceDescriptor?.probeMode;
+    if (
+      invocation.result.kind !== "absent" ||
+      invocation.result.surfaceKind !== authored.surfaceKind ||
+      invocation.result.surfaceName !== authored.surfaceName ||
+      invocation.result.targetTriple !== authored.targetTriple ||
+      invocation.result.compiledTargetOs !== "macos" ||
+      invocation.result.compiledTargetArch !== "aarch64" ||
+      invocation.result.probeMode !== probeMode?.kind ||
+      invocation.result.symbolName !== probeMode?.symbolName ||
+      invocation.result.symbolPresent !== false
+    ) {
+      throw new Error(`${recipe.fixtureId}: target-absence probe did not prove absence`);
     }
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported expected public result`);
@@ -372,24 +421,34 @@ function validateRuntimeObservation(observation, recipe, coverage) {
 
   let terminalObservedKey;
   if (observation.typedDecisions.length === 0) {
+    const validZeroDecisionScenario =
+      (recipe.classification === "non-capability" &&
+        recipe.scenario === "non-capability") ||
+      (recipe.classification === "closed" && recipe.scenario === "closed") ||
+      recipe.scenario === "absent";
     if (
-      recipe.classification !== "non-capability" ||
-      recipe.scenario !== "non-capability" ||
+      !validZeroDecisionScenario ||
       authored.expectedTypedStages.length !== 0 ||
       authored.expectedActionIds.length !== 0
     ) {
       throw new Error(`${recipe.fixtureId}: absence of a typed decision is not evidence here`);
     }
-    terminalObservedKey = observation.invocation.surfaceObservedKey;
+    terminalObservedKey =
+      recipe.scenario === "absent"
+        ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
+        : observation.invocation.surfaceObservedKey;
   } else {
     if (terminals.size !== 1) {
       throw new Error(`${recipe.fixtureId}: typed gates selected multiple terminals`);
     }
     terminalObservedKey = [...terminals][0];
   }
-  const allowed = recipe.route?.alternatives?.map(
-    (alternative) => alternative.terminalObservedKey,
-  );
+  const allowed =
+    recipe.scenario === "absent"
+      ? [recipe.terminalObservedKey]
+      : recipe.route?.alternatives?.map(
+          (alternative) => alternative.terminalObservedKey,
+        );
   if (!allowed?.includes(terminalObservedKey)) {
     throw new Error(`${recipe.fixtureId}: runtime-derived terminal is outside the bound route`);
   }
