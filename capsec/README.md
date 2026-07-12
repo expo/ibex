@@ -143,3 +143,8 @@ WP1 advertises no executable target; it records only the exact
 `aarch64-apple-darwin` candidate and its required structural security features.
 `conditional-unrefined` edges cannot be promoted beyond `unsupported` until
 their owning work packages generate exact conjunctive branches.
+Refined conditional edges use normalized fact/value predicates and carry the
+full effects, attribution ownership, lifetime, and barriers for each exactly
+selected logical branch. Their fixture obligations are branch-scoped; empty
+branches require explicit no-effect evidence rather than disappearing from the
+report.

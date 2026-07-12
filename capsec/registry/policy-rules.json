@@ -102,7 +102,8 @@
       "sourceRefs",
       "stdioSourceKinds",
       "stdioStreams",
-      "storageStores"
+      "storageStores",
+      "when"
     ],
     "keyedSets": [
       {
@@ -248,7 +249,10 @@
       "id": "arm-validity",
       "scope": "arming",
       "cases": [
-        { "when": "profile-digest-target-or-structure-mismatch", "outcome": "refuse-arming" }
+        {
+          "when": "profile-digest-target-or-structure-mismatch",
+          "outcome": "refuse-arming"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -256,7 +260,10 @@
       "id": "attribution",
       "scope": "effect",
       "cases": [
-        { "when": "no-user-missing-or-ambiguous-attribution", "outcome": "deny" }
+        {
+          "when": "no-user-missing-or-ambiguous-attribution",
+          "outcome": "deny"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -264,7 +271,10 @@
       "id": "lifecycle-and-target-closure",
       "scope": "effect",
       "cases": [
-        { "when": "incomplete-or-unadvertised-target-cell", "outcome": "refuse-arming" },
+        {
+          "when": "incomplete-or-unadvertised-target-cell",
+          "outcome": "refuse-arming"
+        },
         { "when": "deny-only-planned-or-closed-cell", "outcome": "deny" }
       ],
       "defaultOutcome": "continue"
@@ -273,7 +283,10 @@
       "id": "protected-resource-guards",
       "scope": "effect",
       "cases": [
-        { "when": "protected-object-or-always-denied-peer-match", "outcome": "deny" }
+        {
+          "when": "protected-object-or-always-denied-peer-match",
+          "outcome": "deny"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -304,16 +317,17 @@
     {
       "id": "quarantine-deny",
       "scope": "principal",
-      "cases": [
-        { "when": "principal-is-quarantine", "outcome": "deny" }
-      ],
+      "cases": [{ "when": "principal-is-quarantine", "outcome": "deny" }],
       "defaultOutcome": "continue"
     },
     {
       "id": "definition-and-edge-positive-predicates",
       "scope": "effect",
       "cases": [
-        { "when": "normalization-or-positive-predicate-fails", "outcome": "deny" }
+        {
+          "when": "normalization-or-positive-predicate-fails",
+          "outcome": "deny"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -329,7 +343,10 @@
       "id": "bearer-handle",
       "scope": "principal",
       "cases": [
-        { "when": "valid-possessed-handle-contains-effect", "outcome": "allow-principal" }
+        {
+          "when": "valid-possessed-handle-contains-effect",
+          "outcome": "allow-principal"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -337,7 +354,10 @@
       "id": "dynamic-session",
       "scope": "principal",
       "cases": [
-        { "when": "valid-session-grant-within-static-ceiling-contains-effect", "outcome": "allow-principal" }
+        {
+          "when": "valid-session-grant-within-static-ceiling-contains-effect",
+          "outcome": "allow-principal"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -345,7 +365,10 @@
       "id": "implicit-package-self",
       "scope": "principal",
       "cases": [
-        { "when": "generated-package-self-rule-contains-effect", "outcome": "allow-principal" }
+        {
+          "when": "generated-package-self-rule-contains-effect",
+          "outcome": "allow-principal"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -353,7 +376,10 @@
       "id": "ambient-root",
       "scope": "principal",
       "cases": [
-        { "when": "principal-is-authenticated-root", "outcome": "allow-principal" }
+        {
+          "when": "principal-is-authenticated-root",
+          "outcome": "allow-principal"
+        }
       ],
       "defaultOutcome": "continue"
     },
@@ -361,16 +387,28 @@
       "id": "missing-authority-mode",
       "scope": "principal",
       "cases": [
-        { "when": "workflow-is-diagnostic-audit", "outcome": "allow-principal-with-would-deny-evidence" },
+        {
+          "when": "workflow-is-diagnostic-audit",
+          "outcome": "allow-principal-with-would-deny-evidence"
+        },
         { "when": "workflow-is-production-enforce", "outcome": "deny" }
       ],
       "defaultOutcome": "deny"
     }
   ],
   "principalSemantics": {
-    "transparentFramePrincipal": { "kind": "runtime", "identity": "ibex-runtime-internal" },
+    "transparentFramePrincipal": {
+      "kind": "runtime",
+      "identity": "ibex-runtime-internal"
+    },
     "transparentRule": "skip-only-that-reserved-frame-stamp-never-use-it-as-attribution-fallback",
-    "nonTransparentKinds": ["module-loader", "package", "quarantine", "root", "runtime-except-reserved"],
+    "nonTransparentKinds": [
+      "module-loader",
+      "package",
+      "quarantine",
+      "root",
+      "runtime-except-reserved"
+    ],
     "noUser": "deny-sentinel-not-a-principal",
     "missingOrAmbiguous": "deny",
     "scheduleTime": "append-authenticated-scheduler-when-it-differs-from-live-user-frame",
@@ -395,21 +433,111 @@
     }
   },
   "normalizationProfiles": [
-    { "id": "camera.v1", "selector": "camera.selector.v1", "occurrence": "camera.occurrence.v1", "matcher": "camera.matcher.v1", "subset": "camera.subset.v1" },
-    { "id": "clipboard.v1", "selector": "clipboard.selector.v1", "occurrence": "clipboard.occurrence.v1", "matcher": "clipboard.matcher.v1", "subset": "clipboard.subset.v1" },
-    { "id": "closed.surface.v1", "selector": "closed.surface.selector.v1", "occurrence": "closed.surface.occurrence.v1", "matcher": "closed.surface.matcher.v1", "subset": "closed.surface.subset.v1" },
-    { "id": "device.location.v1", "selector": "device.location.selector.v1", "occurrence": "device.location.occurrence.v1", "matcher": "device.location.matcher.v1", "subset": "device.location.subset.v1" },
-    { "id": "environment.name.v1", "selector": "environment.name.selector.v1", "occurrence": "environment.name.occurrence.v1", "matcher": "environment.name.matcher.v1", "subset": "environment.name.subset.v1" },
-    { "id": "fs.path.v1", "selector": "fs.path.selector.v1", "occurrence": "fs.path.occurrence.v1", "matcher": "fs.path.matcher.v1", "subset": "fs.path.subset.v1" },
-    { "id": "microphone.v1", "selector": "microphone.selector.v1", "occurrence": "microphone.occurrence.v1", "matcher": "microphone.matcher.v1", "subset": "microphone.subset.v1" },
-    { "id": "network.connect.v1", "selector": "network.connect.selector.v1", "occurrence": "network.connect.occurrence.v1", "matcher": "network.connect.matcher.v1", "subset": "network.connect.subset.v1" },
-    { "id": "network.fetch.v1", "selector": "network.fetch.selector.v1", "occurrence": "network.fetch.occurrence.v1", "matcher": "network.fetch.matcher.v1", "subset": "network.fetch.subset.v1" },
-    { "id": "network.listen.v1", "selector": "network.listen.selector.v1", "occurrence": "network.listen.occurrence.v1", "matcher": "network.listen.matcher.v1", "subset": "network.listen.subset.v1" },
-    { "id": "network.resolve.v1", "selector": "network.resolve.selector.v1", "occurrence": "network.resolve.occurrence.v1", "matcher": "network.resolve.matcher.v1", "subset": "network.resolve.subset.v1" },
-    { "id": "process.executable.v1", "selector": "process.executable.selector.v1", "occurrence": "process.executable.occurrence.v1", "matcher": "process.executable.matcher.v1", "subset": "process.executable.subset.v1" },
-    { "id": "stdio.v1", "selector": "stdio.selector.v1", "occurrence": "stdio.occurrence.v1", "matcher": "stdio.matcher.v1", "subset": "stdio.subset.v1" },
-    { "id": "storage.namespace.v1", "selector": "storage.namespace.selector.v1", "occurrence": "storage.namespace.occurrence.v1", "matcher": "storage.namespace.matcher.v1", "subset": "storage.namespace.subset.v1" },
-    { "id": "system.info.v1", "selector": "system.info.selector.v1", "occurrence": "system.info.occurrence.v1", "matcher": "system.info.matcher.v1", "subset": "system.info.subset.v1" }
+    {
+      "id": "camera.v1",
+      "selector": "camera.selector.v1",
+      "occurrence": "camera.occurrence.v1",
+      "matcher": "camera.matcher.v1",
+      "subset": "camera.subset.v1"
+    },
+    {
+      "id": "clipboard.v1",
+      "selector": "clipboard.selector.v1",
+      "occurrence": "clipboard.occurrence.v1",
+      "matcher": "clipboard.matcher.v1",
+      "subset": "clipboard.subset.v1"
+    },
+    {
+      "id": "closed.surface.v1",
+      "selector": "closed.surface.selector.v1",
+      "occurrence": "closed.surface.occurrence.v1",
+      "matcher": "closed.surface.matcher.v1",
+      "subset": "closed.surface.subset.v1"
+    },
+    {
+      "id": "device.location.v1",
+      "selector": "device.location.selector.v1",
+      "occurrence": "device.location.occurrence.v1",
+      "matcher": "device.location.matcher.v1",
+      "subset": "device.location.subset.v1"
+    },
+    {
+      "id": "environment.name.v1",
+      "selector": "environment.name.selector.v1",
+      "occurrence": "environment.name.occurrence.v1",
+      "matcher": "environment.name.matcher.v1",
+      "subset": "environment.name.subset.v1"
+    },
+    {
+      "id": "fs.path.v1",
+      "selector": "fs.path.selector.v1",
+      "occurrence": "fs.path.occurrence.v1",
+      "matcher": "fs.path.matcher.v1",
+      "subset": "fs.path.subset.v1"
+    },
+    {
+      "id": "microphone.v1",
+      "selector": "microphone.selector.v1",
+      "occurrence": "microphone.occurrence.v1",
+      "matcher": "microphone.matcher.v1",
+      "subset": "microphone.subset.v1"
+    },
+    {
+      "id": "network.connect.v1",
+      "selector": "network.connect.selector.v1",
+      "occurrence": "network.connect.occurrence.v1",
+      "matcher": "network.connect.matcher.v1",
+      "subset": "network.connect.subset.v1"
+    },
+    {
+      "id": "network.fetch.v1",
+      "selector": "network.fetch.selector.v1",
+      "occurrence": "network.fetch.occurrence.v1",
+      "matcher": "network.fetch.matcher.v1",
+      "subset": "network.fetch.subset.v1"
+    },
+    {
+      "id": "network.listen.v1",
+      "selector": "network.listen.selector.v1",
+      "occurrence": "network.listen.occurrence.v1",
+      "matcher": "network.listen.matcher.v1",
+      "subset": "network.listen.subset.v1"
+    },
+    {
+      "id": "network.resolve.v1",
+      "selector": "network.resolve.selector.v1",
+      "occurrence": "network.resolve.occurrence.v1",
+      "matcher": "network.resolve.matcher.v1",
+      "subset": "network.resolve.subset.v1"
+    },
+    {
+      "id": "process.executable.v1",
+      "selector": "process.executable.selector.v1",
+      "occurrence": "process.executable.occurrence.v1",
+      "matcher": "process.executable.matcher.v1",
+      "subset": "process.executable.subset.v1"
+    },
+    {
+      "id": "stdio.v1",
+      "selector": "stdio.selector.v1",
+      "occurrence": "stdio.occurrence.v1",
+      "matcher": "stdio.matcher.v1",
+      "subset": "stdio.subset.v1"
+    },
+    {
+      "id": "storage.namespace.v1",
+      "selector": "storage.namespace.selector.v1",
+      "occurrence": "storage.namespace.occurrence.v1",
+      "matcher": "storage.namespace.matcher.v1",
+      "subset": "storage.namespace.subset.v1"
+    },
+    {
+      "id": "system.info.v1",
+      "selector": "system.info.selector.v1",
+      "occurrence": "system.info.occurrence.v1",
+      "matcher": "system.info.matcher.v1",
+      "subset": "system.info.subset.v1"
+    }
   ],
   "handles": {
     "model": "unforgeable-bearer",
@@ -494,25 +622,67 @@
     "network": {
       "input": "canonical-IP-literal",
       "ipv4MappedIpv6": "classify-embedded-IPv4",
-      "sourceDatasets": ["iana-ipv4-special-purpose", "iana-ipv6-special-purpose"],
+      "sourceDatasets": [
+        "iana-ipv4-special-purpose",
+        "iana-ipv6-special-purpose"
+      ],
       "publicRule": "closed-until-pinned-IANA-snapshot-is-in-registry",
       "activatedPublicRule": "only-pinned-IANA-globally-reachable-true",
       "activationGate": "required-before-any-target-is-advertised",
-      "precedence": ["metadata", "unspecified", "loopback", "link-local", "carrier-grade-nat", "private", "unique-local", "multicast", "reserved", "public"],
+      "precedence": [
+        "metadata",
+        "unspecified",
+        "loopback",
+        "link-local",
+        "carrier-grade-nat",
+        "private",
+        "unique-local",
+        "multicast",
+        "reserved",
+        "public"
+      ],
       "classes": [
-        { "class": "metadata", "cidrs": ["100.100.100.200/32", "169.254.169.254/32", "fd00:ec2::254/128"] },
+        {
+          "class": "metadata",
+          "cidrs": [
+            "100.100.100.200/32",
+            "169.254.169.254/32",
+            "fd00:ec2::254/128"
+          ]
+        },
         { "class": "unspecified", "cidrs": ["0.0.0.0/32", "::/128"] },
         { "class": "loopback", "cidrs": ["127.0.0.0/8", "::1/128"] },
         { "class": "link-local", "cidrs": ["169.254.0.0/16", "fe80::/10"] },
         { "class": "carrier-grade-nat", "cidrs": ["100.64.0.0/10"] },
-        { "class": "private", "cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] },
+        {
+          "class": "private",
+          "cidrs": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+        },
         { "class": "unique-local", "cidrs": ["fc00::/7"] },
         { "class": "multicast", "cidrs": ["224.0.0.0/4", "ff00::/8"] },
-        { "class": "reserved", "cidrs": ["192.0.2.0/24", "198.18.0.0/15", "198.51.100.0/24", "2001:db8::/32", "203.0.113.0/24", "240.0.0.0/4"] },
+        {
+          "class": "reserved",
+          "cidrs": [
+            "192.0.2.0/24",
+            "198.18.0.0/15",
+            "198.51.100.0/24",
+            "2001:db8::/32",
+            "203.0.113.0/24",
+            "240.0.0.0/4"
+          ]
+        },
         { "class": "public", "cidrs": [] }
       ],
       "alwaysDenied": ["metadata", "unspecified"],
-      "explicitOnly": ["carrier-grade-nat", "link-local", "loopback", "multicast", "private", "reserved", "unique-local"],
+      "explicitOnly": [
+        "carrier-grade-nat",
+        "link-local",
+        "loopback",
+        "multicast",
+        "private",
+        "reserved",
+        "unique-local"
+      ],
       "fallback": "reserved"
     },
     "protectedObjects": {
@@ -530,9 +700,21 @@
       "promotion": "tier-4-and-static-review-for-child-launch"
     },
     "riskPromotions": [
-      { "id": "device.background-or-precise", "predicate": "location-background-or-precise", "minimumTier": 4 },
-      { "id": "environment.child-code-injection", "predicate": "sensitive-environment-child-launch", "minimumTier": 4 },
-      { "id": "network.non-public-peer", "predicate": "peer-class-is-not-public", "minimumTier": 3 }
+      {
+        "id": "device.background-or-precise",
+        "predicate": "location-background-or-precise",
+        "minimumTier": 4
+      },
+      {
+        "id": "environment.child-code-injection",
+        "predicate": "sensitive-environment-child-launch",
+        "minimumTier": 4
+      },
+      {
+        "id": "network.non-public-peer",
+        "predicate": "peer-class-is-not-public",
+        "minimumTier": 3
+      }
     ],
     "nonCapabilityRationales": [
       {
@@ -560,7 +742,11 @@
         "predicate": "module-alias-resolution-or-admission-with-operational-effects-gated-at-their-own-native-boundaries",
         "rationale": "Loading or aliasing this module changes reachability only; every external operation remains classified at its own effect boundary."
       },
-      { "id": "ordinary-randomness", "predicate": "cryptographic-random-byte-generation-without-external-device-or-key-access", "rationale": "Random byte generation carries no external authority in the package threat model." },
+      {
+        "id": "ordinary-randomness",
+        "predicate": "cryptographic-random-byte-generation-without-external-device-or-key-access",
+        "rationale": "Random byte generation carries no external authority in the package threat model."
+      },
       {
         "id": "ordinary-time",
         "predicate": "ordinary-or-high-resolution-clock-read-without-an-external-resource",
@@ -588,7 +774,13 @@
       }
     ],
     "implicitAuthorityRules": [
-      { "id": "package-self-read", "principal": "same-integrity-bound-package", "actions": ["fs:list", "fs:read"], "resource": "that-principals-bound-package-root-tree", "mutable": false }
+      {
+        "id": "package-self-read",
+        "principal": "same-integrity-bound-package",
+        "actions": ["fs:list", "fs:read"],
+        "resource": "that-principals-bound-package-root-tree",
+        "mutable": false
+      }
     ]
   },
   "initialProfile": {

@@ -289,12 +289,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.dns.1dztj15.main.allow",
-        "surface.builtin.dns.1dztj15.main.conditional-refinement",
-        "surface.builtin.dns.1dztj15.main.deny",
-        "surface.builtin.dns.1dztj15.main.malformed",
-        "surface.builtin.dns.1dztj15.main.missing-attribution",
-        "surface.builtin.dns.1dztj15.main.wrong-principal"
+        "surface.builtin.dns.1dztj15.main.logical.absent.branch-selection",
+        "surface.builtin.dns.1dztj15.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.dns.1dztj15.main.logical.absent.no-effect",
+        "surface.builtin.dns.1dztj15.main.logical.present.allow",
+        "surface.builtin.dns.1dztj15.main.logical.present.branch-selection",
+        "surface.builtin.dns.1dztj15.main.logical.present.deny",
+        "surface.builtin.dns.1dztj15.main.logical.present.malformed",
+        "surface.builtin.dns.1dztj15.main.logical.present.missing-attribution",
+        "surface.builtin.dns.1dztj15.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -311,12 +314,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.dns.promises.1krunow.main.allow",
-        "surface.builtin.dns.promises.1krunow.main.conditional-refinement",
-        "surface.builtin.dns.promises.1krunow.main.deny",
-        "surface.builtin.dns.promises.1krunow.main.malformed",
-        "surface.builtin.dns.promises.1krunow.main.missing-attribution",
-        "surface.builtin.dns.promises.1krunow.main.wrong-principal"
+        "surface.builtin.dns.promises.1krunow.main.logical.absent.branch-selection",
+        "surface.builtin.dns.promises.1krunow.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.dns.promises.1krunow.main.logical.absent.no-effect",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.allow",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.branch-selection",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.deny",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.malformed",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.missing-attribution",
+        "surface.builtin.dns.promises.1krunow.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -4491,12 +4497,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.allow",
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.deny",
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.19kdjrl.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4513,12 +4528,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.allow",
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.deny",
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.applychanges.0swc0i4.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4552,12 +4576,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.allow",
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.deny",
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.none.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.none.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.none.no-effect",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.allow",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.deny",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.malformed",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.close.0ecw1x7.main.logical.write.wrong-principal"
       ]
     },
     {
@@ -4591,12 +4618,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.allow",
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.deny",
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.exec.0prbohg.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4613,12 +4649,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.allow",
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.deny",
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.filecontrol.044mbcs.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4635,12 +4680,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.allow",
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.deny",
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.getchanges.1xpd79k.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4657,12 +4705,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.allow",
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.deny",
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.getdbversion.0ix8vkj.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4679,12 +4730,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.allow",
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.deny",
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.getsiteid.137cjk9.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4752,12 +4806,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.allow",
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.deny",
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.markascrr.1a7k8lt.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4774,12 +4837,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.allow",
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.deny",
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.prepare.160nss4.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4796,12 +4862,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.allow",
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.deny",
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.query.13mhn8r.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4818,12 +4887,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.allow",
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.deny",
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.run.1jw61pu.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4840,12 +4918,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.allow",
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.deny",
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.serialize.1d73zmh.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4862,12 +4943,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.allow",
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.deny",
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.malformed",
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.database.transaction.0bddti3.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4884,12 +4974,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.allow",
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.deny",
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.1q0aufl.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4906,12 +5005,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.allow",
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.deny",
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.applychanges.1iq7l1o.main.logical.memory.no-effect"
       ]
     },
     {
@@ -4945,12 +5053,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.allow",
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.deny",
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.none.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.none.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.none.no-effect",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.allow",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.deny",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.malformed",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.close.0a6zb0b.main.logical.write.wrong-principal"
       ]
     },
     {
@@ -4984,12 +5095,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.allow",
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.deny",
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.exec.0klal4k.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5006,12 +5126,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.allow",
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.deny",
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.filecontrol.0ffsfr0.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5028,12 +5157,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.allow",
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.deny",
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.getchanges.1gicwqw.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5050,12 +5182,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.allow",
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.deny",
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.getdbversion.1uosi37.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5072,12 +5207,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.allow",
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.deny",
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.getsiteid.0vrv5xl.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5145,12 +5283,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.allow",
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.deny",
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.markascrr.1gobolt.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5167,12 +5314,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.allow",
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.deny",
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.prepare.00h0oqc.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5189,12 +5339,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.allow",
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.deny",
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.query.0zgioq3.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5211,12 +5364,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.allow",
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.deny",
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.run.058f7xu.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5233,12 +5395,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.allow",
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.deny",
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.serialize.0nc9uqh.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5255,12 +5420,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.allow",
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.deny",
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.malformed",
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.default.transaction.1ihxahn.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5294,12 +5468,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.allow",
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.deny",
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.malformed",
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.open.1uj84fw.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5367,12 +5550,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.18a9kqx.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5389,12 +5581,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.all.0fwkqsk.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5496,12 +5691,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.get.0x84lrr.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5552,12 +5750,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.recordexecution.0ob11ij.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5574,12 +5781,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.allow",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.deny",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.malformed",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read-write.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.allow",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.deny",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.malformed",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.file-read.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.run.0ls49t6.main.logical.memory.no-effect"
       ]
     },
     {
@@ -5613,12 +5829,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.allow",
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.conditional-refinement",
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.deny",
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.malformed",
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.missing-attribution",
-        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.wrong-principal"
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.allow",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.deny",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.malformed",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.missing-attribution",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.file.wrong-principal",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.memory.branch-selection",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.memory.malformed-branch-facts",
+        "surface.builtin.export.exact.sqlite.statement.values.0gdqf17.main.logical.memory.no-effect"
       ]
     },
     {
@@ -14969,12 +15188,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.allow",
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.conditional-refinement",
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.deny",
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.malformed",
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.missing-attribution",
-        "surface.builtin.export.node.dns.default.1yp5dxd.main.wrong-principal"
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.absent.branch-selection",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.absent.no-effect",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.allow",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.branch-selection",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.deny",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.malformed",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.missing-attribution",
+        "surface.builtin.export.node.dns.default.1yp5dxd.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -15441,12 +15663,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.allow",
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.conditional-refinement",
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.deny",
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.malformed",
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.missing-attribution",
-        "surface.builtin.export.node.dns.promises.default.0td56d6.main.wrong-principal"
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.absent.branch-selection",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.absent.no-effect",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.allow",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.branch-selection",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.deny",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.malformed",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.missing-attribution",
+        "surface.builtin.export.node.dns.promises.default.0td56d6.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -18321,12 +18546,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.allow",
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.conditional-refinement",
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.deny",
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.malformed",
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.missing-attribution",
-        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.wrong-principal"
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.allow",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.deny",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.createreadstream.1thoyf2.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -18343,12 +18571,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.allow",
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.conditional-refinement",
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.deny",
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.malformed",
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.missing-attribution",
-        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.wrong-principal"
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.allow",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.deny",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.createwritestream.1mervrt.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -19632,12 +19863,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.open.08gsjne.main.allow",
-        "surface.builtin.export.node.fs.open.08gsjne.main.conditional-refinement",
-        "surface.builtin.export.node.fs.open.08gsjne.main.deny",
-        "surface.builtin.export.node.fs.open.08gsjne.main.malformed",
-        "surface.builtin.export.node.fs.open.08gsjne.main.missing-attribution",
-        "surface.builtin.export.node.fs.open.08gsjne.main.wrong-principal"
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.allow",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.branch-selection",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.deny",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.malformed",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.missing-attribution",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read-write.wrong-principal",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.allow",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.branch-selection",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.deny",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.malformed",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.missing-attribution",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.read.wrong-principal",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.allow",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.branch-selection",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.deny",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.malformed",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.missing-attribution",
+        "surface.builtin.export.node.fs.open.08gsjne.main.logical.write.wrong-principal"
       ]
     },
     {
@@ -19696,12 +19939,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.allow",
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.conditional-refinement",
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.deny",
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.malformed",
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.missing-attribution",
-        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.wrong-principal"
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.allow",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.branch-selection",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.deny",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.malformed",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.missing-attribution",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read-write.wrong-principal",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.allow",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.branch-selection",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.deny",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.malformed",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.missing-attribution",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.read.wrong-principal",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.allow",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.branch-selection",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.deny",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.malformed",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.missing-attribution",
+        "surface.builtin.export.node.fs.opensync.1lmvgdt.main.logical.write.wrong-principal"
       ]
     },
     {
@@ -20370,12 +20625,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.allow",
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.conditional-refinement",
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.deny",
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.malformed",
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.missing-attribution",
-        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.wrong-principal"
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.allow",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.branch-selection",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.deny",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.malformed",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.missing-attribution",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read-write.wrong-principal",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.allow",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.branch-selection",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.deny",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.malformed",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.missing-attribution",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.read.wrong-principal",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.allow",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.branch-selection",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.deny",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.malformed",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.missing-attribution",
+        "surface.builtin.export.node.fs.promises.open.1lbxtab.main.logical.write.wrong-principal"
       ]
     },
     {
@@ -20955,12 +21222,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.allow",
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.conditional-refinement",
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.deny",
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.malformed",
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.missing-attribution",
-        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.wrong-principal"
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.allow",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.deny",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.readstream.0ds4ko2.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -20994,12 +21264,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.allow",
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.conditional-refinement",
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.deny",
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.malformed",
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.missing-attribution",
-        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.wrong-principal"
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.allow",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.deny",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.readstream.constructor.1oy8fr4.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -21050,12 +21323,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.allow",
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.conditional-refinement",
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.deny",
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.malformed",
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.missing-attribution",
-        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.wrong-principal"
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.allow",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.deny",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.readstream.open.16zkxb8.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -21072,12 +21348,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.allow",
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.conditional-refinement",
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.deny",
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.malformed",
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.missing-attribution",
-        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.wrong-principal"
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.allow",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.deny",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.malformed",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.missing-attribution",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.descriptor.wrong-principal",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.allow",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.deny",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.readstream.read.1sldg4h.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -21897,12 +22179,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.allow",
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.deny",
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.malformed",
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.0e70l9p.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.0e70l9p.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -21953,12 +22238,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.allow",
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.deny",
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.malformed",
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.constructor.1f1acuz.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -22026,12 +22314,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.allow",
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.deny",
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.malformed",
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.final.1779fse.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.allow",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.deny",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.malformed",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.descriptor.wrong-principal",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.final.1779fse.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -22048,12 +22342,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.allow",
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.deny",
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.malformed",
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.descriptor.malformed-branch-facts",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.descriptor.no-effect",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.open.0lpubfp.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -22070,12 +22367,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.allow",
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.deny",
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.malformed",
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.allow",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.deny",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.malformed",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.descriptor.wrong-principal",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.write.0g2cl8d.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -22092,12 +22395,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.allow",
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.conditional-refinement",
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.deny",
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.malformed",
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.missing-attribution",
-        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.wrong-principal"
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.allow",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.branch-selection",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.deny",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.malformed",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.descriptor.wrong-principal",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.allow",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.branch-selection",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.deny",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.malformed",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.missing-attribution",
+        "surface.builtin.export.node.fs.writestream.writev.0djj8lt.main.logical.path.wrong-principal"
       ]
     },
     {
@@ -50402,12 +50711,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.node.dns.0nx113j.main.allow",
-        "surface.builtin.node.dns.0nx113j.main.conditional-refinement",
-        "surface.builtin.node.dns.0nx113j.main.deny",
-        "surface.builtin.node.dns.0nx113j.main.malformed",
-        "surface.builtin.node.dns.0nx113j.main.missing-attribution",
-        "surface.builtin.node.dns.0nx113j.main.wrong-principal"
+        "surface.builtin.node.dns.0nx113j.main.logical.absent.branch-selection",
+        "surface.builtin.node.dns.0nx113j.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.node.dns.0nx113j.main.logical.absent.no-effect",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.allow",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.branch-selection",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.deny",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.malformed",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.missing-attribution",
+        "surface.builtin.node.dns.0nx113j.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -50424,12 +50736,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.builtin.node.dns.promises.0izp08e.main.allow",
-        "surface.builtin.node.dns.promises.0izp08e.main.conditional-refinement",
-        "surface.builtin.node.dns.promises.0izp08e.main.deny",
-        "surface.builtin.node.dns.promises.0izp08e.main.malformed",
-        "surface.builtin.node.dns.promises.0izp08e.main.missing-attribution",
-        "surface.builtin.node.dns.promises.0izp08e.main.wrong-principal"
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.absent.branch-selection",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.absent.malformed-branch-facts",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.absent.no-effect",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.allow",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.branch-selection",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.deny",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.malformed",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.missing-attribution",
+        "surface.builtin.node.dns.promises.0izp08e.main.logical.present.wrong-principal"
       ]
     },
     {
@@ -61974,12 +62289,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.allow",
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.conditional-refinement",
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.deny",
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.malformed",
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.missing-attribution",
-        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.wrong-principal"
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.allow",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.branch-selection",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.deny",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.malformed",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.missing-attribution",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read-write.wrong-principal",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.allow",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.branch-selection",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.deny",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.malformed",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.missing-attribution",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.read.wrong-principal",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.allow",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.branch-selection",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.deny",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.malformed",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.missing-attribution",
+        "surface.host.abi.ex.host.fs.open.09qvr5d.default.1ja624b.logical.write.wrong-principal"
       ]
     },
     {
@@ -63153,12 +63480,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.allow",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.deny",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.malformed",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.allow",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.branch-selection",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.deny",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.malformed",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.file.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.all.0sb72in.default.0oudmjt.logical.memory.no-effect"
       ]
     },
     {
@@ -63194,12 +63524,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.allow",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.deny",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.malformed",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.allow",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.branch-selection",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.deny",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.malformed",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read-write.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.allow",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.branch-selection",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.deny",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.malformed",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.file-read.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.exec.059u1vx.default.1o3bs27.logical.memory.no-effect"
       ]
     },
     {
@@ -63255,12 +63594,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.allow",
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.deny",
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.malformed",
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.allow",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.branch-selection",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.deny",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.malformed",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.file.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.get.143k080.default.0banpha.logical.memory.no-effect"
       ]
     },
     {
@@ -63298,12 +63640,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.allow",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.deny",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.malformed",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.allow",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.branch-selection",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.deny",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.malformed",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read-write.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.allow",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.branch-selection",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.deny",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.malformed",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.file-read.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.open.0fi2xr8.default.0uxjkbe.logical.memory.no-effect"
       ]
     },
     {
@@ -63321,12 +63672,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.allow",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.deny",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.malformed",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.allow",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.branch-selection",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.deny",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.malformed",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.file.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf.default.0nhh6qh.logical.memory.no-effect"
       ]
     },
     {
@@ -63344,12 +63698,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.allow",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.deny",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.malformed",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.allow",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.branch-selection",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.deny",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.malformed",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read-write.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.allow",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.branch-selection",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.deny",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.malformed",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.file-read.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.run.1hryeyp.default.09g0rcj.logical.memory.no-effect"
       ]
     },
     {
@@ -63367,12 +63730,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.allow",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.conditional-refinement",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.deny",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.malformed",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.missing-attribution",
-        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.wrong-principal"
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.allow",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.branch-selection",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.deny",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.malformed",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.missing-attribution",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.file.wrong-principal",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.memory.branch-selection",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.memory.malformed-branch-facts",
+        "surface.host.abi.ex.host.sqlite.values.0lknlvu.default.0gtgsd4.logical.memory.no-effect"
       ]
     },
     {
@@ -75122,12 +75488,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.allow",
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.conditional-refinement",
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.deny",
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.malformed",
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.missing-attribution",
-        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.wrong-principal"
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.allow",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.branch-selection",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.deny",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.malformed",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.missing-attribution",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-read.wrong-principal",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.allow",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.branch-selection",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.deny",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.malformed",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.missing-attribution",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.durability-write.wrong-principal",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.allow",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.branch-selection",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.deny",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.malformed",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.missing-attribution",
+        "surface.native.op.exactfsfdasync.1iinzl8.default.1a27s9m.logical.metadata-write.wrong-principal"
       ]
     },
     {
@@ -75280,12 +75658,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.allow",
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.conditional-refinement",
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.deny",
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.malformed",
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.missing-attribution",
-        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.wrong-principal"
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.allow",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.deny",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read-write.wrong-principal",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.allow",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.deny",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.read.wrong-principal",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.allow",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.deny",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.default.0zav10a.logical.write.wrong-principal"
       ]
     },
     {
@@ -75304,12 +75694,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.allow",
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.conditional-refinement",
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.deny",
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.malformed",
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.missing-attribution",
-        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.wrong-principal"
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.allow",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.deny",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read-write.wrong-principal",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.allow",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.deny",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.read.wrong-principal",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.allow",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.branch-selection",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.deny",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.malformed",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.missing-attribution",
+        "surface.native.op.exactfsopen.05ao6wa.windows.08k3ls6.logical.write.wrong-principal"
       ]
     },
     {
@@ -75327,12 +75729,24 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.allow",
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.conditional-refinement",
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.deny",
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.malformed",
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.missing-attribution",
-        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.wrong-principal"
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.allow",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.branch-selection",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.deny",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.malformed",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.missing-attribution",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read-write.wrong-principal",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.allow",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.branch-selection",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.deny",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.malformed",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.missing-attribution",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.read.wrong-principal",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.allow",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.branch-selection",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.deny",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.malformed",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.missing-attribution",
+        "surface.native.op.exactfsopenasync.1jie13i.default.1xdr8yi.logical.write.wrong-principal"
       ]
     },
     {
@@ -75350,12 +75764,114 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.allow",
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.conditional-refinement",
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.deny",
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.malformed",
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.missing-attribution",
-        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.wrong-principal"
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-read.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.access-write.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chmod.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.chown.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.copy.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.link.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.mkdtemp.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.readlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.realpath.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rename.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.rmdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.statfs.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.symlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.truncate.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.unlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.allow",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.deny",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.default.1csyk4e.logical.utime.wrong-principal"
       ]
     },
     {
@@ -75374,12 +75890,114 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.allow",
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.conditional-refinement",
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.deny",
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.malformed",
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.missing-attribution",
-        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.wrong-principal"
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-read.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.access-write.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chmod.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.chown.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.copy.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.link.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.mkdtemp.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.readlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.realpath.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rename.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.rmdir.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.statfs.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.symlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.truncate.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.unlink.wrong-principal",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.allow",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.branch-selection",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.deny",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.malformed",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.missing-attribution",
+        "surface.native.op.exactfspathasync.10cb78b.windows.10pvn32.logical.utime.wrong-principal"
       ]
     },
     {
@@ -75487,12 +76105,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.allow",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.conditional-refinement",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.deny",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.malformed",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.missing-attribution",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.wrong-principal"
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.allow",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.branch-selection",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.deny",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.malformed",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.allow",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.branch-selection",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.deny",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.malformed",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.missing-attribution",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.default.17q75ja.logical.path.wrong-principal"
       ]
     },
     {
@@ -75511,12 +76135,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.allow",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.conditional-refinement",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.deny",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.malformed",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.missing-attribution",
-        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.wrong-principal"
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.allow",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.branch-selection",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.deny",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.malformed",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.allow",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.branch-selection",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.deny",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.malformed",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.missing-attribution",
+        "surface.native.op.exactfsreadfileasync.0fw3fo0.windows.0y5q0ka.logical.path.wrong-principal"
       ]
     },
     {
@@ -75601,12 +76231,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.allow",
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.conditional-refinement",
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.deny",
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.malformed",
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.missing-attribution",
-        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.wrong-principal"
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.allow",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.branch-selection",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.deny",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.malformed",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.allow",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.branch-selection",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.deny",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.malformed",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.missing-attribution",
+        "surface.native.op.exactfsstatasync.0b0hr8s.default.0wh1qfe.logical.path.wrong-principal"
       ]
     },
     {
@@ -75625,12 +76261,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.allow",
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.conditional-refinement",
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.deny",
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.malformed",
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.missing-attribution",
-        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.wrong-principal"
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.allow",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.branch-selection",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.deny",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.malformed",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.allow",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.branch-selection",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.deny",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.malformed",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.missing-attribution",
+        "surface.native.op.exactfsstatasync.0b0hr8s.windows.08elrki.logical.path.wrong-principal"
       ]
     },
     {
@@ -75738,12 +76380,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.allow",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.conditional-refinement",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.deny",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.malformed",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.missing-attribution",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.wrong-principal"
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.allow",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.branch-selection",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.deny",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.malformed",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.allow",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.branch-selection",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.deny",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.malformed",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.missing-attribution",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.default.13tzoik.logical.path.wrong-principal"
       ]
     },
     {
@@ -75762,12 +76410,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.allow",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.conditional-refinement",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.deny",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.malformed",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.missing-attribution",
-        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.wrong-principal"
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.allow",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.branch-selection",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.deny",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.malformed",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.missing-attribution",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.descriptor.wrong-principal",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.allow",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.branch-selection",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.deny",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.malformed",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.missing-attribution",
+        "surface.native.op.exactfswritefileasync.0fv6zp9.windows.0rccx9w.logical.path.wrong-principal"
       ]
     },
     {
@@ -80143,12 +80797,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.allow",
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.conditional-refinement",
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.deny",
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.malformed",
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.missing-attribution",
-        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.wrong-principal"
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.allow",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.branch-selection",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.deny",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.malformed",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.missing-attribution",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.file.wrong-principal",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.memory.branch-selection",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliteall.0gw7b3k.default.1fm5oxs.logical.memory.no-effect"
       ]
     },
     {
@@ -80184,12 +80841,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.allow",
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.conditional-refinement",
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.deny",
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.malformed",
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.missing-attribution",
-        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.wrong-principal"
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.allow",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.branch-selection",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.deny",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.malformed",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.missing-attribution",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read-write.wrong-principal",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.allow",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.branch-selection",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.deny",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.malformed",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.missing-attribution",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.file-read.wrong-principal",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.memory.branch-selection",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliteexec.0oogg80.default.1t4qn36.logical.memory.no-effect"
       ]
     },
     {
@@ -80245,12 +80911,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.allow",
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.conditional-refinement",
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.deny",
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.malformed",
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.missing-attribution",
-        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.wrong-principal"
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.allow",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.branch-selection",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.deny",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.malformed",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.missing-attribution",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.file.wrong-principal",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.memory.branch-selection",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliteget.1ihlki3.default.1b8n0yo.logical.memory.no-effect"
       ]
     },
     {
@@ -80288,12 +80957,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.allow",
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.conditional-refinement",
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.deny",
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.malformed",
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.missing-attribution",
-        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.wrong-principal"
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.allow",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.branch-selection",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.deny",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.malformed",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.missing-attribution",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read-write.wrong-principal",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.allow",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.branch-selection",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.deny",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.malformed",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.missing-attribution",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.file-read.wrong-principal",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.memory.branch-selection",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliteopen.0a20llh.default.1t4mkgg.logical.memory.no-effect"
       ]
     },
     {
@@ -80311,12 +80989,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.allow",
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.conditional-refinement",
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.deny",
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.malformed",
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.missing-attribution",
-        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.wrong-principal"
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.allow",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.branch-selection",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.deny",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.malformed",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.missing-attribution",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.file.wrong-principal",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.memory.branch-selection",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliteprepare.10ue6lk.default.0gn1eyw.logical.memory.no-effect"
       ]
     },
     {
@@ -80334,12 +81015,21 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.allow",
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.conditional-refinement",
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.deny",
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.malformed",
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.missing-attribution",
-        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.wrong-principal"
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.allow",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.branch-selection",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.deny",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.malformed",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.missing-attribution",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read-write.wrong-principal",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.allow",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.branch-selection",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.deny",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.malformed",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.missing-attribution",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.file-read.wrong-principal",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.memory.branch-selection",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqliterun.0nde0wm.default.1eipfac.logical.memory.no-effect"
       ]
     },
     {
@@ -80357,12 +81047,15 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.allow",
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.conditional-refinement",
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.deny",
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.malformed",
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.missing-attribution",
-        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.wrong-principal"
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.allow",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.branch-selection",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.deny",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.malformed",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.missing-attribution",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.file.wrong-principal",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.memory.branch-selection",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.memory.malformed-branch-facts",
+        "surface.native.op.exactsqlitevalues.03uveqn.default.0r7swz0.logical.memory.no-effect"
       ]
     },
     {
@@ -134076,10 +134769,7 @@
         "surface.host.abi.ex.host.fs.unlink.05xgwei",
         "surface.host.abi.ex.host.module.resolve.0xdfuf4",
         "surface.host.abi.ex.host.module.resolve.meta.0wto1rk",
-        "surface.host.abi.ex.host.sqlite.exec.059u1vx",
         "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf",
-        "surface.host.abi.ex.host.sqlite.run.1hryeyp",
         "surface.loader.commonjs.module.13o3pbt",
         "surface.loader.dynamic.import.1n0l635",
         "surface.loader.entry.dynamic.import.0bk2zgb",
@@ -134236,10 +134926,7 @@
         "surface.native.op.exactrmdir.1mew8oz",
         "surface.native.op.exactspawn.0waye4c",
         "surface.native.op.exactspawnsync.1d4denz",
-        "surface.native.op.exactsqliteexec.0oogg80",
         "surface.native.op.exactsqliteopen.0a20llh",
-        "surface.native.op.exactsqliteprepare.10ue6lk",
-        "surface.native.op.exactsqliterun.0nde0wm",
         "surface.native.op.exactstat.1432ztv",
         "surface.native.op.exactstatfs.151kkzo",
         "surface.native.op.exactsymlink.17gte4g",
@@ -134280,7 +134967,7 @@
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 304 observed effect edges."
+      "rationale": "Covered by 298 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -134647,7 +135334,6 @@
         "surface.host.abi.ex.host.fs.write.083p7no",
         "surface.host.abi.ex.host.sqlite.exec.059u1vx",
         "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
-        "surface.host.abi.ex.host.sqlite.prepare.0yg51cf",
         "surface.host.abi.ex.host.sqlite.run.1hryeyp",
         "surface.loader.entry.dynamic.import.0bk2zgb",
         "surface.loader.entry.exact.require.0bp9r8f",
@@ -134748,7 +135434,6 @@
         "surface.native.op.exactrmdir.1mew8oz",
         "surface.native.op.exactsqliteexec.0oogg80",
         "surface.native.op.exactsqliteopen.0a20llh",
-        "surface.native.op.exactsqliteprepare.10ue6lk",
         "surface.native.op.exactsqliterun.0nde0wm",
         "surface.native.op.exactsymlink.17gte4g",
         "surface.native.op.exacttruncate.13gh223",
@@ -134764,7 +135449,7 @@
         "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 244 observed effect edges."
+      "rationale": "Covered by 242 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -137515,17 +138200,17 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-2ARKAnSC3tEb7ueFHXg5UcqYjCw7V8jYXYm0kHo2790"
+      "rawContentDigest": "sha256-SlgH--FBhJStKmUpWdVwvyLlLGE7JPs_7Q6dmWLZxC8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-ZDKpKsK0QmFiFmNf3MsDZaMgWtoePUXATueAetBx1tE"
+      "rawContentDigest": "sha256-TFI6IVOgdx8SbSlnOUd0iD7k4han67qbUOh8X-uo6Vs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-jvuLJKcetpOsji59Sfptrw68jmOvnIbB01NeuKHNKiI"
+      "rawContentDigest": "sha256-hwiuo0FpZ1IR9W0st7OJ--97FJ2bPS5fi34SHoa1cTM"
     },
     {
       "kind": "registry",

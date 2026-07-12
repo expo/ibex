@@ -28,6 +28,29 @@ describe("capsec branch fixture obligations", () => {
       ),
     ).toContain("edge.main.conditional-refinement");
     expect(
+      fixtureObligationsForBranch(
+        {
+          classification: "effects",
+          effectMode: "conditional",
+          logicalBranches: [
+            { id: "read", effects: [{ cap: "fs:read" }] },
+            { id: "none", effects: [] },
+          ],
+        },
+        "edge.main",
+      ),
+    ).toEqual([
+      "edge.main.logical.none.branch-selection",
+      "edge.main.logical.none.malformed-branch-facts",
+      "edge.main.logical.none.no-effect",
+      "edge.main.logical.read.allow",
+      "edge.main.logical.read.branch-selection",
+      "edge.main.logical.read.deny",
+      "edge.main.logical.read.malformed",
+      "edge.main.logical.read.missing-attribution",
+      "edge.main.logical.read.wrong-principal",
+    ]);
+    expect(
       fixtureObligationsForBranch({ classification: "closed" }, "edge.main"),
     ).toEqual(["edge.main.closed"]);
   });

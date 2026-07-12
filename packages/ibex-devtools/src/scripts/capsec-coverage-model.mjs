@@ -6666,6 +6666,7 @@ function effectSpec(actions, family, implementationOwner, options = {}) {
     family,
     implementationOwner,
     effectMode: options.effectMode ?? "conjunctive",
+    logicalBranches: options.logicalBranches,
     refinementOwner: options.refinementOwner,
     rationale: options.rationale,
     lifetimeContract: options.lifetimeContract ?? "operation",
@@ -6690,6 +6691,259 @@ function conditionalEffectSpec(
     refinementOwner,
     rationale,
   });
+}
+
+function conditionalBranchEffectSpec(
+  branches,
+  family,
+  implementationOwner,
+  options = {},
+) {
+  if (!Array.isArray(branches) || branches.length < 2) {
+    throw new Error(
+      "conditional effect specification requires at least two branches",
+    );
+  }
+  return effectSpec(
+    branches.flatMap((branch) => branch.actions),
+    family,
+    implementationOwner,
+    {
+      ...options,
+      effectMode: "conditional",
+      logicalBranches: branches,
+    },
+  );
+}
+
+function filesystemOpenEffectSpec(options = {}) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "read",
+        when: [{ fact: "filesystem.open.access", equals: "read" }],
+        actions: ["fs:list", "fs:read"],
+      },
+      {
+        id: "read-write",
+        when: [{ fact: "filesystem.open.access", equals: "read-write" }],
+        actions: ["fs:list", "fs:read", "fs:write"],
+      },
+      {
+        id: "write",
+        when: [{ fact: "filesystem.open.access", equals: "write" }],
+        actions: ["fs:list", "fs:write"],
+      },
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle", ...options },
+  );
+}
+
+function filesystemPathOrDescriptorEffectSpec(actions) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "descriptor",
+        when: [{ fact: "filesystem.input.kind", equals: "descriptor" }],
+        actions,
+        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+        effectOwnerSource: "descriptor-owner",
+      },
+      {
+        id: "path",
+        when: [{ fact: "filesystem.input.kind", equals: "path" }],
+        actions,
+      },
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle" },
+  );
+}
+
+function filesystemPathDispatcherEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "filesystem.path.operation", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [
+      branch("access-read", ["fs:list"]),
+      branch("access-write", ["fs:write"]),
+      branch("chmod", ["fs:list", "fs:write"]),
+      branch("chown", ["fs:list", "fs:write"]),
+      branch("copy", ["fs:read", "fs:write"]),
+      branch("link", ["fs:read", "fs:write"]),
+      branch("mkdir", ["fs:list", "fs:write"]),
+      branch("mkdtemp", ["fs:list", "fs:write"]),
+      branch("readdir", ["fs:list"]),
+      branch("readlink", ["fs:read"]),
+      branch("realpath", ["fs:list"]),
+      branch("rename", ["fs:list", "fs:write"]),
+      branch("rmdir", ["fs:list", "fs:write"]),
+      branch("statfs", ["fs:list"]),
+      branch("symlink", ["fs:list", "fs:write"]),
+      branch("truncate", ["fs:list", "fs:write"]),
+      branch("unlink", ["fs:list", "fs:write"]),
+      branch("utime", ["fs:list", "fs:write"]),
+    ],
+    "filesystem",
+    "WP5",
+  );
+}
+
+function filesystemDescriptorDispatcherEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "filesystem.descriptor.operation", equals: id }],
+    actions,
+    principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+    effectOwnerSource: "descriptor-owner",
+  });
+  return conditionalBranchEffectSpec(
+    [
+      branch("durability-read", ["fs:read"]),
+      branch("durability-write", ["fs:write"]),
+      branch("metadata-write", ["fs:write"]),
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle" },
+  );
+}
+
+const SQLITE_RETAINED_OPTIONS = Object.freeze({
+  lifetimeContract: "file-handle",
+  effectOwnerSource: "descriptor-owner",
+  principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+});
+
+function sqliteOpenEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "sqlite.open.mode", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [
+      branch("file-read", ["fs:list", "fs:read"]),
+      branch("file-read-write", ["fs:list", "fs:read", "fs:write"]),
+      branch("memory", []),
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle" },
+  );
+}
+
+function sqliteReadEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "sqlite.storage.kind", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [branch("file", ["fs:read"]), branch("memory", [])],
+    "filesystem",
+    "WP5",
+    SQLITE_RETAINED_OPTIONS,
+  );
+}
+
+function sqliteStatementEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "sqlite.statement.effect", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [
+      branch("file-read", ["fs:read"]),
+      branch("file-read-write", ["fs:read", "fs:write"]),
+      branch("memory", []),
+    ],
+    "filesystem",
+    "WP5",
+    SQLITE_RETAINED_OPTIONS,
+  );
+}
+
+function sqliteCloseEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "sqlite.close.effect", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [branch("none", []), branch("write", ["fs:write"])],
+    "filesystem",
+    "WP5",
+    SQLITE_RETAINED_OPTIONS,
+  );
+}
+
+function resolverConfigLoadEffectSpec() {
+  const branch = (id, actions) => ({
+    id,
+    when: [{ fact: "filesystem.resolver-config", equals: id }],
+    actions,
+  });
+  return conditionalBranchEffectSpec(
+    [branch("absent", []), branch("present", ["fs:list", "fs:read"])],
+    "filesystem",
+    "WP5",
+  );
+}
+
+function filesystemStreamConstructionEffectSpec(action) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "descriptor",
+        when: [{ fact: "filesystem.stream.input", equals: "descriptor" }],
+        actions: [],
+        principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+        effectOwnerSource: "descriptor-owner",
+      },
+      {
+        id: "path",
+        when: [{ fact: "filesystem.stream.input", equals: "path" }],
+        actions: ["fs:list", action],
+      },
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle" },
+  );
+}
+
+function filesystemStreamUseEffectSpec(action, openingOnly) {
+  const retained = {
+    principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
+    effectOwnerSource: "descriptor-owner",
+  };
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "descriptor",
+        when: [{ fact: "filesystem.stream.backing", equals: "descriptor" }],
+        actions: openingOnly ? [] : [action],
+        ...retained,
+      },
+      {
+        id: "path",
+        when: [{ fact: "filesystem.stream.backing", equals: "path" }],
+        actions: ["fs:list", action],
+        ...retained,
+      },
+    ],
+    "filesystem",
+    "WP5",
+    { lifetimeContract: "file-handle", ...retained },
+  );
 }
 
 function closedSpec(action, implementationOwner, rationale) {
@@ -6747,12 +7001,7 @@ const BUILTIN_ROOT_ENVIRONMENT_READ_SOURCES = new Set([
 
 function builtinModuleInitializationClassification(source) {
   if (source === "node_dns" || source === "node_dns_promises") {
-    return conditionalEffectSpec(
-      ["fs:list", "fs:read"],
-      "filesystem",
-      "WP5",
-      "Loading the DNS builtin synchronously probes and reads /etc/resolv.conf when that system resolver file is available.",
-    );
+    return resolverConfigLoadEffectSpec();
   }
   if (source === "node_diagnostics_channel") {
     return closedSpec(
@@ -6824,13 +7073,7 @@ function builtinExportClassification(surface) {
       builtinModuleInitializationClassification(source);
     if (moduleInitialization) return moduleInitialization;
     if (source === "exact_sqlite" && exported === "default") {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "The exact:sqlite default export is the Database constructor; open effects depend on its filename, flags, and in-memory mode.",
-        { lifetimeContract: "file-handle" },
-      );
+      return sqliteOpenEffectSpec();
     }
     return nonCapabilitySpec("module-reachability-only", "WP7");
   }
@@ -6950,13 +7193,7 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("pure-in-memory-compute", "WP5");
     }
     if (/^(?:close|databaseclose)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:write"],
-        "filesystem",
-        "WP5",
-        "Database.close conditionally finalizes cr-sqlite state before releasing a file-backed database handle.",
-        { lifetimeContract: "file-handle" },
-      );
+      return sqliteCloseEffectSpec();
     }
     if (/^statementfinalize$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP5");
@@ -6984,77 +7221,35 @@ function builtinExportClassification(surface) {
         name,
       )
     ) {
-      return conditionalEffectSpec(
-        ["fs:read"],
-        "filesystem",
-        "WP5",
-        "SQLite reads touch filesystem authority only when the retained database is file-backed.",
-        { lifetimeContract: "file-handle" },
-      );
+      return sqliteReadEffectSpec();
     }
     if (/^(?:database|open)$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "SQLite open effects depend on the filename, open flags, and in-memory database mode.",
-        { lifetimeContract: "file-handle" },
-      );
+      return sqliteOpenEffectSpec();
     }
     if (
       /^(?:applychanges|databaseapplychanges|databaseexec|databasefilecontrol|databasemarkascrr|databaserun|databasetransaction|exec|filecontrol|markascrr|run|statement|statementconstructor|statementrecordexecution|statementrun|transaction)$/u.test(
         name,
       )
     ) {
-      return conditionalEffectSpec(
-        ["fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "SQLite statement effects depend on the SQL operation and whether the retained database is file-backed.",
-        { lifetimeContract: "file-handle" },
-      );
+      return sqliteStatementEffectSpec();
     }
   }
 
   if (source === "node_fs" || source === "node_fs_promises") {
     if (/^readstream(?:constructor)?$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "filesystem",
-        "WP5",
-        "ReadStream construction either adopts an already-authorized descriptor or opens and reads a path.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamConstructionEffectSpec("fs:read");
     }
     if (/^writestream(?:constructor)?$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:write"],
-        "filesystem",
-        "WP5",
-        "WriteStream construction either adopts an already-authorized descriptor or opens and writes a path.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamConstructionEffectSpec("fs:write");
     }
     if (/^readstream\.(?:_read|open)$/u.test(api)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "filesystem",
-        "WP5",
-        "ReadStream read/open may discover and open its path or use an already-authorized retained descriptor; WP5 must select the exact branch and effect owner.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamUseEffectSpec("fs:read", api.endsWith(".open"));
     }
     if (/^readstream\.(?:close|destroy)$/u.test(api)) {
       return nonCapabilitySpec("authority-release", "WP5");
     }
     if (/^writestream\.(?:_final|_write|_writev|open)$/u.test(api)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:write"],
-        "filesystem",
-        "WP5",
-        "WriteStream write/final/open may discover and open its path or use an already-authorized retained descriptor; WP5 must select the exact branch and effect owner.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamUseEffectSpec("fs:write", api.endsWith(".open"));
     }
     if (/^writestream\.(?:_emitclose|close|destroy)$/u.test(api)) {
       return nonCapabilitySpec("authority-release", "WP5");
@@ -7084,20 +7279,10 @@ function builtinExportClassification(surface) {
       });
     }
     if (/open/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "Public fs.open selects read/write/create/truncate effects from validated flags.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemOpenEffectSpec();
     }
     if (/copy|^cp(?:sync)?$|^link(?:sync)?$/u.test(name)) {
-      return effectSpec(
-        ["fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-      );
+      return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
     if (/readlink|readfile|^read(?:sync|v|vsync)?$|sendfile/u.test(name)) {
       return effectSpec(["fs:read"], "filesystem", "WP5", {
@@ -7110,22 +7295,10 @@ function builtinExportClassification(surface) {
       return effectSpec(["fs:list"], "filesystem", "WP5");
     }
     if (/^createreadstream$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read"],
-        "filesystem",
-        "WP5",
-        "createReadStream immediately constructs a ReadStream, which either adopts an authorized descriptor or discovers and opens a path.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamConstructionEffectSpec("fs:read");
     }
     if (/^createwritestream$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:write"],
-        "filesystem",
-        "WP5",
-        "createWriteStream immediately constructs a WriteStream, which either adopts an authorized descriptor or discovers and opens a path.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemStreamConstructionEffectSpec("fs:write");
     }
     if (/close/u.test(name))
       return nonCapabilitySpec("authority-release", "WP5");
@@ -10891,10 +11064,9 @@ function hostAbiClassification(name) {
     return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (
-    new Set([
-      "exhostinstallarmed",
-      "exhostmatchesarmedsnapshotdigest",
-    ]).has(name)
+    new Set(["exhostinstallarmed", "exhostmatchesarmedsnapshotdigest"]).has(
+      name,
+    )
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
@@ -10918,13 +11090,18 @@ function hostAbiClassification(name) {
   }
 
   if (/^exhostfs/u.test(name)) {
-    const descriptorOptions = /(?:fstat|fssync|pread|pwrite|fsread$|fswrite$)/u.test(name)
-      ? {
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-          lifetimeContract: "file-handle",
-        }
-      : {};
+    const descriptorOptions =
+      /(?:fstat|fssync|pread|pwrite|fsread$|fswrite$)/u.test(name)
+        ? {
+            effectOwnerSource: "descriptor-owner",
+            principalSources: [
+              "descriptor-owner",
+              "frame-set",
+              "schedule-time",
+            ],
+            lifetimeContract: "file-handle",
+          }
+        : {};
     if (/^exhostfsclose$/u.test(name)) {
       return nonCapabilitySpec("authority-release", "WP5");
     }
@@ -10935,13 +11112,7 @@ function hostAbiClassification(name) {
       return nonCapabilitySpec("authority-control-plane", "WP5");
     }
     if (/^exhostfsopen$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "Host filesystem open selects effects from validated flags.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemOpenEffectSpec();
     }
     if (/^exhostfscopy$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
@@ -11030,27 +11201,11 @@ function hostAbiClassification(name) {
       return nonCapabilitySpec("authority-control-plane", "WP5");
     }
     if (/all|get|values/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:read"],
-        "filesystem",
-        "WP5",
-        "SQLite reads touch filesystem authority only when the retained database is file-backed.",
-        {
-          lifetimeContract: "file-handle",
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-        },
-      );
+      return sqliteReadEffectSpec();
     }
-    if (/open|exec|prepare|run/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "SQLite effects depend on open flags, SQL statement behavior, and whether the retained database is file-backed.",
-        { lifetimeContract: "file-handle" },
-      );
-    }
+    if (/open/u.test(name)) return sqliteOpenEffectSpec();
+    if (/prepare/u.test(name)) return sqliteReadEffectSpec();
+    if (/exec|run/u.test(name)) return sqliteStatementEffectSpec();
   }
   return null;
 }
@@ -11709,25 +11864,11 @@ function classifyConcreteSurface(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP5");
     }
     if (/all|get|values/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:read"],
-        "filesystem",
-        "WP5",
-        "SQLite reads touch filesystem authority only when the retained database is file-backed.",
-        {
-          lifetimeContract: "file-handle",
-          effectOwnerSource: "descriptor-owner",
-          principalSources: ["descriptor-owner", "frame-set", "schedule-time"],
-        },
-      );
+      return sqliteReadEffectSpec();
     }
-    return conditionalEffectSpec(
-      ["fs:list", "fs:read", "fs:write"],
-      "filesystem",
-      "WP5",
-      "SQLite open/prepare/run/exec effects depend on open flags, statement read-only status, and DB/WAL/journal/SHM objects; WP5 must select the exact retained-handle decision set.",
-      { lifetimeContract: "file-handle" },
-    );
+    if (/open/u.test(name)) return sqliteOpenEffectSpec();
+    if (/prepare/u.test(name)) return sqliteReadEffectSpec();
+    return sqliteStatementEffectSpec();
   }
 
   // Web storage remains closed until native namespace isolation is proved.
@@ -11795,22 +11936,10 @@ function classifyConcreteSurface(surface) {
     if (/close|seek/u.test(name))
       return nonCapabilitySpec("authority-control-plane", "WP5");
     if (/fspathasync/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "The generic async path dispatcher selects list/read/write/copy/link behavior from its operation tag; WP5 must emit exact logical branches.",
-        descriptorOptions,
-      );
+      return filesystemPathDispatcherEffectSpec();
     }
     if (/^exactfsfdasync$/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "The generic async descriptor dispatcher selects metadata or durability behavior from its operation tag.",
-        descriptorOptions,
-      );
+      return filesystemDescriptorDispatcherEffectSpec();
     }
     if (/^exactfs(?:readfile|writefile|stat)async$/u.test(name)) {
       const actions = /readfile/u.test(name)
@@ -11818,13 +11947,7 @@ function classifyConcreteSurface(surface) {
         : /writefile/u.test(name)
           ? ["fs:write"]
           : ["fs:list"];
-      return conditionalEffectSpec(
-        actions,
-        "filesystem",
-        "WP5",
-        "This async operation accepts either a path or retained descriptor; WP5 must select resource normalization and effect ownership from the authenticated input variant.",
-        { lifetimeContract: "file-handle" },
-      );
+      return filesystemPathOrDescriptorEffectSpec(actions);
     }
     if (/opendir|readdir|stat|access|realpath/u.test(name)) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
@@ -11833,13 +11956,7 @@ function classifyConcreteSurface(surface) {
       return effectSpec(["fs:read"], "filesystem", "WP5", descriptorOptions);
     }
     if (/open/u.test(name)) {
-      return conditionalEffectSpec(
-        ["fs:list", "fs:read", "fs:write"],
-        "filesystem",
-        "WP5",
-        "Filesystem open selects read, write, create, and truncate effects from validated flags; WP5 must emit the exact conjunctive branch.",
-        { lifetimeContract: "file-handle", ...descriptorOptions },
-      );
+      return filesystemOpenEffectSpec(descriptorOptions);
     }
     if (/copy/u.test(name)) {
       return effectSpec(
@@ -12025,6 +12142,79 @@ function semanticEdge(surface, specification, context) {
       `${surface.observedKey}: conditional effect set lacks refinement owner/rationale`,
     );
   }
+  let logicalBranches;
+  if (specification.effectMode === "conditional") {
+    if (
+      !Array.isArray(specification.logicalBranches) ||
+      specification.logicalBranches.length < 2
+    ) {
+      throw new Error(
+        `${surface.observedKey}: conditional edge lacks logical branches`,
+      );
+    }
+    const seenIds = new Set();
+    const seenConditions = new Set();
+    logicalBranches = specification.logicalBranches
+      .map((branch) => {
+        const branchId = validateStableId(branch.id, "logical branch id");
+        if (seenIds.has(branchId)) {
+          throw new Error(
+            `${surface.observedKey}: duplicate logical branch ${branchId}`,
+          );
+        }
+        seenIds.add(branchId);
+        const when = [...branch.when]
+          .map((condition) => ({
+            fact: validateStableId(condition.fact, "logical branch fact"),
+            equals: validateStableId(
+              condition.equals,
+              "logical branch fact value",
+            ),
+          }))
+          .sort((left, right) =>
+            utf8Compare(
+              JSON.stringify([left.fact, left.equals]),
+              JSON.stringify([right.fact, right.equals]),
+            ),
+          );
+        const conditionKey = JSON.stringify(when);
+        if (seenConditions.has(conditionKey)) {
+          throw new Error(
+            `${surface.observedKey}: duplicate logical branch condition`,
+          );
+        }
+        seenConditions.add(conditionKey);
+        const branchBarriers =
+          branch.barriers ??
+          specification.barriers ??
+          FAMILY_BARRIERS[specification.family];
+        const branchEffects = canonicalStringSet(branch.actions).map((action) =>
+          deriveEffectTemplate(action, context, {
+            stages: branch.stagesByAction?.[action],
+          }),
+        );
+        return {
+          id: branchId,
+          when,
+          effects: branchEffects,
+          principalSources: canonicalStringSet(
+            branch.principalSources ??
+              defaultPrincipalSources(surface, specification),
+          ),
+          effectOwnerSource:
+            branch.effectOwnerSource ??
+            defaultEffectOwner(surface, specification),
+          lifetimeContract:
+            branch.lifetimeContract ?? specification.lifetimeContract,
+          barriers: {
+            authorizeBefore: [...branchBarriers.authorizeBefore],
+            recheckAt: [...branchBarriers.recheckAt],
+            cancelAt: [...branchBarriers.cancelAt],
+          },
+        };
+      })
+      .sort((left, right) => utf8Compare(left.id, right.id));
+  }
   return {
     id,
     classification: "effects",
@@ -12036,6 +12226,7 @@ function semanticEdge(surface, specification, context) {
       specification.gate ??
       (surface.kind === "loader" ? "loader-admission" : "reclassifies"),
     effectMode: specification.effectMode,
+    ...(logicalBranches === undefined ? {} : { logicalBranches }),
     ...(specification.effectMode === "conditional-unrefined"
       ? {
           refinementOwner: specification.refinementOwner,

@@ -20,6 +20,28 @@ function canonicalStringSet(values) {
 
 export function fixtureObligationsForBranch(edge, branchId) {
   if (edge.classification === "effects") {
+    if (edge.effectMode === "conditional") {
+      return canonicalStringSet(
+        edge.logicalBranches.flatMap((logicalBranch) => {
+          const prefix = `${branchId}.logical.${logicalBranch.id}`;
+          if (logicalBranch.effects.length === 0) {
+            return [
+              `${prefix}.branch-selection`,
+              `${prefix}.malformed-branch-facts`,
+              `${prefix}.no-effect`,
+            ];
+          }
+          return [
+            `${prefix}.allow`,
+            `${prefix}.branch-selection`,
+            `${prefix}.deny`,
+            `${prefix}.malformed`,
+            `${prefix}.missing-attribution`,
+            `${prefix}.wrong-principal`,
+          ];
+        }),
+      );
+    }
     const obligations = [
       `${branchId}.allow`,
       `${branchId}.deny`,

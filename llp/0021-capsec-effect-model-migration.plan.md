@@ -5,7 +5,7 @@
 **Systems:** Security, Policy, Runtime, Engine, Host ABI, Module Loader, Build, CLI, CI
 **Author:** Charlie Cheever / Codex
 **Date:** 2026-07-10
-**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 retained checked-object authority record implemented by ENG-24149); 2026-07-11 (WP6 retained verified-peer authority and metadata-peer hard denial implemented by ENG-24150); 2026-07-11 (WP7 exact deny-only escape/process catalog invariant implemented by ENG-24151); 2026-07-11 (WP8 structured immutable decision evidence implemented by ENG-24152); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
+**Revised:** 2026-07-11 (WP0 semantic contract frozen by ENG-24144: profile, 38-action vocabulary, 57-bit reconciliation, typed occurrence/containment semantics, digest projections, and enforce-default target rule); 2026-07-11 (WP1 generated source-surface inventory, production registry, unsupported target matrix, and cross-language bindings implemented by ENG-24145); 2026-07-11 (WP2 typed Rust policy and decision core implemented by ENG-24146 with strict contract ingestion, canonicalization/digests, typed containment, decision precedence, staged conjunction/intersection, generations, and exact cache identities); 2026-07-11 (WP3 typed ESM/CJS import authoring and integrity-bound canonical generation implemented by ENG-24147); 2026-07-11 (WP4 strict immutable snapshot ingestion and explicit host/Hermes digest handshake implemented by ENG-24148); 2026-07-11 (WP5 initial retained checked-object record plus exact logical-branch schema and filesystem branch migration in progress under ENG-24149); 2026-07-11 (WP6 initial retained verified-peer record and metadata-peer denial landed, with full network conversion still pending under ENG-24150); 2026-07-11 (WP7 deny-only escape/process catalog invariant landed, with full surface closure still pending under ENG-24151); 2026-07-11 (WP8 structured decision evidence landed, with handles/grants/deputy migration still pending under ENG-24152); 2026-07-11 (WP10 exact-target report schema and fail-closed execution-evidence binding introduced by ENG-24154; the macOS candidate remains unadvertised pending complete executed fixtures)
 **Related:** LLP 0002 (host ABI); LLP 0004 (module loading); LLP 0005 (generated build artifacts); LLP 0013 (per-package enforcement mechanics); LLP 0014 (import-site grants and generated policy); LLP 0016 (architecture assessment); LLP 0020 (Oden portability research); Oden LLP 0019 (Capability Security, Revision 2); Oden LLP 0020 (Capability Security by Default); ENG-24143
 
 ## Summary
@@ -180,6 +180,15 @@ refinement owner and why its possible effect set is not yet executable. Such an
 edge cannot be promoted or armed. The owning filesystem, network, process, or
 device work package must replace it with exact conjunctive logical branches
 before conformance.
+
+An exact conditional edge carries a canonical `logicalBranches` set. Each
+branch names the normalized operation facts that select it, its complete
+conjunctive effect set, principal/effect-owner sources, lifetime, and barriers.
+Selection facts are produced only after argument/resource normalization and
+must select exactly one branch; missing, unknown, or overlapping facts deny.
+Fixture obligations are derived independently for every logical branch,
+including branch selection and explicit no-effect branches, so a union of
+possible effects cannot masquerade as executed conditional semantics.
 
 ### Policy forms and digests
 

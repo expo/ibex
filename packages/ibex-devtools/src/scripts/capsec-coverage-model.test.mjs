@@ -600,8 +600,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     );
     expect(sqliteValues.edge.classification).toBe("effects");
     expect(edgeActions(sqliteValues)).toEqual(["fs:read"]);
-    expect(sqliteValues.edge.effectMode).toBe("conditional-unrefined");
-    expect(sqliteValues.edge.refinementOwner).toBe("WP5");
+    expect(sqliteValues.edge.effectMode).toBe("conditional");
+    expect(
+      sqliteValues.edge.logicalBranches.map((branch) => branch.id),
+    ).toEqual(["file", "memory"]);
   });
 
   test("exact escape families remain closed after boundary hardening", () => {
@@ -657,10 +659,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       expect(classified.edge.classification, exportName).toBe("effects");
       expect(edgeActions(classified), exportName).toEqual(expectedActions);
-      expect(classified.edge.effectMode, exportName).toBe(
-        "conditional-unrefined",
-      );
-      expect(classified.edge.refinementOwner, exportName).toBe("WP5");
+      expect(classified.edge.effectMode, exportName).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => branch.id),
+        exportName,
+      ).toEqual(["descriptor", "path"]);
       expect(classified.edge.lifetimeContract, exportName).toBe("file-handle");
     }
     for (const exportName of [
@@ -1065,11 +1068,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
 
   test("parameter-dependent effects remain explicitly unrefined and unclaimable", () => {
     for (const name of [
-      "__exactFsOpen",
       "__exactSpawn",
       "__exactAndroidCameraHostCall",
       "__exactTcpRead",
-      "__exactSqliteOpen",
     ]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
@@ -1080,6 +1081,125 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(classified.edge.rationale.length).toBeGreaterThan(20);
       expect(classified.implementationRows[0].fixtureObligations).toContain(
         `${classified.implementationRows[0].branchId}.conditional-refinement`,
+      );
+    }
+  });
+
+  test("SQLite storage and statement state select exact retained-resource branches", () => {
+    const cases = [
+      ["__exactSqliteOpen", ["file-read", "file-read-write", "memory"]],
+      ["__exactSqliteAll", ["file", "memory"]],
+      ["__exactSqliteRun", ["file-read", "file-read-write", "memory"]],
+    ];
+    for (const [name, branchIds] of cases) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge.effectMode, name).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => branch.id),
+        name,
+      ).toEqual(branchIds);
+      const memory = classified.edge.logicalBranches.find(
+        (branch) => branch.id === "memory",
+      );
+      expect(memory.effects, name).toEqual([]);
+    }
+  });
+
+  test("filesystem open selects an exact normalized access branch", () => {
+    const classified = classifyObservedSurface(
+      surface("native-op", "__exactFsOpen"),
+      context,
+    );
+    expect(classified.edge.effectMode).toBe("conditional");
+    expect(classified.edge.logicalBranches).toEqual([
+      expect.objectContaining({
+        id: "read",
+        when: [{ fact: "filesystem.open.access", equals: "read" }],
+        effects: expect.arrayContaining([
+          expect.objectContaining({ cap: "fs:read" }),
+        ]),
+      }),
+      expect.objectContaining({
+        id: "read-write",
+        when: [{ fact: "filesystem.open.access", equals: "read-write" }],
+        effects: expect.arrayContaining([
+          expect.objectContaining({ cap: "fs:read" }),
+          expect.objectContaining({ cap: "fs:write" }),
+        ]),
+      }),
+      expect.objectContaining({
+        id: "write",
+        when: [{ fact: "filesystem.open.access", equals: "write" }],
+        effects: expect.arrayContaining([
+          expect.objectContaining({ cap: "fs:write" }),
+        ]),
+      }),
+    ]);
+    expect(classified.implementationRows[0].fixtureObligations).toContain(
+      `${classified.implementationRows[0].branchId}.logical.read.branch-selection`,
+    );
+    expect(classified.implementationRows[0].fixtureObligations).not.toContain(
+      `${classified.implementationRows[0].branchId}.conditional-refinement`,
+    );
+  });
+
+  test("filesystem dispatchers and path-or-descriptor inputs expose exact branches", () => {
+    const pathDispatcher = classifyObservedSurface(
+      surface("native-op", "__exactFsPathAsync"),
+      context,
+    );
+    expect(pathDispatcher.edge.effectMode).toBe("conditional");
+    expect(pathDispatcher.edge.logicalBranches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "copy",
+          effects: expect.arrayContaining([
+            expect.objectContaining({ cap: "fs:read" }),
+            expect.objectContaining({ cap: "fs:write" }),
+          ]),
+        }),
+        expect.objectContaining({ id: "readlink" }),
+        expect.objectContaining({ id: "access-write" }),
+      ]),
+    );
+
+    const fdDispatcher = classifyObservedSurface(
+      surface("native-op", "__exactFsFdAsync"),
+      context,
+    );
+    expect(fdDispatcher.edge.logicalBranches).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "durability-read",
+          effectOwnerSource: "descriptor-owner",
+        }),
+        expect.objectContaining({ id: "durability-write" }),
+        expect.objectContaining({ id: "metadata-write" }),
+      ]),
+    );
+
+    for (const name of [
+      "__exactFsReadFileAsync",
+      "__exactFsStatAsync",
+      "__exactFsWriteFileAsync",
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge.effectMode, name).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => branch.id),
+        name,
+      ).toEqual(["descriptor", "path"]);
+      expect(classified.edge.logicalBranches[0].effectOwnerSource, name).toBe(
+        "descriptor-owner",
+      );
+      expect(classified.edge.logicalBranches[1].effectOwnerSource, name).toBe(
+        "innermost-nontransparent-frame",
       );
     }
   });
@@ -1175,28 +1295,28 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "ReadStream",
         "effects",
         ["fs:list", "fs:read"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_fs",
         "ReadStream.constructor",
         "effects",
         ["fs:list", "fs:read"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_fs",
         "WriteStream",
         "effects",
         ["fs:list", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "node_fs",
         "WriteStream.constructor",
         "effects",
         ["fs:list", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["node_fs", "Dir.read", "effects", ["fs:list"], "conjunctive"],
       [
@@ -1247,45 +1367,33 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "Database",
         "effects",
         ["fs:list", "fs:read", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "exact_sqlite",
         "default",
         "effects",
         ["fs:list", "fs:read", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       [
         "exact_sqlite",
         "Database.close",
         "effects",
         ["fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
-      [
-        "exact_sqlite",
-        "default.close",
-        "effects",
-        ["fs:write"],
-        "conditional-unrefined",
-      ],
+      ["exact_sqlite", "default.close", "effects", ["fs:write"], "conditional"],
       ["exact_sqlite", "Database.enableCrSqlite", "closed", ["ffi:load"]],
       ["exact_sqlite", "Database.loadExtension", "closed", ["ffi:load"]],
       ["exact_sqlite", "Database.handle", "closed", ["ffi:load"]],
-      [
-        "exact_sqlite",
-        "Statement.all",
-        "effects",
-        ["fs:read"],
-        "conditional-unrefined",
-      ],
+      ["exact_sqlite", "Statement.all", "effects", ["fs:read"], "conditional"],
       [
         "exact_sqlite",
         "Statement.run",
         "effects",
         ["fs:read", "fs:write"],
-        "conditional-unrefined",
+        "conditional",
       ],
       ["exact_sqlite", "deserialize", "non-capability", []],
       [
@@ -1352,7 +1460,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         context,
       );
       expect(edgeActions(classified), alias).toEqual(["fs:list", "fs:read"]);
-      expect(classified.edge.effectMode, alias).toBe("conditional-unrefined");
+      expect(classified.edge.effectMode, alias).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => branch.id),
+        alias,
+      ).toEqual(["absent", "present"]);
     }
 
     for (const sourceKey of ["node_dns", "node_dns_promises"]) {
@@ -1364,9 +1476,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "fs:list",
         "fs:read",
       ]);
-      expect(classified.edge.effectMode, sourceKey).toBe(
-        "conditional-unrefined",
-      );
+      expect(classified.edge.effectMode, sourceKey).toBe("conditional");
     }
   });
 
@@ -1590,8 +1700,9 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         context,
       );
       expect(edgeActions(classified), exportName).toEqual(expectedActions);
-      expect(classified.edge.effectMode, exportName).toBe(
-        "conditional-unrefined",
+      expect(classified.edge.effectMode, exportName).toBe("conditional");
+      expect(classified.edge.logicalBranches[0].effects, exportName).toEqual(
+        [],
       );
     }
   });
@@ -3375,7 +3486,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       edgeByObservedKey.get("host-abi:ex_host_sqlite_values"),
     ).toMatchObject({
       classification: "effects",
-      effectMode: "conditional-unrefined",
+      effectMode: "conditional",
       effects: [{ cap: "fs:read" }],
     });
     expect(edgeByObservedKey.get("native-op:__exactGetAllEnv")).toMatchObject({
@@ -3417,8 +3528,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         exportName,
       ).toMatchObject({
         classification: "effects",
-        effectMode: "conditional-unrefined",
-        refinementOwner: "WP5",
+        effectMode: "conditional",
         effects: effects.map((cap) => ({ cap })),
       });
     }

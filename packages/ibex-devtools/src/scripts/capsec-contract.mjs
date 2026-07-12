@@ -3222,12 +3222,10 @@ export function loadAndValidateContract() {
     assertSorted(ids, label);
     dataset.edges.forEach((edge, edgeIndex) => {
       if (edge.classification === "effects") {
-        edge.effects.forEach((effect, effectIndex) => {
+        const validateEffect = (effect, effectLabel) => {
           const definition = definitionsById.get(effect.cap);
           if (!definition || definition.lifecycle !== "authorable") {
-            throw new Error(
-              `${label} edge ${edgeIndex} effect ${effectIndex} uses unknown ${effect.cap}`,
-            );
+            throw new Error(`${effectLabel} uses unknown ${effect.cap}`);
           }
           const normalization = normalizationProfilesById.get(
             definition.normalizationProfile,
@@ -3237,7 +3235,7 @@ export function loadAndValidateContract() {
             effect.occurrenceNormalizer !== normalization.occurrence
           ) {
             throw new Error(
-              `${label} edge ${edge.id} effect ${effect.cap} disagrees with ${definition.normalizationProfile}`,
+              `${effectLabel} disagrees with ${definition.normalizationProfile}`,
             );
           }
           const sources = new Set(effect.positiveSources);
@@ -3259,7 +3257,65 @@ export function loadAndValidateContract() {
               `${label} edge ${edge.id} offers implicit-self authority for ${effect.cap}`,
             );
           }
+        };
+        edge.effects.forEach((effect, effectIndex) => {
+          validateEffect(
+            effect,
+            `${label} edge ${edgeIndex} effect ${effectIndex}`,
+          );
         });
+        const edgeCaps = edge.effects.map((effect) => effect.cap);
+        assertUnique(edgeCaps, `${label} edge ${edge.id} effects`);
+        assertSorted(edgeCaps, `${label} edge ${edge.id} effects`);
+        if (edge.effectMode === "conditional") {
+          const branchIds = edge.logicalBranches.map((branch) => branch.id);
+          assertUnique(branchIds, `${label} edge ${edge.id} logical branches`);
+          assertSorted(branchIds, `${label} edge ${edge.id} logical branches`);
+          const branchCaps = new Set();
+          const conditionKeys = [];
+          edge.logicalBranches.forEach((branch, branchIndex) => {
+            const conditions = branch.when.map((condition) =>
+              canonicalJson([condition.fact, condition.equals]),
+            );
+            assertUnique(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            assertSorted(
+              conditions,
+              `${label} edge ${edge.id} branch ${branch.id} conditions`,
+            );
+            conditionKeys.push(canonicalJson(branch.when));
+            const caps = branch.effects.map((effect) => effect.cap);
+            assertUnique(
+              caps,
+              `${label} edge ${edge.id} branch ${branch.id} effects`,
+            );
+            assertSorted(
+              caps,
+              `${label} edge ${edge.id} branch ${branch.id} effects`,
+            );
+            branch.effects.forEach((effect, effectIndex) => {
+              branchCaps.add(effect.cap);
+              validateEffect(
+                effect,
+                `${label} edge ${edgeIndex} logical branch ${branchIndex} effect ${effectIndex}`,
+              );
+            });
+          });
+          assertUnique(
+            conditionKeys,
+            `${label} edge ${edge.id} logical branch conditions`,
+          );
+          if (
+            canonicalJson([...branchCaps].sort(compareUtf8Text)) !==
+            canonicalJson(edgeCaps)
+          ) {
+            throw new Error(
+              `${label} edge ${edge.id} effect union disagrees with logical branches`,
+            );
+          }
+        }
       } else if (edge.classification === "non-capability") {
         const rationale = rules.classifierRules.nonCapabilityRationales.find(
           (row) => row.id === edge.rationaleId,
