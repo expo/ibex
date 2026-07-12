@@ -84,10 +84,15 @@ final class IbexWebSocketFlowController {
       }
     }
     if (overflow) {
-      listener.onError("WebSocket receive queue overflow");
-      listener.onCloseRequested(
-          RECEIVE_QUEUE_OVERFLOW_CODE,
-          RECEIVE_QUEUE_OVERFLOW_REASON);
+      try {
+        listener.onError("WebSocket receive queue overflow");
+      } finally {
+        // Transport shutdown is the memory-safety boundary. Even a failing
+        // error observer must not leave the remote peer feeding this socket.
+        listener.onCloseRequested(
+            RECEIVE_QUEUE_OVERFLOW_CODE,
+            RECEIVE_QUEUE_OVERFLOW_REASON);
+      }
     } else if (deliver) {
       listener.onMessage(message.bytes, message.isText);
     }

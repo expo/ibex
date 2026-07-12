@@ -302,10 +302,14 @@ directory plus `deps/` so `cargo test` and `cargo run` binaries can load
 not length or timestamps. A bundle-wide interprocess lock prevents concurrent
 builds with different Hermes sources from interleaving the profile and `deps`
 sets; each changed file is copied to a verified unique sibling and atomically
-renamed into place. A mismatched loaded/locked destination is a build error,
-never a warning followed by stale reuse. The Hermes-independent staging crate
+renamed into place. The profile also records its complete bundle digest; a
+concurrent build selecting a different Hermes source fails before mutation and
+must use a distinct `CARGO_TARGET_DIR` (or explicitly `cargo clean`). This
+extends serialization across the later executable-launch window, when the
+build-script lock itself is no longer held. A mismatched loaded/locked
+destination is a build error, never a warning followed by stale reuse. The Hermes-independent staging crate
 behaviorally tests same-length tamper plus future clock skew and concurrent
-different-source publication on every host; Windows CI additionally holds the
+different-source refusal on every host; Windows CI additionally holds the
 destination with an exclusive Windows handle and proves publication fails
 without changing it `[observed]` (`crates/windows-dll-staging/src/lib.rs`;
 `.github/workflows/ci.yml`).

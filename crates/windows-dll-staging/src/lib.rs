@@ -5,6 +5,7 @@
 //! Hermes. The build script supplies the real profile and Hermes `bin` paths.
 
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
@@ -13,6 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const PUBLISH_LOCK_FILE: &str = ".ibex-hermes-dll-publish.lock";
+const PROFILE_BINDING_FILE: &str = ".ibex-hermes-dll-bundle";
 const PUBLISH_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(20);
 static TEMP_FILE_NONCE: AtomicU64 = AtomicU64::new(1);
@@ -32,7 +34,9 @@ pub struct StagingReport {
 /// Content digests, never length or timestamps, decide whether a destination
 /// may be reused. Changed files are copied to a unique sibling and atomically
 /// renamed into place; a loaded/locked mismatched DLL therefore fails the build
-/// instead of retaining stale runtime code.
+/// instead of retaining stale runtime code. The profile is permanently bound
+/// to the first complete bundle digest until `cargo clean`; a concurrent build
+/// selecting a different source fails before it can replace runnable DLLs.
 ///
 /// @ref LLP 0005#c-compilation — a successful Windows build must execute the
 /// exact Hermes runtime artifact selected by that build.
@@ -60,8 +64,8 @@ pub fn stage_runtime_dlls(profile_dir: &Path, hermes_bin_dir: &Path) -> io::Resu
     }
 
     let mut bundle_hasher = Sha256::new();
-    let mut published_files = 0usize;
-    let mut reused_files = 0usize;
+    let mut seen_file_names = HashSet::new();
+    let mut source_digests = Vec::with_capacity(source_paths.len());
     for source in &source_paths {
         let file_name = source.file_name().ok_or_else(|| {
             io::Error::new(
@@ -69,12 +73,36 @@ pub fn stage_runtime_dlls(profile_dir: &Path, hermes_bin_dir: &Path) -> io::Resu
                 format!("Windows runtime DLL has no file name: {}", source.display()),
             )
         })?;
+        let normalized_file_name = file_name.to_string_lossy().to_ascii_lowercase();
+        if !seen_file_names.insert(normalized_file_name) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "Windows runtime DLL source contains a case-insensitive duplicate name: {}",
+                    file_name.to_string_lossy()
+                ),
+            ));
+        }
         let source_digest = file_sha256(source)?;
         let file_name_bytes = file_name.to_string_lossy();
         bundle_hasher.update((file_name_bytes.len() as u64).to_le_bytes());
         bundle_hasher.update(file_name_bytes.as_bytes());
         bundle_hasher.update(source_digest);
+        source_digests.push(source_digest);
+    }
+    let bundle_digest = format!("sha256-{:x}", bundle_hasher.finalize());
+    let binding_path = profile_dir.join(PROFILE_BINDING_FILE);
+    let binding_exists = verify_profile_binding(&binding_path, &bundle_digest)?;
 
+    let mut published_files = 0usize;
+    let mut reused_files = 0usize;
+    for (source, source_digest) in source_paths.iter().zip(source_digests.iter().copied()) {
+        let file_name = source.file_name().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Windows runtime DLL has no file name: {}", source.display()),
+            )
+        })?;
         for destination_dir in [profile_dir, deps_dir.as_path()] {
             let destination = destination_dir.join(file_name);
             if file_digest_matches(&destination, source_digest) {
@@ -84,15 +112,74 @@ pub fn stage_runtime_dlls(profile_dir: &Path, hermes_bin_dir: &Path) -> io::Resu
             publish_file(source, &destination, source_digest)?;
             published_files += 1;
         }
+        if !file_digest_matches(source, source_digest) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "Windows runtime DLL source changed during staging: {}",
+                    source.display()
+                ),
+            ));
+        }
+    }
+    if !binding_exists {
+        publish_profile_binding(&binding_path, &bundle_digest)?;
     }
 
     Ok(StagingReport {
         dll_count: source_paths.len(),
         published_files,
         reused_files,
-        bundle_digest: format!("sha256-{:x}", bundle_hasher.finalize()),
+        bundle_digest,
         source_paths,
     })
+}
+
+fn verify_profile_binding(path: &Path, desired_digest: &str) -> io::Result<bool> {
+    match fs::read_to_string(path) {
+        Ok(contents) if contents == format!("{desired_digest}\n") => Ok(true),
+        Ok(contents) => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "Cargo profile is bound to Windows Hermes bundle {}, not {}; use a distinct CARGO_TARGET_DIR or run cargo clean before changing Hermes sources",
+                contents.trim(),
+                desired_digest
+            ),
+        )),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(contextual_error(
+            error,
+            format!("failed to read Windows Hermes profile binding {}", path.display()),
+        )),
+    }
+}
+
+fn publish_profile_binding(path: &Path, digest: &str) -> io::Result<()> {
+    let nonce = TEMP_FILE_NONCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(
+        ".{}.ibex-stage-{}-{nonce}",
+        PROFILE_BINDING_FILE,
+        std::process::id()
+    ));
+    let mut cleanup = TemporaryFile::new(temporary.clone());
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    writeln!(file, "{digest}")?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&temporary, path).map_err(|error| {
+        contextual_error(
+            error,
+            format!(
+                "failed to publish Windows Hermes profile binding {}",
+                path.display()
+            ),
+        )
+    })?;
+    cleanup.published = true;
+    Ok(())
 }
 
 fn dll_paths(directory: &Path) -> io::Result<Vec<PathBuf>> {
@@ -346,9 +433,21 @@ mod tests {
             })
             .collect();
         barrier.wait();
-        for handle in handles {
-            handle.join().unwrap().unwrap();
-        }
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        let successful: Vec<_> = results
+            .iter()
+            .filter_map(|result| result.as_ref().ok())
+            .collect();
+        let failed: Vec<_> = results
+            .iter()
+            .filter_map(|result| result.as_ref().err())
+            .collect();
+        assert_eq!(successful.len(), 1);
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].kind(), io::ErrorKind::AlreadyExists);
 
         let hermes = fs::read_to_string(profile.join("hermes.dll")).unwrap();
         let icu = fs::read_to_string(profile.join("icu.dll")).unwrap();
@@ -358,6 +457,10 @@ mod tests {
         assert_eq!(icu.strip_prefix("icu----").unwrap(), profile_marker);
         assert_eq!(deps_hermes.strip_prefix("hermes-").unwrap(), profile_marker);
         assert_eq!(deps_icu.strip_prefix("icu----").unwrap(), profile_marker);
+        assert_eq!(
+            fs::read_to_string(profile.join(PROFILE_BINDING_FILE)).unwrap(),
+            format!("{}\n", successful[0].bundle_digest)
+        );
     }
 
     #[test]
@@ -381,8 +484,9 @@ mod tests {
         write_bundle(&source, "old----");
         stage_runtime_dlls(&profile, &source).unwrap();
         let destination = profile.join("hermes.dll");
-        let old_bytes = fs::read(&destination).unwrap();
-        write_bundle(&source, "new----");
+        let desired_bytes = fs::read(&destination).unwrap();
+        let stale_bytes = vec![b'X'; desired_bytes.len()];
+        fs::write(&destination, &stale_bytes).unwrap();
 
         let locked = OpenOptions::new()
             .read(true)
@@ -392,6 +496,7 @@ mod tests {
         let error = stage_runtime_dlls(&profile, &source).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
         drop(locked);
-        assert_eq!(fs::read(&destination).unwrap(), old_bytes);
+        assert_eq!(fs::read(&destination).unwrap(), stale_bytes);
+        assert_ne!(fs::read(&destination).unwrap(), desired_bytes);
     }
 }

@@ -563,7 +563,10 @@ if (!expectIncomplete) {
     );
   }
 } else {
-  if (promotionRefusals.length === 0 || report.status !== "incomplete") {
+  if (
+    !promotionRefusals.some(({ check }) => check === "conformance-report") ||
+    report.status !== "incomplete"
+  ) {
     throw new Error(
       "--expect-incomplete requires an incomplete report that refuses target promotion",
     );
