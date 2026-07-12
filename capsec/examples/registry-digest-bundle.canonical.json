@@ -124707,9 +124707,109 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP8",
-            "rationale": "The Android camera host bridge selects camera or microphone work from its authenticated operation payload; WP8 must split and gate both typed branches.",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "camera",
+                "when": [
+                  {
+                    "fact": "device.android-camera-host.operation",
+                    "equals": "camera"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:camera",
+                    "selectorNormalizer": "camera.selector.v1",
+                    "occurrenceNormalizer": "camera.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "microphone",
+                "when": [
+                  {
+                    "fact": "device.android-camera-host.operation",
+                    "equals": "microphone"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:microphone",
+                    "selectorNormalizer": "microphone.selector.v1",
+                    "occurrenceNormalizer": "microphone.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -124779,9 +124879,109 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP8",
-            "rationale": "The Android camera host bridge selects camera or microphone work from its authenticated operation payload; WP8 must split and gate both typed branches.",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "camera",
+                "when": [
+                  {
+                    "fact": "device.android-camera-host.operation",
+                    "equals": "camera"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:camera",
+                    "selectorNormalizer": "camera.selector.v1",
+                    "occurrenceNormalizer": "camera.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "microphone",
+                "when": [
+                  {
+                    "fact": "device.android-camera-host.operation",
+                    "equals": "microphone"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:microphone",
+                    "selectorNormalizer": "microphone.selector.v1",
+                    "occurrenceNormalizer": "microphone.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -140421,9 +140621,109 @@
             ],
             "effectOwnerSource": "innermost-nontransparent-frame",
             "gate": "reclassifies",
-            "effectMode": "conditional-unrefined",
-            "refinementOwner": "WP8",
-            "rationale": "The Android bridge selects camera or microphone permission/device work from the authenticated payload; WP8 must split and gate both typed branches.",
+            "effectMode": "conditional",
+            "logicalBranches": [
+              {
+                "id": "camera",
+                "when": [
+                  {
+                    "fact": "device.android-camera-native.operation",
+                    "equals": "camera"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:camera",
+                    "selectorNormalizer": "camera.selector.v1",
+                    "occurrenceNormalizer": "camera.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              },
+              {
+                "id": "microphone",
+                "when": [
+                  {
+                    "fact": "device.android-camera-native.operation",
+                    "equals": "microphone"
+                  }
+                ],
+                "effects": [
+                  {
+                    "cap": "device:microphone",
+                    "selectorNormalizer": "microphone.selector.v1",
+                    "occurrenceNormalizer": "microphone.occurrence.v1",
+                    "stages": [
+                      "requested",
+                      "discovery",
+                      "commit",
+                      "delivery",
+                      "repeat"
+                    ],
+                    "positiveSources": [
+                      "ambient-root",
+                      "handle",
+                      "session",
+                      "static-floor"
+                    ]
+                  }
+                ],
+                "principalSources": [
+                  "frame-set",
+                  "schedule-time"
+                ],
+                "effectOwnerSource": "innermost-nontransparent-frame",
+                "lifetimeContract": "operation",
+                "barriers": {
+                  "authorizeBefore": [
+                    "broker-request",
+                    "device-open",
+                    "first-delivery"
+                  ],
+                  "recheckAt": [
+                    "broker-change",
+                    "delivery"
+                  ],
+                  "cancelAt": [
+                    "negative-generation-change",
+                    "device-identity-mismatch"
+                  ]
+                }
+              }
+            ],
             "atomicityGroup": "surface.native.op.exactandroidcamerahostcall.167r459.decision",
             "lifetimeContract": "operation",
             "barriers": {
@@ -261813,12 +262113,18 @@
             ],
             "implementationOwner": "WP8",
             "fixtureObligations": [
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.allow",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.conditional-refinement",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.deny",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.malformed",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.missing-attribution",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.wrong-principal"
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.allow",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.branch-selection",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.deny",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.malformed",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.missing-attribution",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.wrong-principal",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.allow",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.branch-selection",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.deny",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.malformed",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.missing-attribution",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.wrong-principal"
             ]
           },
           {
@@ -261836,12 +262142,18 @@
             ],
             "implementationOwner": "WP8",
             "fixtureObligations": [
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.allow",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.conditional-refinement",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.deny",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.malformed",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.missing-attribution",
-              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.wrong-principal"
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.allow",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.branch-selection",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.deny",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.malformed",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.missing-attribution",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.wrong-principal",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.allow",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.branch-selection",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.deny",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.malformed",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.missing-attribution",
+              "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.wrong-principal"
             ]
           },
           {
@@ -271256,12 +271568,18 @@
             ],
             "implementationOwner": "WP8",
             "fixtureObligations": [
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.allow",
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.conditional-refinement",
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.deny",
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.malformed",
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.missing-attribution",
-              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.wrong-principal"
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.allow",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.branch-selection",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.deny",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.malformed",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.missing-attribution",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.wrong-principal",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.allow",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.branch-selection",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.deny",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.malformed",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.missing-attribution",
+              "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.wrong-principal"
             ]
           },
           {
@@ -336178,17 +336496,17 @@
           {
             "kind": "markdown",
             "path": "capsec/generated/surface-inventory.md",
-            "rawContentDigest": "sha256-rZ7zYbY3POEnMJqocYcKSiecFH1HeXXY607Hc-U-UqY"
+            "rawContentDigest": "sha256-2QHXSCTBRp2jJW6eJQihkU_hcg71rEId_ycbPtMMXTY"
           },
           {
             "kind": "markdown",
             "path": "capsec/generated/target-matrix.md",
-            "rawContentDigest": "sha256-U-P1uvcCqvb8COhYeuC0YmsU9Xe07w-HnTJmBZMahpU"
+            "rawContentDigest": "sha256-fzfvp78YPtZx1VC90_4HTZAC0Ibt4PxwAYRDvDNRgyw"
           },
           {
             "kind": "registry",
             "path": "capsec/registry/coverage-edges.json",
-            "rawContentDigest": "sha256-ibELEa3BxLKkKIG55KUaw62MbJ3zeFM9VXX-y_m1jvk"
+            "rawContentDigest": "sha256--Fv8_yBPTkJhmkifFUnU-IYyPt0it4UkP_-QK1UoxDk"
           },
           {
             "kind": "registry",
@@ -453750,7 +454068,7 @@
       "logicalName": "vocab-digest",
       "document": {
         "domain": "ibex:capsec:vocab:1",
-        "digest": "sha256-UagiO697ITOdH4yLYXgsw6IIpi83iALK34IEQPpmdrg"
+        "digest": "sha256-FdI-hqlG2kxuPNtcSsCglbaWSLZGl24AZmaCezK4n7g"
       }
     }
   ]

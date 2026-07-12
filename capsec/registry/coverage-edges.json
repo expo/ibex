@@ -124699,9 +124699,109 @@
       ],
       "effectOwnerSource": "innermost-nontransparent-frame",
       "gate": "reclassifies",
-      "effectMode": "conditional-unrefined",
-      "refinementOwner": "WP8",
-      "rationale": "The Android camera host bridge selects camera or microphone work from its authenticated operation payload; WP8 must split and gate both typed branches.",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "camera",
+          "when": [
+            {
+              "fact": "device.android-camera-host.operation",
+              "equals": "camera"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:camera",
+              "selectorNormalizer": "camera.selector.v1",
+              "occurrenceNormalizer": "camera.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "microphone",
+          "when": [
+            {
+              "fact": "device.android-camera-host.operation",
+              "equals": "microphone"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:microphone",
+              "selectorNormalizer": "microphone.selector.v1",
+              "occurrenceNormalizer": "microphone.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        }
+      ],
       "atomicityGroup": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.decision",
       "lifetimeContract": "operation",
       "barriers": {
@@ -124771,9 +124871,109 @@
       ],
       "effectOwnerSource": "innermost-nontransparent-frame",
       "gate": "reclassifies",
-      "effectMode": "conditional-unrefined",
-      "refinementOwner": "WP8",
-      "rationale": "The Android camera host bridge selects camera or microphone work from its authenticated operation payload; WP8 must split and gate both typed branches.",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "camera",
+          "when": [
+            {
+              "fact": "device.android-camera-host.operation",
+              "equals": "camera"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:camera",
+              "selectorNormalizer": "camera.selector.v1",
+              "occurrenceNormalizer": "camera.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "microphone",
+          "when": [
+            {
+              "fact": "device.android-camera-host.operation",
+              "equals": "microphone"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:microphone",
+              "selectorNormalizer": "microphone.selector.v1",
+              "occurrenceNormalizer": "microphone.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        }
+      ],
       "atomicityGroup": "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.decision",
       "lifetimeContract": "operation",
       "barriers": {
@@ -140413,9 +140613,109 @@
       ],
       "effectOwnerSource": "innermost-nontransparent-frame",
       "gate": "reclassifies",
-      "effectMode": "conditional-unrefined",
-      "refinementOwner": "WP8",
-      "rationale": "The Android bridge selects camera or microphone permission/device work from the authenticated payload; WP8 must split and gate both typed branches.",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "camera",
+          "when": [
+            {
+              "fact": "device.android-camera-native.operation",
+              "equals": "camera"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:camera",
+              "selectorNormalizer": "camera.selector.v1",
+              "occurrenceNormalizer": "camera.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "microphone",
+          "when": [
+            {
+              "fact": "device.android-camera-native.operation",
+              "equals": "microphone"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "device:microphone",
+              "selectorNormalizer": "microphone.selector.v1",
+              "occurrenceNormalizer": "microphone.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "frame-set",
+            "schedule-time"
+          ],
+          "effectOwnerSource": "innermost-nontransparent-frame",
+          "lifetimeContract": "operation",
+          "barriers": {
+            "authorizeBefore": [
+              "broker-request",
+              "device-open",
+              "first-delivery"
+            ],
+            "recheckAt": [
+              "broker-change",
+              "delivery"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "device-identity-mismatch"
+            ]
+          }
+        }
+      ],
       "atomicityGroup": "surface.native.op.exactandroidcamerahostcall.167r459.decision",
       "lifetimeContract": "operation",
       "barriers": {

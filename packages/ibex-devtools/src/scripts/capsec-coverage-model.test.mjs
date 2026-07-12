@@ -894,9 +894,11 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         "device:camera",
         "device:microphone",
       ]);
-      expect(classified.edge.effectMode, operation).toBe(
-        "conditional-unrefined",
-      );
+      expect(classified.edge.effectMode, operation).toBe("conditional");
+      expect(
+        classified.edge.logicalBranches.map((branch) => branch.id),
+        operation,
+      ).toEqual(["camera", "microphone"]);
     }
 
     for (const operation of [
@@ -1063,7 +1065,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
   });
 
   test("parameter-dependent effects remain explicitly unrefined and unclaimable", () => {
-    for (const name of ["__exactSpawn", "__exactAndroidCameraHostCall"]) {
+    for (const name of ["__exactSpawn"]) {
       const classified = classifyObservedSurface(
         surface("native-op", name),
         context,
@@ -3678,7 +3680,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toMatchObject({
       classification: "effects",
-      effectMode: "conditional-unrefined",
+      effectMode: "conditional",
       effects: [{ cap: "device:camera" }, { cap: "device:microphone" }],
     });
     expect(

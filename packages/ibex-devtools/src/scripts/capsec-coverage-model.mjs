@@ -7108,6 +7108,26 @@ function environmentSelectedNetworkEffectSpec(action, fact, options = {}) {
   );
 }
 
+function androidMediaOperationEffectSpec(fact) {
+  return conditionalBranchEffectSpec(
+    [
+      {
+        id: "camera",
+        when: [{ fact, equals: "camera" }],
+        actions: ["device:camera"],
+      },
+      {
+        id: "microphone",
+        when: [{ fact, equals: "microphone" }],
+        actions: ["device:microphone"],
+      },
+    ],
+    "device",
+    "WP8",
+    { lifetimeContract: "operation" },
+  );
+}
+
 function closedSpec(action, implementationOwner, rationale) {
   return { classification: "closed", action, implementationOwner, rationale };
 }
@@ -10884,11 +10904,8 @@ function androidHostAbiClassification(name) {
   if (
     /^(?:CameraHostProvider\.cameraHostCall|cameraHostCall)$/u.test(operation)
   ) {
-    return conditionalEffectSpec(
-      ["device:camera", "device:microphone"],
-      "device",
-      "WP8",
-      "The Android camera host bridge selects camera or microphone work from its authenticated operation payload; WP8 must split and gate both typed branches.",
+    return androidMediaOperationEffectSpec(
+      "device.android-camera-host.operation",
     );
   }
   if (
@@ -11684,12 +11701,8 @@ function classifyConcreteSurface(surface) {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
   }
   if (/androidcamerahostcall/u.test(name)) {
-    return conditionalEffectSpec(
-      ["device:camera", "device:microphone"],
-      "device",
-      "WP8",
-      "The Android bridge selects camera or microphone permission/device work from the authenticated payload; WP8 must split and gate both typed branches.",
-      { lifetimeContract: "operation" },
+    return androidMediaOperationEffectSpec(
+      "device.android-camera-native.operation",
     );
   }
   if (/camera/u.test(text)) {

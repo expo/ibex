@@ -66262,12 +66262,18 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.allow",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.conditional-refinement",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.deny",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.malformed",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.missing-attribution",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.wrong-principal"
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.allow",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.branch-selection",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.deny",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.malformed",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.missing-attribution",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.camera.wrong-principal",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.allow",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.branch-selection",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.deny",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.malformed",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.missing-attribution",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostcall.03m2tc6.main.logical.microphone.wrong-principal"
       ]
     },
     {
@@ -66285,12 +66291,18 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.allow",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.conditional-refinement",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.deny",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.malformed",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.missing-attribution",
-        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.wrong-principal"
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.allow",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.branch-selection",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.deny",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.malformed",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.missing-attribution",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.camera.wrong-principal",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.allow",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.branch-selection",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.deny",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.malformed",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.missing-attribution",
+        "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.camerahostprovider.camerahostcall.0rno3y2.main.logical.microphone.wrong-principal"
       ]
     },
     {
@@ -75705,12 +75717,18 @@
       ],
       "implementationOwner": "WP8",
       "fixtureObligations": [
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.allow",
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.conditional-refinement",
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.deny",
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.malformed",
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.missing-attribution",
-        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.wrong-principal"
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.allow",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.branch-selection",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.deny",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.malformed",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.missing-attribution",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.camera.wrong-principal",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.allow",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.branch-selection",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.deny",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.malformed",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.missing-attribution",
+        "surface.native.op.exactandroidcamerahostcall.167r459.android.0uyk7ni.logical.microphone.wrong-principal"
       ]
     },
     {
@@ -140627,17 +140645,17 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-rZ7zYbY3POEnMJqocYcKSiecFH1HeXXY607Hc-U-UqY"
+      "rawContentDigest": "sha256-2QHXSCTBRp2jJW6eJQihkU_hcg71rEId_ycbPtMMXTY"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-U-P1uvcCqvb8COhYeuC0YmsU9Xe07w-HnTJmBZMahpU"
+      "rawContentDigest": "sha256-fzfvp78YPtZx1VC90_4HTZAC0Ibt4PxwAYRDvDNRgyw"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-ibELEa3BxLKkKIG55KUaw62MbJ3zeFM9VXX-y_m1jvk"
+      "rawContentDigest": "sha256--Fv8_yBPTkJhmkifFUnU-IYyPt0it4UkP_-QK1UoxDk"
     },
     {
       "kind": "registry",
