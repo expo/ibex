@@ -74,7 +74,9 @@ fn rollback_eligible_creates_are_exclusive_and_fd_entries_are_identity_checked()
     assert!(POSIX_FS.contains("baseFlags & ~(O_CREAT | O_EXCL)"));
     assert!(POSIX_FS.contains("openArmedTargetAtomically("));
     assert!(POSIX_FS.contains("it->second.objectDevice != static_cast<uint64_t>(sb.st_dev)"));
-    assert!(POSIX_FS.contains("if (!stale && (principalMayUseUnknownFd(principal)"));
+    assert!(POSIX_FS.contains("if (!stale && fd >= STDIN_FILENO && fd <= STDERR_FILENO"));
+    assert!(POSIX_FS.contains("principalMayUseProcessStdio(principal) || isAllowAll()"));
+    assert!(POSIX_FS.contains("entry->runtimeNonce != exactCurrentRuntimeNonce()"));
     assert!(POSIX_FS.contains("g_transferable_fds.erase(fd)"));
 }
 
