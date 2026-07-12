@@ -5588,6 +5588,77 @@ mod tests {
             .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_witnesses_hoisted_packages_above_nested_project_boundaries() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let workspace = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let project = workspace.path().join("apps/project");
+        let selected_package = workspace.path().join("node_modules/pkg");
+        std::fs::create_dir_all(project.join(".git")).unwrap();
+        std::fs::create_dir_all(&selected_package).unwrap();
+        let entry = project.join("entry.js");
+        let selected = selected_package.join("index.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = require('pkg').value;\n").unwrap();
+        std::fs::write(
+            selected_package.join("package.json"),
+            r#"{"name":"pkg","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(&selected, "exports.value = 'workspace';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(captured.exists(), "bundler never resolved hoisted package");
+
+        // Node lookup ignores the nested .git boundary. This newly-created
+        // package is closer to the importer than the package selected above,
+        // so publication must fail even though the selected source is intact.
+        let closer_package = workspace.path().join("apps/node_modules/pkg");
+        std::fs::create_dir_all(&closer_package).unwrap();
+        std::fs::write(
+            closer_package.join("package.json"),
+            r#"{"name":"pkg","main":"index.js"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            closer_package.join("index.js"),
+            "exports.value = 'closer';\n",
+        )
+        .unwrap();
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            result.is_err(),
+            "a closer hoisted package added mid-build must prevent publication"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
     #[test]
     fn bundle_cache_quota_evicts_old_graphs_but_keeps_current() {
         let dir = tempdir().unwrap();

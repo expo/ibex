@@ -73,9 +73,6 @@ const metadataNames = [
   'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json',
   'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'jsconfig.json',
 ];
-const exists = async (candidate) => {
-  try { await fs.lstat(candidate); return true; } catch { return false; }
-};
 const directoryDigest = async (directory) => {
   const entries = await fs.readdir(directory, { withFileTypes: true });
   const rows = [];
@@ -172,20 +169,6 @@ const addSymlinkComponents = async (file) => {
     if (!exists) break;
   }
 };
-const findProjectRoot = async (file) => {
-  let root = path.dirname(file);
-  for (let current = root;; current = path.dirname(current)) {
-    const hasMetadata = (await Promise.all(
-      metadataNames.map((name) => exists(path.join(current, name)))
-    )).some(Boolean);
-    if (hasMetadata) root = current;
-    if (await exists(path.join(current, '.git')) || path.dirname(current) === current) {
-      if (await exists(path.join(current, '.git'))) root = current;
-      return root;
-    }
-  }
-};
-const projectRoot = await findProjectRoot(entry);
 const extensionCandidates = ['', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'];
 const snapshotResolutionRequest = async (source, importer) => {
   if (typeof source !== 'string' || source.startsWith('\0')) return;
@@ -193,12 +176,14 @@ const snapshotResolutionRequest = async (source, importer) => {
   const base = path.dirname(importerPath);
   await addSymlinkComponents(importerPath);
 
-  // Resolver configuration and ancestor directory membership affect both
-  // extension precedence and package/exports selection.
+  // Resolver configuration can live above a nested VCS/project boundary (for
+  // example a workspace package with a hoisted package.json/tsconfig). Record
+  // each exact metadata candidate through the filesystem root. Do not hash
+  // whole ancestor directories: unrelated files in $HOME or / must not churn
+  // an otherwise valid bundle cache.
   for (let current = base, depth = 0; depth < 64; depth++) {
-    await snapshotPathState(current);
     for (const name of metadataNames) await snapshotPathState(path.join(current, name));
-    if (current === projectRoot || path.dirname(current) === current) break;
+    if (path.dirname(current) === current) break;
     current = path.dirname(current);
   }
 
@@ -215,13 +200,17 @@ const snapshotResolutionRequest = async (source, importer) => {
 
   const parts = source.split('/');
   const packageName = source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  // Node package lookup does not stop at `.git` or the nearest package
+  // metadata boundary. Witness every ancestor node_modules candidate so a
+  // newly-created, closer hoisted package cannot make an old bundle resolve to
+  // different code while all of its previous positive dependencies remain.
   for (let current = base, depth = 0; depth < 64; depth++) {
     const nodeModules = path.join(current, 'node_modules');
     const packageRoot = path.join(nodeModules, packageName);
     await snapshotPathState(nodeModules);
     await snapshotPathState(packageRoot);
     await snapshotPathState(path.join(packageRoot, 'package.json'));
-    if (current === projectRoot || path.dirname(current) === current) break;
+    if (path.dirname(current) === current) break;
     current = path.dirname(current);
   }
 };
