@@ -773,6 +773,10 @@ that stack on the runtime thread and installs a scoped immutable copy on the
 worker, so commit/repeat checks cannot lose an outer caller or detached
 scheduler. The evaluator intersects every constrained principal; an ungranted
 outer principal therefore denies even when the innermost actor has authority.
+A retained-operation fixture publishes ceiling-bounded dynamic filesystem
+authority, commits a descriptor use, revokes the grant, observes both negative
+and dynamic generation advances, and proves the immediately following repeat
+check denies.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

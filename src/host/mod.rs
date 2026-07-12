@@ -1303,6 +1303,10 @@ mod tests {
     use super::*;
 
     fn example_armed_host() -> Host {
+        example_armed_host_with(|_| {})
+    }
+
+    fn example_armed_host_with(mutator: impl FnOnce(&mut serde_json::Value)) -> Host {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
@@ -1313,6 +1317,7 @@ mod tests {
         let mut value: serde_json::Value = serde_json::from_slice(source).unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        mutator(&mut value);
         let digest = capsec_semantics::digest::compute_domain_digest(
             capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
             &value,
@@ -1936,5 +1941,81 @@ mod tests {
         assert!(host
             .mint_typed_handle(owner, holder, outside, None, None)
             .is_err());
+    }
+
+    #[test]
+    fn typed_dynamic_revocation_denies_the_next_retained_repeat() {
+        use capsec_semantics::decision::DecisionOutcome;
+        use capsec_semantics::model::{AuthoritySelector, NonEmptyString, Principal};
+
+        let authority_value = serde_json::json!({
+            "cap": "fs:write",
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [
+                        {"encoding": "utf8", "value": "images"},
+                        {"encoding": "utf8", "value": "photo.jpg"}
+                    ]
+                }
+            }
+        });
+        let ceiling = authority_value.clone();
+        let host = example_armed_host_with(|value| {
+            value["principals"][1]["escalationCeiling"] = serde_json::Value::Array(vec![ceiling]);
+        });
+        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        let principal: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        }))
+        .unwrap();
+        let authority: AuthoritySelector = serde_json::from_value(authority_value).unwrap();
+        let grant_id = NonEmptyString::new("queued-write").unwrap();
+        assert!(host
+            .grant_typed_dynamic(grant_id.clone(), principal.clone(), authority,)
+            .unwrap());
+        let object = |file: &str| capsec_semantics::model::ObjectIdentity {
+            platform: capsec_semantics::model::ObjectPlatform::Apple,
+            volume: NonEmptyString::new("dev:test").unwrap(),
+            file: NonEmptyString::new(file).unwrap(),
+        };
+        let authorize = |stage| {
+            host.authorize_typed_fs_open_stage(
+                "7",
+                "fs-open",
+                "surface.native.op.exactfsopen.05ao6wa",
+                vec![principal.clone()],
+                std::path::Path::new("/Users/example/project/images/photo.jpg"),
+                stage,
+                capsec_semantics::model::ObjectState::Existing,
+                capsec_semantics::model::FollowMode::FollowFinal,
+                false,
+                Some(std::path::Path::new("/Users/example/project/images")),
+                false,
+                true,
+                Some(object("images")),
+                Some(object("photo")),
+                Some(NonEmptyString::new("fd:42").unwrap()),
+                Vec::new(),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            authorize(capsec_semantics::model::Stage::Commit).outcome,
+            DecisionOutcome::Allow
+        );
+        let before = host.typed_generations().unwrap();
+        assert!(host.revoke_typed_dynamic(&grant_id).unwrap());
+        let after = host.typed_generations().unwrap();
+        assert!(after.negative > before.negative);
+        assert!(after.dynamic > before.dynamic);
+        assert_eq!(
+            authorize(capsec_semantics::model::Stage::Repeat).outcome,
+            DecisionOutcome::Deny
+        );
     }
 }
