@@ -2273,6 +2273,7 @@ mod tests {
         let root = std::fs::canonicalize(root).unwrap();
         let existing = root.join("existing.txt");
         let created = root.join("created.txt");
+        let async_created = root.join("async-created.txt");
         std::fs::write(&existing, b"old contents").unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
@@ -2296,6 +2297,26 @@ mod tests {
         assert_eq!(outcome.as_deref(), Some("ok"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"new");
         assert_eq!(std::fs::read(&created).unwrap(), b"made");
+
+        let async_script = format!(
+            r#"globalThis.__armedAsyncOpen = 'pending';
+               __exactFsOpenAsync({path:?}, 'w+').then(function(fd) {{
+                 __exactFsWrite(fd, 'async', -1);
+                 __exactFsClose(fd);
+                 globalThis.__armedAsyncOpen = 'ok';
+               }}, function(error) {{
+                 globalThis.__armedAsyncOpen = 'error:' + error.message;
+               }});"#,
+            path = async_created.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_outcome = engine
+            .eval_immediate("globalThis.__armedAsyncOpen")
+            .await
+            .unwrap();
+        assert_eq!(async_outcome.as_deref(), Some("ok"));
+        assert_eq!(std::fs::read(&async_created).unwrap(), b"async");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2325,6 +2346,8 @@ mod tests {
                 var denied = 0;
                 try {{ __exactFsOpen({existing:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({absent:?}, 'w'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsOpenAsync({existing:?}, 'w'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsOpenAsync({absent:?}, 'w'); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             existing = existing.to_str().unwrap(),
@@ -2332,7 +2355,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("2"));
+        assert_eq!(outcome.as_deref(), Some("4"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         let _ = std::fs::remove_dir_all(root);

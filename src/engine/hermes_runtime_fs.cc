@@ -627,6 +627,8 @@ struct FsAsyncResult {
   std::string openedPath;
   bool openedCanRead = false;
   bool openedCanWrite = false;
+  std::string openedPresentedHandle;
+  std::shared_ptr<int> openedRetainedParent;
   int errnoValue = 0;
   std::string syscall;
   std::string path;
@@ -822,7 +824,9 @@ static facebook::jsi::Value startFsAsync(
                         if (resultPtr->registerOpenedFd) {
                           registerFd(
                               static_cast<int>(resultPtr->number), resultPtr->openedPath,
-                              resultPtr->openedCanRead, resultPtr->openedCanWrite);
+                              resultPtr->openedCanRead, resultPtr->openedCanWrite,
+                              resultPtr->openedPresentedHandle,
+                              std::move(resultPtr->openedRetainedParent));
                           if (resultPtr->openedFdGuard) *resultPtr->openedFdGuard = -1;
                         }
                         switch (resultPtr->kind) {
@@ -1449,6 +1453,41 @@ static FsAsyncResult fsOpenWork(
   result.openedPath = path;
   result.openedCanRead = canRead;
   result.openedCanWrite = canWrite;
+  return result;
+}
+
+static FsAsyncResult fsOpenWorkArmed(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& name,
+    int flags,
+    int mode,
+    bool canRead,
+    bool canWrite,
+    const std::string& presentedHandle,
+    std::shared_ptr<int> parent) {
+  int fd = ::openat(
+      *parent, name.c_str(), (flags & ~O_TRUNC) | O_NOFOLLOW, mode);
+  if (fd < 0) return fsAsyncError(errno, "open", path);
+  auto fdGuard = retainedFd(fd);
+  const char* handle = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 1, *parent, fd,
+          canRead ? 1 : 0, canWrite ? 1 : 0, handle) != 1) {
+    return fsAsyncError(EACCES, "open", path);
+  }
+  if ((flags & O_TRUNC) != 0 && ::ftruncate(fd, 0) != 0) {
+    return fsAsyncError(errno, "open", path);
+  }
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Number);
+  result.number = fd;
+  result.registerOpenedFd = true;
+  result.openedFdGuard = std::move(fdGuard);
+  result.openedPath = path;
+  result.openedCanRead = canRead;
+  result.openedCanWrite = canWrite;
+  result.openedPresentedHandle = presentedHandle;
+  result.openedRetainedParent = std::move(parent);
   return result;
 }
 
@@ -3171,7 +3210,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // (mirroring readFileSync's fd branch); path form opens/reads/closes on the
   // worker thread.
   auto openAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"), 3,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpenAsync"), 4,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[0].isString()) {
@@ -3181,9 +3220,51 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int flags = parseOpenFlagsArg(runtime, args, count, 1);
         int mode = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 0666;
         bool canRead = false, canWrite = false;
-        requireOpenCapability(runtime, path, flags, canRead, canWrite);
-        return startFsAsync(handle, runtime, [path, flags, mode, canRead, canWrite]() {
-          return fsOpenWork(path, flags, mode, canRead, canWrite);
+        const bool armed = ex_host_is_armed() == 1;
+        std::string presentedHandle;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          if (!args[3].isString()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsOpenAsync: typed handleId must be a string");
+          }
+          presentedHandle = args[3].asString(runtime).utf8(runtime);
+        }
+        if (!armed) {
+          requireOpenCapability(runtime, path, flags, canRead, canWrite);
+          return startFsAsync(handle, runtime, [path, flags, mode, canRead, canWrite]() {
+            return fsOpenWork(path, flags, mode, canRead, canWrite);
+          });
+        }
+        classifyOpenAccess(flags, canRead, canWrite);
+        uint64_t principal = currentPrincipalId();
+        const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+        if (ex_host_authorize_typed_fs_open(
+                principal, path.c_str(), 0, -1, -1,
+                canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        auto parentAndName = splitParentAndName(path);
+        auto parentPath = std::move(parentAndName.first);
+        auto name = std::move(parentAndName.second);
+        int parentFd = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (parentFd < 0) throwFsError(runtime, "open", path);
+        auto parent = retainedFd(parentFd);
+        if (name.empty() ||
+            ex_host_authorize_typed_fs_open(
+                principal, path.c_str(), 3, parentFd, -1,
+                canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1 ||
+            ex_host_authorize_typed_fs_open(
+                principal, path.c_str(), 4, parentFd, -1,
+                canRead ? 1 : 0, canWrite ? 1 : 0, presented) != 1) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        return startFsAsync(
+            handle, runtime,
+            [principal, path, name, flags, mode, canRead, canWrite,
+             presentedHandle, parent = std::move(parent)]() mutable {
+          return fsOpenWorkArmed(
+              principal, path, name, flags, mode, canRead, canWrite,
+              presentedHandle, std::move(parent));
         });
       });
   rt.global().setProperty(rt, "__exactFsOpenAsync", std::move(openAsyncFn));

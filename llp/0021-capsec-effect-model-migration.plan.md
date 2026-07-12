@@ -645,7 +645,8 @@ Acceptance:
 - File descriptors and handles retain owner, authority source, revocation
   generation, and resource identity for repeated operations.
 
-Implementation status (2026-07-11): synchronous native `fs.open` now has an
+Implementation status (2026-07-11): synchronous and worker-backed async native
+`fs.open` now have an
 armed-only staged adapter for read, write, create, and truncate. It authorizes
 the requested logical path, retains and verifies the resolved parent directory
 inside the authenticated logical root, distinguishes existing from
@@ -658,7 +659,9 @@ bearer ID participates in every stage. Legacy hosts retain their existing gate;
 armed refusal never falls back to it. The fd registry retains the parent
 descriptor and presented bearer ID, and every armed read or write re-authorizes
 at `repeat` against fresh identities and current authority generations. Async
-open and the remaining filesystem operations are still pending.
+commit runs on the worker before the descriptor is delivered to JavaScript;
+registry publication remains on the attributed runtime thread. The remaining
+filesystem operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 
