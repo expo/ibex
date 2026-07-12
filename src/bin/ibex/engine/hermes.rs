@@ -2772,6 +2772,12 @@ mod tests {
                 var metadataDenied = false;
                 try {{ __exactTcpConnect('169.254.169.254', 80); }} catch (_) {{ metadataDenied = true; }}
                 if (!metadataDenied) throw new Error('metadata peer was reachable');
+                var mappedDenied = false;
+                try {{ __exactTcpConnect('::ffff:127.0.0.1', {port}); }}
+                catch (error) {{
+                  mappedDenied = String(error && error.message || error).indexOf('not canonical') !== -1;
+                }}
+                if (!mappedDenied) throw new Error('mapped TCP literal was not rejected canonically');
                 return 'ok';
             }})()"#
         );
@@ -2783,6 +2789,76 @@ mod tests {
             (8..=10).contains(&decisions),
             "unexpected full network decision count: {decisions}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn dual_stack_listener_reports_ipv4_peer_in_canonical_form() {
+        use std::net::TcpStream;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        // networkEndpointCapability("network:listen", "::", 0)
+        let _reset = install_test_host_with_allow(&["network:listen::::0"]);
+        let engine = HermesEngine::new().unwrap();
+        let setup = engine
+            .eval_immediate(
+                r#"(function() {
+                    if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                    try {
+                      var listener = __exactTcpListen('::', 0, 1, 0, 0);
+                      var local = JSON.parse(__exactTcpLocalAddr(listener));
+                      globalThis.__dualStackListener = listener;
+                      return JSON.stringify({port: local.port, family: local.family});
+                    } catch (error) {
+                      return JSON.stringify({error: String(error && error.message || error)});
+                    }
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        let setup: serde_json::Value = serde_json::from_str(&setup).unwrap();
+        if let Some(error) = setup.get("error").and_then(serde_json::Value::as_str) {
+            let unsupported = [
+                "Address family not supported",
+                "Protocol not available",
+                "Cannot assign requested address",
+                "ai_family not supported",
+            ]
+            .iter()
+            .any(|marker| error.contains(marker));
+            assert!(
+                unsupported,
+                "dual-stack listener failed for a reason other than platform support: {error}"
+            );
+            return;
+        }
+        assert_eq!(setup["family"], "IPv6");
+        let port = setup["port"].as_u64().unwrap() as u16;
+        let client = TcpStream::connect(("127.0.0.1", port))
+            .expect("IPv4 must connect to the explicitly dual-stack IPv6 listener");
+        let remote = engine
+            .eval_immediate(
+                r#"(function() {
+                    var accepted = -1;
+                    for (var attempt = 0; attempt < 10000 && accepted < 0; attempt++) {
+                      accepted = __exactTcpAccept(globalThis.__dualStackListener);
+                    }
+                    if (accepted < 0) throw new Error('dual-stack connection was not accepted');
+                    var remote = JSON.parse(__exactTcpRemoteAddr(accepted));
+                    __exactTcpClose(accepted);
+                    __exactTcpClose(globalThis.__dualStackListener);
+                    delete globalThis.__dualStackListener;
+                    return JSON.stringify(remote);
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap_or_default();
+        drop(client);
+        let remote: serde_json::Value = serde_json::from_str(&remote).unwrap();
+        assert_eq!(remote["address"], "127.0.0.1");
+        assert_eq!(remote["family"], "IPv4");
     }
 
     #[cfg(unix)]
@@ -2816,6 +2892,12 @@ mod tests {
                 var bindDenied = false;
                 try {{ __exactUdpBind(socket, '127.0.0.1', 0); }} catch (_) {{ bindDenied = true; }}
                 if (!bindDenied) throw new Error('send authority yielded UDP listen authority');
+                var mappedDenied = false;
+                try {{ __exactUdpSend(socket, 'm', {port}, '::ffff:127.0.0.1'); }}
+                catch (error) {{
+                  mappedDenied = String(error && error.message || error).indexOf('not canonical') !== -1;
+                }}
+                if (!mappedDenied) throw new Error('mapped UDP literal was not rejected canonically');
                 if (__exactUdpSend(socket, 'u', {port}, '127.0.0.1') !== 1) throw new Error('send');
                 __exactUdpClose(socket);
                 var metadataDenied = false;
