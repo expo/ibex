@@ -5864,6 +5864,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:wrapAsyncModule",
     "function:rust:build_builtin_registry",
     "function:rust:builtin_module_debug_entries",
+    "function:rust:is_builtin_specifier",
     "function:rust:load_module_source",
     "function:rust:load_source",
     "function:rust:load_source_bytes",
@@ -5875,10 +5876,12 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:pick_package_import_path",
     "function:rust:resolve",
     "function:rust:resolve_meta",
+    "function:rust:resolve_meta_from_bound_package",
     "function:rust:resolve_package_import",
     "function:rust:resolve_package_import_target",
     "function:rust:resolve_transpile_cache_dir",
     "function:rust:resolve_with_oxc",
+    "function:rust:resolve_with_oxc_at",
     "function:rust:transpile_module",
     "import-needs",
     "import-policy-bare",
@@ -6118,6 +6121,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:resolve_package_import_target",
     "route:resolution:rust:resolve_transpile_cache_dir",
     "route:resolution:rust:resolve_with_oxc",
+    "route:resolution:rust:resolve_with_oxc_at",
     "route:resolution:rust:run_transpile_command",
     "route:resolution:rust:run_transpile_subprocess",
     "route:resolution:rust:scan_balanced_region",
@@ -9110,7 +9114,7 @@ function loaderClassification(surface) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_package_import|resolve_package_import_target|resolve_with_oxc)$/u.test(
+      /^(?:read_package_manifest|package_version_for|resolve_meta|resolve_meta_from_bound_package|resolve_package_import|resolve_package_import_target|resolve_with_oxc|resolve_with_oxc_at)$/u.test(
         functionName,
       )
     ) {
@@ -9205,9 +9209,11 @@ function loaderClassification(surface) {
         "function:rust:package_root_in_node_modules",
         "function:rust:pick_package_import_path",
         "function:rust:resolve_meta",
+        "function:rust:resolve_meta_from_bound_package",
         "function:rust:resolve_package_import",
         "function:rust:resolve_package_import_target",
         "function:rust:resolve_with_oxc",
+        "function:rust:resolve_with_oxc_at",
       ]).has(name)
     ) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
@@ -9238,6 +9244,7 @@ function loaderClassification(surface) {
         "function:javascript:transformimportmeta",
         "function:javascript:wrapasyncmodule",
         "function:rust:build_builtin_registry",
+        "function:rust:is_builtin_specifier",
         "function:rust:module_kind_from_path",
       ]).has(name)
     ) {

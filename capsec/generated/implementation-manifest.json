@@ -121551,45 +121551,54 @@
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:crate::runtime_cache_dir:count-1",
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:std::env::temp_dir:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Err:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Ok:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-15",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:as_str:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:clone:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:directory:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:full_path:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_dir:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_file:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_none:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-4",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:module_type:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:name:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_json:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_version_for:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:parent:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:starts_with:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-5",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve_with_oxc_at:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or_else:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:unzip:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:version:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:with_context:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:PathBuf::from:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_js_downlevel:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_transpile:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::fs::read_to_string:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:module_type:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:name:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_json:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_version_for:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_js_downlevel:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:std::fs::read_to_string:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Err:count-4",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
@@ -121943,45 +121952,54 @@
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:method:push:count-2",
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:crate::runtime_cache_dir:count-1",
           "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:std::env::temp_dir:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Err:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Ok:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-15",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:call:let:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:as_str:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:clone:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:directory:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:exists:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:full_path:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_dir:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_file:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_none:count-3",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-4",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:module_type:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:name:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_json:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_version_for:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:parent:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:starts_with:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-5",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve_with_oxc_at:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or:count-3",
           "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or_else:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:unzip:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:version:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:method:with_context:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Path::new:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:PathBuf::from:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_js_downlevel:count-1",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_transpile:count-1",
           "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
-          "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::fs::read_to_string:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:join:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:map:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:module_type:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:name:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_json:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_version_for:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_js_downlevel:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:std::fs::read_to_string:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Err:count-4",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
           "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
@@ -122342,45 +122360,54 @@
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:method:push:count-2",
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:crate::runtime_cache_dir:count-1",
         "src/module_loader/mod.rs#resolve_transpile_cache_dir:external:qualified:std::env::temp_dir:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:call:Err:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:call:Ok:count-3",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-15",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:call:let:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:as_str:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:clone:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:directory:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:exists:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:full_path:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:call:Some:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:extension:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_absolute:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_dir:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_file:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:is_none:count-3",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-4",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:module_type:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:name:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_json:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:package_version_for:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:join:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:map:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:parent:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:starts_with:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-5",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:resolve_with_oxc_at:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_path_buf:count-3",
+        "src/module_loader/mod.rs#resolve_with_oxc:external:method:to_str:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or:count-3",
         "src/module_loader/mod.rs#resolve_with_oxc:external:method:unwrap_or_else:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:unzip:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:version:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:method:with_context:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Path::new:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:PathBuf::from:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_js_downlevel:count-1",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:Self::needs_transpile:count-1",
         "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::env::current_dir:count-2",
-        "src/module_loader/mod.rs#resolve_with_oxc:external:qualified:std::fs::read_to_string:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Err:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Ok:count-3",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:Some:count-14",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:call:let:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:as_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:clone:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:directory:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:exists:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:extension:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:full_path:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_absolute:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:is_none:count-3",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:join:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:map:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:module_type:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:name:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_json:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:package_version_for:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:resolve:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:starts_with:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_path_buf:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_str:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:to_string_lossy:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:unzip:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:version:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:method:with_context:count-2",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Path::new:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_js_downlevel:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:Self::needs_transpile:count-1",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:external:qualified:std::fs::read_to_string:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Err:count-4",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Ok:count-1",
         "src/module_loader/mod.rs#run_transpile_command:external:call:Some:count-1",
@@ -124438,6 +124465,37 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.is.builtin.specifier.036pq2l",
+      "observedKey": "loader:function:rust:is_builtin_specifier",
+      "branchId": "surface.loader.function.rust.is.builtin.specifier.036pq2l.main",
+      "enforcementBranchId": "surface.loader.function.rust.is.builtin.specifier.036pq2l.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "loader:function:rust:is_builtin_specifier"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#is_builtin_specifier"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#is_builtin_specifier"
+        ],
+        "terminalObservedKey": "loader:function:rust:is_builtin_specifier"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#is_builtin_specifier"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.rust.is.builtin.specifier.036pq2l.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.load.module.source.05yf8kp",
       "observedKey": "loader:function:rust:load_module_source",
       "branchId": "surface.loader.function.rust.load.module.source.05yf8kp.main",
@@ -124930,6 +124988,51 @@
       ]
     },
     {
+      "edgeId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
+      "observedKey": "loader:function:rust:resolve_meta_from_bound_package",
+      "branchId": "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_meta_from_bound_package"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_bound_package"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_meta_from_bound_package"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_meta_from_bound_package"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_meta_from_bound_package"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.metadata.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.meta.from.bound.package.09mp8sw.logical.on-disk.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.loader.function.rust.resolve.package.import.1ekm6ob",
       "observedKey": "loader:function:rust:resolve_package_import",
       "branchId": "surface.loader.function.rust.resolve.package.import.1ekm6ob.main",
@@ -125104,6 +125207,51 @@
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.0ihysp2.logical.on-disk.malformed",
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.0ihysp2.logical.on-disk.missing-attribution",
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.0ihysp2.logical.on-disk.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
+      "observedKey": "loader:function:rust:resolve_with_oxc_at",
+      "branchId": "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:function:rust:resolve_with_oxc_at"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_with_oxc_at"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_with_oxc_at"
+        ],
+        "terminalObservedKey": "loader:function:rust:resolve_with_oxc_at"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_with_oxc_at"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.metadata.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.0l5qa2m.logical.on-disk.wrong-principal"
       ]
     },
     {
@@ -129588,7 +129736,7 @@
       "edgeId": "surface.loader.operation.resolution.read.to.string.0ofi10b",
       "observedKey": "loader:operation:resolution:read_to_string",
       "branchId": "surface.loader.operation.resolution.read.to.string.0ofi10b.main",
-      "enforcementBranchId": "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn",
+      "enforcementBranchId": "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -129597,13 +129745,13 @@
         "proofSourceRefs": [
           "src/module_loader/mod.rs#load_module_source:operation:qualified:std::fs::read_to_string",
           "src/module_loader/mod.rs#read_package_manifest:operation:qualified:std::fs::read_to_string",
-          "src/module_loader/mod.rs#resolve_with_oxc:operation:qualified:std::fs::read_to_string",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:operation:qualified:std::fs::read_to_string",
           "src/module_loader/mod.rs#transpile_module:operation:qualified:std::fs::read_to_string"
         ],
         "sourceRefs": [
           "src/module_loader/mod.rs#load_module_source:operation:qualified:std::fs::read_to_string",
           "src/module_loader/mod.rs#read_package_manifest:operation:qualified:std::fs::read_to_string",
-          "src/module_loader/mod.rs#resolve_with_oxc:operation:qualified:std::fs::read_to_string",
+          "src/module_loader/mod.rs#resolve_with_oxc_at:operation:qualified:std::fs::read_to_string",
           "src/module_loader/mod.rs#transpile_module:operation:qualified:std::fs::read_to_string"
         ],
         "terminalObservedKey": "loader:operation:resolution:read_to_string"
@@ -129616,16 +129764,16 @@
       "sourceRefs": [
         "src/module_loader/mod.rs#load_module_source:operation:qualified:std::fs::read_to_string",
         "src/module_loader/mod.rs#read_package_manifest:operation:qualified:std::fs::read_to_string",
-        "src/module_loader/mod.rs#resolve_with_oxc:operation:qualified:std::fs::read_to_string",
+        "src/module_loader/mod.rs#resolve_with_oxc_at:operation:qualified:std::fs::read_to_string",
         "src/module_loader/mod.rs#transpile_module:operation:qualified:std::fs::read_to_string"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn.allow",
-        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn.deny",
-        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn.malformed",
-        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn.missing-attribution",
-        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0nepgcn.wrong-principal"
+        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p.allow",
+        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p.deny",
+        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p.malformed",
+        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p.missing-attribution",
+        "enforcement.rs.load.module.source.operation.qualified.std.fs.read.to.string.0p9r97p.wrong-principal"
       ]
     },
     {
@@ -133517,6 +133665,51 @@
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.06xkui3.logical.on-disk.malformed",
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.06xkui3.logical.on-disk.missing-attribution",
         "enforcement.src.module.loader.mod.rs.resolve.with.oxc.06xkui3.logical.on-disk.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.route.resolution.rust.resolve.with.oxc.at.0r82wa1",
+      "observedKey": "loader:route:resolution:rust:resolve_with_oxc_at",
+      "branchId": "surface.loader.route.resolution.rust.resolve.with.oxc.at.0r82wa1.main",
+      "enforcementBranchId": "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "loader:route:resolution:rust:resolve_with_oxc_at"
+        ],
+        "proofSourceRefs": [
+          "src/module_loader/mod.rs#resolve_with_oxc_at"
+        ],
+        "sourceRefs": [
+          "src/module_loader/mod.rs#resolve_with_oxc_at"
+        ],
+        "terminalObservedKey": "loader:route:resolution:rust:resolve_with_oxc_at"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#resolve_with_oxc_at"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.builtin-or-memory.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.builtin-or-memory.malformed-branch-facts",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.builtin-or-memory.no-effect",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.metadata.wrong-principal",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.allow",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.branch-selection",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.deny",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.malformed",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.missing-attribution",
+        "enforcement.src.module.loader.mod.rs.resolve.with.oxc.at.1y9p7xz.logical.on-disk.wrong-principal"
       ]
     },
     {
@@ -243406,6 +243599,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.test.fs.worker.throw.enqueue.0wbzzah",
+      "observedKey": "startup:env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
+      "branchId": "surface.startup.env.ibex.test.fs.worker.throw.enqueue.0wbzzah.main",
+      "enforcementBranchId": "surface.startup.env.ibex.test.fs.worker.throw.enqueue.0wbzzah.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_FS_WORKER_THROW_ENQUEUE:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.fs.worker.throw.enqueue.0wbzzah.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5",
       "observedKey": "startup:env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
       "branchId": "surface.startup.env.ibex.watch.shutdown.timeout.ms.1gk0ob5.main",
@@ -248500,10 +248724,12 @@
         "surface.loader.function.rust.pick.package.import.path.1aotxim",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
         "surface.loader.function.rust.resolve.package.import.1ekm6ob",
         "surface.loader.function.rust.resolve.package.import.target.12zd4rp",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
         "surface.loader.function.rust.resolve.with.oxc.1aoj58k",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.json.module.0vkkkgt",
         "surface.loader.native.resolve.06vmy8q",
@@ -248578,6 +248804,7 @@
         "surface.loader.route.resolution.rust.resolve.package.import.target.1o027hw",
         "surface.loader.route.resolution.rust.resolve.transpile.cache.dir.0zd8c1f",
         "surface.loader.route.resolution.rust.resolve.with.oxc.041lcln",
+        "surface.loader.route.resolution.rust.resolve.with.oxc.at.0r82wa1",
         "surface.loader.route.resolution.rust.run.transpile.command.1wu2vrl",
         "surface.loader.route.resolution.rust.run.transpile.subprocess.0ysj9ef",
         "surface.loader.route.resolution.rust.should.rebuild.output.1kba802",
@@ -248670,7 +248897,7 @@
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 303 observed effect edges."
+      "rationale": "Covered by 306 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -248792,10 +249019,12 @@
         "surface.loader.function.rust.pick.package.import.path.1aotxim",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.meta.1w33i7e",
+        "surface.loader.function.rust.resolve.meta.from.bound.package.1yrjt5b",
         "surface.loader.function.rust.resolve.package.import.1ekm6ob",
         "surface.loader.function.rust.resolve.package.import.target.12zd4rp",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
         "surface.loader.function.rust.resolve.with.oxc.1aoj58k",
+        "surface.loader.function.rust.resolve.with.oxc.at.1gn7cn0",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.json.module.0vkkkgt",
         "surface.loader.native.resolve.06vmy8q",
@@ -248835,6 +249064,7 @@
         "surface.loader.route.resolution.rust.resolve.package.import.16ouylg",
         "surface.loader.route.resolution.rust.resolve.package.import.target.1o027hw",
         "surface.loader.route.resolution.rust.resolve.with.oxc.041lcln",
+        "surface.loader.route.resolution.rust.resolve.with.oxc.at.0r82wa1",
         "surface.loader.route.resolution.rust.run.transpile.command.1wu2vrl",
         "surface.loader.route.resolution.rust.run.transpile.subprocess.0ysj9ef",
         "surface.loader.route.resolution.rust.transpile.module.0951i6i",
@@ -248885,7 +249115,7 @@
         "surface.startup.env.ibex.repo.root.0qhf2d7",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 208 observed effect edges."
+      "rationale": "Covered by 211 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -251905,54 +252135,54 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-bJj2ou0V63G6NhkWDFy_Hzw9AAj0wmaeZFOXJlpetQk"
+      "rawContentDigest": "sha256-NaeLRrlUmTSD1N-ZwIkD_HTLKD90X75t3htIZJJzSQk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-yZM7Zmg1LOFbfR7kOoEigt8ra37QiAiqX2FLr_xfG3U"
+      "rawContentDigest": "sha256--8pPG34YNh3nwD4D-smhi1DmmdwK0PCFVatK5F51dJo"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-TmDHrLREmLGGsVYOgjuIoQOinrNMWjaJ3ausdOqJRyw"
+      "rawContentDigest": "sha256-CRQ6yfKQfn2AYiYN7WAw9mUU6yl4_auQS5dK-wiutu0"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-hO8v6bkJqs1uWV1f5eLzAHT4mHmDNUcikt6_HW5OMI4"
+      "rawContentDigest": "sha256-rCdpy-8r1J_0M8jxpZXyCiYZZKrpLUjGAddk6380X6Q"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-BSeEFHI1rwFHjxz41fE6SP7RdVJ20kpBgsp0v8C4s5g"
+      "rawContentDigest": "sha256-d3-PTqdGJaqncupVuw_rlukV4s1Pge3Pr7Acbq3jW1Y"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-u3vbBgttd2prrt0vdI5uAG3LVFAYzmSc_BJ0oldgK3s"
+      "rawContentDigest": "sha256-VBkKAbc7aZdlsjFhuE0SSA4e8C-74KHwPDuYIywWoTw"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-0DhiwDJOpji9dIjxtoODfRDgObuLdfcY6gSte5xgG-U"
+      "rawContentDigest": "sha256-biCBHS7EZ6k0EJMnSTnHA3qoDhCKz91Qns6smtYbZdI"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-HUKFewRukmFSRA_98Fjv5ohGBUgFpnmRlODv88l11JU"
+      "rawContentDigest": "sha256-wKGpdcErRfb8fGevE4m4rSTVFLP6P-oVvRIDENAhH94"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-9q2RuLqR9FlaH_0p6lJ1kvscrYYF4RivAB07GcWnNpo"
+      "rawContentDigest": "sha256-lTgW3O14_HaQNMBDVC8TXRhVBcDWK0qXj4QZ6n4JtrE"
     }
   ],
   "counts": {
-    "observedReferences": 11164,
-    "logicalSurfaces": 6886,
-    "enforcementBranches": 7077,
-    "coverageEdges": 6886,
-    "targetCells": 6886
+    "observedReferences": 11178,
+    "logicalSurfaces": 6891,
+    "enforcementBranches": 7082,
+    "coverageEdges": 6891,
+    "targetCells": 6891
   }
 }
