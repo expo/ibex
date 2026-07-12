@@ -26,6 +26,8 @@ use std::os::raw::{c_char, c_int};
 /// reported as undefined at link time.
 fn ensure_runtime_linked() {
     let _ = std::hint::black_box(ibex_runtime::runtime_cache_dir as *const () as usize);
+    let _ =
+        std::hint::black_box(ibex_runtime::engine::ex_hermes_notify_callback as extern "C" fn());
 }
 
 extern "C" {

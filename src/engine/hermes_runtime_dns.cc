@@ -254,6 +254,28 @@ void loadDnsServers(std::vector<struct sockaddr_in>& servers, int& retransSec, i
   applyResOptionsTiming(retransSec, retries);
 }
 
+std::string systemDnsServersJson() {
+  std::vector<struct sockaddr_in> servers;
+  int retransSec = 0;
+  int retries = 0;
+  loadDnsServers(servers, retransSec, retries);
+  std::ostringstream json;
+  json << '[';
+  bool first = true;
+  for (const auto& server : servers) {
+    char address[INET_ADDRSTRLEN] = {};
+    if (!inet_ntop(AF_INET, &server.sin_addr, address, sizeof(address))) continue;
+    if (!first) json << ',';
+    first = false;
+    json << '"' << address;
+    uint16_t port = ntohs(server.sin_port);
+    if (port != 0 && port != 53) json << ':' << port;
+    json << '"';
+  }
+  json << ']';
+  return json.str();
+}
+
 // Encode a standard recursive query (header + single QD). Returns false for
 // names that cannot be encoded (empty/oversized labels). No search-domain
 // semantics — res_query (the previous transport) never applied them either.
@@ -997,6 +1019,27 @@ facebook::jsi::Value startDnsAsync(
 
 void installDnsHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
+  auto dnsGetServersFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactDnsGetServers"),
+      0,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+#if defined(EXACT_PLATFORM_ANDROID)
+        // Android's resolver is network-scoped and intentionally does not
+        // expose nameserver addresses through the NDK resolver API. Return an
+        // explicit empty diagnostic list; resolution itself uses the platform
+        // android_dns_query bridge and never treats this as custom authority.
+        const std::string servers = "[]";
+#else
+        const std::string servers = systemDnsServersJson();
+#endif
+        return facebook::jsi::String::createFromUtf8(runtime, servers);
+      });
+  rt.global().setProperty(rt, "__exactDnsGetServers", std::move(dnsGetServersFn));
+
   // --- DNS lookup ---
   // __exactDnsLookup(hostname, family) -> JSON string { address, family }
   // Synchronous/blocking. Retained for backward compatibility and as the

@@ -39,6 +39,12 @@ jobs:
       - name: Validate Cargo metadata
         run: cargo metadata --no-deps --format-version 1 > /tmp/ibex-cargo-metadata.json
 
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Audit Rust dependencies
+        run: cargo audit --deny warnings
+
       # The product-neutral semantic core has no Hermes dependency, so its
       # security contract can and should run in hermetic preflight CI.
       # @ref LLP 0021#wp2--implement-the-typed-policy-and-decision-core

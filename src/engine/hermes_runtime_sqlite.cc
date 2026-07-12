@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <mutex>
+#include <sstream>
 #include <unordered_map>
 
 extern "C" void ex_host_free_string(char* value);
@@ -327,6 +328,128 @@ uint64_t extractJsonHandle(const char* json) {
   return sawDigit ? handle : 0;
 }
 
+std::string sqliteBase64Encode(const uint8_t* data, size_t length) {
+  static constexpr char alphabet[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string out;
+  out.reserve(((length + 2) / 3) * 4);
+  for (size_t i = 0; i < length; i += 3) {
+    uint32_t chunk = static_cast<uint32_t>(data[i]) << 16;
+    if (i + 1 < length) {
+      chunk |= static_cast<uint32_t>(data[i + 1]) << 8;
+    }
+    if (i + 2 < length) {
+      chunk |= static_cast<uint32_t>(data[i + 2]);
+    }
+    out.push_back(alphabet[(chunk >> 18) & 0x3f]);
+    out.push_back(alphabet[(chunk >> 12) & 0x3f]);
+    out.push_back(i + 1 < length ? alphabet[(chunk >> 6) & 0x3f] : '=');
+    out.push_back(i + 2 < length ? alphabet[chunk & 0x3f] : '=');
+  }
+  return out;
+}
+
+bool sqliteBase64Decode(const std::string& input, std::vector<uint8_t>& output) {
+  auto decode = [](unsigned char ch) -> int {
+    if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+    if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+    if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+    if (ch == '+') return 62;
+    if (ch == '/') return 63;
+    return -1;
+  };
+  if (input.size() % 4 != 0) return false;
+  output.clear();
+  output.reserve((input.size() / 4) * 3);
+  for (size_t i = 0; i < input.size(); i += 4) {
+    int a = decode(static_cast<unsigned char>(input[i]));
+    int b = decode(static_cast<unsigned char>(input[i + 1]));
+    int c = input[i + 2] == '=' ? -2 : decode(static_cast<unsigned char>(input[i + 2]));
+    int d = input[i + 3] == '=' ? -2 : decode(static_cast<unsigned char>(input[i + 3]));
+    if (a < 0 || b < 0 || c == -1 || d == -1 || (c == -2 && d != -2) ||
+        ((c == -2 || d == -2) && i + 4 != input.size())) {
+      return false;
+    }
+    uint32_t chunk = (static_cast<uint32_t>(a) << 18) |
+        (static_cast<uint32_t>(b) << 12) |
+        (static_cast<uint32_t>(c < 0 ? 0 : c) << 6) |
+        static_cast<uint32_t>(d < 0 ? 0 : d);
+    output.push_back(static_cast<uint8_t>((chunk >> 16) & 0xff));
+    if (c >= 0) output.push_back(static_cast<uint8_t>((chunk >> 8) & 0xff));
+    if (d >= 0) output.push_back(static_cast<uint8_t>(chunk & 0xff));
+  }
+  return true;
+}
+
+std::string stringifySqliteBindingValue(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  if (value.isObject()) {
+    auto object = value.asObject(runtime);
+    const uint8_t* data = nullptr;
+    size_t length = 0;
+    if (extractArrayBufferView(runtime, object, data, length)) {
+      // JSON.stringify turns Uint8Array into an object with numeric keys. That
+      // silently stored IndexedDB's binary envelope as TEXT. Carry typed bytes
+      // over the C ABI in an unambiguous tagged scalar; Rust decodes the tag to
+      // a real SQLite BLOB before executing the statement.
+      return std::string("{\"$ibexSqliteBindingV1\":{\"kind\":\"blob\",\"base64\":") +
+          jsonString(sqliteBase64Encode(data, length)) + "}}";
+    }
+  }
+  // Wrap every ordinary value too. Otherwise a user object shaped like the
+  // private blob tag could forge the transport discriminant and silently
+  // change from the legacy object binding semantics to BLOB.
+  return std::string("{\"$ibexSqliteBindingV1\":{\"kind\":\"value\",\"value\":") +
+      stringifyValue(runtime, value) + "}}";
+}
+
+std::string stringifySqliteBindings(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  if (!value.isObject()) {
+    return stringifySqliteBindingValue(runtime, value);
+  }
+
+  auto object = value.asObject(runtime);
+  const uint8_t* directData = nullptr;
+  size_t directLength = 0;
+  if (extractArrayBufferView(runtime, object, directData, directLength)) {
+    return stringifySqliteBindingValue(runtime, value);
+  }
+
+  std::ostringstream out;
+  if (object.isArray(runtime)) {
+    auto array = object.asArray(runtime);
+    out << '[';
+    for (size_t i = 0; i < array.size(runtime); ++i) {
+      if (i != 0) {
+        out << ',';
+      }
+      out << stringifySqliteBindingValue(runtime, array.getValueAtIndex(runtime, i));
+    }
+    out << ']';
+    return out.str();
+  }
+
+  auto names = object.getPropertyNames(runtime);
+  out << '{';
+  for (size_t i = 0; i < names.size(runtime); ++i) {
+    auto nameValue = names.getValueAtIndex(runtime, i);
+    if (!nameValue.isString()) {
+      continue;
+    }
+    if (out.tellp() > 1) {
+      out << ',';
+    }
+    auto name = nameValue.asString(runtime).utf8(runtime);
+    out << jsonString(name) << ':'
+        << stringifySqliteBindingValue(runtime, object.getProperty(runtime, name.c_str()));
+  }
+  out << '}';
+  return out.str();
+}
+
 } // namespace
 
 void exactCleanupRuntimeSqlite(uint64_t runtimeNonce) {
@@ -366,15 +489,25 @@ static bool sqliteColumnTypeIsBlob(
 
 static facebook::jsi::Value convertSqliteBlobValue(
     facebook::jsi::Runtime& runtime,
-    facebook::jsi::Value value) {
+    facebook::jsi::Value value,
+    bool allowLegacyNumberArray) {
   if (!value.isObject()) {
     return value;
   }
 
   auto object = value.asObject(runtime);
   if (!object.isArray(runtime)) {
-    return value;
+    auto encoded = object.getProperty(runtime, "$ibexSqliteBlobResultBase64");
+    if (!encoded.isString()) return value;
+    std::vector<uint8_t> bytes;
+    if (!sqliteBase64Decode(encoded.asString(runtime).utf8(runtime), bytes)) return value;
+    return makeUint8Array(runtime, std::move(bytes));
   }
+
+  // Current Rust results use the private base64 envelope above. Number arrays
+  // are accepted only for legacy results whose SQLite column type is BLOB;
+  // treating every user array as bytes would corrupt ordinary JSON values.
+  if (!allowLegacyNumberArray) return value;
 
   auto array = object.asArray(runtime);
   auto length = array.size(runtime);
@@ -408,13 +541,12 @@ static void convertSqliteBlobColumnsInRowObject(
     }
     auto property = key.asString(runtime).utf8(runtime);
     auto type = columnTypesByName.find(property);
-    if (type == columnTypesByName.end() || type->second != "BLOB") {
-      continue;
-    }
+    bool legacyBlob = type != columnTypesByName.end() && type->second == "BLOB";
     row.setProperty(
         runtime,
         property.c_str(),
-        convertSqliteBlobValue(runtime, row.getProperty(runtime, property.c_str())));
+        convertSqliteBlobValue(
+            runtime, row.getProperty(runtime, property.c_str()), legacyBlob));
   }
 }
 
@@ -422,15 +554,15 @@ static void convertSqliteBlobColumnsInRowArray(
     facebook::jsi::Runtime& runtime,
     facebook::jsi::Array& row,
     const facebook::jsi::Array& columnTypes) {
-  auto limit = std::min(row.size(runtime), columnTypes.size(runtime));
+  auto limit = row.size(runtime);
   for (size_t i = 0; i < limit; ++i) {
-    if (!sqliteColumnTypeIsBlob(runtime, columnTypes, i)) {
-      continue;
-    }
+    bool legacyBlob = i < columnTypes.size(runtime) &&
+        sqliteColumnTypeIsBlob(runtime, columnTypes, i);
     row.setValueAtIndex(
         runtime,
         i,
-        convertSqliteBlobValue(runtime, row.getValueAtIndex(runtime, i)));
+        convertSqliteBlobValue(
+            runtime, row.getValueAtIndex(runtime, i), legacyBlob));
   }
 }
 
@@ -698,7 +830,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
+          bindingsJson = stringifySqliteBindings(runtime, args[1]);
           bindings = bindingsJson.c_str();
         }
         char* json = ex_host_sqlite_all(statementHandle, bindings);
@@ -723,7 +855,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
+          bindingsJson = stringifySqliteBindings(runtime, args[1]);
           bindings = bindingsJson.c_str();
         }
         char* json = ex_host_sqlite_get(statementHandle, bindings);
@@ -748,7 +880,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
+          bindingsJson = stringifySqliteBindings(runtime, args[1]);
           bindings = bindingsJson.c_str();
         }
         char* json = ex_host_sqlite_run(statementHandle, bindings);
@@ -773,7 +905,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[1]);
+          bindingsJson = stringifySqliteBindings(runtime, args[1]);
           bindings = bindingsJson.c_str();
         }
         char* json = ex_host_sqlite_values(statementHandle, bindings);
@@ -799,7 +931,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         std::string bindingsJson;
         const char* bindings = nullptr;
         if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
-          bindingsJson = stringifyValue(runtime, args[2]);
+          bindingsJson = stringifySqliteBindings(runtime, args[2]);
           bindings = bindingsJson.c_str();
         }
         char* json = ex_host_sqlite_exec(handle, sql.c_str(), bindings);

@@ -8,6 +8,7 @@ use crate::cdp::{self, BreakpointInfo, CdpBackend, DebugCommand, ScriptInfo};
 use crate::subprocess::{output_with_timeout, timeout_from_env, DEFAULT_HERMESC_TIMEOUT_MS};
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::ffi::{CStr, CString};
 use std::path::{Path, PathBuf};
@@ -138,40 +139,27 @@ fn callback_notify() -> &'static Arc<Notify> {
     CALLBACK_NOTIFY.get_or_init(|| Arc::new(Notify::new()))
 }
 
-#[cfg(feature = "cli-notify")]
-#[no_mangle]
-pub extern "C" fn ex_hermes_notify_callback() {
-    callback_notify().notify_one();
-}
-
-// (ENG-23234) Default-profile wake-up. Without `cli-notify` the library's
-// ex_hermes_notify_callback (engine/mod.rs) is linked instead of the tokio
-// override above, and the parked select! below never woke: a cross-thread
+// (ENG-23234/ENG-24265) The library owns the sole
+// ex_hermes_notify_callback symbol in every feature profile. The CLI
+// registers this runtime hook to bridge it to tokio; a cross-thread
 // callback push (fetch/WS completion, HTTP request — and now signal
 // dispatch) sat queued until the next due timer expired, so an external
-// SIGINT to a runtime parked on a long setTimeout was not delivered until
-// that timer fired. The library impl invokes a registerable host wake hook
-// on every push; registering one that signals CALLBACK_NOTIFY gives the
-// default profile the same zero-latency wake as `cli-notify` while keeping
-// LLP 0010's feature split (exactly one ex_hermes_notify_callback symbol).
-#[cfg(not(feature = "cli-notify"))]
-extern "C" fn default_profile_wake_hook(_context: *mut std::ffi::c_void) {
+// SIGINT to a parked runtime was not delivered until that timer fired.
+// Runtime registration avoids mutually-exclusive global definitions and is
+// link-safe for library, CLI, unit, integration, and all-feature builds.
+extern "C" fn cli_wake_hook(_context: *mut std::ffi::c_void) {
     callback_notify().notify_one();
 }
 
-#[cfg(not(feature = "cli-notify"))]
 fn register_default_profile_wake_hook() {
     static REGISTERED: OnceLock<()> = OnceLock::new();
     REGISTERED.get_or_init(|| {
         ibex_runtime::engine::ex_hermes_set_host_wake_hook(
-            Some(default_profile_wake_hook),
+            Some(cli_wake_hook),
             std::ptr::null_mut(),
         );
     });
 }
-
-#[cfg(feature = "cli-notify")]
-fn register_default_profile_wake_hook() {}
 
 async fn wait_for_callback_or_sleep(duration: std::time::Duration) {
     tokio::select! {
@@ -411,12 +399,12 @@ fn target_arch_to_hermes_dir(arch: &str) -> &str {
     }
 }
 
-fn local_hermes_tool_candidates(root: &Path, tool: &str) -> Vec<PathBuf> {
+fn local_hermes_tool_candidates(tools: &Path, tool: &str) -> Vec<PathBuf> {
     let target_os = std::env::consts::OS;
     let target_arch = target_arch_to_hermes_dir(std::env::consts::ARCH);
-    let tools = root.join("tools").join("hermes");
     let mut candidates = vec![tools.join(tool)];
     if target_os == "windows" {
+        candidates.push(tools.join(format!("{tool}.exe")));
         candidates.push(
             tools
                 .join(format!("windows-{target_arch}"))
@@ -429,72 +417,185 @@ fn local_hermes_tool_candidates(root: &Path, tool: &str) -> Vec<PathBuf> {
     candidates
 }
 
-/// Find the Hermes binary
-pub(crate) fn find_hermes_binary() -> Result<PathBuf> {
-    for root in workspace_roots() {
-        for path in local_hermes_tool_candidates(&root, "hermes") {
-            if path.exists() {
-                return Ok(path);
+/// Directories from which production may execute an external Hermes tool.
+/// An explicit operator-selected directory takes precedence. Otherwise only
+/// the Ibex build checkout and executable-relative installation locations are
+/// considered; the application cwd, its ancestors, PATH, and HOME are never
+/// executable discovery roots (ENG-24254).
+fn trusted_hermes_tool_roots() -> Result<Vec<PathBuf>> {
+    if let Some(raw) = std::env::var_os("IBEX_HERMES_TOOL_DIR")
+        .or_else(|| std::env::var_os("EXACT_HERMES_TOOL_DIR"))
+    {
+        let root = PathBuf::from(raw);
+        if !root.is_absolute() {
+            anyhow::bail!("IBEX_HERMES_TOOL_DIR must be an absolute directory");
+        }
+        let canonical = std::fs::canonicalize(&root).with_context(|| {
+            format!(
+                "Failed to authenticate explicit Hermes tool directory {}",
+                root.display()
+            )
+        })?;
+        if !canonical.is_dir() {
+            anyhow::bail!(
+                "IBEX_HERMES_TOOL_DIR is not a directory: {}",
+                canonical.display()
+            );
+        }
+        return Ok(vec![canonical]);
+    }
+
+    let mut roots = Vec::new();
+    let build_tools = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tools")
+        .join("hermes");
+    if let Ok(root) = std::fs::canonicalize(build_tools) {
+        roots.push(root);
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(bin_dir) = exe.parent() {
+            for candidate in [
+                bin_dir.join("hermes-tools"),
+                bin_dir.join("../libexec/ibex"),
+            ] {
+                if let Ok(root) = std::fs::canonicalize(candidate) {
+                    if !roots.contains(&root) {
+                        roots.push(root);
+                    }
+                }
             }
         }
     }
+    Ok(roots)
+}
 
-    // Check common locations
-    let candidates = [
-        PathBuf::from("./tools/hermes/hermes"),
-        PathBuf::from("../tools/hermes/hermes"),
-        PathBuf::from("../../tools/hermes/hermes"),
-        dirs::home_dir()
-            .map(|h| h.join(".cache/ibex/hermes/hermes"))
-            .unwrap_or_default(),
-    ];
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            return Ok(candidate.clone());
+fn discover_hermes_tool_in_roots(tool: &str, roots: &[PathBuf]) -> Result<PathBuf> {
+    let mut matches = Vec::new();
+    for root in roots {
+        let canonical_root = std::fs::canonicalize(root).with_context(|| {
+            format!("Failed to authenticate Hermes tool root {}", root.display())
+        })?;
+        for candidate in local_hermes_tool_candidates(&canonical_root, tool) {
+            if !candidate.is_file() {
+                continue;
+            }
+            let canonical = std::fs::canonicalize(&candidate).with_context(|| {
+                format!("Failed to authenticate Hermes tool {}", candidate.display())
+            })?;
+            if !canonical.starts_with(&canonical_root) {
+                anyhow::bail!(
+                    "Hermes tool {} escapes authenticated root {}",
+                    canonical.display(),
+                    canonical_root.display()
+                );
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if std::fs::metadata(&canonical)?.permissions().mode() & 0o111 == 0 {
+                    anyhow::bail!("Hermes tool is not executable: {}", canonical.display());
+                }
+            }
+            if !matches.contains(&canonical) {
+                matches.push(canonical);
+            }
         }
     }
-
-    // Try PATH
-    if let Ok(path) = which::which("hermes") {
-        return Ok(path);
+    match matches.as_slice() {
+        [path] => Ok(path.clone()),
+        [] => anyhow::bail!(
+            "Hermes {tool} not found in an authenticated install location. Run ./scripts/download-hermes.sh or set IBEX_HERMES_TOOL_DIR to an absolute trusted directory"
+        ),
+        paths => anyhow::bail!(
+            "Ambiguous Hermes {tool} installation; refusing to choose among: {}",
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
+}
 
-    anyhow::bail!(
-        "Hermes binary not found. Please run:\n  \
-        ./scripts/download-hermes.sh\n\
-        or install Hermes to your PATH"
-    )
+/// Find the Hermes binary
+pub(crate) fn find_hermes_binary() -> Result<PathBuf> {
+    discover_hermes_tool_in_roots("hermes", &trusted_hermes_tool_roots()?)
 }
 
 /// Find the hermesc compiler
 fn find_hermesc_binary() -> Result<PathBuf> {
-    for root in workspace_roots() {
-        for path in local_hermes_tool_candidates(&root, "hermesc") {
-            if path.exists() {
-                return Ok(path);
-            }
+    discover_hermes_tool_in_roots("hermesc", &trusted_hermes_tool_roots()?)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HermesToolIdentity {
+    path: PathBuf,
+    sha256: String,
+    length: u64,
+    modified_nanos: u128,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl HermesToolIdentity {
+    fn capture(path: &Path) -> Result<Self> {
+        let path = std::fs::canonicalize(path)
+            .with_context(|| format!("Failed to authenticate Hermes tool {}", path.display()))?;
+        let bytes = std::fs::read(&path)
+            .with_context(|| format!("Failed to hash Hermes tool {}", path.display()))?;
+        let metadata = std::fs::metadata(&path)?;
+        let modified_nanos = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            path,
+            sha256: format!("{:x}", Sha256::digest(&bytes)),
+            length: metadata.len(),
+            modified_nanos,
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+        })
+    }
+
+    fn verify_selected_path(&self) -> Result<()> {
+        let current = Self::capture(&self.path)?;
+        if &current != self {
+            anyhow::bail!(
+                "Hermes tool changed after selection: {}",
+                self.path.display()
+            );
         }
+        Ok(())
     }
 
-    // Check common locations
-    let candidates = [
-        PathBuf::from("./tools/hermes/hermesc"),
-        PathBuf::from("../tools/hermes/hermesc"),
-        PathBuf::from("../../tools/hermes/hermesc"),
-    ];
-
-    for candidate in &candidates {
-        if candidate.exists() {
-            return Ok(candidate.clone());
-        }
+    fn cache_fingerprint(&self) -> String {
+        #[cfg(unix)]
+        let object = format!("{}:{}", self.device, self.inode);
+        #[cfg(not(unix))]
+        let object = String::new();
+        format!(
+            "{}\0{}\0{}\0{}\0{}",
+            self.path.display(),
+            self.sha256,
+            self.length,
+            self.modified_nanos,
+            object
+        )
     }
+}
 
-    if let Ok(path) = which::which("hermesc") {
-        return Ok(path);
-    }
-
-    anyhow::bail!("Hermes compiler (hermesc) not found")
+fn find_hermesc_identity() -> Result<HermesToolIdentity> {
+    HermesToolIdentity::capture(&find_hermesc_binary()?)
 }
 
 /// Find the runtime bundle
@@ -966,6 +1067,9 @@ impl HermesEngine {
                 unsafe { ex_hermes_free_string(out) };
                 msg
             };
+            if status == 2 {
+                return Err(anyhow::Error::new(BytecodeLoadError(message)));
+            }
             // Try to apply source map to rewrite stack traces
             let message = Self::apply_source_map(&message, source_url);
             anyhow::bail!(message);
@@ -1235,6 +1339,14 @@ impl HermesEngine {
         if source_url != "<eval>" && source_url != "<module-loader>" {
             let map_path = format!("{}.map", source_url);
             if Path::new(&map_path).exists() {
+                if Path::new(source_url)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    == Some("hbc")
+                    && !bytecode_source_map_is_fresh(Path::new(source_url), Path::new(&map_path))
+                {
+                    return message.to_string();
+                }
                 if let Some(sm) = super::sourcemap::SourceMap::load_cached(Path::new(&map_path)) {
                     return super::sourcemap::rewrite_error(message, &sm, source_url);
                 }
@@ -1259,6 +1371,15 @@ impl HermesEngine {
                     }
                     let map_file = format!("{}.map", filename);
                     if Path::new(&map_file).exists() {
+                        if Path::new(filename).extension().and_then(|ext| ext.to_str())
+                            == Some("hbc")
+                            && !bytecode_source_map_is_fresh(
+                                Path::new(filename),
+                                Path::new(&map_file),
+                            )
+                        {
+                            continue;
+                        }
                         bundle_path = Some(filename.to_string());
                         break;
                     }
@@ -1399,7 +1520,6 @@ impl HermesEngine {
                                 if !bytecode_versions_compatible() {
                                     return;
                                 }
-                                let tmp_out = hbc_out.with_extension("hbc.tmp");
                                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                                     .enable_all()
                                     .build()
@@ -1407,17 +1527,11 @@ impl HermesEngine {
                                     return;
                                 };
 
-                                let compiled = runtime.block_on(async {
-                                    compile_to_bytecode(&js_path.to_string_lossy(), &tmp_out, None)
+                                let _ = runtime.block_on(async {
+                                    compile_to_bytecode(&js_path.to_string_lossy(), &hbc_out, None)
                                         .await
-                                        .is_ok()
+                                        .ok()
                                 });
-
-                                if compiled {
-                                    let _ = std::fs::rename(&tmp_out, &hbc_out);
-                                } else {
-                                    let _ = std::fs::remove_file(&tmp_out);
-                                }
                             });
                             self.track_bytecode_compile_task(compile_task);
                         }
@@ -1740,9 +1854,15 @@ pub fn get_version() -> Result<String> {
 }
 
 fn get_hermesc_version() -> Result<String> {
-    let hermesc_path = find_hermesc_binary()?;
+    let identity = find_hermesc_identity()?;
 
-    let output = std::process::Command::new(&hermesc_path)
+    let version = get_hermesc_version_at(&identity.path)?;
+    identity.verify_selected_path()?;
+    Ok(version)
+}
+
+fn get_hermesc_version_at(path: &Path) -> Result<String> {
+    let output = std::process::Command::new(path)
         .arg("--version")
         .output()
         .context("Failed to get hermesc version")?;
@@ -1827,34 +1947,285 @@ fn repl_idle_wait(
 }
 
 fn temporary_output_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let file_name = path
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("ibex-bytecode");
-    path.with_file_name(format!(".{file_name}.tmp"))
+    let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    path.with_file_name(format!(".{file_name}.{}.{seq}.tmp", std::process::id()))
 }
 
-/// Classify an eval failure from a bytecode (`.hbc`) buffer as a LOAD failure
-/// — the buffer was rejected before any of the program ran — as opposed to the
-/// program executing and throwing. Callers may recover from a load failure by
-/// deleting the cached bytecode and re-running the JS source; an eval throw
-/// must propagate as-is, or every side effect the program already performed
-/// would run a second time (ENG-23484). Matches the three surfaces
-/// `ex_hermes_eval` can report a rejected buffer through:
-///  * `Wrong bytecode version …` — Hermes' version-mismatch reason;
-///  * `Bytecode sanity check failed: …` — hermes_runtime.cc's prefix on
-///    `hermesBytecodeSanityCheck` rejections;
-///  * `Compiling JS failed: …` — `prepareJavaScript` rejecting the buffer
-///    inside `evaluateJavaScript` (builds without the sanity check).
-///
-/// A thrown JS error whose message text happens to contain one of these
-/// markers is misclassified and falls back to source — that narrow false
-/// positive costs exactly what every error cost before this classification
-/// existed.
-pub(crate) fn is_bytecode_load_error(message: &str) -> bool {
-    message.contains("Wrong bytecode version")
-        || message.contains("Bytecode sanity check failed")
-        || message.contains("Compiling JS failed")
+struct CachePublishLock(std::fs::File);
+
+impl Drop for CachePublishLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+async fn acquire_cache_publish_lock(output: &Path) -> Result<CachePublishLock> {
+    let lock_path = PathBuf::from(format!("{}.lock", output.display()));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&lock_path)
+        .with_context(|| format!("Failed to open bytecode cache lock {}", lock_path.display()))?;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(CachePublishLock(file)),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    anyhow::bail!(
+                        "Timed out waiting to publish bytecode cache {}",
+                        output.display()
+                    );
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(error).with_context(|| {
+                    format!("Failed to lock bytecode cache {}", output.display())
+                });
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct BytecodeLoadError(String);
+
+impl std::fmt::Display for BytecodeLoadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BytecodeLoadError {}
+
+/// A cached entry may be retried from source only when the native engine
+/// returned its dedicated pre-execution bytecode-rejection status. Exception
+/// messages are user-controlled and are never classification input.
+pub(crate) fn is_bytecode_load_error(error: &anyhow::Error) -> bool {
+    error.is::<BytecodeLoadError>()
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BytecodeArtifactManifest {
+    version: u32,
+    source_path: String,
+    source_sha256: String,
+    bytecode_sha256: String,
+    source_map_path: Option<String>,
+    source_map_sha256: Option<String>,
+    toolchain_identity: String,
+}
+
+fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.meta.json", bytecode.display()))
+}
+
+fn sha256_path_sync(path: &Path) -> Option<String> {
+    std::fs::read(path)
+        .ok()
+        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn bytecode_source_map_is_fresh(bytecode: &Path, source_map: &Path) -> bool {
+    let Ok(raw) = std::fs::read(bytecode_manifest_path(bytecode)) else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_slice::<BytecodeArtifactManifest>(&raw) else {
+        return false;
+    };
+    if manifest.version != 2 || manifest.toolchain_identity != bytecode_cache_identity() {
+        return false;
+    }
+    let expected_map = absolute_path(source_map);
+    if manifest.source_map_path.as_deref() != Some(expected_map.to_string_lossy().as_ref()) {
+        return false;
+    }
+    matches!(
+        (
+            sha256_path_sync(Path::new(&manifest.source_path)),
+            sha256_path_sync(bytecode),
+            sha256_path_sync(source_map),
+            manifest.source_map_sha256.as_deref(),
+        ),
+        (Some(source), Some(bytecode_digest), Some(map), Some(expected_map_digest))
+            if source == manifest.source_sha256
+                && bytecode_digest == manifest.bytecode_sha256
+                && map == expected_map_digest
+    )
+}
+
+fn absolute_path(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    }
+}
+
+async fn sha256_path(path: &Path) -> Result<String> {
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(tokio::fs::read(path).await?)
+    ))
+}
+
+pub(crate) fn bytecode_cache_identity() -> String {
+    let compiler = find_hermesc_identity().ok();
+    bytecode_cache_identity_for(compiler.as_ref())
+}
+
+fn bytecode_cache_identity_for(compiler: Option<&HermesToolIdentity>) -> String {
+    // TODO(ENG-24254/runtime-context integration): replace this external
+    // runtime-version probe with the loaded embedded-engine attestation once
+    // the runtime-context batch lands. The compiler half is already bound to
+    // the canonical selected file object and full binary digest.
+    let runtime = get_version().unwrap_or_else(|_| "runtime-version-unavailable".into());
+    let compiler = compiler
+        .map(HermesToolIdentity::cache_fingerprint)
+        .unwrap_or_else(|| "compiler-identity-unavailable".into());
+    format!(
+        "{:x}",
+        Sha256::digest(format!("{runtime}\0{compiler}").as_bytes())
+    )
+}
+
+pub(crate) async fn bytecode_artifact_is_fresh(source: &Path, bytecode: &Path) -> bool {
+    let Ok(raw) = tokio::fs::read(bytecode_manifest_path(bytecode)).await else {
+        return false;
+    };
+    let Ok(manifest) = serde_json::from_slice::<BytecodeArtifactManifest>(&raw) else {
+        return false;
+    };
+    if manifest.version != 2 || manifest.toolchain_identity != bytecode_cache_identity() {
+        return false;
+    }
+    let source_path = std::fs::canonicalize(source).unwrap_or_else(|_| absolute_path(source));
+    let recorded_source = std::fs::canonicalize(&manifest.source_path)
+        .unwrap_or_else(|_| absolute_path(Path::new(&manifest.source_path)));
+    if source_path != recorded_source {
+        return false;
+    }
+    if manifest.source_map_path.is_some() || manifest.source_map_sha256.is_some() {
+        return false;
+    }
+    matches!(
+        (sha256_path(source).await, sha256_path(bytecode).await),
+        (Ok(source_digest), Ok(bytecode_digest))
+            if source_digest == manifest.source_sha256
+                && bytecode_digest == manifest.bytecode_sha256
+    )
+}
+
+pub(crate) async fn bytecode_source_path(bytecode: &Path) -> Option<PathBuf> {
+    let raw = tokio::fs::read(bytecode_manifest_path(bytecode))
+        .await
+        .ok()?;
+    let manifest = serde_json::from_slice::<BytecodeArtifactManifest>(&raw).ok()?;
+    (manifest.version == 2).then(|| PathBuf::from(manifest.source_path))
+}
+
+async fn replace_file_atomically(staged: &Path, final_path: &Path) -> Result<()> {
+    #[cfg(not(windows))]
+    {
+        tokio::fs::rename(staged, final_path).await?;
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        extern "system" {
+            fn MoveFileExW(existing: *const u16, replacement: *const u16, flags: u32) -> i32;
+        }
+        const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+        const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+        let mut from: Vec<u16> = staged.as_os_str().encode_wide().collect();
+        let mut to: Vec<u16> = final_path.as_os_str().encode_wide().collect();
+        from.push(0);
+        to.push(0);
+        let ok = unsafe {
+            MoveFileExW(
+                from.as_ptr(),
+                to.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        if ok == 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(())
+    }
+}
+
+struct TemporaryCompileDirectory(PathBuf);
+
+impl Drop for TemporaryCompileDirectory {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+fn rewrite_staged_source_map(
+    source_map: &Path,
+    staged_source: &Path,
+    original_source: &Path,
+) -> Result<()> {
+    let bytes = std::fs::read(source_map)?;
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+        .with_context(|| format!("Invalid hermesc source map {}", source_map.display()))?;
+    if let Some(sources) = value
+        .get_mut("sources")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        let staged = staged_source.to_string_lossy();
+        let staged_name = staged_source.file_name().and_then(|name| name.to_str());
+        let original = absolute_path(original_source)
+            .to_string_lossy()
+            .into_owned();
+        for source in sources {
+            let Some(text) = source.as_str() else {
+                continue;
+            };
+            if text == staged || staged_name.is_some_and(|name| text == name) {
+                *source = serde_json::Value::String(original.clone());
+            }
+        }
+    }
+    std::fs::write(source_map, serde_json::to_vec(&value)?)?;
+    Ok(())
+}
+
+async fn wait_for_hbc_test_barrier(name: &str, output: &Path) -> Result<()> {
+    let Ok(dir) = std::env::var("IBEX_TEST_HBC_COMPILE_BARRIER") else {
+        return Ok(());
+    };
+    let dir = PathBuf::from(dir);
+    tokio::fs::create_dir_all(&dir).await?;
+    if let Ok(target) = tokio::fs::read_to_string(dir.join("target")).await {
+        if target != output.to_string_lossy() {
+            return Ok(());
+        }
+    }
+    tokio::fs::write(dir.join(format!("{name}.ready")), []).await?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !dir.join(format!("{name}.release")).exists() {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for HBC {name} test barrier");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    Ok(())
 }
 
 /// Compile a JavaScript file to Hermes bytecode
@@ -1863,6 +2234,38 @@ pub async fn compile_to_bytecode(
     output: &std::path::Path,
     source_map: Option<&std::path::Path>,
 ) -> Result<()> {
+    let input_path = PathBuf::from(input);
+    let source = tokio::fs::read(&input_path)
+        .await
+        .with_context(|| format!("Failed to read bytecode source {input}"))?;
+    compile_source_to_bytecode(&input_path, &source, output, source_map).await
+}
+
+pub(crate) async fn compile_source_to_bytecode(
+    input_path: &Path,
+    source: &[u8],
+    output: &Path,
+    source_map: Option<&Path>,
+) -> Result<()> {
+    let compiler_identity = find_hermesc_identity()?;
+    compile_source_to_bytecode_with_compiler(
+        input_path,
+        source,
+        output,
+        source_map,
+        &compiler_identity,
+    )
+    .await
+}
+
+async fn compile_source_to_bytecode_with_compiler(
+    input_path: &Path,
+    source: &[u8],
+    output: &Path,
+    source_map: Option<&Path>,
+    compiler_identity: &HermesToolIdentity,
+) -> Result<()> {
+    let _publish_lock = acquire_cache_publish_lock(output).await?;
     // Gate on the `HBC bytecode version:` line both tools print — the version
     // that actually determines whether the runtime can load hermesc's output.
     // Comparing an arbitrary token of the multi-line `--version` output
@@ -1873,8 +2276,38 @@ pub async fn compile_to_bytecode(
     // before: a genuinely incompatible buffer is caught at load time and falls
     // back to source (`is_bytecode_load_error`, ENG-23484).
     // @ref LLP 0005#bytecode-precompilation-hermesc — run-time entry cache gates on HBC version
+    let compile_dir = temporary_output_path(&output.with_extension("compile"));
+    tokio::fs::create_dir(&compile_dir)
+        .await
+        .with_context(|| format!("Failed to create compile stage {}", compile_dir.display()))?;
+    let _compile_dir = TemporaryCompileDirectory(compile_dir.clone());
+    let compiler_name = if cfg!(windows) {
+        "hermesc.exe"
+    } else {
+        "hermesc"
+    };
+    let staged_compiler = compile_dir.join(compiler_name);
+    tokio::fs::copy(&compiler_identity.path, &staged_compiler).await?;
+    tokio::fs::set_permissions(
+        &staged_compiler,
+        std::fs::metadata(&compiler_identity.path)?.permissions(),
+    )
+    .await?;
+    if sha256_path(&staged_compiler).await? != compiler_identity.sha256 {
+        anyhow::bail!("Hermes compiler changed while staging authenticated binary");
+    }
+    compiler_identity.verify_selected_path()?;
+
+    let source_name = input_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("entry.js"));
+    let staged_input = compile_dir.join(source_name);
+    tokio::fs::write(&staged_input, source).await?;
+    let source_digest = format!("{:x}", Sha256::digest(source));
+    wait_for_hbc_test_barrier("input-staged", output).await?;
+
     let runtime_hbc = get_version().ok().and_then(|v| extract_hbc_version(&v));
-    let compiler_hbc = get_hermesc_version()
+    let compiler_hbc = get_hermesc_version_at(&staged_compiler)
         .ok()
         .and_then(|v| extract_hbc_version(&v));
     if let (Some(runtime), Some(compiler)) = (runtime_hbc, compiler_hbc) {
@@ -1887,7 +2320,6 @@ pub async fn compile_to_bytecode(
         }
     }
 
-    let hermesc_path = find_hermesc_binary()?;
     let timeout = std::env::var("IBEX_HERMESC_TIMEOUT_MS")
         .ok()
         .map(|value| crate::subprocess::parse_timeout_ms(Some(&value), DEFAULT_HERMESC_TIMEOUT_MS))
@@ -1897,7 +2329,7 @@ pub async fn compile_to_bytecode(
     let temp_output = temporary_output_path(output);
     let temp_source_map = source_map.map(temporary_output_path);
 
-    let mut cmd = Command::new(&hermesc_path);
+    let mut cmd = Command::new(&staged_compiler);
     cmd.arg("-emit-binary");
     cmd.arg("-out");
     cmd.arg(&temp_output);
@@ -1907,7 +2339,7 @@ pub async fn compile_to_bytecode(
         cmd.arg(map_path);
     }
 
-    cmd.arg(input);
+    cmd.arg(&staged_input);
 
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -1925,23 +2357,53 @@ pub async fn compile_to_bytecode(
         anyhow::bail!("Bytecode compilation failed:\n{}", stderr);
     }
 
-    if output.exists() {
-        let _ = tokio::fs::remove_file(output).await;
+    wait_for_hbc_test_barrier("compile-finished", output).await?;
+    compiler_identity.verify_selected_path()?;
+    if let Some(map_path) = temp_source_map.as_ref() {
+        rewrite_staged_source_map(map_path, &staged_input, input_path)?;
     }
-    tokio::fs::rename(&temp_output, output)
+
+    let source_path =
+        std::fs::canonicalize(&input_path).unwrap_or_else(|_| absolute_path(&input_path));
+    let source_map_path = source_map.map(absolute_path);
+    let source_map_sha256 = match temp_source_map.as_ref() {
+        Some(path) => Some(sha256_path(path).await?),
+        None => None,
+    };
+    let manifest = BytecodeArtifactManifest {
+        version: 2,
+        source_path: source_path.to_string_lossy().into_owned(),
+        source_sha256: source_digest,
+        bytecode_sha256: sha256_path(&temp_output).await?,
+        source_map_path: source_map_path.map(|path| path.to_string_lossy().into_owned()),
+        source_map_sha256,
+        toolchain_identity: bytecode_cache_identity_for(Some(compiler_identity)),
+    };
+    let final_manifest = bytecode_manifest_path(output);
+    let temp_manifest = temporary_output_path(&final_manifest);
+    tokio::fs::write(&temp_manifest, serde_json::to_vec(&manifest)?)
         .await
-        .with_context(|| format!("Failed to publish bytecode cache {}", output.display()))?;
+        .with_context(|| format!("Failed to stage {}", final_manifest.display()))?;
+
+    // The manifest is the completion marker for the HBC+map unit. Invalidate
+    // the old marker before replacing either member, then publish a new marker
+    // only after both digest-bound files are in place.
+    tokio::fs::remove_file(&final_manifest).await.ok();
 
     if let (Some(final_map), Some(temp_map)) = (source_map, temp_source_map.as_ref()) {
-        if final_map.exists() {
-            let _ = tokio::fs::remove_file(final_map).await;
-        }
-        tokio::fs::rename(temp_map, final_map)
+        replace_file_atomically(temp_map, final_map)
             .await
             .with_context(|| {
                 format!("Failed to publish source map cache {}", final_map.display())
             })?;
     }
+
+    replace_file_atomically(&temp_output, output)
+        .await
+        .with_context(|| format!("Failed to publish bytecode cache {}", output.display()))?;
+    replace_file_atomically(&temp_manifest, &final_manifest)
+        .await
+        .with_context(|| format!("Failed to publish {}", final_manifest.display()))?;
 
     Ok(())
 }
@@ -2061,6 +2523,36 @@ mod tests {
         // in CI environments without Hermes
         let result = find_hermes_binary();
         println!("Hermes binary search result: {:?}", result);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hermes_tool_discovery_rejects_ambiguity_and_root_escape() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let root =
+            std::env::temp_dir().join(format!("ibex-hermes-tool-roots-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let first = root.join("first");
+        let second = root.join("second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+        for directory in [&first, &second] {
+            let tool = directory.join("hermes");
+            fs::write(&tool, "#!/bin/sh\nexit 0\n").unwrap();
+            let mut permissions = fs::metadata(&tool).unwrap().permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&tool, permissions).unwrap();
+        }
+        let ambiguous =
+            discover_hermes_tool_in_roots("hermes", &[first.clone(), second.clone()]).unwrap_err();
+        assert!(ambiguous.to_string().contains("Ambiguous"));
+
+        fs::remove_file(first.join("hermes")).unwrap();
+        symlink(second.join("hermes"), first.join("hermes")).unwrap();
+        let escaped = discover_hermes_tool_in_roots("hermes", &[first]).unwrap_err();
+        assert!(escaped.to_string().contains("escapes authenticated root"));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -2197,6 +2689,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn compiler_identity_changes_for_same_version_binary_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let tool = dir.path().join("hermesc");
+        fs::write(&tool, b"same version binary A").unwrap();
+        let first = HermesToolIdentity::capture(&tool).unwrap();
+        fs::write(&tool, b"same version binary B").unwrap();
+        let second = HermesToolIdentity::capture(&tool).unwrap();
+        assert_ne!(first.sha256, second.sha256);
+        assert_ne!(first.cache_fingerprint(), second.cache_fingerprint());
+        assert!(first.verify_selected_path().is_err());
+    }
+
     /// The live gate must agree with the parsed fixtures: with the checked-in
     /// toolchain present, `compile_to_bytecode`'s version gate compares the
     /// two tools' real `--version` outputs via `extract_hbc_version` and must
@@ -2219,6 +2724,157 @@ mod tests {
             runtime, compiler,
             "checked-in hermes/hermesc HBC versions must match"
         );
+    }
+
+    #[tokio::test]
+    async fn bytecode_and_source_map_manifest_rejects_mixed_or_tampered_unit() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("entry.js");
+        let bytecode = dir.path().join("entry.hbc");
+        let source_map = dir.path().join("entry.hbc.map");
+        fs::write(&source, "function answer() { return 42; }\nanswer();\n").unwrap();
+        if compile_to_bytecode(&source.to_string_lossy(), &bytecode, Some(&source_map))
+            .await
+            .is_err()
+        {
+            return; // optional checked-in toolchain in minimal environments
+        }
+        assert!(bytecode.is_file());
+        assert!(source_map.is_file());
+        assert!(bytecode_manifest_path(&bytecode).is_file());
+        assert!(bytecode_source_map_is_fresh(&bytecode, &source_map));
+
+        let mut tampered = fs::read(&source_map).unwrap();
+        if let Some(first) = tampered.first_mut() {
+            *first ^= 1;
+        }
+        fs::write(&source_map, tampered).unwrap();
+        assert!(!bytecode_source_map_is_fresh(&bytecode, &source_map));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bytecode_compile_uses_staged_source_across_two_barrier_aba_mutations() {
+        use std::os::unix::fs::PermissionsExt;
+
+        struct EnvGuard;
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                std::env::remove_var("IBEX_TEST_HBC_COMPILE_BARRIER");
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let compiler = dir.path().join("hermesc");
+        let compiler_script = "#!/bin/sh\n\
+if [ \"$1\" = \"--version\" ]; then\n\
+  printf 'HBC bytecode version: 99\\n'\n\
+  exit 0\n\
+fi\n\
+out=''\n\
+input=''\n\
+while [ \"$#\" -gt 0 ]; do\n\
+  case \"$1\" in\n\
+    -out) shift; out=\"$1\" ;;\n\
+    -emit-binary) ;;\n\
+    *) input=\"$1\" ;;\n\
+  esac\n\
+  shift\n\
+done\n\
+cp \"$input\" \"$out\"\n";
+        fs::write(&compiler, compiler_script).unwrap();
+        let mut permissions = fs::metadata(&compiler).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&compiler, permissions).unwrap();
+        let identity = HermesToolIdentity::capture(&compiler).unwrap();
+
+        let source_path = dir.path().join("entry.js");
+        let output = dir.path().join("entry.hbc");
+        let source_a = b"console.log('A');\n".to_vec();
+        let source_b = b"console.log('B');\n";
+        fs::write(&source_path, &source_a).unwrap();
+        let barrier = dir.path().join("barrier");
+        fs::create_dir(&barrier).unwrap();
+        fs::write(barrier.join("target"), output.to_string_lossy().as_bytes()).unwrap();
+        std::env::set_var("IBEX_TEST_HBC_COMPILE_BARRIER", &barrier);
+        let _env = EnvGuard;
+
+        let task_source = source_path.clone();
+        let task_output = output.clone();
+        let compile = tokio::spawn(async move {
+            compile_source_to_bytecode_with_compiler(
+                &task_source,
+                &source_a,
+                &task_output,
+                None,
+                &identity,
+            )
+            .await
+        });
+
+        async fn wait_for(path: &Path) {
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while !path.exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+
+        wait_for(&barrier.join("input-staged.ready")).await;
+        fs::write(&source_path, source_b).unwrap();
+        fs::write(&source_path, b"console.log('A');\n").unwrap();
+        fs::write(barrier.join("input-staged.release"), []).unwrap();
+
+        wait_for(&barrier.join("compile-finished.ready")).await;
+        fs::write(&source_path, source_b).unwrap();
+        fs::write(&source_path, b"console.log('A');\n").unwrap();
+        fs::write(barrier.join("compile-finished.release"), []).unwrap();
+
+        compile.await.unwrap().unwrap();
+        assert_eq!(fs::read(&output).unwrap(), b"console.log('A');\n");
+        let manifest: BytecodeArtifactManifest =
+            serde_json::from_slice(&fs::read(bytecode_manifest_path(&output)).unwrap()).unwrap();
+        assert_eq!(
+            manifest.source_sha256,
+            format!("{:x}", Sha256::digest(b"console.log('A');\n"))
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bytecode_publish_lock_never_steals_from_slow_live_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("entry.hbc");
+        let first = acquire_cache_publish_lock(&output).await.unwrap();
+        let second_output = output.clone();
+        let second = tokio::spawn(async move { acquire_cache_publish_lock(&second_output).await });
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            !second.is_finished(),
+            "a live writer lock must not be stolen based on elapsed time"
+        );
+        drop(first);
+        tokio::time::timeout(std::time::Duration::from_secs(2), second)
+            .await
+            .expect("OS lock should release when its owner drops")
+            .unwrap()
+            .unwrap();
+    }
+
+    #[test]
+    fn bytecode_retry_classification_is_structured_not_message_based() {
+        let user_throw =
+            anyhow::anyhow!("Compiling JS failed: user-controlled throw after SIDE_EFFECT");
+        assert!(
+            !is_bytecode_load_error(&user_throw),
+            "user exception text must never authorize a source retry"
+        );
+
+        let native_rejection = anyhow::Error::new(BytecodeLoadError(
+            "Bytecode sanity check failed: wrong version".to_string(),
+        ));
+        assert!(is_bytecode_load_error(&native_rejection));
     }
 
     #[test]

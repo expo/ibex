@@ -125,7 +125,7 @@ var _dnsRecordTypes = {
   CAA: 257
 };
 var _dnsRecordTypeNames = {};
-var _dnsNextMessageId = 1;
+var _dnsActiveMessageIds = Object.create(null);
 for (var _dnsRecordType in _dnsRecordTypes) {
   _dnsRecordTypeNames[_dnsRecordTypes[_dnsRecordType]] = _dnsRecordType;
 }
@@ -183,10 +183,30 @@ function _getResolverSyscall(rrtype, isReverseLookup) {
   return 'query' + rrtype;
 }
 
-function _nextDnsMessageId() {
-  _dnsNextMessageId = (_dnsNextMessageId + 1) & 0xFFFF;
-  if (_dnsNextMessageId === 0) _dnsNextMessageId = 1;
-  return _dnsNextMessageId;
+function _validateResolveRrtype(rrtype) {
+  if (!/^(?:A|AAAA|ANY|CAA|CNAME|MX|NAPTR|NS|PTR|SOA|SRV|TXT)$/.test(rrtype)) {
+    var typeErr = new TypeError('The argument \'rrtype\' is invalid. Received ' + rrtype);
+    typeErr.code = 'ERR_INVALID_ARG_VALUE';
+    throw typeErr;
+  }
+  return rrtype;
+}
+
+function _allocateDnsMessageId() {
+  var crypto = require('crypto');
+  for (var attempt = 0; attempt < 256; attempt++) {
+    var bytes = crypto.randomBytes(2);
+    var id = ((bytes[0] << 8) | bytes[1]) & 0xFFFF;
+    if (id !== 0 && !_dnsActiveMessageIds[id]) {
+      _dnsActiveMessageIds[id] = true;
+      return id;
+    }
+  }
+  throw _createDnsError('EBADQUERY', 'query', undefined, 'DNS transaction ID space exhausted');
+}
+
+function _releaseDnsMessageId(id) {
+  if (id) delete _dnsActiveMessageIds[id];
 }
 
 function _encodeDnsName(name) {
@@ -463,28 +483,50 @@ var _dnsRcodeErrorCodes = {
   5: 'EREFUSED'
 };
 
-function _parseDnsResponsePacket(buffer, expectedMessageId) {
+function _normalizeDnsQuestionName(name) {
+  return String(name || '').replace(/\.$/, '').toLowerCase();
+}
+
+function _parseDnsResponsePacket(
+  buffer,
+  expectedMessageId,
+  expectedQuestionName,
+  expectedQuestionType
+) {
   if (!buffer || buffer.length < 12) throw new Error('Truncated DNS packet');
   if (buffer.readUInt16BE(0) !== expectedMessageId) return null;
   var flags = buffer.readUInt16BE(2);
+  // A query packet, non-standard opcode, or truncated UDP response is never a
+  // valid answer to this request. ID-only matching is insufficient because a
+  // 16-bit transaction id is observable and forgeable.
+  if ((flags & 0x8000) === 0 || (flags & 0x7800) !== 0 || (flags & 0x0200) !== 0) {
+    throw new Error('Invalid DNS response flags');
+  }
   var rcode = flags & 0x000F;
+  var questionCount = buffer.readUInt16BE(4);
+  if (questionCount !== 1) return null;
+  var answerCount = buffer.readUInt16BE(6);
+  var authorityCount = buffer.readUInt16BE(8);
+  var additionalCount = buffer.readUInt16BE(10);
+  var offset = 12;
+  var i;
+  var question = _readDnsName(buffer, offset, 0);
+  offset = question.nextOffset;
+  if (offset + 4 > buffer.length) throw new Error('Truncated DNS question');
+  var questionType = buffer.readUInt16BE(offset);
+  var questionClass = buffer.readUInt16BE(offset + 2);
+  offset += 4;
+  if (_normalizeDnsQuestionName(question.name) !==
+        _normalizeDnsQuestionName(expectedQuestionName) ||
+      questionType !== expectedQuestionType || questionClass !== 1) {
+    return null;
+  }
   if (rcode !== 0) {
     // Carry the rcode as a Node dns error code so custom-server queries
     // surface ESERVFAIL/EREFUSED/... instead of a flattened EBADRESP. (ENG-23506)
     var rcodeErr = new Error('DNS query failed with rcode ' + rcode);
     rcodeErr.code = _dnsRcodeErrorCodes[rcode] || 'EBADRESP';
     throw rcodeErr;
-  }
-  var questionCount = buffer.readUInt16BE(4);
-  var answerCount = buffer.readUInt16BE(6);
-  var authorityCount = buffer.readUInt16BE(8);
-  var additionalCount = buffer.readUInt16BE(10);
-  var offset = 12;
-  var i;
-  for (i = 0; i < questionCount; i++) {
-    var question = _readDnsName(buffer, offset, 0);
-    offset = question.nextOffset + 4;
-    if (offset > buffer.length) throw new Error('Truncated DNS question');
   }
   var answers = [];
   for (i = 0; i < answerCount; i++) {
@@ -642,6 +684,8 @@ function _isEmptyDnsResult(result) {
 function _finishResolverQuery(query, err, result) {
   if (!query || query.finished) return;
   query.finished = true;
+  _releaseDnsMessageId(query.id);
+  query.id = 0;
   if (query.timer) {
     clearTimeout(query.timer);
     query.timer = null;
@@ -674,49 +718,36 @@ function _getResolverAttemptTimeout(resolver, attemptIndex) {
 
 function _sendResolverAttempt(query) {
   if (query.finished) return;
+  _releaseDnsMessageId(query.id);
+  query.id = 0;
+  try {
+    query.id = _allocateDnsMessageId();
+    query.packet = _buildDnsQueryPacket(query.id, query.domain, query.rrtype);
+  } catch (idErr) {
+    _finishResolverQuery(query, idErr);
+    return;
+  }
   query.attempt += 1;
-  if (query.timer) clearTimeout(query.timer);
-  var timeout = _getResolverAttemptTimeout(query.resolver, query.attempt - 1);
-  query.timer = setTimeout(function() {
-    if (query.finished) return;
-    if (query.attempt < query.maxAttempts) {
-      _sendResolverAttempt(query);
-      return;
-    }
-    _finishResolverQuery(query, _createDnsError('ETIMEOUT', query.syscall, query.hostname));
-  }, timeout);
-  query.socket.send(query.packet, query.server.port, query.server.address, function(sendErr) {
-    if (sendErr) _finishResolverQuery(query, _createDnsError(sendErr.code || 'EBADRESP', query.syscall, query.hostname, sendErr.message));
-  });
-}
-
-function _startResolverQuery(resolver, hostname, rrtype, options, callback, isReverseLookup) {
+  query.server = query.servers[(query.startServer + query.attempt - 1) % query.servers.length];
+  if (query.socket) {
+    query.socket.removeAllListeners('message');
+    query.socket.removeAllListeners('error');
+    try { query.socket.close(); } catch (_) {}
+    query.socket = null;
+  }
   var dgram = require('dgram');
-  var serverList = resolver._servers && resolver._servers.length ? resolver._servers : _servers;
-  var server = _parseServer(serverList[0]);
-  var query = {
-    resolver: resolver,
-    hostname: hostname,
-    rrtype: rrtype,
-    options: options || {},
-    callback: callback,
-    server: server,
-    syscall: _getResolverSyscall(rrtype, isReverseLookup),
-    maxAttempts: typeof resolver._tries === 'number' && resolver._tries > 0 ? resolver._tries : 1,
-    attempt: 0,
-    finished: false
-  };
-  var domain = isReverseLookup ? _toReverseLookupName(hostname) : hostname;
-  query.id = _nextDnsMessageId();
-  query.packet = _buildDnsQueryPacket(query.id, domain, rrtype);
-  query.socket = dgram.createSocket(server.family === 6 ? 'udp6' : 'udp4');
-  resolver._activeQueries.push(query);
-  resolver._pendingQueries = (resolver._pendingQueries || 0) + 1;
-  query.socket.on('message', function(msg) {
-    if (query.finished) return;
+  var socket = dgram.createSocket(query.server.family === 6 ? 'udp6' : 'udp4');
+  query.socket = socket;
+  socket.on('message', function(msg) {
+    if (query.finished || query.socket !== socket) return;
     var parsed;
     try {
-      parsed = _parseDnsResponsePacket(msg, query.id);
+      parsed = _parseDnsResponsePacket(
+        msg,
+        query.id,
+        query.domain,
+        _dnsRecordTypes[query.rrtype]
+      );
     } catch (packetErr) {
       _finishResolverQuery(query, _createDnsError(
         _extractDnsErrorCode(packetErr) || 'EBADRESP', query.syscall, query.hostname));
@@ -725,7 +756,12 @@ function _startResolverQuery(resolver, hostname, rrtype, options, callback, isRe
     if (!parsed) return;
     var result;
     try {
-      result = _extractResolverResult(rrtype, parsed.answers, query.options, isReverseLookup);
+      result = _extractResolverResult(
+        query.rrtype,
+        parsed.answers,
+        query.options,
+        query.isReverseLookup
+      );
     } catch (_) {
       _finishResolverQuery(query, _createDnsError('EBADRESP', query.syscall, query.hostname));
       return;
@@ -736,18 +772,103 @@ function _startResolverQuery(resolver, hostname, rrtype, options, callback, isRe
     }
     _finishResolverQuery(query, null, result);
   });
-  query.socket.on('error', function(err) {
-    if (query.finished) return;
-    _finishResolverQuery(query, _createDnsError(err && err.code ? err.code : 'EBADRESP', query.syscall, query.hostname, err && err.message ? err.message : String(err)));
-  });
-  var localAddress = server.family === 6 ? resolver._localAddressIPv6 : resolver._localAddressIPv4;
-  if (localAddress) {
-    query.socket.bind(0, localAddress, function() {
+  socket.on('error', function(err) {
+    if (query.finished || query.socket !== socket) return;
+    if (query.attempt < query.maxAttempts) {
       _sendResolverAttempt(query);
+      return;
+    }
+    _finishResolverQuery(query, _createDnsError(
+      err && err.code ? err.code : 'EBADRESP',
+      query.syscall,
+      query.hostname,
+      err && err.message ? err.message : String(err)
+    ));
+  });
+  if (query.timer) clearTimeout(query.timer);
+  var timeout = _getResolverAttemptTimeout(query.resolver, query.attempt - 1);
+  query.timer = setTimeout(function() {
+    if (query.finished) return;
+    if (query.attempt < query.maxAttempts) {
+      _sendResolverAttempt(query);
+      return;
+    }
+    _finishResolverQuery(query, _createDnsError('ETIMEOUT', query.syscall, query.hostname));
+  }, timeout);
+  function send() {
+    if (query.finished || query.socket !== socket) return;
+    socket.send(query.packet, function(sendErr) {
+      if (!sendErr || query.finished || query.socket !== socket) return;
+      if (query.attempt < query.maxAttempts) {
+        _sendResolverAttempt(query);
+        return;
+      }
+      _finishResolverQuery(query, _createDnsError(
+        sendErr.code || 'EBADRESP', query.syscall, query.hostname, sendErr.message));
     });
-  } else {
-    _sendResolverAttempt(query);
   }
+  var localAddress = query.server.family === 6
+    ? query.resolver._localAddressIPv6
+    : query.resolver._localAddressIPv4;
+  function connect() {
+    if (query.finished || query.socket !== socket) return;
+    try {
+      socket.connect(query.server.port, query.server.address, send);
+    } catch (connectErr) {
+      if (query.attempt < query.maxAttempts) _sendResolverAttempt(query);
+      else _finishResolverQuery(query, _createDnsError(
+        connectErr.code || 'EBADRESP', query.syscall, query.hostname, connectErr.message));
+    }
+  }
+  if (localAddress) socket.bind(0, localAddress, connect);
+  else connect();
+}
+
+function _startResolverQuery(resolver, hostname, rrtype, options, callback, isReverseLookup) {
+  _validateResolveRrtype(rrtype);
+  var serverList = resolver._usesCustomServers
+    ? (resolver._servers || [])
+    : (resolver._servers && resolver._servers.length ? resolver._servers : _servers);
+  var servers = [];
+  for (var serverIndex = 0; serverIndex < serverList.length; serverIndex++) {
+    servers.push(_parseServer(serverList[serverIndex]));
+  }
+  if (servers.length === 0) {
+    var noServers = _createDnsError(
+      'ENOTSUP',
+      _getResolverSyscall(rrtype, isReverseLookup),
+      hostname,
+      'custom DNS resolver has no configured servers'
+    );
+    if (typeof callback === 'function') setTimeout(function() { callback(noServers); }, 0);
+    return;
+  }
+  var startServer = typeof resolver._nextServerIndex === 'number'
+    ? resolver._nextServerIndex % servers.length
+    : 0;
+  resolver._nextServerIndex = (startServer + 1) % servers.length;
+  var server = servers[startServer];
+  var query = {
+    resolver: resolver,
+    hostname: hostname,
+    rrtype: rrtype,
+    options: options || {},
+    callback: callback,
+    server: server,
+    servers: servers,
+    startServer: startServer,
+    isReverseLookup: !!isReverseLookup,
+    syscall: _getResolverSyscall(rrtype, isReverseLookup),
+    maxAttempts: typeof resolver._tries === 'number' && resolver._tries > 0 ? resolver._tries : 4,
+    attempt: 0,
+    finished: false
+  };
+  query.domain = isReverseLookup ? _toReverseLookupName(hostname) : hostname;
+  query.id = 0;
+  query.packet = null;
+  resolver._activeQueries.push(query);
+  resolver._pendingQueries = (resolver._pendingQueries || 0) + 1;
+  _sendResolverAttempt(query);
 }
 
 function _cancelResolverQueries(resolver) {
@@ -826,7 +947,8 @@ function _makeModuleResolver() {
     _activeQueries: [],
     _usesCustomServers: true,
     _timeout: 5000,
-    _tries: 1,
+    _tries: 4,
+    _nextServerIndex: 0,
     _localAddressIPv4: undefined,
     _localAddressIPv6: undefined
   };
@@ -838,7 +960,9 @@ function _moduleResolverQuery(hostname, rrtype, options, callback, isReverseLook
     if (callback) setTimeout(function() { callback(err); }, 0);
     return;
   }
-  return _startResolverQuery(_makeModuleResolver(), hostname, rrtype, options || {}, callback, !!isReverseLookup);
+  if (!_moduleResolver) _moduleResolver = _makeModuleResolver();
+  _moduleResolver._servers = _servers.slice();
+  return _startResolverQuery(_moduleResolver, hostname, rrtype, options || {}, callback, !!isReverseLookup);
 }
 
 function resolve(hostname, rrtype, callback) {
@@ -846,6 +970,8 @@ function resolve(hostname, rrtype, callback) {
     callback = rrtype;
     rrtype = 'A';
   }
+  rrtype = rrtype || 'A';
+  _validateResolveRrtype(rrtype);
   if (_moduleUsesCustomServers) {
     return _moduleResolverQuery(hostname, rrtype, {}, callback, false);
   }
@@ -870,7 +996,7 @@ function resolve(hostname, rrtype, callback) {
 
 function resolve4(hostname, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
-  if (_moduleUsesCustomServers || (options && options.ttl)) {
+  if (_moduleUsesCustomServers) {
     return _moduleResolverQuery(hostname, 'A', options || {}, callback, false);
   }
   lookup(hostname, { family: 4, all: true }, function(err, results) {
@@ -883,7 +1009,7 @@ function resolve4(hostname, options, callback) {
 
 function resolve6(hostname, options, callback) {
   if (typeof options === 'function') { callback = options; options = {}; }
-  if (_moduleUsesCustomServers || (options && options.ttl)) {
+  if (_moduleUsesCustomServers) {
     return _moduleResolverQuery(hostname, 'AAAA', options || {}, callback, false);
   }
   lookup(hostname, { family: 6, all: true }, function(err, results) {
@@ -1096,6 +1222,12 @@ function _orderLookupResults(results, options) {
 }
 
 function _readSystemServers() {
+  if (typeof __exactDnsGetServers === 'function') {
+    try {
+      var nativeServers = JSON.parse(__exactDnsGetServers());
+      if (Array.isArray(nativeServers)) return nativeServers;
+    } catch (_) {}
+  }
   try {
     var fs = require('fs');
     var text = fs.readFileSync('/etc/resolv.conf', 'utf8');
@@ -1113,11 +1245,21 @@ function _readSystemServers() {
 }
 
 // Server management.
-var _servers = _readSystemServers();
+var _servers = [];
+var _systemServersLoaded = false;
 var _moduleUsesCustomServers = false;
+var _moduleResolver = null;
+
+function _getSystemServers() {
+  if (!_systemServersLoaded) {
+    _servers = _readSystemServers();
+    _systemServersLoaded = true;
+  }
+  return _servers;
+}
 
 function getServers() {
-  return _servers.slice();
+  return (_moduleUsesCustomServers ? _servers : _getSystemServers()).slice();
 }
 
 function setServers(servers) {
@@ -1135,7 +1277,12 @@ function setServers(servers) {
     }
   }
   _servers = servers.slice();
+  _systemServersLoaded = true;
   _moduleUsesCustomServers = true;
+  if (_moduleResolver) {
+    _moduleResolver._servers = _servers.slice();
+    _moduleResolver._nextServerIndex = 0;
+  }
 }
 
 var _serviceNamesByPort = {
@@ -1196,10 +1343,11 @@ function resolveAny(hostname, callback) {
 // Resolver class
 function Resolver(options) {
   if (!(this instanceof Resolver)) return new Resolver(options);
-  this._servers = _servers.slice();
+  this._servers = _getSystemServers().slice();
   this._pendingQueries = 0;
   this._activeQueries = [];
   this._usesCustomServers = false;
+  this._nextServerIndex = 0;
   this._localAddressIPv4 = undefined;
   this._localAddressIPv6 = undefined;
   var self = this;
@@ -1278,6 +1426,7 @@ Resolver.prototype.setServers = function(servers) {
   }
   this._servers = servers.slice();
   this._usesCustomServers = true;
+  this._nextServerIndex = 0;
   if (this._handle && typeof this._handle.setServers === 'function') {
     this._handle.setServers(this._servers);
   }

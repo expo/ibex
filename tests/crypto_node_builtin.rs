@@ -213,6 +213,44 @@ async fn sign_and_verify_with_bad_pem_key_throw_instead_of_hmac() {
     );
 }
 
+/// ENG-24283: binary PKCS#8/SPKI keys are asymmetric even when supplied
+/// directly as Buffer/TypedArray values. Unsupported DER/JWK imports must fail
+/// explicitly; they must never fall through to the legacy HMAC compatibility
+/// path. A merely 0x30-prefixed non-DER secret remains a symmetric key.
+#[tokio::test]
+async fn der_and_jwk_keys_never_fall_through_to_hmac() {
+    let js = format!(
+        "(function(){{ var c = require('crypto'); var fs = require('fs'); \
+           function pemDer(path) {{ \
+             var pem = fs.readFileSync(path, 'utf8'); \
+             return Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\\s/g, ''), 'base64'); \
+           }} \
+           var priv = pemDer({priv:?}); var pub = pemDer({pub:?}); \
+           var data = Buffer.from('not-an-hmac'); var outcomes = []; \
+           function throws(fn) {{ try {{ fn(); return false; }} catch (_) {{ return true; }} }} \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, priv); }})); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, pub, Buffer.alloc(32)); }})); \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, {{key: priv, format:'der', type:'pkcs8'}}); }})); \
+           var importedPriv = c.createPrivateKey({{key: priv, format:'der', type:'pkcs8'}}); \
+           var importedPub = c.createPublicKey({{key: pub, format:'der', type:'spki'}}); \
+           outcomes.push(throws(function() {{ c.sign('sha256', data, importedPriv); }})); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, importedPub, Buffer.alloc(32)); }})); \
+           var jwk = c.createPublicKey({{key: {{kty:'RSA', n:'AQAB', e:'AQAB'}}, format:'jwk'}}); \
+           outcomes.push(throws(function() {{ c.verify('sha256', data, jwk, Buffer.alloc(32)); }})); \
+           var secret = Buffer.alloc(200, 7); secret[0]=0x30; secret[1]=0x82; secret[2]=0xff; secret[3]=0xff; \
+           var mac = c.sign('sha256', data, secret); \
+           outcomes.push(c.verify('sha256', data, secret, mac)); \
+           return JSON.stringify(outcomes); }})()",
+        priv = fixture_path("rsa2048_priv.pem"),
+        pub = fixture_path("rsa2048_pub.pem"),
+    );
+    assert_eq!(
+        eval(&js).await,
+        "[true,true,true,true,true,true,true]",
+        "DER/imported keys must fail closed while a non-DER binary secret remains usable"
+    );
+}
+
 /// ENG-23129 finding 2: an unsupported hash must throw instead of silently
 /// signing SHA-256; sha224 must either be honestly unsupported (SecKey) or
 /// produce a real SHA-224 signature (OpenSSL) — never a SHA-256 one.
@@ -340,6 +378,32 @@ async fn ecdh_class_agrees_or_throws_honestly() {
         result, r#"{"agree":true}"#,
         "two ECDH peers must derive the same shared secret (random-bytes fallback would disagree): {result}"
     );
+}
+
+/// ENG-24255: Ibex has no vetted native KEM backend. The compatibility
+/// surface must be an explicit unsupported operation, never a deterministic
+/// "shared secret" derivable from public ciphertext (and therefore identical
+/// for two unrelated private keys).
+#[tokio::test]
+async fn kem_surface_fails_closed_until_a_vetted_backend_exists() {
+    let js = "(function(){ var c = require('crypto'); \
+        function code(fn) { try { fn(); return 'no-throw'; } catch (e) { return e.code + '|' + e.message; } } \
+        var ciphertext = Buffer.alloc(32, 7); \
+        return JSON.stringify({ \
+          encapsulate: code(function(){ c.encapsulate({ kty:'OKP', crv:'X25519', x:'AA' }); }), \
+          privateA: code(function(){ c.decapsulate({ kty:'OKP', crv:'X25519', d:'AA' }, ciphertext); }), \
+          privateB: code(function(){ c.decapsulate({ kty:'OKP', crv:'X25519', d:'BB' }, ciphertext); }) \
+        }); })()";
+    let result = eval(js).await;
+    let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
+    for field in ["encapsulate", "privateA", "privateB"] {
+        let message = parsed[field].as_str().unwrap_or("");
+        assert!(
+            message.starts_with("ERR_CRYPTO_KEM_NOT_SUPPORTED|")
+                && message.contains("not supported"),
+            "{field} must fail with the explicit unsupported error: {result}"
+        );
+    }
 }
 
 /// ENG-23301: classic-DH peer public values outside [2, p-2] must be rejected

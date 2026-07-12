@@ -433,7 +433,14 @@ export class Request extends BodyMixin {
         const encodedBody = encoded.body instanceof Uint8Array
           ? encoded.body
           : new Uint8Array(encoded.body);
-        this._bodyBuffer = encodedBody.buffer as ArrayBuffer;
+        this._bodyBuffer = encodedBody.buffer.slice(
+          encodedBody.byteOffset,
+          encodedBody.byteOffset + encodedBody.byteLength,
+        ) as ArrayBuffer;
+        // Preserve the exact encoded bytes. Re-encoding the FormData later in
+        // getBodyAsUint8Array() generated a second random boundary while the
+        // header kept this first one.
+        this._bodyInit = new Uint8Array(this._bodyBuffer) as unknown as BodyInit;
         this._body = createReadableStreamFromUint8Array(encodedBody);
         if (!this._headers.has('content-type')) {
           this._headers.set('content-type', encoded.contentType);
@@ -642,6 +649,7 @@ export class Request extends BodyMixin {
    * For ReadableStream bodies, this will fully buffer the stream.
    */
   async getBodyAsUint8Array(): Promise<Uint8Array | null> {
+    if (this._bodyBuffer) return new Uint8Array(this._bodyBuffer.slice(0));
     return bodyToUint8Array(this._bodyInit);
   }
 

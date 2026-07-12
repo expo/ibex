@@ -1070,7 +1070,12 @@ function _validateSpawnSyncOptions(options) {
       }
       nativeOpts.env = envObj;
     } else if (opts.env) {
-      nativeOpts.env = _flattenEnv(opts.env);
+      // Public spawnSync already normalizes env exactly once while building
+      // internalOpts. Reusing that plain object avoids a second full key/value
+      // traversal on every synchronous spawn (large CI environments make this
+      // surprisingly expensive). internal/child_process's contract is
+      // explicitly normalized opts; envPairs remains the native-style path.
+      nativeOpts.env = opts.env;
     }
     if (opts.input !== undefined) nativeOpts.input = opts.input;
     if (opts.inputEncoding !== undefined) nativeOpts.inputEncoding = opts.inputEncoding;
@@ -2981,8 +2986,9 @@ function ChildProcess(handle, pid, stdioModes) {
 
     // (ENG-23032) Record activity so the driver loops below back off when idle.
     self._lastPollActivity = hadActivity;
-    if (!self._useNativePump && self._ref) {
+    if (!self._useNativePump) {
       self._pollTimer = setTimeout(pollStreams, _nextSpawnPollDelay(self, hadActivity));
+      if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
     }
     self._pumpInProgress = false;
   }
@@ -2997,8 +3003,9 @@ function ChildProcess(handle, pid, stdioModes) {
       if (typeof self.__pumpFromNative === 'function') {
         self.__pumpFromNative();
       }
-      if (!self._exited && self._ref) {
+      if (!self._exited) {
         self._pollTimer = setTimeout(nativePollFallback, _nextSpawnPollDelay(self, self._lastPollActivity));
+        if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
       }
     };
     // Keep the JS event loop alive until the spawn settles for top-level await cases
@@ -3014,8 +3021,9 @@ function ChildProcess(handle, pid, stdioModes) {
     // Start polling for stdout/stderr data and exit status.
     var fallbackPoll = function() {
       pollStreams();
-      if (!self._exited && self._ref) {
+      if (!self._exited) {
         self._pollTimer = setTimeout(fallbackPoll, _nextSpawnPollDelay(self, self._lastPollActivity));
+        if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
       }
     };
     if (self._handle >= 0) {
@@ -3382,8 +3390,9 @@ ChildProcess.prototype.spawn = function(options) {
         }
       } catch (e) { _swallowDebug('spawn status poll failed', e); }
     }
-    if (!self3._exited && self3._ref) {
+    if (!self3._exited) {
       self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity)); // (ENG-23032) back off when idle
+      if (!self3._ref && self3._pollTimer && typeof self3._pollTimer.unref === 'function') self3._pollTimer.unref();
     }
   }
 
@@ -3509,6 +3518,7 @@ ChildProcess.prototype.kill = function(signal) {
 
 ChildProcess.prototype.ref = function() {
   this._ref = true;
+  if (this._pollTimer && typeof this._pollTimer.ref === 'function') this._pollTimer.ref();
   if (this._exited || this._pollTimer ||
       this._handle === null || this._handle === undefined || this._handle < 0) {
     return this;
@@ -3537,10 +3547,7 @@ ChildProcess.prototype.ref = function() {
 
 ChildProcess.prototype.unref = function() {
   this._ref = false;
-  if (this._pollTimer) {
-    clearTimeout(this._pollTimer);
-    this._pollTimer = null;
-  }
+  if (this._pollTimer && typeof this._pollTimer.unref === 'function') this._pollTimer.unref();
   return this;
 };
 

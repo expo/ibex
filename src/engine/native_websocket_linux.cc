@@ -76,6 +76,18 @@ struct WebSocketEntry {
 static std::mutex g_ws_mutex;
 static std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
 static std::atomic<uint32_t> g_next_ws_id{1};
+
+static uint32_t allocate_ws_id() {
+    uint32_t next = g_next_ws_id.load(std::memory_order_relaxed);
+    while (next != 0) {
+        const uint32_t successor = next + 1; // unsigned wrap yields terminal 0
+        if (g_next_ws_id.compare_exchange_weak(
+                next, successor, std::memory_order_relaxed, std::memory_order_relaxed)) {
+            return next;
+        }
+    }
+    return 0;
+}
 static std::once_flag g_curl_global_init_once;
 
 static void ensure_curl_global_init() {
@@ -693,7 +705,10 @@ extern "C" uint32_t native_ws_connect(
     ensure_curl_global_init();
 
     auto entry = std::make_shared<WebSocketEntry>();
-    entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
+    entry->ws_id = allocate_ws_id();
+    if (entry->ws_id == 0) {
+        return 0;
+    }
     entry->url = url;
     entry->protocols = protocols ? protocols : "";
     entry->open_cb = open_cb;
@@ -712,7 +727,9 @@ extern "C" uint32_t native_ws_connect(
 
     {
         std::lock_guard<std::mutex> lock(g_ws_mutex);
-        g_ws_connections[entry->ws_id] = entry;
+        if (!g_ws_connections.emplace(entry->ws_id, entry).second) {
+            return 0;
+        }
     }
 
     // Run the blocking DNS/TCP/TLS/upgrade handshake on the io thread and

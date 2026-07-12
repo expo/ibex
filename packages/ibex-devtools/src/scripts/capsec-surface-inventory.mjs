@@ -10810,9 +10810,11 @@ export function scanRustLoaderRoutes(sources) {
       "cache",
       [
         "ensure_transpile_cache_dir",
+        "enforce_transpile_cache_quota",
         "module_cache_key",
+        "publish_transpile_artifact",
         "resolve_transpile_cache_dir",
-        "should_rebuild_output",
+        "transpile_cache_is_valid",
         "transpile_cache_dir",
       ],
     ],
@@ -12749,6 +12751,32 @@ function scanCppEnvironmentSource(text, sourcePath, collector) {
   ]);
   for (let index = 0; index < tokens.length; index += 1) {
     const accessor = tokens[index]?.value;
+    if (
+      accessor === "s_setEnvEntry" &&
+      tokens[index + 1]?.value === "(" &&
+      !definitionNameIndexes.has(index)
+    ) {
+      const argumentsList = tokenCallArguments(tokens, index + 1);
+      if (!argumentsList) continue;
+      const name = staticTokenArgument(argumentsList[1] ?? [], constants);
+      if (name === null) {
+        collector.addDynamic({
+          accessor,
+          direction: "write",
+          language: "cpp",
+          sourcePath,
+        });
+      } else {
+        collector.add({
+          accessor,
+          direction: "write",
+          language: "cpp",
+          name,
+          sourcePath,
+        });
+      }
+      continue;
+    }
     if (
       enumerationAccessors.has(accessor) &&
       tokens[index + 1]?.value === "(" &&

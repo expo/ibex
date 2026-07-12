@@ -74,7 +74,9 @@ void ex_hermes_destroy(ExactHermesRuntime* runtime);
 /// @param is_bytecode 1 if data is Hermes bytecode, 0 if JavaScript source
 /// @param out_value On success, points to malloc'd result string (caller frees
 ///                  with ex_hermes_free_string). NULL if result is undefined.
-/// @return 0 on success, non-zero on error (out_value contains error message)
+/// @return 0 on success; 1 on a program/evaluation error; 2 only when a
+///         bytecode buffer was rejected before execution. out_value contains
+///         the diagnostic for either error status.
 int ex_hermes_eval(
     ExactHermesRuntime* runtime,
     const uint8_t* data,

@@ -24,6 +24,7 @@ struct ZlibStreamState {
   int window_bits = 15;
   bool initialized = false;
   bool finished = false;
+  std::mutex operation_mutex;
   std::vector<uint8_t> dictionary;
   // A gzip member can end with only the first byte of the next member's
   // two-byte magic still available. Retain that byte until the next write;
@@ -47,13 +48,13 @@ inline std::mutex& zlibStreamMutex() {
   return *mutex;
 }
 
-inline std::unordered_map<uint32_t, std::unique_ptr<ZlibStreamState>>& zlibStreams() {
-  static auto* streams = new std::unordered_map<uint32_t, std::unique_ptr<ZlibStreamState>>();
+inline std::unordered_map<uint32_t, std::shared_ptr<ZlibStreamState>>& zlibStreams() {
+  static auto* streams = new std::unordered_map<uint32_t, std::shared_ptr<ZlibStreamState>>();
   return *streams;
 }
 
-inline std::atomic<uint32_t>& nextZlibStreamId() {
-  static auto* next = new std::atomic<uint32_t>(1);
+inline std::atomic<uint64_t>& nextZlibStreamId() {
+  static auto* next = new std::atomic<uint64_t>(1);
   return *next;
 }
 
@@ -232,6 +233,9 @@ inline std::vector<uint8_t> inflateStreamWrite(
     state.stream.avail_out = sizeof(out_buf);
     ret = inflate(&state.stream, flush);
 
+    size_t have = sizeof(out_buf) - state.stream.avail_out;
+    output.insert(output.end(), out_buf, out_buf + have);
+
     if (ret == Z_NEED_DICT) {
       if (state.dictionary.empty()) {
         throwZlibError(runtime, "inflate", ret, state.stream);
@@ -243,6 +247,10 @@ inline std::vector<uint8_t> inflateStreamWrite(
       if (dict_ret != Z_OK) {
         throwZlibError(runtime, "inflateSetDictionary", dict_ret, state.stream);
       }
+      // The loop condition is output-driven. Z_NEED_DICT normally leaves the
+      // fresh output buffer untouched, so force one retry after installing the
+      // dictionary instead of falling out with an empty result.
+      state.stream.avail_out = 0;
       continue;
     }
     if (ret == Z_MEM_ERROR) {
@@ -254,9 +262,6 @@ inline std::vector<uint8_t> inflateStreamWrite(
       }
       break;
     }
-
-    size_t have = sizeof(out_buf) - state.stream.avail_out;
-    output.insert(output.end(), out_buf, out_buf + have);
 
     if (ret == Z_STREAM_END) {
       if (state.mode == 1 && state.stream.avail_in > 0) {
@@ -321,11 +326,20 @@ inline std::vector<uint8_t> deflateStreamParams(
 }
 
 inline uint32_t allocateZlibStreamId() {
-  uint32_t id = nextZlibStreamId().fetch_add(1, std::memory_order_relaxed);
-  if (id == 0) {
-    id = nextZlibStreamId().fetch_add(1, std::memory_order_relaxed);
+  auto& next = nextZlibStreamId();
+  uint64_t candidate = next.load(std::memory_order_relaxed);
+  for (;;) {
+    if (candidate > std::numeric_limits<uint32_t>::max()) {
+      return 0;
+    }
+    if (next.compare_exchange_weak(
+            candidate,
+            candidate + 1,
+            std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return static_cast<uint32_t>(candidate);
+    }
   }
-  return id;
 }
 
 inline uint32_t readZlibStreamId(
@@ -356,7 +370,7 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactZlibCreate: kind and mode required");
         }
 
-        auto state = std::make_unique<ZlibStreamState>();
+        auto state = std::make_shared<ZlibStreamState>();
         state->owner = handle;
         state->deflater = static_cast<int>(args[0].asNumber()) == 0;
         state->mode = static_cast<int>(args[1].asNumber());
@@ -373,33 +387,61 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         }
 
         state->window_bits = windowBitsForMode(state->deflater, state->mode);
-        int ret = Z_OK;
         if (state->deflater) {
-          ret = deflateInit2(
+          int ret = deflateInit2(
               &state->stream,
               level,
               Z_DEFLATED,
               state->window_bits,
               8,
               strategy);
-          if (ret == Z_OK && !state->dictionary.empty() && state->mode != 1) {
+          if (ret != Z_OK) {
+            throwZlibError(runtime, "deflateInit2", ret, state->stream);
+          }
+          // From this point the state owns native zlib resources. Mark it
+          // before any fallible dictionary setup so the shared_ptr destructor
+          // always calls deflateEnd on the exception path.
+          state->initialized = true;
+          if (!state->dictionary.empty() && state->mode != 1) {
             ret = deflateSetDictionary(
                 &state->stream,
                 state->dictionary.data(),
                 static_cast<uInt>(state->dictionary.size()));
+            if (ret != Z_OK) {
+              throwZlibError(runtime, "deflateSetDictionary", ret, state->stream);
+            }
           }
         } else {
-          ret = inflateInit2(&state->stream, state->window_bits);
+          int ret = inflateInit2(&state->stream, state->window_bits);
+          if (ret != Z_OK) {
+            throwZlibError(runtime, "inflateInit2", ret, state->stream);
+          }
+          // As above, the initialized stream must be finalized even if the
+          // raw-dictionary call below rejects.
+          state->initialized = true;
+          if (state->mode == 2 && !state->dictionary.empty()) {
+            // Raw deflate carries no dictionary identifier and never returns
+            // Z_NEED_DICT, so the dictionary must be installed up front.
+            ret = inflateSetDictionary(
+                &state->stream,
+                state->dictionary.data(),
+                static_cast<uInt>(state->dictionary.size()));
+            if (ret != Z_OK) {
+              throwZlibError(runtime, "inflateSetDictionary", ret, state->stream);
+            }
+          }
         }
-        if (ret != Z_OK) {
-          throwZlibError(runtime, state->deflater ? "deflateInit2" : "inflateInit2", ret, state->stream);
-        }
-        state->initialized = true;
 
         uint32_t id = allocateZlibStreamId();
+        if (id == 0) {
+          throw facebook::jsi::JSError(runtime, "zlib stream id space exhausted");
+        }
         {
           std::lock_guard<std::mutex> lock(zlibStreamMutex());
-          zlibStreams()[id] = std::move(state);
+          auto [_, inserted] = zlibStreams().emplace(id, state);
+          if (!inserted) {
+            throw facebook::jsi::JSError(runtime, "zlib stream id collision");
+          }
         }
         return facebook::jsi::Value(static_cast<double>(id));
       });
@@ -425,15 +467,20 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         bool final = count > 3 && args[3].isBool() && args[3].getBool();
         bool lenient = count > 4 && args[4].isBool() && args[4].getBool();
 
-        std::lock_guard<std::mutex> lock(zlibStreamMutex());
-        auto it = zlibStreams().find(id);
-        if (it == zlibStreams().end()) {
-          throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
+        std::shared_ptr<ZlibStreamState> state_ptr;
+        {
+          std::lock_guard<std::mutex> lock(zlibStreamMutex());
+          auto it = zlibStreams().find(id);
+          if (it == zlibStreams().end()) {
+            throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
+          }
+          if (it->second->owner != handle) {
+            throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
+          }
+          state_ptr = it->second;
         }
-        if (it->second->owner != handle) {
-          throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
-        }
-        auto& state = *it->second;
+        std::lock_guard<std::mutex> operation_lock(state_ptr->operation_mutex);
+        auto& state = *state_ptr;
         auto output = state.deflater
             ? deflateStreamWrite(runtime, state, input, final ? Z_FINISH : flush)
             : inflateStreamWrite(runtime, state, input, flush, final, lenient);
@@ -456,15 +503,20 @@ inline void installZlibStreamHostFunctions(ExactHermesRuntime* handle) {
         int level = static_cast<int>(args[1].asNumber());
         int strategy = static_cast<int>(args[2].asNumber());
 
-        std::lock_guard<std::mutex> lock(zlibStreamMutex());
-        auto it = zlibStreams().find(id);
-        if (it == zlibStreams().end()) {
-          throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
+        std::shared_ptr<ZlibStreamState> state;
+        {
+          std::lock_guard<std::mutex> lock(zlibStreamMutex());
+          auto it = zlibStreams().find(id);
+          if (it == zlibStreams().end()) {
+            throw facebook::jsi::JSError(runtime, "unknown zlib stream id");
+          }
+          if (it->second->owner != handle) {
+            throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
+          }
+          state = it->second;
         }
-        if (it->second->owner != handle) {
-          throw facebook::jsi::JSError(runtime, "zlib stream belongs to another runtime");
-        }
-        auto output = deflateStreamParams(runtime, *it->second, level, strategy);
+        std::lock_guard<std::mutex> operation_lock(state->operation_mutex);
+        auto output = deflateStreamParams(runtime, *state, level, strategy);
         return makeUint8Array(runtime, std::move(output));
       });
   rt.global().setProperty(rt, "__exactZlibParams", std::move(paramsFn));

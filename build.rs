@@ -1,6 +1,8 @@
-use std::io::{BufRead, BufReader, ErrorKind};
+use std::io::{BufRead, BufReader, ErrorKind, Read};
 use std::path::Path;
 use std::path::PathBuf;
+
+use sha2::{Digest, Sha256};
 
 #[derive(Clone)]
 struct AppleFramework {
@@ -1094,7 +1096,11 @@ fn main() {
     }
 
     // App-host profile uses the same reduced crypto shape as Windows for now.
-    if app_host_enabled && target_os != "android" {
+    // An explicitly requested OpenSSL backend wins over the reduced app-host
+    // profile. `--all-features` must remain a coherent linkable profile: the
+    // OpenSSL integration tests and their C ABI hooks are enabled whenever
+    // `openssl-crypto` is enabled (ENG-24266).
+    if app_host_enabled && target_os != "android" && !openssl_crypto_enabled {
         build.define("EXACT_NO_OPENSSL", None);
     }
 
@@ -1118,6 +1124,15 @@ fn main() {
     }
     if file_contains_all(&hermes_header, &["static bool hermesBytecodeSanityCheck"]) {
         build.define("EXACT_HAVE_HERMES_RUNTIME_BYTECODE_SANITY_CHECK", None);
+    } else if file_contains_all(
+        &hermes_header,
+        &[
+            "class HERMES_EXPORT IHermesRootAPI",
+            "virtual bool hermesBytecodeSanityCheck(",
+            "makeHermesRootAPI()",
+        ],
+    ) {
+        build.define("EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK", None);
     }
 
     // Debugger support is auto-detected on macOS so we do not compile against
@@ -1293,6 +1308,7 @@ fn main() {
         println!("cargo:rustc-link-lib=ncrypt");
         println!("cargo:rustc-link-lib=crypt32");
         println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=iphlpapi");
     }
 
     if target_os == "android" {
@@ -2082,21 +2098,22 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
             if staged_file_is_fresh(&path, &staged_path) {
                 continue;
             }
-            match std::fs::copy(&path, &staged_path) {
-                Ok(_) => {}
-                Err(error) if is_existing_permission_denied(&error, &staged_path) => {
-                    println!(
-                        "cargo:warning=Could not overwrite staged Windows runtime DLL {}; using existing file: {error}",
-                        staged_path.display()
-                    );
-                }
-                Err(error) => {
-                    panic!(
-                        "Failed to stage Windows runtime DLL {} into {}: {error}",
-                        path.display(),
-                        destination.display()
-                    )
-                }
+            // @ref LLP 0005#c-compilation — a successful build must execute
+            // the Hermes DLL selected for this build. A locked stale DLL is a
+            // hard failure, never a warning followed by reuse (ENG-24264).
+            std::fs::copy(&path, &staged_path).unwrap_or_else(|error| {
+                panic!(
+                    "Failed to stage Windows runtime DLL {} into {}: {error}. The destination may be locked by a running process; stop it and rebuild rather than executing a stale DLL.",
+                    path.display(),
+                    destination.display()
+                )
+            });
+            if !staged_file_is_fresh(&path, &staged_path) {
+                panic!(
+                    "Staged Windows runtime DLL {} does not match source {} after copy",
+                    staged_path.display(),
+                    path.display()
+                );
             }
         }
         copied += 1;
@@ -2114,23 +2131,25 @@ fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
     );
 }
 
-fn is_existing_permission_denied(error: &std::io::Error, path: &Path) -> bool {
-    error.kind() == ErrorKind::PermissionDenied && path.exists()
+fn file_sha256(path: &Path) -> std::io::Result<[u8; 32]> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().into())
 }
 
 fn staged_file_is_fresh(source: &Path, destination: &Path) -> bool {
-    match (std::fs::metadata(source), std::fs::metadata(destination)) {
-        (Ok(source_meta), Ok(destination_meta)) => {
-            if source_meta.len() != destination_meta.len() {
-                return false;
-            }
-            match (source_meta.modified(), destination_meta.modified()) {
-                (Ok(source_mtime), Ok(destination_mtime)) => destination_mtime >= source_mtime,
-                _ => false,
-            }
-        }
-        _ => false,
-    }
+    matches!(
+        (file_sha256(source), file_sha256(destination)),
+        (Ok(source_digest), Ok(destination_digest)) if source_digest == destination_digest
+    )
 }
 
 fn generate_runtime_bundle_bytecode_header(

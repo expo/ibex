@@ -4611,6 +4611,12 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         if (inflateInit2(&strm, windowBits) != Z_OK) {
           throw facebook::jsi::JSError(runtime, "inflateInit2 failed");
         }
+        if (mode == 2 && !dictionary.empty() &&
+            inflateSetDictionary(&strm, dictionary.data(),
+                                 static_cast<uInt>(dictionary.size())) != Z_OK) {
+          inflateEnd(&strm);
+          throw facebook::jsi::JSError(runtime, "inflateSetDictionary failed");
+        }
 
         strm.next_in = const_cast<Bytef*>(input.data());
         strm.avail_in = static_cast<uInt>(input.size());
@@ -4625,6 +4631,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
             strm.next_out = outBuf;
             strm.avail_out = sizeof(outBuf);
             ret = inflate(&strm, Z_NO_FLUSH);
+            size_t have = sizeof(outBuf) - strm.avail_out;
+            output.insert(output.end(), outBuf, outBuf + have);
             if (ret == Z_NEED_DICT) {
               if (dictionary.empty()) {
                 inflateEnd(&strm);
@@ -4636,6 +4644,7 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
                 inflateEnd(&strm);
                 throw facebook::jsi::JSError(runtime, "inflateSetDictionary failed");
               }
+              strm.avail_out = 0;
               continue; // Retry inflate after setting dictionary
             }
             if (ret == Z_MEM_ERROR) {
@@ -4653,8 +4662,6 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
               ret = Z_STREAM_END;
               break;
             }
-            size_t have = sizeof(outBuf) - strm.avail_out;
-            output.insert(output.end(), outBuf, outBuf + have);
           } while (strm.avail_out == 0);
 
           // Multi-member gzip: after Z_STREAM_END, reset and continue if more data

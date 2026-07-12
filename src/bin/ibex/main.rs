@@ -1381,6 +1381,7 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
         cli.bundle_format
     };
     let bundled = runtime::prepare_entry_with_format(file, format).await?;
+    let _bundle_lease = runtime::acquire_bundle_execution_lease(&bundled).await?;
     let bundled_str = bundled.to_string_lossy().to_string();
 
     engine::hermes::compile_to_bytecode(&bundled_str, &output_path, Some(&map_path)).await?;

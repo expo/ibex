@@ -11,16 +11,12 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
-use std::collections::hash_map::DefaultHasher;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::hash::{Hash, Hasher};
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
-
-use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -366,12 +362,12 @@ impl ModuleLoader {
         // Runtime bundler outputs are already lowered for Hermes. Re-parsing
         // their script/IIFE wrapper as a module can reject legal top-level
         // `return` statements before the generated entry is ever evaluated.
-        if path.file_name().and_then(OsStr::to_str) == Some("bundle.js")
+        let is_runtime_bundle = path.file_name().and_then(OsStr::to_str) == Some("bundle.js")
             || path
                 .file_name()
                 .and_then(OsStr::to_str)
-                .is_some_and(|name| name.ends_with(".bundle.js"))
-        {
+                .is_some_and(|name| name.ends_with(".bundle.js"));
+        if is_runtime_bundle && !Self::source_needs_downlevel(source) {
             return false;
         }
         path.extension()
@@ -388,16 +384,31 @@ impl ModuleLoader {
     }
 
     fn source_needs_async_downlevel(source: &str) -> bool {
+        fn contains_using_keyword(source: &str) -> bool {
+            let bytes = source.as_bytes();
+            let mut offset = 0;
+            while let Some(relative) = source[offset..].find("using") {
+                let start = offset + relative;
+                let end = start + "using".len();
+                let is_identifier =
+                    |byte: u8| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'$';
+                let starts_token = start == 0 || !is_identifier(bytes[start - 1]);
+                let ends_token = end == bytes.len() || !is_identifier(bytes[end]);
+                if starts_token && ends_token {
+                    return true;
+                }
+                offset = end;
+            }
+            false
+        }
+
         source.contains("async function*")
             || source.contains("async function *")
             || source.contains("async*")
             || source.contains("async *")
             || source.contains("for await")
             || source.contains("await using")
-            || source.starts_with("using ")
-            || source.contains("\nusing ")
-            || source.contains("\n  using ")
-            || source.contains("\n    using ")
+            || contains_using_keyword(source)
     }
 
     fn scan_block_scoped_loop_closures<F>(source: &str, mut matcher: F) -> bool
@@ -778,20 +789,26 @@ impl ModuleLoader {
     }
 
     fn transpile_module(&self, path: &Path, target: &str, source: &str) -> Result<String> {
-        let cache_key = module_cache_key(path, target)?;
+        let cache_key = module_cache_key(path, target, source)?;
         // `transpile_cache_dir` is memoized and already created+probed the
         // directory once per process, so we don't re-`create_dir_all` here on
         // every (mostly cache-hit) module load. A cache miss recreates the
         // parent inside `run_transpile_command` before writing.
         let cache_dir = transpile_cache_dir()?;
 
-        let output = cache_dir.join(format!("{cache_key}.js"));
-        if should_rebuild_output(path, &output)? {
-            run_transpile_command(path, &output, target, source)?;
+        let artifact_dir = cache_dir.join(&cache_key);
+        for _ in 0..3 {
+            if let Some(output) = read_transpile_cache(&artifact_dir, target, source)? {
+                touch_transpile_artifact(&artifact_dir);
+                return Ok(output);
+            }
+            publish_transpile_artifact(path, &artifact_dir, target, source)?;
+            enforce_transpile_cache_quota(&cache_dir, &artifact_dir);
         }
-
-        std::fs::read_to_string(&output)
-            .with_context(|| format!("Failed to read transpiled module {}", output.display()))
+        anyhow::bail!(
+            "Transpile cache artifact {} repeatedly disappeared during publication",
+            artifact_dir.display()
+        )
     }
 
     fn resolve_with_oxc(&self, specifier: &str, referrer: Option<&Path>) -> Result<ResolvedModule> {
@@ -1662,30 +1679,30 @@ fn module_kind_from_path(path: &Path) -> ModuleKind {
     }
 }
 
-fn module_cache_key(path: &Path, target: &str) -> Result<String> {
-    let mut hasher = DefaultHasher::new();
-    "loader-transpile-v13-engine-tagged-runtime-transform".hash(&mut hasher);
-    target.hash(&mut hasher);
+fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn module_cache_key(path: &Path, target: &str, source: &str) -> Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"loader-transpile-v14-content-addressed\0");
+    hasher.update(target.as_bytes());
+    hasher.update(b"\0");
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    cache_path.hash(&mut hasher);
-    if let Ok(meta) = std::fs::metadata(path) {
-        meta.len().hash(&mut hasher);
-        if let Ok(modified) = meta.modified() {
-            if let Ok(duration) = modified.duration_since(SystemTime::UNIX_EPOCH) {
-                duration.as_nanos().hash(&mut hasher);
-            }
-        }
-    }
-    transpile_tooling_hash()?.hash(&mut hasher);
-    Ok(format!("{:x}", hasher.finish()))
+    hasher.update(cache_path.to_string_lossy().as_bytes());
+    hasher.update(b"\0");
+    hasher.update(transpile_tooling_hash()?);
+    hasher.update(b"\0");
+    hasher.update(source.as_bytes());
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 /// Hash of the transpile tooling scripts, computed once per process and then
 /// memoized. The scripts/engine don't change underneath a running loader, and
 /// re-reading the override script for every module cache-key computation showed
 /// up in runtime-loader profiling. @ref LLP 0007#runtime-module-loading
-fn transpile_tooling_hash() -> Result<u64> {
-    static CACHED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+fn transpile_tooling_hash() -> Result<[u8; 32]> {
+    static CACHED: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
     if let Some(hash) = CACHED.get() {
         return Ok(*hash);
     }
@@ -1696,19 +1713,49 @@ fn transpile_tooling_hash() -> Result<u64> {
     Ok(hash)
 }
 
-fn compute_transpile_tooling_hash() -> Result<u64> {
+#[derive(Clone)]
+struct TranspileOverrideIdentity {
+    path: PathBuf,
+    source: std::sync::Arc<Vec<u8>>,
+    digest: [u8; 32],
+}
+
+fn transpile_override_identity() -> Result<TranspileOverrideIdentity> {
+    static CACHED: std::sync::OnceLock<TranspileOverrideIdentity> = std::sync::OnceLock::new();
+    if let Some(identity) = CACHED.get() {
+        return Ok(identity.clone());
+    }
+    let path = transpile_script_path()?;
+    let path = std::fs::canonicalize(&path)
+        .with_context(|| format!("Failed to authenticate transpile script {}", path.display()))?;
+    let source = std::fs::read(&path)
+        .with_context(|| format!("Failed to read transpile script {}", path.display()))?;
+    let identity = TranspileOverrideIdentity {
+        path,
+        digest: Sha256::digest(&source).into(),
+        source: std::sync::Arc::new(source),
+    };
+    let _ = CACHED.set(identity.clone());
+    Ok(identity)
+}
+
+fn compute_transpile_tooling_hash() -> Result<[u8; 32]> {
     // @ref LLP 0007#proposal — the in-process engine is part of the cache key
     // so the SWC fallback and Oxc candidate never share output.
     // Only the explicit subprocess override hashes a repo script.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
-        let script = transpile_script_path()?;
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&std::fs::read(&script).unwrap_or_default(), &mut hasher);
-        return Ok(std::hash::Hasher::finish(&hasher));
+        let mut hasher = Sha256::new();
+        hasher.update(b"subprocess-transpile-script\0");
+        let identity = transpile_override_identity()?;
+        hasher.update(identity.path.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(identity.digest);
+        return Ok(hasher.finalize().into());
     }
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    std::hash::Hash::hash(transpile::selected_engine_cache_tag()?, &mut hasher);
-    Ok(std::hash::Hasher::finish(&hasher))
+    let mut hasher = Sha256::new();
+    hasher.update(b"in-process-transpile-engine\0");
+    hasher.update(transpile::selected_engine_cache_tag()?.as_bytes());
+    Ok(hasher.finalize().into())
 }
 
 fn transpile_cache_dir() -> Result<PathBuf> {
@@ -1758,8 +1805,12 @@ fn ensure_transpile_cache_dir(dir: &Path) -> Result<()> {
         )
     })?;
 
-    let probe_path = dir.join(".exact-transpile-cache-write");
-    match std::fs::File::create(&probe_path) {
+    let probe_path = unique_tmp_path(&dir.join(".exact-transpile-cache-write"));
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+    {
         Ok(handle) => {
             drop(handle);
             std::fs::remove_file(&probe_path).with_context(|| {
@@ -1775,24 +1826,178 @@ fn ensure_transpile_cache_dir(dir: &Path) -> Result<()> {
     }
 }
 
-fn should_rebuild_output(path: &Path, output: &Path) -> Result<bool> {
-    if !output.exists() {
-        return Ok(true);
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TranspileCacheManifest {
+    version: u32,
+    target: String,
+    source_sha256: String,
+    output_sha256: String,
+}
+
+fn read_transpile_cache(artifact_dir: &Path, target: &str, source: &str) -> Result<Option<String>> {
+    let output = artifact_dir.join("module.js");
+    let manifest_path = artifact_dir.join("manifest.json");
+    let (Ok(output_bytes), Ok(manifest_bytes)) =
+        (std::fs::read(&output), std::fs::read(&manifest_path))
+    else {
+        return Ok(None);
+    };
+    let Ok(manifest) = serde_json::from_slice::<TranspileCacheManifest>(&manifest_bytes) else {
+        return Ok(None);
+    };
+    let valid = manifest.version == 1
+        && manifest.target == target
+        && manifest.source_sha256 == sha256_hex(source.as_bytes())
+        && manifest.output_sha256 == sha256_hex(&output_bytes);
+    if !valid {
+        return Ok(None);
     }
+    String::from_utf8(output_bytes)
+        .map(Some)
+        .map_err(|error| anyhow::anyhow!("cached transpile output is not UTF-8: {error}"))
+}
 
-    let output_meta = match std::fs::metadata(output) {
-        Ok(meta) => meta,
-        Err(_) => return Ok(true),
+fn transpile_cache_is_valid(artifact_dir: &Path, target: &str, source: &str) -> Result<bool> {
+    Ok(read_transpile_cache(artifact_dir, target, source)?.is_some())
+}
+
+fn touch_transpile_artifact(artifact_dir: &Path) {
+    // Recency is separate from the immutable code+manifest unit. Quota
+    // eviction uses this marker when present, so cache hits implement LRU
+    // rather than creation-time FIFO.
+    let marker = artifact_dir.join(".last-used");
+    let _ = std::fs::write(marker, []);
+}
+
+fn publish_transpile_artifact(
+    entry: &Path,
+    artifact_dir: &Path,
+    target: &str,
+    source: &str,
+) -> Result<()> {
+    let stage = unique_tmp_path(artifact_dir);
+    std::fs::create_dir_all(&stage)
+        .with_context(|| format!("Failed to create transpile stage {}", stage.display()))?;
+    let stage_output = stage.join("module.js");
+    let result = (|| -> Result<()> {
+        run_transpile_command(entry, &stage_output, target, source)?;
+        let output_bytes = std::fs::read(&stage_output)?;
+        let manifest = TranspileCacheManifest {
+            version: 1,
+            target: target.to_string(),
+            source_sha256: sha256_hex(source.as_bytes()),
+            output_sha256: sha256_hex(&output_bytes),
+        };
+        std::fs::write(
+            stage.join("manifest.json"),
+            serde_json::to_vec(&manifest).context("serialize transpile cache manifest")?,
+        )?;
+
+        for _ in 0..4 {
+            match std::fs::rename(&stage, artifact_dir) {
+                Ok(()) => {
+                    touch_transpile_artifact(artifact_dir);
+                    return Ok(());
+                }
+                Err(_) if artifact_dir.exists() => {
+                    if transpile_cache_is_valid(artifact_dir, target, source)? {
+                        std::fs::remove_dir_all(&stage).ok();
+                        touch_transpile_artifact(artifact_dir);
+                        return Ok(());
+                    }
+                    // Quarantine a corrupt same-key directory with a rename,
+                    // never remove it in place while another process may be
+                    // inspecting it. Only one contender wins this rename;
+                    // losers retry against the winner's replacement.
+                    let quarantine = unique_tmp_path(&artifact_dir.with_extension("invalid"));
+                    match std::fs::rename(artifact_dir, &quarantine) {
+                        Ok(()) => {
+                            std::fs::remove_dir_all(&quarantine).ok();
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(error) => {
+                            return Err(error).with_context(|| {
+                                format!(
+                                    "Failed to quarantine invalid transpile cache {}",
+                                    artifact_dir.display()
+                                )
+                            })
+                        }
+                    }
+                }
+                Err(error) => return Err(error).context("publish transpile cache directory"),
+            }
+        }
+        anyhow::bail!(
+            "Transpile cache {} remained contested after repeated atomic publication attempts",
+            artifact_dir.display()
+        )
+    })();
+    if result.is_err() {
+        std::fs::remove_dir_all(&stage).ok();
+    }
+    result
+}
+
+fn directory_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
     };
-    let output_time = output_meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| match entry.file_type() {
+            Ok(file_type) if file_type.is_dir() => directory_size(&entry.path()),
+            Ok(file_type) if file_type.is_file() => {
+                entry.metadata().map(|meta| meta.len()).unwrap_or(0)
+            }
+            _ => 0,
+        })
+        .sum()
+}
 
-    let source_meta = match std::fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(_) => return Ok(true),
+fn prune_transpile_cache_to_limit(cache_dir: &Path, keep: &Path, limit: u64) {
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
     };
-    let source_time = source_meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+    let mut artifacts: Vec<_> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path() != keep)
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            if !metadata.is_dir() || entry.file_name().to_string_lossy().contains(".tmp") {
+                return None;
+            }
+            let recency = std::fs::metadata(entry.path().join(".last-used"))
+                .and_then(|marker| marker.modified())
+                .or_else(|_| metadata.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            Some((recency, directory_size(&entry.path()), entry.path()))
+        })
+        .collect();
+    let keep_size = directory_size(keep);
+    let mut total = keep_size + artifacts.iter().map(|(_, size, _)| size).sum::<u64>();
+    if total <= limit {
+        return;
+    }
+    artifacts.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in artifacts {
+        if total <= limit {
+            break;
+        }
+        if std::fs::remove_dir_all(&path).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
 
-    Ok(source_time > output_time)
+fn enforce_transpile_cache_quota(cache_dir: &Path, keep: &Path) {
+    const DEFAULT_LIMIT: u64 = 256 * 1024 * 1024;
+    let limit = std::env::var("IBEX_TRANSPILE_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LIMIT);
+    prune_transpile_cache_to_limit(cache_dir, keep, limit);
 }
 
 fn run_transpile_command(entry: &Path, output: &Path, target: &str, source: &str) -> Result<()> {
@@ -1800,8 +2005,8 @@ fn run_transpile_command(entry: &Path, output: &Path, target: &str, source: &str
     // everything else is in-process per LLP 0007, so TypeScript works
     // standalone without a Bun/Node subprocess.
     if std::env::var("EXACT_TRANSPILE_SCRIPT").is_ok() {
-        // The subprocess reads the entry by path; it can't take in-memory source.
-        return run_transpile_subprocess(entry, output, target);
+        let script = transpile_override_identity()?;
+        return run_transpile_override(entry, output, target, source, &script);
     }
 
     // Reuse the source the loader already read for this module instead of
@@ -1812,19 +2017,93 @@ fn run_transpile_command(entry: &Path, output: &Path, target: &str, source: &str
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create {}", parent.display()))?;
     }
-    // tmp + rename so a concurrent reader never sees a half-written module.
-    // The tmp name must be unique per process AND per call: the transpile cache
-    // dir is shared per user, so a deterministic tmp path lets two processes
-    // cold-loading the same module write the same file — one truncates the
-    // other's in-flight write and the rename publishes a torn inode.
-    let tmp = unique_tmp_path(output);
-    if let Err(err) = std::fs::write(&tmp, code) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err).with_context(|| format!("Failed to write {}", tmp.display()));
+    // The caller publishes the containing staged directory atomically after
+    // both module.js and its digest manifest are complete.
+    std::fs::write(output, code)
+        .with_context(|| format!("Failed to write {}", output.display()))?;
+    Ok(())
+}
+
+fn run_transpile_override(
+    entry: &Path,
+    output: &Path,
+    target: &str,
+    source: &str,
+    script: &TranspileOverrideIdentity,
+) -> Result<()> {
+    // The cache key and manifest bind `source`, the loader's single read.
+    // Give the subprocess an immutable staged copy of those exact bytes;
+    // sending the live entry path lets A→B (or ABA) publish output for B
+    // under A's content-addressed key.
+    let staged_input = unique_staged_transpile_input(entry, output);
+    if let Some(parent) = staged_input.parent() {
+        std::fs::create_dir_all(parent)?;
     }
-    if let Err(err) = std::fs::rename(&tmp, output) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err).with_context(|| format!("Failed to publish {}", output.display()));
+    let mut input = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged_input)
+        .with_context(|| {
+            format!(
+                "Failed to create staged transpile input {}",
+                staged_input.display()
+            )
+        })?;
+    use std::io::Write as _;
+    input.write_all(source.as_bytes())?;
+    input.sync_all()?;
+    drop(input);
+
+    // The tooling digest and the executed script come from the same captured
+    // bytes. Executing the live override path here would recreate the source
+    // split-input race for the tool itself.
+    let staged_script = unique_staged_transpile_input(&script.path, output);
+    let mut script_file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staged_script)?;
+    script_file.write_all(script.source.as_slice())?;
+    script_file.sync_all()?;
+    drop(script_file);
+
+    let result = (|| {
+        wait_for_transpile_test_barrier(output)?;
+        run_transpile_subprocess(&staged_input, output, target, &staged_script)
+    })();
+    std::fs::remove_file(&staged_input).ok();
+    std::fs::remove_file(&staged_script).ok();
+    result
+}
+
+fn unique_staged_transpile_input(entry: &Path, output: &Path) -> PathBuf {
+    let base = unique_tmp_path(&output.with_file_name("transpile-input"));
+    let Some(extension) = entry.extension() else {
+        return base;
+    };
+    let mut name = base.into_os_string();
+    name.push(".");
+    name.push(extension);
+    PathBuf::from(name)
+}
+
+fn wait_for_transpile_test_barrier(output: &Path) -> Result<()> {
+    let Ok(dir) = std::env::var("IBEX_TEST_TRANSPILE_INPUT_BARRIER") else {
+        return Ok(());
+    };
+    let dir = PathBuf::from(dir);
+    std::fs::create_dir_all(&dir)?;
+    if let Ok(target) = std::fs::read_to_string(dir.join("target")) {
+        if target != output.to_string_lossy() {
+            return Ok(());
+        }
+    }
+    std::fs::write(dir.join("ready"), [])?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !dir.join("release").exists() {
+        if std::time::Instant::now() >= deadline {
+            anyhow::bail!("timed out waiting for transpile input test barrier");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
     Ok(())
 }
@@ -1862,9 +2141,13 @@ fn unique_tmp_path(output: &Path) -> PathBuf {
     }
 }
 
-fn run_transpile_subprocess(entry: &Path, output: &Path, target: &str) -> Result<()> {
+fn run_transpile_subprocess(
+    entry: &Path,
+    output: &Path,
+    target: &str,
+    script: &Path,
+) -> Result<()> {
     let (runner, runner_name) = find_js_runner()?;
-    let script = transpile_script_path()?;
 
     let status = Command::new(&runner)
         .arg(script)
@@ -2211,6 +2494,162 @@ mod tests {
         let name = a.file_name().unwrap().to_str().unwrap();
         assert!(name.contains(&std::process::id().to_string()));
         assert!(name.ends_with(".tmp"));
+    }
+
+    #[test]
+    fn transpile_cache_key_tracks_same_length_same_mtime_source_changes() {
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("module.ts");
+        std::fs::write(&entry, "module.exports = 1").unwrap();
+        let first = module_cache_key(&entry, "es2015", "module.exports = 1").unwrap();
+        // The two sources have identical length and the file metadata is left
+        // untouched between key computations. Content identity must still move.
+        let second = module_cache_key(&entry, "es2015", "module.exports = 2").unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn subprocess_transpile_consumes_staged_exact_source_across_aba_mutation() {
+        if find_js_runner().is_err() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("module.ts");
+        let output = dir.path().join("module.js");
+        let script = dir.path().join("transpile.cjs");
+        let ready = dir.path().join("ready");
+        let release = dir.path().join("release");
+        let observed = dir.path().join("observed-entry");
+        let quoted = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap();
+        std::fs::write(
+            &script,
+            format!(
+                "const fs=require('fs'); const a=process.argv; \
+                 const entry=a[a.indexOf('--entry')+1], out=a[a.indexOf('--out')+1]; \
+                 fs.writeFileSync({}, entry); fs.writeFileSync({}, ''); \
+                 while(!fs.existsSync({})) {{}} \
+                 fs.writeFileSync(out, fs.readFileSync(entry));",
+                quoted(&observed),
+                quoted(&ready),
+                quoted(&release),
+            ),
+        )
+        .unwrap();
+        let script_source = std::fs::read(&script).unwrap();
+        let script_identity = TranspileOverrideIdentity {
+            path: script.clone(),
+            digest: Sha256::digest(&script_source).into(),
+            source: std::sync::Arc::new(script_source),
+        };
+        let source_a = "export const answer: number = 41;";
+        let source_b = "export const answer: number = 99;";
+        std::fs::write(&entry, source_a).unwrap();
+
+        std::thread::scope(|scope| {
+            let handle = scope.spawn(|| {
+                run_transpile_override(&entry, &output, "es2015", source_a, &script_identity)
+            });
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !ready.exists() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "transpiler did not reach barrier"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            std::fs::write(&entry, source_b).unwrap();
+            std::fs::write(&entry, source_a).unwrap();
+            std::fs::write(&release, []).unwrap();
+            handle.join().unwrap().unwrap();
+        });
+
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), source_a);
+        let observed_entry = PathBuf::from(std::fs::read_to_string(&observed).unwrap());
+        assert_ne!(observed_entry, entry);
+        assert_eq!(
+            observed_entry.extension().and_then(OsStr::to_str),
+            Some("ts")
+        );
+        assert!(
+            !observed_entry.exists(),
+            "staged input must be removed after subprocess exit"
+        );
+    }
+
+    #[test]
+    fn transpile_cache_rejects_tampered_output() {
+        let dir = tempdir().unwrap();
+        let artifact = dir.path().join("artifact");
+        std::fs::create_dir(&artifact).unwrap();
+        let source = "export const answer: number = 42";
+        let output = b"exports.answer = 42;";
+        std::fs::write(artifact.join("module.js"), output).unwrap();
+        let manifest = TranspileCacheManifest {
+            version: 1,
+            target: "es2015".into(),
+            source_sha256: sha256_hex(source.as_bytes()),
+            output_sha256: sha256_hex(output),
+        };
+        std::fs::write(
+            artifact.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(transpile_cache_is_valid(&artifact, "es2015", source).unwrap());
+        std::fs::write(artifact.join("module.js"), "exports.answer = 99;").unwrap();
+        assert!(!transpile_cache_is_valid(&artifact, "es2015", source).unwrap());
+    }
+
+    #[test]
+    fn transpile_cache_quota_evicts_old_artifacts_but_keeps_current() {
+        let dir = tempdir().unwrap();
+        let old = dir.path().join("old");
+        let current = dir.path().join("current");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("module.js"), vec![0u8; 64]).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::create_dir(&current).unwrap();
+        std::fs::write(current.join("module.js"), vec![0u8; 64]).unwrap();
+
+        prune_transpile_cache_to_limit(dir.path(), &current, 64);
+        assert!(!old.exists());
+        assert!(current.exists());
+    }
+
+    #[test]
+    fn concurrent_transpile_publishers_share_one_complete_immutable_artifact() {
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("module.ts");
+        let artifact = dir.path().join("artifact");
+        let source = "export const answer: number = 42;";
+        std::fs::write(&entry, source).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(12));
+
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..12 {
+                let barrier = barrier.clone();
+                let entry = entry.clone();
+                let artifact = artifact.clone();
+                handles.push(scope.spawn(move || {
+                    barrier.wait();
+                    publish_transpile_artifact(&entry, &artifact, "es2015", source)
+                }));
+            }
+            for handle in handles {
+                handle.join().unwrap().unwrap();
+            }
+        });
+        assert!(transpile_cache_is_valid(&artifact, "es2015", source).unwrap());
+        assert_eq!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp"))
+                .count(),
+            0,
+            "losing publishers must clean their staging directories"
+        );
     }
 
     #[test]
@@ -2654,6 +3093,22 @@ const asyncIterable = {
         assert!(!ModuleLoader::needs_js_downlevel(
             std::path::Path::new("bundle.js"),
             source
+        ));
+    }
+
+    #[test]
+    fn detects_using_declarations_after_other_tokens_on_the_same_line() {
+        assert!(ModuleLoader::source_needs_async_downlevel(
+            "initialize(); using resource = acquire();"
+        ));
+        assert!(ModuleLoader::source_needs_async_downlevel(
+            "if (ready) { using resource = acquire(); }"
+        ));
+        assert!(ModuleLoader::source_needs_async_downlevel(
+            "initialize(); await using resource = acquireAsync();"
+        ));
+        assert!(!ModuleLoader::source_needs_async_downlevel(
+            "const amusing = true;"
         ));
     }
 

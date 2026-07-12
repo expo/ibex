@@ -955,7 +955,7 @@ export class URL {
   }
 
   get search(): string {
-    return this._search;
+    return this._search === "?" ? "" : this._search;
   }
 
   set search(value: string) {
@@ -983,7 +983,7 @@ export class URL {
   }
 
   get hash(): string {
-    return this._hash;
+    return this._hash === "#" ? "" : this._hash;
   }
 
   set hash(value: string) {

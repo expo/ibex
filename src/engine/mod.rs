@@ -288,8 +288,8 @@ static HOST_WAKE_HOOK_CTX: AtomicUsize = AtomicUsize::new(0);
 /// Register (or clear, with `None`) the host wake hook invoked whenever a
 /// background thread pushes a runtime callback. The hook runs on the
 /// pushing thread and must only do cheap, bounded work (enqueue + signal a
-/// condvar). Only the default (non-`cli-notify`) notify path invokes it —
-/// the CLI's tokio-based notify has its own wake mechanism.
+/// condvar). The one library-owned notify symbol always invokes this hook;
+/// CLI profiles register their tokio wake function through it at runtime.
 #[no_mangle]
 pub extern "C" fn ex_hermes_set_host_wake_hook(
     hook: Option<extern "C" fn(*mut std::ffi::c_void)>,
@@ -299,7 +299,6 @@ pub extern "C" fn ex_hermes_set_host_wake_hook(
     HOST_WAKE_HOOK_FN.store(hook.map_or(0, |f| f as usize), Ordering::Release);
 }
 
-#[cfg(any(not(feature = "cli-notify"), test))]
 fn invoke_host_wake_hook() {
     let raw_fn = HOST_WAKE_HOOK_FN.load(Ordering::Acquire);
     if raw_fn == 0 {
@@ -317,18 +316,11 @@ fn invoke_host_wake_hook() {
 /// This is called from C++ (hermes_runtime.cc) when async callbacks are pushed
 /// from background threads.
 ///
-/// The CLI provides its own implementation in hermes.rs that uses
-/// tokio::sync::Notify for more efficient wakeup. When building the CLI,
-/// enable the `cli-notify` feature to skip this default implementation.
-///
-/// The `test` arm keeps the symbol defined for this crate's own lib test:
-/// under `cargo test --workspace`, feature unification turns on `cli-notify`
-/// for every ibex-runtime target, but the CLI's replacement
-/// is not part of the lib-test link unit, which otherwise fails with an
-/// undefined `_ex_hermes_notify_callback`. `cfg(test)` is never set when
-/// other crates link this one, so the CLI build still gets exactly one
-/// definition.
-#[cfg(any(not(feature = "cli-notify"), test))]
+/// This symbol is deliberately owned by the library in every feature profile.
+/// A binary that needs a specialized wake mechanism registers it through
+/// `ex_hermes_set_host_wake_hook`; defining a replacement global symbol made
+/// `cli-notify` integration-test link units fail when the CLI object was absent
+/// (ENG-24265).
 #[no_mangle]
 pub extern "C" fn ex_hermes_notify_callback() {
     CALLBACK_PENDING.store(true, Ordering::Release);
@@ -472,6 +464,73 @@ mod tests {
         unsafe {
             ex_hermes_destroy(second);
             ex_hermes_destroy(first);
+        }
+    }
+
+    /// Native TLS engine handles are process-global numbers at the JS ABI, but
+    /// authority must remain scoped to the creating runtime. Two runtimes can
+    /// use the same principal ids, so principal-only ownership lets one guess,
+    /// inspect, or close the other's TLS session. Runtime destruction must also
+    /// retire only that runtime's engines.
+    #[test]
+    fn tls_engine_handles_are_isolated_and_cleaned_per_runtime() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        crate::host::abi::install_host(host);
+
+        unsafe {
+            let first = ex_hermes_create_diagnostic();
+            let second = ex_hermes_create_diagnostic();
+            assert!(!first.is_null());
+            assert!(!second.is_null());
+
+            let (status, first_id_text) =
+                eval(first, "__exactTlsEngineNew('{\"host\":\"localhost\"}')");
+            assert_eq!(
+                status, 0,
+                "first TLS engine creation failed: {first_id_text:?}"
+            );
+            let first_id: u64 = first_id_text
+                .expect("first engine id")
+                .parse()
+                .expect("numeric first engine id");
+
+            let (status, second_id_text) =
+                eval(second, "__exactTlsEngineNew('{\"host\":\"localhost\"}')");
+            assert_eq!(
+                status, 0,
+                "second TLS engine creation failed: {second_id_text:?}"
+            );
+            let second_id: u64 = second_id_text
+                .expect("second engine id")
+                .parse()
+                .expect("numeric second engine id");
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "try {{ __exactTlsEngineStatus({first_id}); 'leaked' }} \
+                     catch (error) {{ String(error).includes('unknown engine handle') ? 'isolated' : String(error) }}"
+                ),
+            );
+            assert_eq!(status, 0, "cross-runtime probe failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("isolated"));
+
+            ex_hermes_destroy(first);
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "JSON.parse(__exactTlsEngineStatus({second_id})).handshaking ? 'alive' : 'alive'"
+                ),
+            );
+            assert_eq!(
+                status, 0,
+                "surviving runtime lost its TLS engine: {value:?}"
+            );
+            assert_eq!(value.as_deref(), Some("alive"));
+
+            ex_hermes_destroy(second);
         }
     }
 

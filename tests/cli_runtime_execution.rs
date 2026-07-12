@@ -13,6 +13,7 @@
 //! matches the `cli_runtime_` prefix every test fn here carries), or
 //! `cargo test --test cli_runtime_execution`.
 
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::process::Command;
@@ -72,6 +73,58 @@ async fn compile_hbc(hermesc: &Path, js: &Path, out: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn write_hbc_manifest(source: &Path, bytecode: &Path) {
+    let digest = |path: &Path| format!("{:x}", Sha256::digest(std::fs::read(path).unwrap()));
+    let manifest = serde_json::json!({
+        "version": 1,
+        "sourcePath": std::fs::canonicalize(source).unwrap().to_string_lossy(),
+        "sourceSha256": digest(source),
+        "bytecodeSha256": digest(bytecode),
+    });
+    std::fs::write(
+        format!("{}.meta.json", bytecode.display()),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+}
+
+/// ENG-24254: merely running Ibex inside an untrusted checkout must never
+/// execute `tools/hermes/{hermes,hermesc}` planted by that checkout.
+#[cfg(unix)]
+#[tokio::test]
+async fn cli_runtime_ignores_project_local_hermes_executables() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let tools = dir.path().join("tools/hermes");
+    std::fs::create_dir_all(&tools).expect("create fake tools dir");
+    let marker = dir.path().join("attacker-tool-ran");
+    for tool in ["hermes", "hermesc"] {
+        let path = tools.join(tool);
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\nprintf attacked > {:?}\nexit 0\n", marker),
+        )
+        .expect("write fake executable");
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&path, permissions).unwrap();
+    }
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, "console.log('trusted-runtime');\n").expect("write entry");
+
+    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    assert!(
+        output.status.success(),
+        "ordinary run should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !marker.exists(),
+        "project-local Hermes executable was invoked outside CapSec"
+    );
+}
+
 /// Whether the linked Hermes runtime actually executes bytecode produced by
 /// the local `hermesc` (HBC versions match). Probed by planting a `.hbc`
 /// compiled from DIFFERENT source next to a JS entry: if the probe output
@@ -86,6 +139,7 @@ async fn engine_runs_planted_hbc(hermesc: &Path, base: &Path) -> bool {
     if !compile_hbc(hermesc, &alt, &probe_dir.join("probe.hbc")).await {
         return false;
     }
+    write_hbc_manifest(&js, &probe_dir.join("probe.hbc"));
     let output = run_ibex_isolated(base, &["run", js.to_str().expect("utf8 path")]).await;
     String::from_utf8_lossy(&output.stdout).contains("from-hbc")
 }
@@ -191,9 +245,13 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
     }
 
     let entry = dir.path().join("t.js");
+    let side_effect = dir.path().join("side-effect.txt");
     std::fs::write(
         &entry,
-        "console.log(\"hi-eng23484\"); throw new Error(\"boom-eng23484\");\n",
+        format!(
+            "var fs=require('fs'); fs.appendFileSync({path:?}, 'x'); console.log(\"hi-eng24256\"); throw new Error(\"Compiling JS failed: user-controlled throw\");\n",
+            path = side_effect.to_string_lossy()
+        ),
     )
     .expect("write entry");
     let hbc = dir.path().join("t.hbc");
@@ -201,6 +259,7 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
         compile_hbc(&hermesc, &entry, &hbc).await,
         "hermesc failed to compile the entry"
     );
+    write_hbc_manifest(&entry, &hbc);
 
     // Two runs: the first proves single execution + error propagation, the
     // second proves the surviving cache is reused instead of the pre-fix
@@ -210,7 +269,7 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(
-            stdout.matches("hi-eng23484").count(),
+            stdout.matches("hi-eng24256").count(),
             1,
             "run {run}: side effects must execute exactly once\nstdout: {stdout}\nstderr: {stderr}"
         );
@@ -219,12 +278,17 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
             "run {run}: an eval throw must exit nonzero\nstdout: {stdout}\nstderr: {stderr}"
         );
         assert!(
-            stderr.contains("boom-eng23484"),
+            stderr.contains("Compiling JS failed: user-controlled throw"),
             "run {run}: the thrown error must propagate\nstderr: {stderr}"
         );
         assert!(
             hbc.exists(),
             "run {run}: a valid bytecode cache must survive an eval throw"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&side_effect).expect("side-effect file"),
+            "x".repeat(run + 1),
+            "run {run}: filesystem side effect must happen exactly once"
         );
     }
 }

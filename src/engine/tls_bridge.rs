@@ -18,6 +18,7 @@
 //! stays in JS (`checkServerIdentity` is user-overridable in Node).
 //! @ref LLP 0004#the-tls-builtin — trust-evaluation split native/JS
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Write};
 use std::os::raw::c_char;
@@ -26,11 +27,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::client::WebPkiServerVerifier;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use rustls::{
     CertificateError, ClientConfig, ClientConnection, DigitallySignedStruct, Error as TlsError,
     RootCertStore, SignatureScheme,
 };
+use rustls_pki_types::pem::PemObject;
 
 /// Outcome of the (recorded, non-aborting) server certificate verification.
 #[derive(Clone, Debug, Default)]
@@ -60,22 +62,56 @@ struct Engine {
     error_code: Option<String>,
 }
 
-fn engines() -> &'static Mutex<HashMap<u64, Engine>> {
+struct OwnedEngine {
+    /// Unforgeable identity of the Hermes runtime that created this engine.
+    /// Engine ids cross the JS/native boundary as numbers, so principal ids
+    /// alone are not an ownership boundary: two runtimes can assign the same
+    /// principal number. The runtime nonce is checked before every lookup.
+    runtime_nonce: u64,
+    engine: Engine,
+}
+
+fn engines() -> &'static Mutex<HashMap<u64, OwnedEngine>> {
     // Rust statics are never destroyed, so this is an immortal singleton by
     // construction (no C++-style static-destructor teardown to deadlock on).
-    static ENGINES: OnceLock<Mutex<HashMap<u64, Engine>>> = OnceLock::new();
+    static ENGINES: OnceLock<Mutex<HashMap<u64, OwnedEngine>>> = OnceLock::new();
     ENGINES.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+const MAX_JS_SAFE_INTEGER: u64 = (1_u64 << 53) - 1;
 
-fn last_error_slot() -> &'static Mutex<Option<String>> {
-    static LAST_ERROR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    LAST_ERROR.get_or_init(|| Mutex::new(None))
+unsafe extern "C" {
+    fn ex_hermes_current_runtime_nonce() -> u64;
+}
+
+fn current_runtime_nonce() -> u64 {
+    // SAFETY: this function reads the runtime-thread's current security
+    // context and has no pointer arguments or lifetime requirements.
+    unsafe { ex_hermes_current_runtime_nonce() }
+}
+
+fn allocate_engine_id(counter: &AtomicU64) -> Option<u64> {
+    counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+            if next == 0 || next > MAX_JS_SAFE_INTEGER {
+                None
+            } else {
+                next.checked_add(1)
+            }
+        })
+        .ok()
+}
+
+thread_local! {
+    // Construction errors are consumed synchronously by the C++ bridge on
+    // the same runtime thread. A process-global slot let one runtime steal or
+    // overwrite another runtime's error during concurrent construction.
+    static LAST_ERROR: RefCell<Option<(u64, String)>> = const { RefCell::new(None) };
 }
 
 fn set_last_error(message: String) {
-    *last_error_slot().lock().unwrap() = Some(message);
+    LAST_ERROR.with(|slot| *slot.borrow_mut() = Some((current_runtime_nonce(), message)));
 }
 
 /// A `ServerCertVerifier` that runs the real WebPKI verification, records the
@@ -234,6 +270,15 @@ struct BridgeConfig {
     /// Concatenated PEM certificates replacing the bundled webpki roots
     /// (Node `ca` option semantics: replaces, not extends).
     ca: Option<String>,
+    cert: Option<String>,
+    key: Option<String>,
+    passphrase: Option<String>,
+    #[serde(default, rename = "hasPfx")]
+    has_pfx: bool,
+    #[serde(default, rename = "hasSession")]
+    has_session: bool,
+    #[serde(default, rename = "cipherSuites")]
+    cipher_suites: Vec<String>,
     #[serde(rename = "minVersion")]
     min_version: Option<String>,
     #[serde(rename = "maxVersion")]
@@ -244,13 +289,42 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
     let config: BridgeConfig =
         serde_json::from_str(config_json).map_err(|e| format!("invalid tls bridge config: {e}"))?;
 
-    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    if config.has_pfx {
+        return Err("pfx client identities are not supported by the rustls bridge; provide cert and key PEM options".into());
+    }
+    if config.has_session {
+        return Err("TLS session resumption input is not supported by the rustls bridge".into());
+    }
+    if config.passphrase.is_some() {
+        return Err("encrypted client private keys are not supported by the rustls bridge".into());
+    }
+
+    let mut provider_value = rustls::crypto::ring::default_provider();
+    if !config.cipher_suites.is_empty() {
+        provider_value.cipher_suites.retain(|suite| {
+            let (openssl, standard) = cipher_names(suite.suite());
+            config.cipher_suites.iter().any(|requested| {
+                openssl
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(requested))
+                    || standard
+                        .as_deref()
+                        .is_some_and(|name| name.eq_ignore_ascii_case(requested))
+            })
+        });
+        if provider_value.cipher_suites.is_empty() {
+            return Err(format!(
+                "none of the requested cipher suites are supported by the rustls bridge: {:?}",
+                config.cipher_suites
+            ));
+        }
+    }
+    let provider = Arc::new(provider_value);
 
     let mut roots = RootCertStore::empty();
     if let Some(ca_pem) = config.ca.as_deref() {
-        let mut cursor = Cursor::new(ca_pem.as_bytes());
         let mut added = 0usize;
-        for cert in rustls_pemfile::certs(&mut cursor) {
+        for cert in CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
             let cert = cert.map_err(|e| format!("invalid certificate in ca option: {e}"))?;
             roots
                 .add(cert)
@@ -278,8 +352,22 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
     // minVersion TLSv1.2 / maxVersion TLSv1.3; lower requested minimums clamp
     // to TLS 1.2 (the connection still negotiates >= 1.2, which satisfies a
     // lower minimum).
+    if matches!(config.max_version.as_deref(), Some("TLSv1" | "TLSv1.1")) {
+        return Err(format!(
+            "unsupported maxVersion {:?}: rustls supports TLSv1.2 and TLSv1.3",
+            config.max_version
+        ));
+    }
+    if matches!(config.min_version.as_deref(), Some(v) if !matches!(v, "TLSv1" | "TLSv1.1" | "TLSv1.2" | "TLSv1.3"))
+        || matches!(config.max_version.as_deref(), Some(v) if !matches!(v, "TLSv1.2" | "TLSv1.3"))
+    {
+        return Err(format!(
+            "unsupported TLS version range: min={:?} max={:?}",
+            config.min_version, config.max_version
+        ));
+    }
     let min_is_13 = config.min_version.as_deref() == Some("TLSv1.3");
-    let max_below_13 = matches!(config.max_version.as_deref(), Some(v) if v != "TLSv1.3");
+    let max_below_13 = config.max_version.as_deref() == Some("TLSv1.2");
     let mut versions: Vec<&'static rustls::SupportedProtocolVersion> = Vec::new();
     if !min_is_13 {
         versions.push(&rustls::version::TLS12);
@@ -294,12 +382,29 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
         ));
     }
 
-    let mut client_config = ClientConfig::builder_with_provider(provider)
+    let client_builder = ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(&versions)
         .map_err(|e| format!("failed to configure TLS versions: {e}"))?
         .dangerous()
-        .with_custom_certificate_verifier(verifier)
-        .with_no_client_auth();
+        .with_custom_certificate_verifier(verifier);
+    let mut client_config = match (config.cert.as_deref(), config.key.as_deref()) {
+        (None, None) => client_builder.with_no_client_auth(),
+        (Some(cert_pem), Some(key_pem)) => {
+            let certs: Vec<CertificateDer<'static>> =
+                CertificateDer::pem_slice_iter(cert_pem.as_bytes())
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| format!("invalid client certificate: {e}"))?;
+            if certs.is_empty() {
+                return Err("cert option contained no certificates".into());
+            }
+            let key = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())
+                .map_err(|e| format!("invalid client private key: {e}"))?;
+            client_builder
+                .with_client_auth_cert(certs, key)
+                .map_err(|e| format!("client certificate/key mismatch: {e}"))?
+        }
+        _ => return Err("both cert and key are required for mutual TLS".into()),
+    };
 
     client_config.alpn_protocols = config
         .alpn
@@ -346,8 +451,16 @@ fn record_process_error(engine: &mut Engine, err: &TlsError) {
 }
 
 fn with_engine<R>(id: u64, f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
+    let runtime_nonce = current_runtime_nonce();
+    if runtime_nonce == 0 {
+        return None;
+    }
     let mut map = engines().lock().unwrap();
-    map.get_mut(&id).map(f)
+    let owned = map.get_mut(&id)?;
+    if owned.runtime_nonce != runtime_nonce {
+        return None;
+    }
+    Some(f(&mut owned.engine))
 }
 
 fn to_owned_cstring(value: String) -> *mut c_char {
@@ -364,6 +477,11 @@ fn to_owned_cstring(value: String) -> *mut c_char {
 /// `config_json` must be a valid NUL-terminated UTF-8 C string.
 #[no_mangle]
 pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 {
+    let runtime_nonce = current_runtime_nonce();
+    if runtime_nonce == 0 {
+        set_last_error("TLS engine creation requires an active runtime".into());
+        return 0;
+    }
     if config_json.is_null() {
         set_last_error("config required".into());
         return 0;
@@ -377,8 +495,21 @@ pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 
     };
     match build_engine(config) {
         Ok(engine) => {
-            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-            engines().lock().unwrap().insert(id, engine);
+            let Some(id) = allocate_engine_id(&NEXT_ID) else {
+                set_last_error("TLS engine id space exhausted".into());
+                return 0;
+            };
+            let replaced = engines().lock().unwrap().insert(
+                id,
+                OwnedEngine {
+                    runtime_nonce,
+                    engine,
+                },
+            );
+            debug_assert!(
+                replaced.is_none(),
+                "monotonic TLS id collided with live engine"
+            );
             id
         }
         Err(message) => {
@@ -392,7 +523,18 @@ pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 
 /// string with `ibex_tls_string_free`; returns null when no error is stored.
 #[no_mangle]
 pub extern "C" fn ibex_tls_last_error() -> *mut c_char {
-    match last_error_slot().lock().unwrap().take() {
+    let runtime_nonce = current_runtime_nonce();
+    match LAST_ERROR.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if slot
+            .as_ref()
+            .is_some_and(|(owner, _)| *owner == runtime_nonce)
+        {
+            slot.take().map(|(_, message)| message)
+        } else {
+            None
+        }
+    }) {
         Some(message) => to_owned_cstring(message),
         None => std::ptr::null_mut(),
     }
@@ -425,6 +567,14 @@ pub unsafe extern "C" fn ibex_tls_write_tls(id: u64, data: *const u8, len: usize
                 Ok(0) => break,
                 Ok(_) => {}
                 Err(err) => {
+                    if err.kind() == std::io::ErrorKind::Other
+                        && err.to_string().contains("plaintext buffer full")
+                    {
+                        // Normal rustls receive backpressure. Return the exact
+                        // consumed prefix; JS drains plaintext and re-offers
+                        // the untouched ciphertext remainder.
+                        break;
+                    }
                     engine.error_code = Some("ERR_TLS_HANDSHAKE_FAILURE".into());
                     engine.error = Some(format!("{err}"));
                     return -1;
@@ -484,15 +634,20 @@ pub unsafe extern "C" fn ibex_tls_write_plain(id: u64, data: *const u8, len: usi
         }
         match engine.conn.writer().write(slice) {
             Ok(n) => n as i64,
-            Err(_) => -1,
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => 0,
+            Err(err) => {
+                engine.error_code = Some("ERR_TLS_WRITE_FAILED".into());
+                engine.error = Some(err.to_string());
+                -1
+            }
         }
     })
     .unwrap_or(-1)
 }
 
 /// Read decrypted plaintext. Returns bytes read (> 0), 0 when no data is
-/// available yet, -1 on end-of-stream (close_notify or transport EOF), or -2
-/// on a fatal TLS error / unknown id.
+/// available yet, -1 on authenticated end-of-stream (close_notify), or -2 on
+/// a fatal TLS error, truncated transport, or unknown id.
 ///
 /// # Safety
 /// `buf` must point to `cap` writable bytes.
@@ -512,9 +667,14 @@ pub unsafe extern "C" fn ibex_tls_read_plain(id: u64, buf: *mut u8, cap: usize) 
                 0
             }
         }
-        // Transport EOF without close_notify. Treated as end-of-stream, like
-        // Node treats abrupt server closes after response data in practice.
-        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => -1,
+        // An unauthenticated transport EOF is truncation, not a clean TLS end.
+        // Treating it as close_notify lets an on-path peer cut a response at a
+        // record boundary and have consumers accept the prefix as complete.
+        Err(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
+            engine.error_code = Some("ECONNRESET".into());
+            engine.error = Some("TLS connection closed without close_notify".into());
+            -2
+        }
         Err(_) => -2,
     })
     .unwrap_or(-2)
@@ -610,7 +770,28 @@ pub extern "C" fn ibex_tls_peer_certs_json(id: u64) -> *mut c_char {
 /// Release an engine.
 #[no_mangle]
 pub extern "C" fn ibex_tls_free(id: u64) {
-    engines().lock().unwrap().remove(&id);
+    let runtime_nonce = current_runtime_nonce();
+    let mut map = engines().lock().unwrap();
+    if map
+        .get(&id)
+        .is_some_and(|owned| owned.runtime_nonce == runtime_nonce)
+    {
+        map.remove(&id);
+    }
+}
+
+/// Release every TLS engine owned by a runtime during runtime destruction.
+/// The explicit nonce is required because teardown clears the thread-local
+/// current-runtime context after invoking native cleanup hooks.
+#[no_mangle]
+pub extern "C" fn ibex_tls_cleanup_runtime(runtime_nonce: u64) {
+    if runtime_nonce == 0 {
+        return;
+    }
+    engines()
+        .lock()
+        .unwrap()
+        .retain(|_, owned| owned.runtime_nonce != runtime_nonce);
 }
 
 /// Free a string returned by the `*_json` / last-error functions.
@@ -669,4 +850,25 @@ fn cipher_names(suite: rustls::CipherSuite) -> (Option<String>, Option<String>) 
         }
     };
     (Some(name.to_string()), Some(standard.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{allocate_engine_id, MAX_JS_SAFE_INTEGER};
+    use std::sync::atomic::AtomicU64;
+
+    #[test]
+    fn tls_engine_ids_stop_before_javascript_number_aliasing() {
+        let counter = AtomicU64::new(MAX_JS_SAFE_INTEGER - 1);
+        assert_eq!(allocate_engine_id(&counter), Some(MAX_JS_SAFE_INTEGER - 1));
+        assert_eq!(allocate_engine_id(&counter), Some(MAX_JS_SAFE_INTEGER));
+        assert_eq!(allocate_engine_id(&counter), None);
+        assert_eq!(allocate_engine_id(&counter), None);
+    }
+
+    #[test]
+    fn tls_engine_id_zero_is_never_allocated() {
+        let counter = AtomicU64::new(0);
+        assert_eq!(allocate_engine_id(&counter), None);
+    }
 }

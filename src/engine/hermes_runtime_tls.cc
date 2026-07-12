@@ -14,6 +14,7 @@
 
 #include "hermes_runtime_internal.h"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -44,7 +45,14 @@ uint64_t requireTlsEngineId(
     throw facebook::jsi::JSError(
         runtime, (std::string(fnName) + ": engine handle required").c_str());
   }
-  return static_cast<uint64_t>(args[0].asNumber());
+  const double value = args[0].asNumber();
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!std::isfinite(value) || value < 1.0 || value > kMaxSafeInteger ||
+      std::floor(value) != value) {
+    throw facebook::jsi::JSError(
+        runtime, (std::string(fnName) + ": invalid engine handle").c_str());
+  }
+  return static_cast<uint64_t>(value);
 }
 
 // Rust returns an owned C string; copy into std::string and free the original.

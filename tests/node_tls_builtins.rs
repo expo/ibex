@@ -417,17 +417,17 @@ plain.listen(0, '127.0.0.1', function () {
 // ============================================================
 
 mod tls_bridge_support {
+    use rustls_pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
 
     fn server_config() -> Arc<rustls::ServerConfig> {
-        let certs: Vec<_> = rustls_pemfile::certs(&mut super::TEST_CERT.as_bytes())
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(super::TEST_CERT.as_bytes())
             .collect::<Result<_, _>>()
             .expect("fixture cert parses");
-        let key = rustls_pemfile::private_key(&mut super::TEST_KEY.as_bytes())
-            .expect("fixture key parses")
-            .expect("fixture key present");
+        let key =
+            PrivateKeyDer::from_pem_slice(super::TEST_KEY.as_bytes()).expect("fixture key parses");
         let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(certs, key)
@@ -484,6 +484,259 @@ mod tls_bridge_support {
         });
         port
     }
+
+    /// Accept one bridged TLS client, deliberately stop consuming application
+    /// data after the handshake, then acknowledge only after `expected` bytes
+    /// arrive. This forces both rustls' plaintext buffer and the raw socket's
+    /// writable queue through their backpressure paths.
+    pub fn spawn_delayed_tls_sink(expected: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(15)))
+                .ok();
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            while conn.is_handshaking() {
+                if conn.complete_io(&mut stream).is_err() {
+                    return;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let mut received = 0usize;
+            let mut buf = [0u8; 16 * 1024];
+            while received < expected {
+                match tls.read(&mut buf) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => received += n,
+                }
+            }
+            let response = format!("ack:{received}");
+            let _ = tls.write_all(response.as_bytes());
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
+
+    /// Push a large response immediately after the handshake. The client test
+    /// pauses before consuming it, exercising bounded ciphertext/plaintext
+    /// retention and resume without involving the public network.
+    pub fn spawn_tls_push_server(payload: Vec<u8>) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let mut conn = rustls::ServerConnection::new(config).expect("server connection");
+            while conn.is_handshaking() {
+                if conn.complete_io(&mut stream).is_err() {
+                    return;
+                }
+            }
+            let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+            let _ = tls.write_all(&payload);
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        port
+    }
+}
+
+#[tokio::test]
+async fn node_tls_bridge_write_reports_and_recovers_from_transport_backpressure() {
+    let payload_len = 8 * 1024 * 1024;
+    let port = tls_bridge_support::spawn_delayed_tls_sink(payload_len);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ drain: false, callback: false, bytes: {payload_len} }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}}, function () {{
+  sock.on('drain', function () {{ out.drain = true; }});
+  var returned = sock.write(Buffer.alloc({payload_len}, 0x61), function () {{
+    out.callback = true;
+  }});
+  out.returned = returned;
+}});
+var body = '';
+sock.on('data', function (chunk) {{ body += chunk.toString(); }});
+sock.on('end', function () {{
+  out.body = body;
+  setTimeout(function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }}, 50);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["returned"], false,
+        "write() must include raw TLS transport pressure discovered while draining: {v}"
+    );
+    assert_eq!(v["drain"], true, "drain must follow recovery: {v}");
+    assert_eq!(v["callback"], true, "write callback must complete: {v}");
+    assert_eq!(v["body"], format!("ack:{payload_len}"), "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_large_prehandshake_write_does_not_stall_at_zero_progress() {
+    let payload_len = 2 * 1024 * 1024;
+    let port = tls_bridge_support::spawn_delayed_tls_sink(payload_len);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ callback: false }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}});
+out.returned = sock.write(Buffer.alloc({payload_len}, 0x62), function () {{ out.callback = true; }});
+var body = '';
+sock.on('data', function (chunk) {{ body += chunk.toString(); }});
+sock.on('end', function () {{
+  out.body = body;
+  setTimeout(function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }}, 50);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(v["returned"], false, "pre-handshake HWM must apply: {v}");
+    assert_eq!(
+        v["callback"], true,
+        "held write callback must complete: {v}"
+    );
+    assert_eq!(v["body"], format!("ack:{payload_len}"), "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_paused_reader_keeps_ciphertext_bounded_and_resumes_losslessly() {
+    let payload_len = 1024 * 1024;
+    let port = tls_bridge_support::spawn_tls_push_server(vec![b'x'; payload_len]);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ bytes: 0 }};
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 15000);
+var sock = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT]
+}}, function () {{
+  sock.pause();
+  setTimeout(function () {{
+    out.retained = sock._bridgeCipherQueueBytes;
+    out.cap = sock._ciphertextHighWaterMark;
+    out.bounded = out.retained <= out.cap;
+    sock.on('data', function (chunk) {{ out.bytes += chunk.length; }});
+    sock.resume();
+  }}, 250);
+}});
+sock.on('end', function () {{
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+sock.on('error', function (e) {{
+  out.error = (e.code || '') + ':' + e.message;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(v["bounded"], true, "ciphertext retention exceeded HWM: {v}");
+    assert_eq!(v["bytes"], payload_len, "resume lost decrypted bytes: {v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_set_encoding_preserves_utf8_split_across_tls_chunks() {
+    let mut payload = vec![b'a'; 16 * 1024 - 1];
+    payload.extend_from_slice("€z".as_bytes());
+    let expected_len = payload.len();
+    let port = tls_bridge_support::spawn_tls_push_server(payload);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ text: '' }};
+var sock = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+sock.setEncoding('utf8');
+sock.on('data', function (chunk) {{ out.text += chunk; }});
+sock.on('end', function () {{
+  out.length = Buffer.from(out.text).length;
+  out.suffix = out.text.slice(-2);
+  out.replacements = (out.text.match(/�/g) || []).length;
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+sock.on('error', function (e) {{ console.log(JSON.stringify({{ error: e.code || e.message }})); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["length"], expected_len, "{v}");
+    assert_eq!(v["suffix"], "€z", "{v}");
+    assert_eq!(v["replacements"], 0, "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_readable_mode_delivers_decoder_tail_before_end() {
+    let port = tls_bridge_support::spawn_tls_push_server(vec![0xe2, 0x82]);
+    let script = format!(
+        r#"
+var tls = require('tls');
+var events = [];
+var sock = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+sock.setEncoding('utf8');
+sock.on('readable', function () {{
+  var chunk;
+  while ((chunk = sock.read()) !== null) {{
+    if (chunk) events.push('tail:' + chunk);
+  }}
+}});
+sock.on('end', function () {{ events.push('end'); console.log(JSON.stringify(events)); process.exit(0); }});
+sock.on('error', function (e) {{ console.log(JSON.stringify(['error:' + (e.code || e.message)])); process.exit(1); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v, serde_json::json!(["tail:�", "end"]), "{v}");
 }
 
 #[tokio::test]

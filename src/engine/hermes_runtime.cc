@@ -1039,14 +1039,16 @@ int drainCallbackQueue(ExactHermesRuntime* runtime) {
             } catch (...) {}
             if (!handled) {
                 ex_host_console_log(1, err.getMessage().c_str());
-                runtime->fatal_async_error = true;
+                if (!runtime->keep_alive_on_async_error) {
+                    runtime->fatal_async_error = true;
+                }
             }
         } catch (const std::exception& err) {
             ex_host_console_log(1, err.what());
-            runtime->fatal_async_error = true;
+            if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
         } catch (...) {
             ex_host_console_log(1, "Callback execution failed");
-            runtime->fatal_async_error = true;
+            if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
         }
     }
     return count;
@@ -2811,11 +2813,11 @@ void runNextTickQueue(ExactHermesRuntime* runtime) {
       } catch (...) {}
       if (!handled) {
         ex_host_console_log(1, err.getMessage().c_str());
-        runtime->fatal_async_error = true;
+        if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
       }
     } catch (const std::exception& err) {
       ex_host_console_log(1, err.what());
-      runtime->fatal_async_error = true;
+      if (!runtime->keep_alive_on_async_error) runtime->fatal_async_error = true;
     }
   }
 }
@@ -3230,7 +3232,22 @@ extern "C" int ex_hermes_eval(
           // and threw" — only the former may delete a cached .hbc and
           // re-run the JS source (see is_bytecode_load_error, ENG-23484).
           writeOutError("Bytecode sanity check failed: " + reason);
-          return 1;
+          return 2;
+        }
+      }
+#elif defined(EXACT_HAVE_HERMES_ROOT_BYTECODE_SANITY_CHECK)
+      const auto* disable_check = std::getenv("EX_DISABLE_BYTECODE_SANITY_CHECK");
+      if (!disable_check) {
+        std::string reason;
+        auto* root = facebook::jsi::castInterface<facebook::hermes::IHermesRootAPI>(
+            facebook::hermes::makeHermesRootAPI());
+        if (root == nullptr ||
+            !root->hermesBytecodeSanityCheck(aligned_data, len, &reason)) {
+          writeOutError("Bytecode sanity check failed: " +
+                        (root == nullptr ? std::string("Hermes root API unavailable") : reason));
+          // A distinct status is the native proof that no program instruction
+          // ran. User exception text can never manufacture this status.
+          return 2;
         }
       }
 #else

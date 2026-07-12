@@ -3907,7 +3907,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       });
     }
     for (const category of ["cache", "load", "resolution", "transform"]) {
-      const observedKey = `loader:operation:${category}:create`;
+      const observedKey = `loader:operation:${category}:write`;
       expect(edgeByObservedKey.get(observedKey), observedKey).toMatchObject({
         classification: "effects",
         effects: [{ cap: "fs:list" }, { cap: "fs:write" }],

@@ -168,3 +168,22 @@ fn dns_default_path_txt_answer_still_resolves() {
     let line = run_probe(MockMode::TxtAnswer);
     assert_eq!(line, "dns-rcode: ok [[\"eng-23506\"]]");
 }
+
+#[test]
+fn dns_get_servers_uses_native_resolver_configuration_without_fs_access() {
+    let port = start_mock_dns_server(MockMode::TxtAnswer);
+    let output = Command::new(IBEX)
+        .args(["-p", "JSON.stringify(require('dns').getServers())"])
+        .env("IBEX_DNS_SERVER", format!("127.0.0.1:{port}"))
+        .output()
+        .expect("run getServers probe");
+    assert!(
+        output.status.success(),
+        "getServers probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        format!(r#"["127.0.0.1:{port}"]"#)
+    );
+}

@@ -154,6 +154,15 @@ describe('zstd surfaces ENOSYS with no native backend (ENG-22967 #2)', () => {
 });
 
 describe('zlib stream parity fixes (ENG-23478)', () => {
+  test('a user Buffer with a control-lookalike property remains ordinary data', async () => {
+    const input: any = Buffer.from('caller-owned payload must be compressed');
+    input.__ibexZlibControl = { type: 'flush', kind: zlib.constants.Z_FINISH };
+    const stream = zlib.createDeflate();
+    const done = collect(stream);
+    stream.end(input);
+    expect(nodeZlib.inflateSync(await done).toString()).toBe(input.toString());
+  });
+
   test('params() changes the compression level used for subsequently-ended data', async () => {
     const input = Buffer.from('abc123\n'.repeat(4096));
     const stream = zlib.createDeflate({ level: 0 });

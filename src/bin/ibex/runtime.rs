@@ -9,12 +9,13 @@ use crate::engine::{self, Engine, EngineFeature};
 use crate::host::{Host, HostConfig};
 use crate::subprocess::{output_with_timeout, timeout_from_env, DEFAULT_BUNDLER_TIMEOUT_MS};
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::env;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Set when bytecode loading fails (e.g. version mismatch between hermesc
 /// and the embedded Hermes runtime). Once set, we skip further bytecode
@@ -1229,6 +1230,10 @@ impl Runtime {
             }
             _ => absolute_path.clone(),
         };
+        // Hold a shared OS file lock for the entire execution. Quota pruning
+        // takes the exclusive side, so lazy per-package chunk loads remain
+        // safe without PID files (which leaked and were vulnerable to reuse).
+        let _bundle_lease = acquire_bundle_execution_lease(&entry_path).await?;
         let entry_str = entry_path.to_string_lossy();
 
         let mut argv: Vec<String> = vec![exec_path.clone(), path_str.to_string()];
@@ -1373,14 +1378,25 @@ impl Runtime {
                     // @ref LLP 0005#bytecode-precompilation-hermesc — entry
                     // bytecode falls back to source on LOAD failure only,
                     // unlike the always-fall-back startup bootstrap.
-                    if !engine::hermes::is_bytecode_load_error(&format!("{e:#}")) {
+                    if !engine::hermes::is_bytecode_load_error(&e) {
                         return Err(e);
                     }
                     // Bytecode failed to load (version mismatch or corrupt).
                     // Mark bytecode as incompatible so we don't re-compile.
                     BYTECODE_INCOMPATIBLE.store(true, Ordering::Relaxed);
+                    let manifest_source = engine::hermes::bytecode_source_path(&entry_path).await;
                     // Delete the stale .hbc and fall through to require() with JS source.
-                    let _ = tokio::fs::remove_file(&entry_path).await;
+                    let content_dir = entry_path.parent().filter(|parent| {
+                        parent
+                            .parent()
+                            .and_then(Path::file_name)
+                            .is_some_and(|name| name == ".bytecode-cache")
+                    });
+                    if let Some(content_dir) = content_dir {
+                        let _ = tokio::fs::remove_dir_all(content_dir).await;
+                    } else {
+                        let _ = tokio::fs::remove_file(&entry_path).await;
+                    }
                     // Derive the JS source path from bytecode source path.
                     // .hbc files can be produced from either a raw source (.ts)
                     // or a bundled output (.bundle.mjs/.bundle.js), so fallback
@@ -1389,13 +1405,15 @@ impl Runtime {
                     // so reversing that with `.with_extension("js")` etc.
                     // correctly reconstructs the original bundle path
                     // (e.g. foo.bundle.hbc → foo.bundle.js / foo.bundle.mjs).
-                    let fallback_paths: Vec<std::path::PathBuf> = vec![
+                    let mut fallback_paths: Vec<std::path::PathBuf> =
+                        manifest_source.into_iter().collect();
+                    fallback_paths.extend([
                         entry_path.with_extension("js"),
                         entry_path.with_extension("mjs"),
                         entry_path.with_extension("ts"),
                         entry_path.with_extension("tsx"),
                         entry_path.with_extension("jsx"),
-                    ];
+                    ]);
 
                     if let Some(js_path) = fallback_paths.iter().find(|p| p.exists()) {
                         let js_str = js_path.to_string_lossy().to_string();
@@ -2717,9 +2735,9 @@ pub async fn prepare_entry_with_format(
 
     let cache_dir = runtime_cache_dir()?;
     let cache_key = bundle_cache_key(&path, bundle_format)?;
-    let output = bundle_output_path(&cache_dir, &cache_key, bundle_format);
+    let artifact_root = bundle_artifact_root(&cache_dir, &cache_key);
 
-    if bundle_cache_is_fresh(&output, &path).await {
+    if let Some(output) = find_fresh_bundle(&artifact_root, &path, bundle_format).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
         if !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
             && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
@@ -2748,24 +2766,34 @@ pub async fn prepare_entry_with_format(
     };
 
     // If format changed, recompute output path
-    let output = if effective_format != bundle_format {
+    let artifact_root = if effective_format != bundle_format {
         let new_key = bundle_cache_key(&path, effective_format)?;
-        bundle_output_path(&cache_dir, &new_key, effective_format)
+        bundle_artifact_root(&cache_dir, &new_key)
     } else {
-        output
+        artifact_root
     };
 
-    let prepared = match run_bundler(&path, &output, effective_format).await {
-        Ok(()) => output,
+    if let Some(output) = find_fresh_bundle(&artifact_root, &path, effective_format).await {
+        return if !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+            && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
+        {
+            prepare_bytecode_entry(&output).await.or(Ok(output))
+        } else {
+            Ok(output)
+        };
+    }
+
+    let prepared = match run_bundler(&path, &artifact_root, effective_format).await {
+        Ok(output) => output,
         Err(err) => {
             let err_msg = format!("{}", err);
             // If rolldown rejects TLA in CJS mode (e.g. await inside for/if/while
             // blocks that our heuristic missed), retry with ESM format.
             if effective_format == BundleFormat::Cjs && err_msg.contains("Top-level await") {
                 let esm_key = bundle_cache_key(&path, BundleFormat::Esm)?;
-                let esm_output = bundle_output_path(&cache_dir, &esm_key, BundleFormat::Esm);
-                match run_bundler(&path, &esm_output, BundleFormat::Esm).await {
-                    Ok(()) => esm_output,
+                let esm_root = bundle_artifact_root(&cache_dir, &esm_key);
+                match run_bundler(&path, &esm_root, BundleFormat::Esm).await {
+                    Ok(output) => output,
                     Err(esm_err) => return Err(esm_err),
                 }
             } else if needs_bundle {
@@ -2829,69 +2857,390 @@ fn deps_manifest_path(output: &Path) -> PathBuf {
     PathBuf::from(format!("{}.deps.json", output.display()))
 }
 
-/// A cached bundle is fresh only when its dependency manifest exists and no
-/// module in the recorded graph — nor the entry itself — is newer than the
-/// bundle output. Missing or unreadable manifests are stale, so caches
-/// produced before the manifest existed rebuild exactly once.
-async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
-    let Ok(out_meta) = tokio::fs::metadata(output).await else {
-        return false;
-    };
-    let Ok(out_time) = out_meta.modified() else {
-        return false;
-    };
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleDigestRecord {
+    path: String,
+    sha256: String,
+}
 
-    match tokio::fs::metadata(entry).await {
-        Ok(meta) => match meta.modified() {
-            Ok(entry_time) if entry_time <= out_time => {}
-            _ => return false,
-        },
-        Err(_) => return false,
+#[derive(serde::Deserialize, serde::Serialize)]
+struct BundleResolutionInput {
+    kind: String,
+    path: String,
+    sha256: String,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BundleCacheManifest {
+    version: u32,
+    entry: String,
+    resolution_digest: String,
+    graph_digest: String,
+    deps: Vec<BundleDigestRecord>,
+    outputs: Vec<BundleDigestRecord>,
+    resolution_inputs: Vec<BundleResolutionInput>,
+}
+
+fn sha256_bytes(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+async fn sha256_file(path: &Path) -> Result<String> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .with_context(|| format!("Failed to hash {}", path.display()))?;
+    Ok(sha256_bytes(&bytes))
+}
+
+async fn read_bundle_manifest(output: &Path) -> Result<BundleCacheManifest> {
+    let raw = tokio::fs::read(deps_manifest_path(output))
+        .await
+        .context("read bundle cache manifest")?;
+    serde_json::from_slice(&raw).context("parse bundle cache manifest")
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<String> {
+    let path = Path::new(&input.path);
+    match input.kind.as_str() {
+        "file" => std::fs::read(path).ok().map(|bytes| sha256_bytes(&bytes)),
+        "symlink" => std::fs::read_link(path)
+            .ok()
+            .map(|target| sha256_bytes(target.to_string_lossy().as_bytes())),
+        "directory" => {
+            let mut entries = std::fs::read_dir(path)
+                .ok()?
+                .collect::<std::io::Result<Vec<_>>>()
+                .ok()?;
+            entries.sort_by(|left, right| {
+                left.file_name()
+                    .to_string_lossy()
+                    .as_bytes()
+                    .cmp(right.file_name().to_string_lossy().as_bytes())
+            });
+            let mut encoded = Vec::new();
+            for entry in entries {
+                let metadata = std::fs::symlink_metadata(entry.path()).ok()?;
+                let kind = if metadata.file_type().is_symlink() {
+                    b'l'
+                } else if metadata.is_dir() {
+                    b'd'
+                } else if metadata.is_file() {
+                    b'f'
+                } else {
+                    b'o'
+                };
+                encoded.push(kind);
+                encoded.push(0);
+                encoded.extend_from_slice(entry.file_name().to_string_lossy().as_bytes());
+                encoded.push(0);
+                if metadata.file_type().is_symlink() {
+                    encoded.extend_from_slice(
+                        std::fs::read_link(entry.path())
+                            .ok()?
+                            .to_string_lossy()
+                            .as_bytes(),
+                    );
+                }
+                encoded.push(b'\n');
+            }
+            Some(sha256_bytes(&encoded))
+        }
+        _ => None,
     }
+}
 
-    let Ok(raw) = tokio::fs::read_to_string(deps_manifest_path(output)).await else {
-        return false;
-    };
-    let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return false;
-    };
-    let Some(deps) = manifest.get("deps").and_then(|deps| deps.as_array()) else {
-        return false;
-    };
+fn normalized_relative_artifact_path(path: &Path) -> Option<String> {
+    if path.is_absolute()
+        || path
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    Some(
+        path.components()
+            .filter_map(|component| match component {
+                std::path::Component::Normal(part) => Some(part.to_string_lossy()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/"),
+    )
+}
 
-    for dep in deps.iter().filter_map(|dep| dep.as_str()) {
-        // A deleted or unreadable dependency invalidates the cache too.
-        let Ok(meta) = tokio::fs::metadata(dep).await else {
+fn collect_bundle_output_files(root: &Path, current: &Path, files: &mut Vec<String>) -> bool {
+    let Ok(entries) = std::fs::read_dir(current) else {
+        return false;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        let path = entry.path();
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
             return false;
         };
-        let Ok(dep_time) = meta.modified() else {
+        let Ok(relative) = path.strip_prefix(root) else {
             return false;
         };
-        if dep_time > out_time {
+        let Some(relative_string) = normalized_relative_artifact_path(relative) else {
+            return false;
+        };
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if metadata.file_type().is_symlink() {
+            // Published generated code is immutable regular-file content; a
+            // symlink could retarget after digest verification.
             return false;
         }
+        if metadata.is_dir() {
+            // Derived bytecode/control directories are not bundler outputs.
+            if name.starts_with('.') {
+                continue;
+            }
+            if !collect_bundle_output_files(root, &path, files) {
+                return false;
+            }
+        } else if metadata.is_file() {
+            if name == ".last-used"
+                || name == ".lease"
+                || relative_string.ends_with(".deps.json")
+                || relative_string.ends_with(".hbc")
+                || relative_string.ends_with(".hbc.meta.json")
+            {
+                continue;
+            }
+            files.push(relative_string);
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// A cached bundle is fresh only when every dependency and every output still
+/// matches the SHA-256 digest committed by its v2 manifest. File size and mtime
+/// are never source identity (ENG-24257).
+async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
+    if !output.is_file() {
+        return false;
+    }
+    let Ok(manifest) = read_bundle_manifest(output).await else {
+        return false;
+    };
+    if manifest.version != 3
+        || !valid_sha256(&manifest.graph_digest)
+        || !valid_sha256(&manifest.resolution_digest)
+    {
+        return false;
+    }
+    let canonical_entry = std::fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
+    let manifest_entry =
+        std::fs::canonicalize(&manifest.entry).unwrap_or_else(|_| PathBuf::from(&manifest.entry));
+    if canonical_entry != manifest_entry {
+        return false;
+    }
+
+    if manifest.resolution_inputs.is_empty() {
+        return false;
+    }
+    let mut previous_resolution: Option<(&str, &str)> = None;
+    for input in &manifest.resolution_inputs {
+        if !Path::new(&input.path).is_absolute() || !valid_sha256(&input.sha256) {
+            return false;
+        }
+        let ordering_key = (input.path.as_str(), input.kind.as_str());
+        if previous_resolution.is_some_and(|previous| previous >= ordering_key) {
+            return false;
+        }
+        previous_resolution = Some(ordering_key);
+        if bundle_resolution_input_digest(input).as_deref() != Some(input.sha256.as_str()) {
+            return false;
+        }
+    }
+    let Ok(encoded_resolution) = serde_json::to_vec(&manifest.resolution_inputs) else {
+        return false;
+    };
+    if sha256_bytes(&encoded_resolution) != manifest.resolution_digest {
+        return false;
+    }
+
+    if manifest.deps.is_empty() {
+        return false;
+    }
+    let mut previous_dep: Option<&str> = None;
+    let canonical_entry_string = canonical_entry.to_string_lossy();
+    let mut includes_entry = false;
+    for dep in &manifest.deps {
+        if !valid_sha256(&dep.sha256)
+            || previous_dep.is_some_and(|previous| previous >= dep.path.as_str())
+        {
+            return false;
+        }
+        previous_dep = Some(&dep.path);
+        let path = Path::new(&dep.path);
+        let Ok(canonical_dep) = std::fs::canonicalize(path) else {
+            return false;
+        };
+        if canonical_dep.to_string_lossy() != dep.path {
+            return false;
+        }
+        includes_entry |= dep.path == canonical_entry_string;
+        let Ok(digest) = sha256_file(path).await else {
+            return false;
+        };
+        if digest != dep.sha256 {
+            return false;
+        }
+    }
+    if !includes_entry {
+        return false;
+    }
+    let Ok(encoded_deps) = serde_json::to_vec(&manifest.deps) else {
+        return false;
+    };
+    if sha256_bytes(&encoded_deps) != manifest.graph_digest {
+        return false;
+    }
+
+    let Some(artifact_dir) = output.parent() else {
+        return false;
+    };
+    if manifest.outputs.is_empty() {
+        return false;
+    }
+    let Some(expected_entry_output) = output
+        .strip_prefix(artifact_dir)
+        .ok()
+        .and_then(normalized_relative_artifact_path)
+    else {
+        return false;
+    };
+    let mut previous_output: Option<&str> = None;
+    let mut includes_output = false;
+    let mut expected_files = Vec::with_capacity(manifest.outputs.len());
+    for artifact in &manifest.outputs {
+        let relative = Path::new(&artifact.path);
+        let Some(normalized) = normalized_relative_artifact_path(relative) else {
+            return false;
+        };
+        if normalized != artifact.path
+            || !valid_sha256(&artifact.sha256)
+            || previous_output.is_some_and(|previous| previous >= artifact.path.as_str())
+        {
+            return false;
+        }
+        previous_output = Some(&artifact.path);
+        includes_output |= artifact.path == expected_entry_output;
+        let Ok(digest) = sha256_file(&artifact_dir.join(relative)).await else {
+            return false;
+        };
+        if digest != artifact.sha256 {
+            return false;
+        }
+        expected_files.push(artifact.path.clone());
+    }
+    if !includes_output {
+        return false;
+    }
+    let mut actual_files = Vec::new();
+    if !collect_bundle_output_files(artifact_dir, artifact_dir, &mut actual_files) {
+        return false;
+    }
+    actual_files.sort();
+    if actual_files != expected_files {
+        return false;
     }
 
     true
 }
 
+#[cfg(test)]
+fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.meta.json", bytecode.display()))
+}
+
+async fn bytecode_cache_is_fresh(source: &Path, bytecode: &Path) -> bool {
+    engine::hermes::bytecode_artifact_is_fresh(source, bytecode).await
+}
+
 async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
-    let hbc_path = entry.with_extension("hbc");
-    if hbc_path.exists() {
-        let entry_meta = tokio::fs::metadata(entry).await;
-        let hbc_meta = tokio::fs::metadata(&hbc_path).await;
-        if let (Ok(entry_meta), Ok(hbc_meta)) = (entry_meta, hbc_meta) {
-            if let (Ok(entry_modified), Ok(hbc_modified)) =
-                (entry_meta.modified(), hbc_meta.modified())
-            {
-                if hbc_modified > entry_modified {
-                    return Ok(hbc_path);
-                }
-            }
-        }
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let source = tokio::fs::read(entry).await?;
+    let source_digest_before = sha256_bytes(&source);
+    let toolchain_identity = engine::hermes::bytecode_cache_identity();
+    let cache_key = sha256_bytes(
+        format!("bytecode-cache-v2\0{source_digest_before}\0{toolchain_identity}").as_bytes(),
+    );
+    let parent = entry.parent().context("bytecode source has no parent")?;
+    let cache_root = parent.join(".bytecode-cache");
+    let final_dir = cache_root.join(&cache_key);
+    let hbc_path = final_dir.join("entry.hbc");
+    if bytecode_cache_is_fresh(entry, &hbc_path).await {
+        return Ok(hbc_path);
     }
 
-    engine::hermes::compile_to_bytecode(&entry.to_string_lossy(), &hbc_path, None).await?;
+    tokio::fs::create_dir_all(&cache_root).await?;
+    let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    let stage_dir = cache_root.join(format!(
+        ".stage-{}-{seq}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    tokio::fs::create_dir(&stage_dir).await?;
+    let stage_hbc = stage_dir.join("entry.hbc");
+    if let Err(error) =
+        engine::hermes::compile_source_to_bytecode(entry, &source, &stage_hbc, None).await
+    {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        return Err(error);
+    }
+    let source_digest_after = sha256_file(entry).await?;
+    if source_digest_before != source_digest_after {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        anyhow::bail!(
+            "Source changed while compiling bytecode for {}",
+            entry.display()
+        );
+    }
+
+    let gate = acquire_bundle_artifact_gate(&final_dir).await?;
+    let mut quarantine = None;
+    if final_dir.exists() {
+        if bytecode_cache_is_fresh(entry, &hbc_path).await {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            return Ok(hbc_path);
+        }
+        let invalid = cache_root.join(format!(
+            ".invalid-{}-{}-{seq}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        tokio::fs::rename(&final_dir, &invalid).await?;
+        quarantine = Some(invalid);
+    }
+    if let Err(error) = tokio::fs::rename(&stage_dir, &final_dir).await {
+        if let Some(invalid) = quarantine.as_ref() {
+            tokio::fs::rename(invalid, &final_dir).await.ok();
+        }
+        return Err(error)
+            .with_context(|| format!("Failed to publish bytecode cache {}", final_dir.display()));
+    }
+    if let Some(invalid) = quarantine {
+        tokio::fs::remove_dir_all(invalid).await.ok();
+    }
+    drop(gate);
 
     Ok(hbc_path)
 }
@@ -3232,23 +3581,11 @@ fn is_ident_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b == b'$'
 }
 
-fn hash_path_metadata<H: Hasher>(hasher: &mut H, path: &Path) {
-    if let Ok(meta) = std::fs::metadata(path) {
-        if let Ok(modified) = meta.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                duration.as_nanos().hash(hasher);
-            }
-        }
-        meta.len().hash(hasher);
-    }
-}
-
-fn hash_file_contents<H: Hasher>(hasher: &mut H, path: &Path) -> Result<()> {
-    path.hash(hasher);
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read bundle cache input {}", path.display()))?;
-    bytes.hash(hasher);
-    Ok(())
+fn digest_field(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
+    hasher.update((label.len() as u64).to_le_bytes());
+    hasher.update(label.as_bytes());
+    hasher.update((bytes.len() as u64).to_le_bytes());
+    hasher.update(bytes);
 }
 
 fn bundler_cache_input_paths() -> Vec<PathBuf> {
@@ -3290,9 +3627,9 @@ fn bundler_cache_input_paths() -> Vec<PathBuf> {
 }
 
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    "bundle-cache-v6-deps-manifest".hash(&mut hasher);
-    bundle_format.as_str().hash(&mut hasher);
+    let mut hasher = Sha256::new();
+    digest_field(&mut hasher, "cache-version", b"bundle-cache-v7-sha256");
+    digest_field(&mut hasher, "format", bundle_format.as_str().as_bytes());
     // @ref LLP 0013#mechanism-2 — a compartmentalized bundle references the
     // `__compartments` registry, which only exists under lockdown/compartments.
     // It MUST NOT be reused for a non-compartment run (the reference would throw
@@ -3302,28 +3639,48 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     // Resolve with the same truthiness parse the engine uses (ENG-22634), and
     // key the cache on that resolved bool so a compartmentalized bundle can never
     // be reused for a non-compartment run (or vice versa).
-    true.hash(&mut hasher);
+    digest_field(
+        &mut hasher,
+        "compartments",
+        b"1",
+    );
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
     // (multiple chunk files), so it must key distinctly from a flat bundle. Use
     // the same truthiness parse as the other two read sites so `=0` is a real
     // opt-out and the cache key agrees with what the bundler actually emitted.
-    true.hash(&mut hasher);
-    hash_file_contents(&mut hasher, entry)?;
+    digest_field(
+        &mut hasher,
+        "per-package-chunks",
+        b"1",
+    );
+    let canonical_entry = std::fs::canonicalize(entry)
+        .with_context(|| format!("Failed to resolve bundle entry {}", entry.display()))?;
+    digest_field(
+        &mut hasher,
+        "entry-path",
+        canonical_entry.to_string_lossy().as_bytes(),
+    );
+    digest_field(
+        &mut hasher,
+        "entry-content",
+        &std::fs::read(&canonical_entry)?,
+    );
 
     for bundler_input in bundler_cache_input_paths() {
-        hash_file_contents(&mut hasher, &bundler_input)?;
+        digest_field(
+            &mut hasher,
+            "bundler-input-path",
+            bundler_input.to_string_lossy().as_bytes(),
+        );
+        digest_field(
+            &mut hasher,
+            "bundler-input-content",
+            &std::fs::read(&bundler_input).with_context(|| {
+                format!("Failed to read bundler input {}", bundler_input.display())
+            })?,
+        );
     }
-
-    if let Some(parent) = entry.parent() {
-        let mut current = Some(parent);
-        let mut depth = 0;
-        while let Some(dir) = current {
-            hash_path_metadata(&mut hasher, dir);
-            depth += 1;
-            current = if depth >= 2 { None } else { dir.parent() };
-        }
-    }
-    Ok(format!("{:x}", hasher.finish()))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn bundle_file_ext(format: BundleFormat) -> &'static str {
@@ -3341,9 +3698,181 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
 /// shared `rolldown-runtime.js` name and corrupt each other's cache (a real
 /// hazard for concurrent `ibex run` of different apps, surfaced once enforce
 /// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
-fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> PathBuf {
-    let ext = bundle_file_ext(format);
-    cache_dir.join(key).join(format!("bundle.{}", ext))
+fn bundle_artifact_root(cache_dir: &Path, key: &str) -> PathBuf {
+    cache_dir.join("bundles").join(key)
+}
+
+fn bundle_entry_path(artifact_dir: &Path, format: BundleFormat) -> PathBuf {
+    artifact_dir.join(format!("bundle.{}", bundle_file_ext(format)))
+}
+
+fn process_is_running(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        return result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    }
+    #[cfg(windows)]
+    {
+        type Handle = *mut std::ffi::c_void;
+        extern "system" {
+            fn OpenProcess(access: u32, inherit: i32, process_id: u32) -> Handle;
+            fn CloseHandle(handle: Handle) -> i32;
+        }
+        const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return false;
+        }
+        unsafe { CloseHandle(handle) };
+        return true;
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+struct BundleArtifactGate {
+    file: std::fs::File,
+}
+
+impl Drop for BundleArtifactGate {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn bundle_gate_path(artifact_dir: &Path) -> PathBuf {
+    let name = artifact_dir
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("artifact");
+    artifact_dir.with_file_name(format!(".{name}.gate"))
+}
+
+fn try_acquire_bundle_artifact_gate(artifact_dir: &Path) -> Result<Option<BundleArtifactGate>> {
+    let gate = bundle_gate_path(artifact_dir);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&gate)
+        .with_context(|| format!("Failed to open bundle artifact gate {}", gate.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(BundleArtifactGate { file })),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => Err(error)
+            .with_context(|| format!("Failed to lock bundle artifact gate {}", gate.display())),
+    }
+}
+
+async fn acquire_bundle_artifact_gate(artifact_dir: &Path) -> Result<BundleArtifactGate> {
+    for _ in 0..500 {
+        if let Some(gate) = try_acquire_bundle_artifact_gate(artifact_dir)? {
+            return Ok(gate);
+        }
+        // Never park a Tokio worker while another process publishes/prunes.
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    let gate = bundle_gate_path(artifact_dir);
+    anyhow::bail!(
+        "Timed out acquiring bundle artifact gate {}",
+        gate.display()
+    )
+}
+
+pub(crate) struct BundleLease {
+    file: std::fs::File,
+}
+
+impl Drop for BundleLease {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn acquire_bundle_lease(artifact_dir: &Path) -> Result<BundleLease> {
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(artifact_dir.join(".lease"))
+        .with_context(|| format!("Failed to lease bundle artifact {}", artifact_dir.display()))?;
+    file.lock_shared()
+        .with_context(|| format!("Failed to lock bundle artifact {}", artifact_dir.display()))?;
+    std::fs::write(artifact_dir.join(".last-used"), []).ok();
+    Ok(BundleLease { file })
+}
+
+fn bundle_artifact_has_live_lease(artifact_dir: &Path) -> bool {
+    let Ok(file) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(artifact_dir.join(".lease"))
+    else {
+        return false;
+    };
+    match file.try_lock() {
+        Ok(()) => {
+            let _ = file.unlock();
+            false
+        }
+        Err(std::fs::TryLockError::WouldBlock) => true,
+        Err(_) => true,
+    }
+}
+
+pub(crate) async fn acquire_bundle_execution_lease(path: &Path) -> Result<Option<BundleLease>> {
+    let bundles_root = runtime_cache_dir()?.join("bundles");
+    let mut current = path.parent();
+    while let Some(directory) = current {
+        if directory
+            .parent()
+            .and_then(Path::parent)
+            .is_some_and(|parent| parent == bundles_root)
+        {
+            let gate = acquire_bundle_artifact_gate(directory).await?;
+            if !directory.is_dir() {
+                anyhow::bail!(
+                    "Bundle cache artifact disappeared before execution: {}",
+                    directory.display()
+                );
+            }
+            let lease = acquire_bundle_lease(directory)?;
+            drop(gate);
+            return Ok(Some(lease));
+        }
+        if !directory.starts_with(&bundles_root) {
+            break;
+        }
+        current = directory.parent();
+    }
+    Ok(None)
+}
+
+async fn find_fresh_bundle(
+    artifact_root: &Path,
+    entry: &Path,
+    format: BundleFormat,
+) -> Option<PathBuf> {
+    let mut entries = tokio::fs::read_dir(artifact_root).await.ok()?;
+    while let Ok(Some(candidate)) = entries.next_entry().await {
+        let file_type = candidate.file_type().await.ok()?;
+        if !file_type.is_dir() || candidate.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let candidate_path = candidate.path();
+        let _gate = acquire_bundle_artifact_gate(&candidate_path).await.ok()?;
+        let output = bundle_entry_path(&candidate_path, format);
+        if bundle_cache_is_fresh(&output, entry).await {
+            std::fs::write(candidate_path.join(".last-used"), []).ok();
+            return Some(output);
+        }
+    }
+    None
 }
 
 /// Copy the per-package chunk siblings a chunked bundle emitted — the
@@ -3611,17 +4140,151 @@ fn convert_import_as_to_destructure(imports: &str) -> String {
     format!("{{ {} }}", bindings.join(", "))
 }
 
-async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -> Result<()> {
+fn unique_bundle_stage_dir(artifact_root: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    artifact_root.join(format!(
+        ".stage-{}-{seq}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ))
+}
+
+fn cached_directory_size(path: &Path) -> u64 {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| match entry.file_type() {
+            Ok(file_type) if file_type.is_dir() => cached_directory_size(&entry.path()),
+            Ok(file_type) if file_type.is_file() => {
+                entry.metadata().map(|metadata| metadata.len()).unwrap_or(0)
+            }
+            _ => 0,
+        })
+        .sum()
+}
+
+fn cleanup_abandoned_bundle_temp_dirs(bundles_root: &Path) {
+    let Ok(keys) = std::fs::read_dir(bundles_root) else {
+        return;
+    };
+    for key in keys.filter_map(|entry| entry.ok()) {
+        let Ok(children) = std::fs::read_dir(key.path()) else {
+            continue;
+        };
+        for child in children.filter_map(|entry| entry.ok()) {
+            let name = child.file_name().to_string_lossy().into_owned();
+            let owner = [".stage-", ".invalid-", ".evict-"]
+                .iter()
+                .find_map(|prefix| {
+                    name.strip_prefix(prefix)
+                        .and_then(|rest| rest.split('-').next())
+                        .and_then(|pid| pid.parse::<u32>().ok())
+                });
+            if owner.is_some_and(|pid| !process_is_running(pid)) {
+                std::fs::remove_dir_all(child.path()).ok();
+            }
+        }
+    }
+}
+
+fn prune_bundle_cache_to_limit(bundles_root: &Path, keep: &Path, limit: u64) {
+    cleanup_abandoned_bundle_temp_dirs(bundles_root);
+    let Ok(keys) = std::fs::read_dir(bundles_root) else {
+        return;
+    };
+    let mut artifacts = Vec::new();
+    for key in keys.filter_map(|entry| entry.ok()) {
+        let Ok(children) = std::fs::read_dir(key.path()) else {
+            continue;
+        };
+        for child in children.filter_map(|entry| entry.ok()) {
+            let path = child.path();
+            let Ok(metadata) = child.metadata() else {
+                continue;
+            };
+            if path == keep
+                || !metadata.is_dir()
+                || child.file_name().to_string_lossy().starts_with('.')
+            {
+                continue;
+            }
+            let recency = std::fs::metadata(path.join(".last-used"))
+                .and_then(|marker| marker.modified())
+                .or_else(|_| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            artifacts.push((recency, cached_directory_size(&path), path));
+        }
+    }
+    // Include active stages/gates/quarantines in accounting even though only
+    // completed, unlocked artifacts are eviction candidates.
+    let mut total = cached_directory_size(bundles_root);
+    artifacts.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in artifacts {
+        if total <= limit {
+            break;
+        }
+        let Ok(Some(gate)) = try_acquire_bundle_artifact_gate(&path) else {
+            continue;
+        };
+        if bundle_artifact_has_live_lease(&path) {
+            drop(gate);
+            continue;
+        }
+        let quarantine = path.with_file_name(format!(
+            ".evict-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact")
+        ));
+        let renamed = std::fs::rename(&path, &quarantine).is_ok();
+        drop(gate);
+        if renamed && std::fs::remove_dir_all(&quarantine).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+fn enforce_bundle_cache_quota(artifact_root: &Path, keep: &Path) {
+    const DEFAULT_LIMIT: u64 = 512 * 1024 * 1024;
+    let limit = std::env::var("IBEX_BUNDLE_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LIMIT);
+    if let Some(bundles_root) = artifact_root.parent() {
+        prune_bundle_cache_to_limit(bundles_root, keep, limit);
+    }
+}
+
+async fn run_bundler(
+    entry: &Path,
+    artifact_root: &Path,
+    bundle_format: BundleFormat,
+) -> Result<PathBuf> {
     let (runner, runner_name) = find_js_runner()?;
     let script = bundler_script_path()?;
     let working_dir = bundler_working_dir()?;
     let timeout = timeout_from_env("EXACT_BUNDLER_TIMEOUT_MS", DEFAULT_BUNDLER_TIMEOUT_MS);
 
-    // The output may live in a per-key subdir (per-package chunking); make sure
-    // it exists before the bundler writes the entry + sibling chunks there.
-    if let Some(parent) = output.parent() {
-        tokio::fs::create_dir_all(parent).await.ok();
-    }
+    tokio::fs::create_dir_all(artifact_root)
+        .await
+        .with_context(|| format!("Failed to create {}", artifact_root.display()))?;
+    let stage_dir = unique_bundle_stage_dir(artifact_root);
+    tokio::fs::create_dir(&stage_dir)
+        .await
+        .with_context(|| format!("Failed to create bundle stage {}", stage_dir.display()))?;
+    let output = bundle_entry_path(&stage_dir, bundle_format);
 
     let mut command = tokio::process::Command::new(&runner);
     command
@@ -3629,10 +4292,11 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         .arg("--entry")
         .arg(entry)
         .arg("--out")
-        .arg(output)
+        .arg(&output)
         .arg("--format")
         .arg(bundle_format.as_str())
         .arg("--sourcemap")
+        .arg("--cache-manifest")
         .current_dir(&working_dir);
     // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
     // package (node_modules) code through the per-package compartment rewrite so
@@ -3644,12 +4308,19 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     // `IBEX_PER_PACKAGE_CHUNKS=0` opts out. iife can't split; the bundler
     // ignores the flag there.
     command.arg("--per-package-chunks");
-    let cmd_output = output_with_timeout(
+    let cmd_output = match output_with_timeout(
         &mut command,
         timeout,
         &format!("bundler via {}", runner_name),
     )
-    .await?;
+    .await
+    {
+        Ok(output) => output,
+        Err(error) => {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            return Err(error);
+        }
+    };
 
     if !cmd_output.status.success() {
         let stderr = String::from_utf8_lossy(&cmd_output.stderr);
@@ -3680,6 +4351,7 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
             ),
             Some(context),
         );
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
         anyhow::bail!(
             "Bundler exited with status {}: {}",
             cmd_output.status,
@@ -3687,7 +4359,69 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
         );
     }
 
-    Ok(())
+    if !bundle_cache_is_fresh(&output, entry).await {
+        tokio::fs::remove_dir_all(&stage_dir).await.ok();
+        anyhow::bail!(
+            "Bundler did not produce a complete digest-verified artifact in {}",
+            stage_dir.display()
+        );
+    }
+    let manifest = read_bundle_manifest(&output).await?;
+    let final_dir = artifact_root.join(&manifest.graph_digest);
+    let final_output = bundle_entry_path(&final_dir, bundle_format);
+    let gate = acquire_bundle_artifact_gate(&final_dir).await?;
+    let mut quarantined = None;
+    if final_dir.exists() {
+        if bundle_cache_is_fresh(&final_output, entry).await {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            std::fs::write(final_dir.join(".last-used"), []).ok();
+            drop(gate);
+            enforce_bundle_cache_quota(artifact_root, &final_dir);
+            return Ok(final_output);
+        }
+        if bundle_artifact_has_live_lease(&final_dir) {
+            tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            anyhow::bail!(
+                "Cannot repair invalid bundle artifact {} while another process holds a live lease",
+                final_dir.display()
+            );
+        }
+        let quarantine = final_dir.with_file_name(format!(
+            ".invalid-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        tokio::fs::rename(&final_dir, &quarantine)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to quarantine invalid bundle artifact {}",
+                    final_dir.display()
+                )
+            })?;
+        quarantined = Some(quarantine);
+    }
+    if let Err(error) = tokio::fs::rename(&stage_dir, &final_dir).await {
+        if let Some(quarantine) = quarantined.as_ref() {
+            let _ = tokio::fs::rename(quarantine, &final_dir).await;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "Failed to atomically publish bundle cache {}",
+                final_dir.display()
+            )
+        });
+    }
+    if let Some(quarantine) = quarantined {
+        tokio::fs::remove_dir_all(quarantine).await.ok();
+    }
+    std::fs::write(final_dir.join(".last-used"), []).ok();
+    drop(gate);
+    enforce_bundle_cache_quota(artifact_root, &final_dir);
+    Ok(final_output)
 }
 
 fn bundler_script_path() -> Result<PathBuf> {
@@ -4199,10 +4933,8 @@ mod tests {
         assert_eq!(explicit_digest.as_deref(), Some(expected_digest.as_str()));
     }
 
-    fn file_hash(path: &Path) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        hash_file_contents(&mut hasher, path).expect("hashing file contents should succeed");
-        hasher.finish()
+    fn file_hash(path: &Path) -> String {
+        sha256_bytes(&std::fs::read(path).expect("read file for digest"))
     }
 
     // ENG-22760 — `ibex build` under enforce/audit must ship the per-package
@@ -4452,40 +5184,348 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bundle_cache_freshness_tracks_dep_mtimes() {
+    async fn bundle_cache_freshness_tracks_dependency_and_output_digests() {
         let dir = tempdir().expect("tempdir");
+        let artifact_dir = tempdir().expect("artifact tempdir");
         let entry = dir.path().join("entry.ts");
         let dep = dir.path().join("dep.ts");
-        let output = dir.path().join("entry.bundle.js");
+        let output = artifact_dir.path().join("entry.bundle.js");
         std::fs::write(&entry, "import './dep.ts';").expect("write entry");
         std::fs::write(&dep, "export const v = 1;").expect("write dep");
         std::fs::write(&output, "bundled").expect("write output");
+        let canonical_entry = std::fs::canonicalize(&entry).unwrap();
+        let canonical_dep = std::fs::canonicalize(&dep).unwrap();
 
         // No dependency manifest → stale (pre-manifest caches rebuild once).
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
 
-        let manifest = serde_json::json!({
-            "version": 1,
-            "deps": [entry.to_string_lossy(), dep.to_string_lossy()],
-        });
-        std::fs::write(deps_manifest_path(&output), manifest.to_string()).expect("write manifest");
-        // Re-write the output so it is the newest file in the set.
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        std::fs::write(&output, "bundled-2").expect("rewrite output");
+        let mut deps = vec![
+            BundleDigestRecord {
+                path: canonical_entry.to_string_lossy().into_owned(),
+                sha256: sha256_file(&entry).await.unwrap(),
+            },
+            BundleDigestRecord {
+                path: canonical_dep.to_string_lossy().into_owned(),
+                sha256: sha256_file(&dep).await.unwrap(),
+            },
+        ];
+        deps.sort_by(|left, right| left.path.cmp(&right.path));
+        let graph_digest = sha256_bytes(&serde_json::to_vec(&deps).unwrap());
+        let mut resolution_inputs = vec![BundleResolutionInput {
+            kind: "directory".into(),
+            path: dir.path().to_string_lossy().into_owned(),
+            sha256: String::new(),
+        }];
+        resolution_inputs[0].sha256 =
+            bundle_resolution_input_digest(&resolution_inputs[0]).unwrap();
+        let resolution_digest = sha256_bytes(&serde_json::to_vec(&resolution_inputs).unwrap());
+        let mut manifest = BundleCacheManifest {
+            version: 3,
+            entry: canonical_entry.to_string_lossy().into_owned(),
+            resolution_digest,
+            graph_digest,
+            deps,
+            outputs: vec![BundleDigestRecord {
+                path: output.file_name().unwrap().to_string_lossy().into_owned(),
+                sha256: sha256_file(&output).await.unwrap(),
+            }],
+            resolution_inputs,
+        };
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .expect("write manifest");
         assert!(bundle_cache_is_fresh(&output, &entry).await);
 
-        // Editing an *imported* dependency (not the entry) must invalidate —
-        // the entry-mtime-only check missed exactly this (ledger item 2).
-        std::thread::sleep(std::time::Duration::from_millis(15));
+        // A newly-added resolution candidate can retarget an import even when
+        // every old positive dependency still exists unchanged.
+        let candidate = dir.path().join("dep.js");
+        std::fs::write(&candidate, "export const v = 'new candidate';").unwrap();
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::remove_file(&candidate).unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // The manifest is a closed inventory: unbound emitted files are never
+        // allowed to sit beside executable chunks/maps.
+        let unbound_output = artifact_dir.path().join("unbound.js");
+        std::fs::write(&unbound_output, "tampered").unwrap();
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::remove_file(&unbound_output).unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        let correct_graph_digest = manifest.graph_digest.clone();
+        manifest.graph_digest = "0".repeat(64);
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        manifest.graph_digest = correct_graph_digest;
+        std::fs::write(
+            deps_manifest_path(&output),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Same-length edits invalidate without relying on timestamp movement.
         std::fs::write(&dep, "export const v = 2;").expect("edit dep");
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
 
-        // A deleted dependency invalidates too.
-        std::thread::sleep(std::time::Duration::from_millis(15));
-        std::fs::write(&output, "bundled-3").expect("rewrite output");
+        std::fs::write(&dep, "export const v = 1;").expect("restore dep");
         assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // Output tampering is rejected before execution too.
+        std::fs::write(&output, "tampered").expect("tamper output");
+        assert!(!bundle_cache_is_fresh(&output, &entry).await);
+        std::fs::write(&output, "bundled").expect("restore output");
+        assert!(bundle_cache_is_fresh(&output, &entry).await);
+
+        // A deleted dependency invalidates too.
         std::fs::remove_file(&dep).expect("remove dep");
         assert!(!bundle_cache_is_fresh(&output, &entry).await);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundle_resolution_witness_tracks_symlink_retargets() {
+        use std::os::unix::fs::symlink;
+
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("entry.js");
+        let first = dir.path().join("first");
+        let second = dir.path().join("second");
+        std::fs::create_dir(&first).unwrap();
+        std::fs::create_dir(&second).unwrap();
+        std::fs::write(first.join("index.js"), "one").unwrap();
+        std::fs::write(second.join("index.js"), "two").unwrap();
+        std::fs::write(&entry, "require('./selected')").unwrap();
+        let selected = dir.path().join("selected");
+        symlink(&first, &selected).unwrap();
+        let before = BundleResolutionInput {
+            kind: "symlink".into(),
+            path: selected.to_string_lossy().into_owned(),
+            sha256: String::new(),
+        };
+        let before_digest = bundle_resolution_input_digest(&before).unwrap();
+        std::fs::remove_file(&selected).unwrap();
+        symlink(&second, &selected).unwrap();
+        let after_digest = bundle_resolution_input_digest(&before).unwrap();
+        assert_ne!(before_digest, after_digest);
+    }
+
+    #[tokio::test]
+    async fn bytecode_cache_rejects_same_length_source_and_output_tampering() {
+        let dir = tempdir().expect("tempdir");
+        let source = dir.path().join("entry.js");
+        let bytecode = dir.path().join("entry.hbc");
+        std::fs::write(&source, "module.exports = 1").unwrap();
+        std::fs::write(&bytecode, b"valid-looking-bytecode").unwrap();
+        let manifest = serde_json::json!({
+            "version": 2,
+            "sourcePath": std::fs::canonicalize(&source).unwrap().to_string_lossy(),
+            "sourceSha256": sha256_file(&source).await.unwrap(),
+            "bytecodeSha256": sha256_file(&bytecode).await.unwrap(),
+            "sourceMapPath": null,
+            "sourceMapSha256": null,
+            "toolchainIdentity": engine::hermes::bytecode_cache_identity(),
+        });
+        std::fs::write(
+            bytecode_manifest_path(&bytecode),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(bytecode_cache_is_fresh(&source, &bytecode).await);
+
+        std::fs::write(&source, "module.exports = 2").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &bytecode).await);
+        std::fs::write(&source, "module.exports = 1").unwrap();
+        std::fs::write(&bytecode, b"tampered-bytecode---").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &bytecode).await);
+    }
+
+    #[tokio::test]
+    async fn content_addressed_bytecode_cache_repairs_corrupt_existing_unit() {
+        let dir = tempdir().unwrap();
+        let source = dir.path().join("entry.js");
+        std::fs::write(&source, "globalThis.__bytecodeRepair = 1;\n").unwrap();
+        let first = match prepare_bytecode_entry(&source).await {
+            Ok(path) => path,
+            Err(_) => return, // checked-in hermesc is optional in minimal dev envs
+        };
+        assert!(bytecode_cache_is_fresh(&source, &first).await);
+        std::fs::write(&first, b"corrupt-bytecode").unwrap();
+        assert!(!bytecode_cache_is_fresh(&source, &first).await);
+        let repaired = prepare_bytecode_entry(&source).await.unwrap();
+        assert_eq!(repaired, first);
+        assert!(bytecode_cache_is_fresh(&source, &repaired).await);
+        assert!(repaired
+            .components()
+            .any(|component| component.as_os_str() == ".bytecode-cache"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_bundle_publishers_converge_on_one_complete_artifact() {
+        let dir = tempdir().expect("tempdir");
+        let artifact_dir = tempdir().expect("artifact tempdir");
+        let entry = dir.path().join("entry.js");
+        let artifact_root = artifact_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = { answer: 42 };\n").unwrap();
+
+        let mut tasks = Vec::new();
+        for _ in 0..4 {
+            let entry = entry.clone();
+            let artifact_root = artifact_root.clone();
+            tasks.push(tokio::spawn(async move {
+                run_bundler(&entry, &artifact_root, BundleFormat::Cjs).await
+            }));
+        }
+        let mut outputs = Vec::new();
+        for task in tasks {
+            outputs.push(task.await.unwrap().unwrap());
+        }
+        assert!(outputs.iter().all(|output| output == &outputs[0]));
+        assert!(bundle_cache_is_fresh(&outputs[0], &entry).await);
+        assert_eq!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(".stage-"))
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn corrupt_existing_bundle_graph_is_quarantined_and_repaired() {
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = 42;\n").unwrap();
+        let first = run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .unwrap();
+        std::fs::write(&first, "tampered output").unwrap();
+        assert!(!bundle_cache_is_fresh(&first, &entry).await);
+
+        let repaired = run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .unwrap();
+        assert_eq!(repaired, first);
+        assert!(bundle_cache_is_fresh(&repaired, &entry).await);
+        assert_eq!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with(".invalid-"))
+                .count(),
+            0
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_rejects_source_mutation_after_rolldown_capture() {
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = 'before';\n").unwrap();
+        // The hook is entry-scoped, so concurrently running bundler tests are
+        // unaffected even though subprocess environment is process-global.
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &entry);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(
+            captured.exists(),
+            "bundler never reached source capture barrier"
+        );
+        std::fs::write(&entry, "module.exports = 'after!';\n").unwrap();
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(result.is_err(), "mixed-version bundle must not publish");
+        assert!(
+            std::fs::read_dir(&artifact_root)
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .all(|entry| entry.file_name().to_string_lossy().starts_with('.')),
+            "no completed graph may survive a mid-build source edit"
+        );
+    }
+
+    #[test]
+    fn bundle_cache_quota_evicts_old_graphs_but_keeps_current() {
+        let dir = tempdir().unwrap();
+        let old = dir.path().join("key-a/graph-old");
+        let keep = dir.path().join("key-b/graph-current");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("bundle.js"), vec![0u8; 64]).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::create_dir_all(&keep).unwrap();
+        std::fs::write(keep.join("bundle.js"), vec![0u8; 64]).unwrap();
+
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(!old.exists());
+        assert!(keep.exists());
+    }
+
+    #[test]
+    fn bundle_cache_quota_respects_raii_file_lock_lease() {
+        let dir = tempdir().unwrap();
+        let keep = dir.path().join("key-new").join("graph-new");
+        let leased = dir.path().join("key-old").join("graph-old");
+        std::fs::create_dir_all(&keep).unwrap();
+        std::fs::create_dir_all(&leased).unwrap();
+        std::fs::write(keep.join("bundle.js"), vec![0u8; 64]).unwrap();
+        std::fs::write(leased.join("bundle.js"), vec![0u8; 64]).unwrap();
+        let lease = acquire_bundle_lease(&leased).unwrap();
+
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(leased.exists(), "live shared lease must prevent eviction");
+        drop(lease);
+        prune_bundle_cache_to_limit(dir.path(), &keep, 64);
+        assert!(
+            !leased.exists(),
+            "RAII drop must make the artifact evictable"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_bundle_publish_cleans_incomplete_stage() {
+        let dir = tempdir().unwrap();
+        let artifact_dir = tempdir().expect("artifact tempdir");
+        let entry = dir.path().join("invalid.js");
+        let artifact_root = artifact_dir.path().join("cache-key");
+        std::fs::write(&entry, "function broken( {\n").unwrap();
+        assert!(run_bundler(&entry, &artifact_root, BundleFormat::Cjs)
+            .await
+            .is_err());
+        let stage_count = std::fs::read_dir(&artifact_root)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".stage-"))
+            .count();
+        assert_eq!(stage_count, 0);
     }
 
     #[test]

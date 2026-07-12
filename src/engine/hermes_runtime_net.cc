@@ -83,7 +83,7 @@ void cleanupRuntimeSockets(uint64_t runtimeNonce) {
 }
 
 std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
-  return std::string(base) + ":" + host + ":" + std::to_string(port);
+  return std::string(base) + ":" + formatNetworkEndpoint(host, port);
 }
 
 void requireNetworkCapability(

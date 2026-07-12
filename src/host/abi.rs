@@ -10,6 +10,7 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use super::Host;
+use base64::Engine as _;
 use getrandom::getrandom;
 use rusqlite::{
     hooks::{AuthAction, AuthContext, Authorization},
@@ -857,7 +858,11 @@ fn install_sqlite_authorizer(db: &Connection) {
     db.authorizer(Some(sqlite_authorizer));
 }
 
-fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
+/// Convert an ordinary user binding using the legacy SQLite semantics. This
+/// function deliberately does not recognize the private transport envelope:
+/// envelope decoding happens exactly once at the binding boundary, otherwise
+/// a user value nested inside `{kind:"value"}` can smuggle a second envelope.
+fn plain_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
     match value {
         serde_json::Value::Null => rusqlite::types::Value::Null,
         serde_json::Value::Bool(value) => {
@@ -896,6 +901,38 @@ fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
             },
         )),
     }
+}
+
+fn to_sql_value(value: &serde_json::Value) -> rusqlite::types::Value {
+    if let serde_json::Value::Object(object) = value {
+        if object.len() == 1 {
+            if let Some(envelope) = object
+                .get("$ibexSqliteBindingV1")
+                .and_then(serde_json::Value::as_object)
+            {
+                match envelope.get("kind").and_then(serde_json::Value::as_str) {
+                    Some("blob") if envelope.len() == 2 => {
+                        if let Some(encoded) =
+                            envelope.get("base64").and_then(serde_json::Value::as_str)
+                        {
+                            if let Ok(bytes) =
+                                base64::engine::general_purpose::STANDARD.decode(encoded)
+                            {
+                                return rusqlite::types::Value::Blob(bytes);
+                            }
+                        }
+                    }
+                    Some("value") if envelope.len() == 2 => {
+                        if let Some(inner) = envelope.get("value") {
+                            return plain_sql_value(inner);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    plain_sql_value(value)
 }
 
 enum SqlBindings {
@@ -967,7 +1004,10 @@ fn sqlite_value_to_json(value: ValueRef<'_>) -> serde_json::Value {
             .map(serde_json::Value::String)
             .unwrap_or(serde_json::Value::Null),
         ValueRef::Blob(value) => {
-            serde_json::Value::Array(value.iter().copied().map(serde_json::Value::from).collect())
+            serde_json::json!({
+                "$ibexSqliteBlobResultBase64":
+                    base64::engine::general_purpose::STANDARD.encode(value)
+            })
         }
     }
 }
@@ -4572,6 +4612,64 @@ mod tests {
             .into_owned();
         ex_host_free_string(ptr);
         serde_json::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn sqlite_tagged_blob_binding_is_stored_as_blob() {
+        let _guard = host_test_lock();
+
+        let mem = CString::new(":memory:").unwrap();
+        let db = ex_host_sqlite_open(mem.as_ptr(), ptr::null());
+        assert_ne!(db, 0);
+        exec_ok(db, "CREATE TABLE bytes (value BLOB)", None);
+        exec_ok(
+            db,
+            "INSERT INTO bytes (value) VALUES (?)",
+            Some(r#"[{"$ibexSqliteBindingV1":{"kind":"blob","base64":"AAEC/v8="}}]"#),
+        );
+
+        let prep = CString::new(
+            "SELECT typeof(value) AS kind, length(value) AS size, hex(value) AS hex FROM bytes",
+        )
+        .unwrap();
+        let prepared = take_json(ex_host_sqlite_prepare(db, prep.as_ptr()));
+        let handle = prepared["handle"].as_u64().unwrap();
+        let result = take_json(ex_host_sqlite_get(handle, ptr::null()));
+        assert_eq!(result["row"]["kind"], "blob");
+        assert_eq!(result["row"]["size"], 5);
+        assert_eq!(result["row"]["hex"], "000102FEFF");
+
+        assert_eq!(ex_host_sqlite_close(db), 0);
+    }
+
+    #[test]
+    fn sqlite_blob_tag_lookalike_plain_object_keeps_legacy_text_semantics() {
+        let value = serde_json::json!({"$ibexSqliteBlobBase64": "AAEC/v8="});
+        assert!(matches!(
+            to_sql_value(&value),
+            rusqlite::types::Value::Text(text)
+                if text == "$ibexSqliteBlobBase64=\"AAEC/v8=\""
+        ));
+    }
+
+    #[test]
+    fn sqlite_value_envelope_does_not_recursively_decode_user_transport_lookalike() {
+        let value = serde_json::json!({
+            "$ibexSqliteBindingV1": {
+                "kind": "value",
+                "value": {
+                    "$ibexSqliteBindingV1": {
+                        "kind": "blob",
+                        "base64": "AAEC/v8="
+                    }
+                }
+            }
+        });
+        assert!(matches!(
+            to_sql_value(&value),
+            rusqlite::types::Value::Text(text)
+                if text == "$ibexSqliteBindingV1={\"base64\":\"AAEC/v8=\",\"kind\":\"blob\"}"
+        ));
     }
 
     #[test]

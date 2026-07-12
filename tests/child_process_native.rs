@@ -723,6 +723,50 @@ setTimeout(function () {
     );
 }
 
+/// ENG-24262: fork happens while native fs/DNS workers are active. Child setup
+/// must perform no allocator/libc mutation after fork, or a lock held by a
+/// vanished sibling thread can deadlock the child before exec.
+#[test]
+fn spawn_stress_while_native_worker_threads_are_busy() {
+    let app = r#"
+const cp = require('child_process');
+const fs = require('fs');
+const dns = require('dns');
+const N = 80;
+let asyncClosed = 0;
+let workerDone = 0;
+for (let i = 0; i < N; i++) {
+  fs.readFile(__filename, function () { workerDone++; });
+  dns.lookup('localhost', function () { workerDone++; });
+}
+for (let i = 0; i < N; i++) {
+  const sync = cp.spawnSync('true', [], { stdio: 'ignore' });
+  if (sync.status !== 0) throw new Error('spawnSync failed at ' + i);
+  const child = cp.spawn('true', [], { stdio: 'ignore' });
+  child.on('close', function (code) {
+    if (code !== 0) throw new Error('spawn failed: ' + code);
+    asyncClosed++;
+    if (asyncClosed === N) {
+      console.log('RESULT|closed=' + asyncClosed + '|workers=' + workerDone);
+    }
+  });
+}
+setTimeout(function () {
+  if (asyncClosed !== N) {
+    console.log('RESULT|closed=' + asyncClosed + '|workers=' + workerDone);
+    process.exit(1);
+  }
+}, 15000);
+"#;
+    let run = run_app("postforkstress", app, Duration::from_secs(30));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "closed="),
+        Some("80"),
+        "spawn stress failed: {line}"
+    );
+}
+
 /// Minimal JSON string encoder (avoids pulling serde into this test).
 fn serde_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);

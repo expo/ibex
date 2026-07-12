@@ -11,16 +11,14 @@ import { Statement, type Changes } from './Statement';
 
 const g = globalThis as any;
 
-const CRSQLITE_IDENTIFIER_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
 function validateCrSqliteIdentifier(tableName: string): string {
-  if (typeof tableName !== 'string' || !CRSQLITE_IDENTIFIER_RE.test(tableName)) {
-    throw new TypeError(
-      'markAsCrr tableName must be a simple SQLite identifier matching ' +
-      '[A-Za-z_][A-Za-z0-9_]*'
-    );
+  if (typeof tableName !== 'string') {
+    throw new TypeError('markAsCrr tableName must be a string');
   }
-  return tableName;
+  if (tableName.length === 0 || tableName.indexOf('\0') !== -1) {
+    throw new TypeError('markAsCrr tableName must be a non-empty SQLite identifier');
+  }
+  return tableName.replace(/'/g, "''");
 }
 
 export interface DatabaseOptions {

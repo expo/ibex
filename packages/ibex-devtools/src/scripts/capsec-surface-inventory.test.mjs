@@ -2181,7 +2181,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "route:subprocess:rust:run_transpile_subprocess",
         "external-calls:cache",
         "external-calls:subprocess",
-        "operation:cache:create",
+        "operation:cache:write",
         "operation:cache:create_dir_all",
         "operation:subprocess:command-new",
         "transform-engine:oxc",
@@ -2192,13 +2192,13 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       false,
     );
     expect(
-      rows.find((row) => row.name === "operation:cache:create").metadata
+      rows.find((row) => row.name === "operation:cache:write").metadata
         .qualifiedPaths,
-    ).toContain("qualified:std::fs::File::create");
+    ).toContain("qualified:std::fs::write");
     expect(
       rows.find((row) => row.name === "external-calls:cache").sourceRefs,
     ).toContain(
-      "src/module_loader/mod.rs#ensure_transpile_cache_dir:external:qualified:std::fs::File::create:count-1",
+      "src/module_loader/mod.rs#publish_transpile_artifact:external:qualified:std::fs::write:count-1",
     );
 
     const mutated = scanRustLoaderRoutes([
@@ -2207,8 +2207,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         text: fs
           .readFileSync(path.join(repoRoot, "src/module_loader/mod.rs"), "utf8")
           .replace(
-            "std::fs::File::create(&probe_path)",
-            "std::fs::File::future_authority_call(&probe_path)",
+            "std::fs::write(\n            stage.join(\"manifest.json\"),",
+            "std::fs::future_authority_call(\n            stage.join(\"manifest.json\"),",
           ),
       },
       {
@@ -2533,6 +2533,14 @@ describe("LLP 0021 WP1 source surface inventory", () => {
             }
           `,
         },
+        {
+          sourcePath: "hermes_runtime_process.cc",
+          text: String.raw`
+            void prepareChildEnv() {
+              s_setEnvEntry(plan.envEntries, "EXACT_QUIET", "1");
+            }
+          `,
+        },
       ],
     });
     expect(rows.map((row) => row.name)).toEqual(
@@ -2547,6 +2555,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "env:EXACT_ANDROID_FILES_DIR",
         "env:EXACT_MODE",
         "env:EXACT_OLD",
+        "env:EXACT_QUIET",
         "env:EXACT_REFLECT_DELETE",
         "env:EXACT_WATCH",
         "env:HOME",
@@ -2572,6 +2581,9 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       rows.find((row) => row.name === "env:EXACT_ANDROID_FILES_DIR").metadata
         .contexts,
     ).toEqual(["trusted-bootstrap-output"]);
+    expect(
+      rows.find((row) => row.name === "env:EXACT_QUIET").metadata.contexts,
+    ).toEqual(["spawn-child-env"]);
     for (const name of ["env:EXACT_ASSIGNED", "env:IBEX_REFLECT_SET"]) {
       expect(
         rows.find((row) => row.name === name).metadata.accessDirections,
@@ -3409,10 +3421,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       first.hostAbi
         .find((row) => row.name === "ex_hermes_notify_callback")
         .metadata.branches.map((branch) => [branch.targetVariant, branch.kind]),
-    ).toEqual([
-      ["binary", "alternative"],
-      ["default", "alternative"],
-    ]);
+    ).toEqual([["default", "single"]]);
     expect(
       first.hostAbi.find((row) => row.name === "ex_host_http_serve").metadata
         .branches,

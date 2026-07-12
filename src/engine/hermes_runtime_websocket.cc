@@ -4,7 +4,6 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 typedef void (*NativeWsOpenCallback)(
@@ -28,48 +27,55 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
 extern "C" void native_ws_pause(uint32_t ws_id);
 extern "C" void native_ws_resume(uint32_t ws_id);
 extern "C" void native_ws_set_flow_controlled(uint32_t ws_id, int enabled);
+extern "C" void native_ws_destroy(uint32_t ws_id);
+extern "C" uint64_t ex_hermes_current_runtime_nonce();
 
 namespace {
 
 struct WebSocketEntry {
+  uint64_t runtime_nonce;
   uint64_t owner;
   std::string capability;
+  NativeWebSocketCallbackContext* context;
+  bool closing;
 };
 
 static std::mutex g_websocket_mutex;
+static std::condition_variable g_websocket_cv;
 static std::unordered_map<uint32_t, WebSocketEntry> g_websockets;
-// Connect handshakes run asynchronously (ENG-23469), so a fast failure can
-// fire the close/error callbacks -- whose unregisterWebSocket runs on the io
-// thread -- before the JS thread reaches registerWebSocket after
-// native_ws_connect returns. ws_ids increase monotonically and are never
-// reused, and registrations happen on the JS thread in id order, so an
-// unregister for an id above the registration high-water mark can only be
-// such an early death: remember it and drop the late registration instead of
-// leaking a ghost entry.
-static std::unordered_set<uint32_t> g_early_unregistered;
-static uint32_t g_max_registered_ws_id = 0;
 
-void registerWebSocket(uint32_t ws_id, uint64_t owner, const std::string& capability) {
-  if (ws_id == 0 || isAllowAll()) {
-    return;
+bool registerWebSocket(
+    NativeWebSocketCallbackContext* context,
+    uint32_t ws_id,
+    uint64_t owner,
+    const std::string& capability) {
+  if (ws_id == 0 || !context || context->runtime_nonce == 0) {
+    return false;
   }
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
-  if (ws_id > g_max_registered_ws_id) {
-    g_max_registered_ws_id = ws_id;
+  // The native connect callback can fail on an I/O thread before
+  // native_ws_connect returns to the runtime thread. The terminal callback
+  // and this registration serialize on the same mutex and share the exact
+  // per-connect context, so neither interleaving can leave a ghost entry.
+  if (context && context->websocket_terminal) {
+    context->websocket_registered = true;
+    g_websocket_cv.notify_all();
+    return false;
   }
-  if (g_early_unregistered.erase(ws_id) > 0) {
-    return;  // the socket already died; nothing to track
-  }
-  g_websockets[ws_id] = WebSocketEntry{owner, capability};
+  bool inserted = g_websockets
+      .emplace(
+          ws_id,
+          WebSocketEntry{context->runtime_nonce, owner, capability, context, false})
+      .second;
+  context->websocket_registered = true;
+  g_websocket_cv.notify_all();
+  return inserted;
 }
 
 WebSocketEntry requireWebSocketOwner(
     facebook::jsi::Runtime& runtime,
     uint32_t ws_id,
     const char* syscall) {
-  if (isAllowAll()) {
-    return WebSocketEntry{currentPrincipalId(), ""};
-  }
   WebSocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_websocket_mutex);
@@ -79,6 +85,16 @@ WebSocketEntry requireWebSocketOwner(
     }
     entry = it->second;
   }
+  if (entry.runtime_nonce != ex_hermes_current_runtime_nonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": WebSocket belongs to a different runtime");
+  }
+  if (isAllowAll()) {
+    if (entry.closing) {
+      throw facebook::jsi::JSError(runtime, std::string(syscall) + ": WebSocket is closing");
+    }
+    return entry;
+  }
   if (entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": WebSocket belongs to a different principal");
@@ -86,25 +102,91 @@ WebSocketEntry requireWebSocketOwner(
   if (!entry.capability.empty() && !checkCapability(entry.capability)) {
     throw facebook::jsi::JSError(runtime, std::string("Permission denied: ") + syscall);
   }
+  if (entry.closing) {
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": WebSocket is closing");
+  }
   return entry;
 }
 
-void unregisterWebSocket(uint32_t ws_id) {
-  if (ws_id == 0 || isAllowAll()) {
-    return;
-  }
+bool markWebSocketClosing(uint32_t ws_id, uint64_t runtimeNonce) {
   std::lock_guard<std::mutex> lock(g_websocket_mutex);
-  if (g_websockets.erase(ws_id) > 0) {
-    return;
+  auto it = g_websockets.find(ws_id);
+  if (it == g_websockets.end() || it->second.runtime_nonce != runtimeNonce ||
+      it->second.closing) {
+    return false;
   }
-  if (ws_id > g_max_registered_ws_id) {
-    // Died before the JS thread could register it (see comment above); the
-    // marker is consumed by the upcoming registerWebSocket for this id.
-    g_early_unregistered.insert(ws_id);
+  it->second.closing = true;
+  return true;
+}
+
+bool unregisterWebSocket(
+    uint32_t ws_id,
+    NativeWebSocketCallbackContext* context = nullptr) {
+  std::lock_guard<std::mutex> lock(g_websocket_mutex);
+  if (ws_id == 0) {
+    if (!context || context->websocket_terminal) return false;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    return true;
   }
+  auto it = g_websockets.find(ws_id);
+  if (context) {
+    if (context->websocket_terminal) return false;
+    context->websocket_terminal = true;
+    g_websocket_cv.notify_all();
+    if (it != g_websockets.end() &&
+        (it->second.runtime_nonce != context->runtime_nonce ||
+         it->second.context != context)) {
+      return false;
+    }
+  }
+  // Idempotent for error+close, duplicate close, and explicit JS close. A
+  // missing id is never retained, so terminal churn has bounded memory.
+  if (it != g_websockets.end()) g_websockets.erase(it);
+  return true;
+}
+
+bool webSocketCallbackIsCurrent(
+    uint32_t ws_id,
+    NativeWebSocketCallbackContext* context) {
+  if (ws_id == 0 || !context) return false;
+  std::unique_lock<std::mutex> lock(g_websocket_mutex);
+  g_websocket_cv.wait_for(lock, std::chrono::seconds(1), [&] {
+    return context->websocket_registered || context->websocket_terminal;
+  });
+  if (!context->websocket_registered || context->websocket_terminal) return false;
+  auto it = g_websockets.find(ws_id);
+  return it != g_websockets.end() &&
+      it->second.runtime_nonce == context->runtime_nonce &&
+      it->second.context == context && !it->second.closing;
 }
 
 } // namespace
+
+extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce) {
+  if (runtimeNonce == 0) return;
+
+  std::vector<uint32_t> ownedIds;
+  {
+    std::lock_guard<std::mutex> lock(g_websocket_mutex);
+    for (auto it = g_websockets.begin(); it != g_websockets.end();) {
+      if (it->second.runtime_nonce == runtimeNonce) {
+        if (it->second.context) {
+          it->second.context->websocket_registered = true;
+          it->second.context->websocket_terminal = true;
+        }
+        ownedIds.push_back(it->first);
+        it = g_websockets.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    g_websocket_cv.notify_all();
+  }
+  for (uint32_t wsId : ownedIds) {
+    native_ws_destroy(wsId);
+  }
+}
 
 void installWebSocketGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
@@ -132,24 +214,27 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
         // @ref LLP 0013#policy — WebSocket native I/O is the security boundary;
         // endpoint-scoped grants must authorize the concrete peer, not just JS.
         std::string connectCapability =
-            "network:connect:" + parsedUrl.host + ":" + std::to_string(parsedUrl.port);
+            "network:connect:" + formatNetworkEndpoint(parsedUrl.host, parsedUrl.port);
         if (!checkCapability(connectCapability)) {
           throw facebook::jsi::JSError(
               runtime, "Permission denied: network:connect capability required");
         }
         auto wsPrincipal = currentPrincipalId();
+        auto runtimeNonce = ex_hermes_current_runtime_nonce();
         auto wsInstance = std::make_shared<facebook::jsi::Object>(args[2].asObject(runtime));
         auto* callbackContext =
-            new NativeWebSocketCallbackContext{handle, wsInstance, wsPrincipal, connectCapability, 1};
+            new NativeWebSocketCallbackContext{
+                handle, wsInstance, runtimeNonce, wsPrincipal, connectCapability, 1};
 
         auto wsId = native_ws_connect(
             url.c_str(),
             protocols.empty() ? nullptr : protocols.c_str(),
-            [](uint32_t, const char* protocol, const char* extensions, void* ctx) {
+            [](uint32_t ws_id, const char* protocol, const char* extensions, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
               if (!context || !context->runtime || !context->ws_instance) {
                 return;
               }
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
@@ -172,11 +257,12 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                             facebook::jsi::String::createFromUtf8(rt, extCopy));
                   });
             },
-            [](uint32_t, const uint8_t* data, size_t length, int is_text, void* ctx) {
+            [](uint32_t ws_id, const uint8_t* data, size_t length, int is_text, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
               if (!context || !context->runtime || !context->ws_instance) {
                 return;
               }
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
@@ -225,7 +311,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto reasonCopy = std::string(reason ? reason : "");
               auto codeCopy = code;
               auto cleanCopy = was_clean;
-              unregisterWebSocket(ws_id);
+              if (!unregisterWebSocket(ws_id, context)) return;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
@@ -253,7 +339,7 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto msgCopy = std::string(message ? message : "Unknown error");
-              unregisterWebSocket(ws_id);
+              if (!unregisterWebSocket(ws_id, context)) return;
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
@@ -267,11 +353,12 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
                     fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
                   });
             },
-            [](uint32_t, size_t bytes_sent, void* ctx) {
+            [](uint32_t ws_id, size_t bytes_sent, void* ctx) {
               auto* context = static_cast<NativeWebSocketCallbackContext*>(ctx);
               if (!context || !context->runtime || !context->ws_instance) {
                 return;
               }
+              if (!webSocketCallbackIsCurrent(ws_id, context)) return;
               auto runtime = context->runtime;
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
@@ -294,7 +381,10 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
           native_ws_release_context(callbackContext);
           return facebook::jsi::Value::undefined();
         }
-        registerWebSocket(wsId, wsPrincipal, connectCapability);
+        if (!registerWebSocket(callbackContext, wsId, wsPrincipal, connectCapability)) {
+          native_ws_destroy(wsId);
+          return facebook::jsi::Value::undefined();
+        }
         return facebook::jsi::Value(static_cast<int>(wsId));
       });
   rt.global().setProperty(rt, "__exactWsConnect", std::move(wsConnectFn));
@@ -340,13 +430,15 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
-        (void)requireWebSocketOwner(runtime, ws_id, "__exactWsClose");
+        auto entry = requireWebSocketOwner(runtime, ws_id, "__exactWsClose");
+        if (!markWebSocketClosing(ws_id, entry.runtime_nonce)) {
+          return facebook::jsi::Value::undefined();
+        }
         uint16_t code =
             count > 1 && args[1].isNumber() ? static_cast<uint16_t>(args[1].asNumber()) : 1005;
         std::string reason =
             count > 2 && args[2].isString() ? args[2].toString(runtime).utf8(runtime) : "";
         native_ws_close(ws_id, code, reason.c_str());
-        unregisterWebSocket(ws_id);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactWsClose", std::move(wsCloseFn));
@@ -497,9 +589,10 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
     this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytesSent || 0));
   };
   WebSocket.prototype.send = function(data) {
-    if (this.readyState !== WebSocket.OPEN) {
+    if (this.readyState === WebSocket.CONNECTING) {
       throw new Error('WebSocket is not open');
     }
+    if (this.readyState !== WebSocket.OPEN) return;
     if (typeof data === 'string') this.bufferedAmount += data.length;
     else if (data && typeof data.byteLength === 'number') this.bufferedAmount += data.byteLength;
     g.__exactWsSend(this._socketId, data);

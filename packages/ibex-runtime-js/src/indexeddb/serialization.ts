@@ -1,8 +1,10 @@
 /**
  * Structured serialization for IndexedDB values and keys.
  *
- * Records are persisted into a SQLite TEXT column, so we need a lossless,
- * deterministic text encoding. Plain `JSON.stringify` silently corrupts the
+ * Record values are persisted as a versioned SQLite BLOB envelope: a compact
+ * JSON metadata header followed by raw binary attachments. Keys remain a
+ * deterministic text encoding because SQLite equality/order predicates use
+ * them directly. Plain `JSON.stringify` silently corrupts the
  * structured-clone-compatible types IndexedDB is required to preserve: Dates
  * become ISO strings, typed arrays become `{"0":...}` plain objects, and
  * Map/Set/undefined are dropped entirely. This module round-trips those types
@@ -26,10 +28,73 @@
 import { DOMException } from './utils';
 
 const TAG = '__idb_tag__';
+const VALUE_MAGIC = new Uint8Array([0x49, 0x44, 0x42, 0x32]); // "IDB2"
+const VALUE_HEADER_BYTES = VALUE_MAGIC.length + 4;
 
-function toByteArray(view: ArrayBufferView): number[] {
-  const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-  return Array.from(bytes);
+interface BinaryEncodeContext {
+  parts: Uint8Array[];
+  length: number;
+}
+
+// Blobs decoded from our own persistent representation may be host Blobs that
+// do not expose Ibex's synchronous `_getBytes()` hook. Remember the bytes on
+// those instances so a value can be cloned again (for example while resolving
+// an auto-increment key) without falling back to an asynchronous Blob read.
+// WeakMap keeps this bookkeeping invisible to user code and non-retaining.
+interface DecodedBlobState {
+  bytes: Uint8Array;
+  tag: 'Blob' | 'File';
+}
+
+const decodedBlobState = new WeakMap<object, DecodedBlobState>();
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const BufferCtor = (globalThis as any).Buffer;
+  if (BufferCtor?.from) return BufferCtor.from(bytes).toString('base64');
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(data: string): Uint8Array {
+  const BufferCtor = (globalThis as any).Buffer;
+  if (BufferCtor?.from) return new Uint8Array(BufferCtor.from(data, 'base64'));
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function decodedBytes(value: any, binary?: Uint8Array): Uint8Array {
+  if (Array.isArray(value.bin) && binary) {
+    const offset = Number(value.bin[0]);
+    const length = Number(value.bin[1]);
+    if (
+      !Number.isSafeInteger(offset) ||
+      !Number.isSafeInteger(length) ||
+      offset < 0 ||
+      length < 0 ||
+      offset + length > binary.byteLength
+    ) {
+      throw new DOMException('IndexedDB binary value is corrupt.', 'DataError');
+    }
+    return binary.slice(offset, offset + length);
+  }
+  return typeof value.data === 'string'
+    ? base64ToBytes(value.data)
+    : Uint8Array.from(value.bytes ?? []);
+}
+
+function encodeBytes(bytes: Uint8Array, binary?: BinaryEncodeContext): Record<string, any> {
+  if (!binary) return { data: bytesToBase64(bytes) };
+  const snapshot = bytes.slice();
+  const offset = binary.length;
+  binary.parts.push(snapshot);
+  binary.length += snapshot.byteLength;
+  return { bin: [offset, snapshot.byteLength] };
 }
 
 /**
@@ -41,6 +106,8 @@ function toByteArray(view: ArrayBufferView): number[] {
  * (ENG-23134)
  */
 function blobLikeTag(value: any): 'Blob' | 'File' | null {
+  const decoded = decodedBlobState.get(value);
+  if (decoded) return decoded.tag;
   const tag = value?.[Symbol.toStringTag];
   if (tag !== 'Blob' && tag !== 'File') return null;
   if (typeof value.size !== 'number' || typeof value.type !== 'string') return null;
@@ -53,10 +120,12 @@ function blobLikeTag(value: any): 'Blob' | 'File' | null {
  * foreign host Blob without it cannot be read synchronously and must be
  * refused loudly rather than silently stored as `{}`. (ENG-23134)
  */
-function blobBytes(value: any): number[] | null {
+function blobBytes(value: any): Uint8Array | null {
   if (typeof value._getBytes === 'function') {
-    return Array.from(value._getBytes() as Uint8Array);
+    return new Uint8Array(value._getBytes() as Uint8Array);
   }
+  const decoded = decodedBlobState.get(value);
+  if (decoded) return decoded.bytes.slice();
   return null;
 }
 
@@ -66,7 +135,7 @@ for (const Ctor of [Error, EvalError, RangeError, ReferenceError, SyntaxError, T
 }
 
 /** Convert a value into a JSON-safe representation, tagging non-JSON types. */
-function encode(value: any): any {
+function encode(value: any, binary?: BinaryEncodeContext): any {
   if (value === undefined) return { [TAG]: 'undefined' };
   if (value === null) return null;
 
@@ -84,23 +153,27 @@ function encode(value: any): any {
   if (value instanceof RegExp) return { [TAG]: 'RegExp', source: value.source, flags: value.flags };
 
   if (value instanceof ArrayBuffer) {
-    return { [TAG]: 'ArrayBuffer', bytes: Array.from(new Uint8Array(value)) };
+    return { [TAG]: 'ArrayBuffer', ...encodeBytes(new Uint8Array(value), binary) };
   }
   if (ArrayBuffer.isView(value)) {
     // Uint8Array, Float64Array, DataView, ... — reconstruct from raw bytes so
     // every view type (including BigInt typed arrays) round-trips uniformly.
-    return { [TAG]: 'View', ctor: value.constructor.name, bytes: toByteArray(value) };
+    const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    return { [TAG]: 'View', ctor: value.constructor.name, ...encodeBytes(bytes, binary) };
   }
 
   if (value instanceof Map) {
-    return { [TAG]: 'Map', entries: Array.from(value.entries()).map(([k, v]) => [encode(k), encode(v)]) };
+    return {
+      [TAG]: 'Map',
+      entries: Array.from(value.entries()).map(([k, v]) => [encode(k, binary), encode(v, binary)]),
+    };
   }
   if (value instanceof Set) {
-    return { [TAG]: 'Set', values: Array.from(value.values()).map(encode) };
+    return { [TAG]: 'Set', values: Array.from(value.values()).map((v) => encode(v, binary)) };
   }
 
   if (Array.isArray(value)) {
-    return value.map(encode);
+    return value.map((v) => encode(v, binary));
   }
 
   if (t === 'object') {
@@ -119,13 +192,13 @@ function encode(value: any): any {
       if (blobTag === 'File') {
         return {
           [TAG]: 'File',
-          bytes,
+          ...encodeBytes(bytes, binary),
           name: String(value.name),
           mime: String(value.type),
           lastModified: Number(value.lastModified),
         };
       }
-      return { [TAG]: 'Blob', bytes, mime: String(value.type) };
+      return { [TAG]: 'Blob', ...encodeBytes(bytes, binary), mime: String(value.type) };
     }
 
     // Error objects (structured clone serializes name/message/stack/cause);
@@ -137,14 +210,14 @@ function encode(value: any): any {
         message: String(value.message),
       };
       if (typeof value.stack === 'string') out.stack = value.stack;
-      if ('cause' in value) out.cause = encode((value as any).cause);
+      if ('cause' in value) out.cause = encode((value as any).cause, binary);
       return out;
     }
 
     // Boxed primitives are structured-clone-able ([[BooleanData]] etc.).
     // (ENG-23134)
     if (value instanceof Number || value instanceof String || value instanceof Boolean) {
-      return { [TAG]: 'Boxed', v: encode(value.valueOf()) };
+      return { [TAG]: 'Boxed', v: encode(value.valueOf(), binary) };
     }
 
     // Types structured clone explicitly refuses — fail loudly instead of
@@ -162,7 +235,7 @@ function encode(value: any): any {
 
     const out: Record<string, any> = {};
     for (const k of Object.keys(value)) {
-      out[k] = encode(value[k]);
+      out[k] = encode(value[k], binary);
     }
     // A plain object that itself carries the reserved tag key must be escaped
     // so decode() does not mistake it for one of our wrappers.
@@ -176,18 +249,18 @@ function encode(value: any): any {
   throw new DOMException(`Value of type ${t} could not be cloned.`, 'DataCloneError');
 }
 
-function decodePlainObject(obj: Record<string, any>): Record<string, any> {
+function decodePlainObject(obj: Record<string, any>, binary?: Uint8Array): Record<string, any> {
   const out: Record<string, any> = {};
   for (const k of Object.keys(obj)) {
-    out[k] = decode(obj[k]);
+    out[k] = decode(obj[k], binary);
   }
   return out;
 }
 
 /** Inverse of encode(). */
-function decode(value: any): any {
+function decode(value: any, binary?: Uint8Array): any {
   if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(decode);
+  if (Array.isArray(value)) return value.map((v) => decode(v, binary));
 
   const tag = value[TAG];
   if (typeof tag === 'string') {
@@ -203,17 +276,19 @@ function decode(value: any): any {
       case 'RegExp':
         return new RegExp(value.source, value.flags);
       case 'ArrayBuffer':
-        return Uint8Array.from(value.bytes).buffer;
+        return decodedBytes(value, binary).buffer;
       case 'View': {
-        const buf = Uint8Array.from(value.bytes).buffer;
+        const buf = decodedBytes(value, binary).buffer;
         const Ctor = (globalThis as any)[value.ctor];
         if (!Ctor) return buf; // Unknown view type — surface the raw buffer.
         return value.ctor === 'DataView' ? new DataView(buf) : new Ctor(buf);
       }
       case 'Map':
-        return new Map(value.entries.map(([k, v]: [any, any]) => [decode(k), decode(v)]));
+        return new Map(
+          value.entries.map(([k, v]: [any, any]) => [decode(k, binary), decode(v, binary)]),
+        );
       case 'Set':
-        return new Set(value.values.map(decode));
+        return new Set(value.values.map((v: any) => decode(v, binary)));
       case 'Blob': {
         // Reconstruct with the environment's Blob (the runtime bootstrap
         // installs the Ibex Blob there — see blobLikeTag for why this module
@@ -222,51 +297,97 @@ function decode(value: any): any {
         if (!BlobCtor) {
           throw new DOMException('Blob is not available in this environment.', 'DataError');
         }
-        return new BlobCtor([Uint8Array.from(value.bytes)], { type: value.mime });
+        const bytes = decodedBytes(value, binary);
+        const blob = new BlobCtor([bytes], { type: value.mime });
+        decodedBlobState.set(blob, { bytes: bytes.slice(), tag: 'Blob' });
+        return blob;
       }
       case 'File': {
         const FileCtor = (globalThis as any).File;
         if (!FileCtor) {
           throw new DOMException('File is not available in this environment.', 'DataError');
         }
-        return new FileCtor([Uint8Array.from(value.bytes)], value.name, {
+        const bytes = decodedBytes(value, binary);
+        const file = new FileCtor([bytes], value.name, {
           type: value.mime,
           lastModified: value.lastModified,
         });
+        decodedBlobState.set(file, { bytes: bytes.slice(), tag: 'File' });
+        return file;
       }
       case 'Error': {
         const Ctor = ERROR_CTORS[value.name] ?? Error;
         const err: any = new Ctor(value.message);
         err.name = value.name;
         if (typeof value.stack === 'string') err.stack = value.stack;
-        if ('cause' in value) err.cause = decode(value.cause);
+        if ('cause' in value) err.cause = decode(value.cause, binary);
         return err;
       }
       case 'Boxed':
-        return Object(decode(value.v));
+        return Object(decode(value.v, binary));
       case 'object':
         // Escaped user object — decode its properties as a plain object.
-        return decodePlainObject(value.props);
+        return decodePlainObject(value.props, binary);
       default:
         // Unrecognized tag: treat as an ordinary object.
-        return decodePlainObject(value);
+        return decodePlainObject(value, binary);
     }
   }
-  return decodePlainObject(value);
+  return decodePlainObject(value, binary);
 }
 
 /**
- * Serialize an arbitrary structured-clone-compatible value to text for storage.
+ * Serialize a structured-clone-compatible value into a compact BLOB envelope.
+ * Raw ArrayBuffer/view/Blob/File bytes are appended directly rather than
+ * expanded to base64 or JSON number arrays.
  */
-export function serializeValue(value: any): string {
-  return JSON.stringify(encode(value));
+export function serializeValue(value: any): Uint8Array {
+  const binary: BinaryEncodeContext = { parts: [], length: 0 };
+  const header = new TextEncoder().encode(JSON.stringify(encode(value, binary)));
+  const result = new Uint8Array(VALUE_HEADER_BYTES + header.byteLength + binary.length);
+  result.set(VALUE_MAGIC, 0);
+  new DataView(result.buffer).setUint32(VALUE_MAGIC.length, header.byteLength, true);
+  result.set(header, VALUE_HEADER_BYTES);
+  let offset = VALUE_HEADER_BYTES + header.byteLength;
+  for (const part of binary.parts) {
+    result.set(part, offset);
+    offset += part.byteLength;
+  }
+  return result;
 }
 
 /**
- * Deserialize a value previously produced by serializeValue().
+ * Deserialize a value produced by serializeValue(). TEXT rows from the v1
+ * base64/tagged-JSON representation remain readable, allowing existing
+ * databases to migrate lazily as records are rewritten.
  */
-export function deserializeValue(text: string): any {
-  return decode(JSON.parse(text));
+export function deserializeValue(stored: any): any {
+  if (typeof stored === 'string') return decode(JSON.parse(stored));
+  let bytes: Uint8Array;
+  if (stored instanceof ArrayBuffer) {
+    bytes = new Uint8Array(stored);
+  } else if (ArrayBuffer.isView(stored)) {
+    bytes = new Uint8Array(stored.buffer, stored.byteOffset, stored.byteLength);
+  } else {
+    throw new DOMException('IndexedDB value has an unsupported storage type.', 'DataError');
+  }
+  if (
+    bytes.byteLength < VALUE_HEADER_BYTES ||
+    !VALUE_MAGIC.every((byte, index) => bytes[index] === byte)
+  ) {
+    throw new DOMException('IndexedDB binary value has an invalid header.', 'DataError');
+  }
+  const headerLength = new DataView(
+    bytes.buffer,
+    bytes.byteOffset + VALUE_MAGIC.length,
+    4,
+  ).getUint32(0, true);
+  const payloadOffset = VALUE_HEADER_BYTES + headerLength;
+  if (payloadOffset > bytes.byteLength) {
+    throw new DOMException('IndexedDB binary value is truncated.', 'DataError');
+  }
+  const header = new TextDecoder().decode(bytes.subarray(VALUE_HEADER_BYTES, payloadOffset));
+  return decode(JSON.parse(header), bytes.subarray(payloadOffset));
 }
 
 /**

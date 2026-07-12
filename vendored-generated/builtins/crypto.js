@@ -3719,103 +3719,10 @@ var _webcrypto = typeof globalThis !== "undefined" && typeof globalThis.crypto =
 };
 var _subtle = _webcrypto.subtle || typeof globalThis !== "undefined" && globalThis.crypto && globalThis.crypto.subtle || void 0;
 var _fips = false;
-function _errCryptoOperationFailed(message) {
-	var err = new Error(message || "Crypto operation failed");
-	err.code = "ERR_CRYPTO_OPERATION_FAILED";
+function _kemUnsupportedError() {
+	var err = /* @__PURE__ */ new Error("Key encapsulation is not supported by this Ibex crypto backend");
+	err.code = "ERR_CRYPTO_KEM_NOT_SUPPORTED";
 	return err;
-}
-function _createKemInfo(id, sharedSecretLength, ciphertextLength, marker) {
-	return {
-		id,
-		sharedSecretLength,
-		ciphertextLength,
-		marker
-	};
-}
-function _hasOpenSslAtLeast(major, minor) {
-	if (typeof process !== "object" || process === null || !process.versions || typeof process.versions.openssl !== "string") return false;
-	var match = /^(\d+)\.(\d+)/.exec(process.versions.openssl);
-	if (!match) return false;
-	var currentMajor = parseInt(match[1], 10);
-	var currentMinor = parseInt(match[2], 10);
-	if (currentMajor > major) return true;
-	if (currentMajor < major) return false;
-	return currentMinor >= minor;
-}
-function _getKemInfoForKeyObject(keyObject) {
-	if (!keyObject) return null;
-	var keyType = keyObject._asymmetricKeyType;
-	if (keyType === "rsa") {
-		if (!_hasOpenSslAtLeast(3, 0)) return null;
-		return _createKemInfo("rsa", 256, 256, 82);
-	}
-	if (keyType === "x25519") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		return _createKemInfo("x25519", 32, 32, 25);
-	}
-	if (keyType === "x448") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		return _createKemInfo("x448", 64, 56, 72);
-	}
-	var raw = keyObject._data;
-	if (raw && typeof raw === "object" && !_isStringOrBuffer(raw) && !Array.isArray(raw)) {
-		if (raw.kty === "EC") {
-			if (!_hasOpenSslAtLeast(3, 2)) return null;
-			if (raw.crv === "P-256") return _createKemInfo("p-256", 32, 65, 38);
-			if (raw.crv === "P-384") return _createKemInfo("p-384", 48, 97, 56);
-			if (raw.crv === "P-521") return _createKemInfo("p-521", 64, 133, 82);
-			return null;
-		}
-		if (raw.kty === "OKP") {
-			if (raw.crv === "X25519") return _createKemInfo("x25519", 32, 32, 25);
-			if (raw.crv === "X448") return _createKemInfo("x448", 64, 56, 72);
-		}
-	}
-	var hex = _toHex(_decodePemKeyBytes(raw)).toLowerCase();
-	if (keyType === "ec") {
-		if (!_hasOpenSslAtLeast(3, 2)) return null;
-		if (hex.indexOf("06082a8648ce3d030107") !== -1) return _createKemInfo("p-256", 32, 65, 38);
-		if (hex.indexOf("06052b81040022") !== -1) return _createKemInfo("p-384", 48, 97, 56);
-		if (hex.indexOf("06052b81040023") !== -1) return _createKemInfo("p-521", 64, 133, 82);
-		return null;
-	}
-	if (keyType === "ml-kem") {
-		if (!_hasOpenSslAtLeast(3, 5)) return null;
-		if (hex.indexOf("0609608648016503040401") !== -1) return _createKemInfo("ml-kem-512", 32, 768, 18);
-		if (hex.indexOf("0609608648016503040402") !== -1) return _createKemInfo("ml-kem-768", 32, 1088, 19);
-		if (hex.indexOf("0609608648016503040403") !== -1) return _createKemInfo("ml-kem-1024", 32, 1568, 20);
-		return null;
-	}
-	return null;
-}
-function _deriveKemSharedKey(ciphertext, kemInfo) {
-	var secretLength = kemInfo.sharedSecretLength;
-	var cipherBytes = _toBytes(ciphertext);
-	var out = new Uint8Array(secretLength);
-	var marker = kemInfo.marker & 255;
-	var cipherLength = cipherBytes.length || 1;
-	for (var i = 0; i < secretLength; i++) out[i] = (cipherBytes[i % cipherLength] ^ cipherBytes[(cipherLength - 1 - i % cipherLength + cipherLength) % cipherLength] ^ marker ^ i * 29) + i & 255;
-	return typeof Buffer !== "undefined" && Buffer.from ? Buffer.from(out) : out;
-}
-function _encapsulateKemResult(kemInfo) {
-	var ciphertext = randomBytes(kemInfo.ciphertextLength);
-	if (ciphertext.length > 0) ciphertext[0] = kemInfo.marker;
-	return {
-		sharedKey: _deriveKemSharedKey(ciphertext, kemInfo),
-		ciphertext: typeof Buffer !== "undefined" && Buffer.from ? Buffer.from(ciphertext) : ciphertext
-	};
-}
-function _encapsulateSync(key) {
-	var kemInfo = _getKemInfoForKeyObject(createPublicKey(key));
-	if (!kemInfo) throw _errCryptoOperationFailed("Failed to initialize encapsulation");
-	return _encapsulateKemResult(kemInfo);
-}
-function _decapsulateSync(key, ciphertext) {
-	var kemInfo = _getKemInfoForKeyObject(createPrivateKey(key));
-	if (!kemInfo) throw _errCryptoOperationFailed("Failed to initialize decapsulation");
-	var secret = _toBytes(ciphertext);
-	if (secret.length !== kemInfo.ciphertextLength || secret.length > 0 && secret[0] !== kemInfo.marker) throw _errCryptoOperationFailed("Failed to perform decapsulation");
-	return _deriveKemSharedKey(secret, kemInfo);
 }
 var cryptoModule = {
 	randomBytes,
@@ -3909,39 +3816,13 @@ var cryptoModule = {
 	encapsulate: function(key, callback) {
 		if (key === void 0 || key === null || typeof key !== "object" && typeof key !== "string") throw _errInvalidArgType("key", "of type object or string or an instance of Buffer, TypedArray, DataView, or KeyObject", key);
 		if (callback !== void 0 && typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
-		if (callback) {
-			try {
-				var asyncKemResult = _encapsulateSync(key);
-				setTimeout(function() {
-					callback(null, asyncKemResult);
-				}, 0);
-			} catch (keyErr) {
-				setTimeout(function() {
-					callback(keyErr);
-				}, 0);
-			}
-			return;
-		}
-		return _encapsulateSync(key);
+		throw _kemUnsupportedError();
 	},
 	decapsulate: function(key, ciphertext, callback) {
 		if (key === void 0 || key === null || typeof key !== "object" && typeof key !== "string") throw _errInvalidArgType("key", "of type object or string or an instance of Buffer, TypedArray, DataView, or KeyObject", key);
 		if (ciphertext === null || ciphertext === void 0) throw _errInvalidArgType("ciphertext", "an instance of ArrayBuffer, Buffer, TypedArray, or DataView", ciphertext);
 		if (callback !== void 0 && typeof callback !== "function") throw _errInvalidArgType("callback", "of type function", callback);
-		if (callback) {
-			try {
-				var asyncSecret = _decapsulateSync(key, ciphertext);
-				setTimeout(function() {
-					callback(null, asyncSecret);
-				}, 0);
-			} catch (kemErr) {
-				setTimeout(function() {
-					callback(/* @__PURE__ */ new Error("Deriving bits failed"));
-				}, 0);
-			}
-			return;
-		}
-		return _decapsulateSync(key, ciphertext);
+		throw _kemUnsupportedError();
 	}
 };
 cryptoModule.createCipher = createCipheriv;

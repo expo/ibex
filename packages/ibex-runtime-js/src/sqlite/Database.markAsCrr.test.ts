@@ -62,20 +62,30 @@ for (const [label, DatabaseCtor] of [
       expect(executedSql).toEqual(["SELECT crsql_as_crr('users_2026')"]);
     });
 
-    test('rejects names that would need quoting or escaping before executing SQL', () => {
-      const invalidNames = [
-        '',
+    test('accepts the full SQLite identifier space and SQL-quotes apostrophes', () => {
+      const names = [
         '9users',
         'users-name',
         'users.name',
         'users name',
+        '用户',
+        "users'archive",
         "users'); DROP TABLE users; --",
       ];
 
-      for (const tableName of invalidNames) {
+      for (const tableName of names) {
         const db = openCrrReadyDatabase(DatabaseCtor);
+        db.markAsCrr(tableName);
+        expect(executedSql.pop()).toBe(
+          `SELECT crsql_as_crr('${tableName.replace(/'/g, "''")}')`,
+        );
+      }
+    });
 
-        expect(() => db.markAsCrr(tableName)).toThrow(/simple SQLite identifier/);
+    test('rejects only non-strings, empty names, and embedded NUL', () => {
+      for (const tableName of ['', 'bad\0name', null, 42]) {
+        const db = openCrrReadyDatabase(DatabaseCtor);
+        expect(() => db.markAsCrr(tableName as any)).toThrow(TypeError);
         expect(executedSql).toEqual([]);
       }
     });

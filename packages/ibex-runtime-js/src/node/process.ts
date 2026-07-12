@@ -1869,7 +1869,9 @@ class Process {
         if (message.indexOf('process:signal') !== -1) {
           throw e;
         }
-        // Fall through to manual handling if native kill fails (e.g. sandbox)
+        // Native errno is authoritative. EPERM means the process exists but
+        // cannot be signalled; rewriting it as ESRCH is incorrect.
+        throw e;
       }
     }
     // Signal 0 is an existence check — always succeeds for our own pid

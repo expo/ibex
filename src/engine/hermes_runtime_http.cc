@@ -211,7 +211,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
         }
         // @ref LLP 0013#policy — importing http/Bun.serve is not authority to
         // open a listening socket. Gate the native serve boundary. (ENG-22722)
-        std::string capability = "network:listen:" + hostname + ":" + std::to_string(port);
+        std::string capability = "network:listen:" + formatNetworkEndpoint(hostname, port);
         if (!checkCapability(capability)) {
           throw facebook::jsi::JSError(
               runtime,

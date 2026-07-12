@@ -54,6 +54,7 @@ struct WebSocketEntry {
   std::mutex context_mutex;
   std::atomic<bool> close_requested{false};
   std::atomic<bool> closed{false};
+  std::atomic<bool> close_callback_sent{false};
   std::atomic<bool> receive_paused{false};
   std::atomic<bool> flow_controlled_receive{false};
 };
@@ -61,6 +62,18 @@ struct WebSocketEntry {
 std::mutex g_ws_mutex;
 std::unordered_map<uint32_t, std::shared_ptr<WebSocketEntry>> g_ws_connections;
 std::atomic<uint32_t> g_next_ws_id{1};
+
+uint32_t allocate_ws_id() {
+  uint32_t next = g_next_ws_id.load(std::memory_order_relaxed);
+  while (next != 0) {
+    const uint32_t successor = next + 1;
+    if (g_next_ws_id.compare_exchange_weak(
+            next, successor, std::memory_order_relaxed, std::memory_order_relaxed)) {
+      return next;
+    }
+  }
+  return 0;
+}
 
 std::wstring utf8ToWide(const std::string& input) {
   if (input.empty()) return std::wstring();
@@ -195,7 +208,8 @@ void call_close(
     uint16_t code,
     const char* reason,
     int was_clean) {
-  if (!entry || !entry->close_cb) return;
+  if (!entry || !entry->close_cb ||
+      entry->close_callback_sent.exchange(true, std::memory_order_relaxed)) return;
   void* ctx = acquireContext(entry);
   if (!ctx) return;
   entry->close_cb(entry->ws_id, code, reason ? reason : "", was_clean, ctx);
@@ -423,7 +437,11 @@ void run_connect_handshake(
     closeHandles(entry);
     return;
   }
-  WinHttpSetTimeouts(session, 30000, 30000, 30000, 300000);
+  // A connected WebSocket may be legitimately idle indefinitely. WinHTTP's
+  // receive timeout also governs WinHttpWebSocketReceive, so any finite value
+  // here disconnects a healthy idle peer. Bound only the local-close wait
+  // below; zero is WinHTTP's documented infinite receive timeout.
+  WinHttpSetTimeouts(session, 30000, 30000, 30000, 0);
 
   std::wstring connect_host = host == L"127.0.0.1" ? L"localhost" : host;
   HINTERNET connect = WinHttpConnect(session, connect_host.c_str(), port, 0);
@@ -556,7 +574,10 @@ extern "C" uint32_t native_ws_connect(
   }
 
   auto entry = std::make_shared<WebSocketEntry>();
-  entry->ws_id = g_next_ws_id.fetch_add(1, std::memory_order_relaxed);
+  entry->ws_id = allocate_ws_id();
+  if (entry->ws_id == 0) {
+    return 0;
+  }
   entry->open_cb = open_cb;
   entry->message_cb = message_cb;
   entry->close_cb = close_cb;
@@ -573,7 +594,9 @@ extern "C" uint32_t native_ws_connect(
 
   {
     std::lock_guard<std::mutex> lock(g_ws_mutex);
-    g_ws_connections[entry->ws_id] = entry;
+    if (!g_ws_connections.emplace(entry->ws_id, entry).second) {
+      return 0;
+    }
   }
 
   std::string protocol_list = protocols ? protocols : "";
@@ -652,8 +675,17 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
       // send/close serialization against handle teardown.
       // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — native
       // close handshakes must not block the runtime thread
-      const bool already_closed = entry->closed.exchange(true, std::memory_order_relaxed);
+      const bool already_closed = entry->closed.load(std::memory_order_relaxed);
       if (!already_closed) {
+        // Bound only the close acknowledgement wait. Setting the session's
+        // receive timeout during connection setup also times out healthy idle
+        // WebSockets after five seconds.
+        {
+          std::lock_guard<std::mutex> handle_lock(entry->handle_mutex);
+          if (entry->session) {
+            WinHttpSetTimeouts(entry->session, 30000, 30000, 30000, 5000);
+          }
+        }
         HINTERNET active_websocket = entryWebSocket(entry);
         if (active_websocket) {
           std::lock_guard<std::mutex> lock(entry->send_mutex);
@@ -664,7 +696,8 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
               static_cast<DWORD>(reason_copy.size()));
         }
       }
-      if (close_cb && close_context) {
+      if (close_cb && close_context &&
+          !entry->close_callback_sent.exchange(true, std::memory_order_relaxed)) {
         close_cb(
             entry->ws_id,
             close_code == 1005 ? 1000 : close_code,
@@ -672,6 +705,10 @@ extern "C" void native_ws_close(uint32_t ws_id, uint16_t code, const char* reaso
             1,
             close_context);
       }
+      // Keep native_ws_has_active() true until the close callback has been
+      // delivered. The CLI otherwise has permission to exit before onclose is
+      // even queued on the Hermes runtime thread.
+      entry->closed.store(true, std::memory_order_relaxed);
       if (close_context) {
         native_ws_release_context(close_context);
       }

@@ -71,6 +71,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactDeflateSync",
   "__exactDispatchEvent",
   "__exactDispatchPendingSignals",
+  "__exactDnsGetServers",
   "__exactDnsLookup",
   "__exactDnsLookupAsync",
   "__exactDnsResolve",
@@ -2358,6 +2359,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:Server.constructor",
   "export:node_tls:TLSSocket",
   "export:node_tls:TLSSocket._setSocket",
+  "export:node_tls:TLSSocket.addListener",
   "export:node_tls:TLSSocket.address",
   "export:node_tls:TLSSocket.bytesRead",
   "export:node_tls:TLSSocket.bytesWritten",
@@ -2385,6 +2387,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:TLSSocket.localAddress",
   "export:node_tls:TLSSocket.localFamily",
   "export:node_tls:TLSSocket.localPort",
+  "export:node_tls:TLSSocket.on",
   "export:node_tls:TLSSocket.pause",
   "export:node_tls:TLSSocket.pending",
   "export:node_tls:TLSSocket.pipe",
@@ -5985,55 +5988,68 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "native-addon-module",
     "native-resolve",
     "operation:cache:canonicalize",
-    "operation:cache:create",
+    "operation:cache:command-new",
     "operation:cache:create_dir_all",
     "operation:cache:env-temp_dir",
     "operation:cache:env-var",
     "operation:cache:metadata",
+    "operation:cache:new",
+    "operation:cache:process-id",
     "operation:cache:read",
+    "operation:cache:read_dir",
+    "operation:cache:read_to_string",
+    "operation:cache:remove_dir_all",
     "operation:cache:remove_file",
+    "operation:cache:rename",
+    "operation:cache:status",
+    "operation:cache:write",
     "operation:load:canonicalize",
     "operation:load:command-new",
-    "operation:load:create",
     "operation:load:create_dir_all",
     "operation:load:env-temp_dir",
     "operation:load:env-var",
     "operation:load:metadata",
+    "operation:load:new",
     "operation:load:process-id",
     "operation:load:read",
+    "operation:load:read_dir",
     "operation:load:read_to_string",
+    "operation:load:remove_dir_all",
     "operation:load:remove_file",
     "operation:load:rename",
     "operation:load:status",
     "operation:load:write",
     "operation:resolution:canonicalize",
     "operation:resolution:command-new",
-    "operation:resolution:create",
     "operation:resolution:create_dir_all",
     "operation:resolution:env-current_dir",
     "operation:resolution:env-temp_dir",
     "operation:resolution:env-var",
     "operation:resolution:metadata",
+    "operation:resolution:new",
     "operation:resolution:process-id",
     "operation:resolution:read",
+    "operation:resolution:read_dir",
     "operation:resolution:read_to_string",
+    "operation:resolution:remove_dir_all",
     "operation:resolution:remove_file",
     "operation:resolution:rename",
     "operation:resolution:status",
     "operation:resolution:write",
     "operation:subprocess:command-new",
-    "operation:subprocess:env-var",
     "operation:subprocess:status",
     "operation:transform:canonicalize",
     "operation:transform:command-new",
-    "operation:transform:create",
     "operation:transform:create_dir_all",
     "operation:transform:env-temp_dir",
     "operation:transform:env-var",
     "operation:transform:metadata",
+    "operation:transform:new",
     "operation:transform:process-id",
     "operation:transform:read",
+    "operation:transform:read_dir",
     "operation:transform:read_to_string",
+    "operation:transform:remove_dir_all",
     "operation:transform:remove_file",
     "operation:transform:rename",
     "operation:transform:status",
@@ -6045,18 +6061,44 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "require-resolve",
     "route:cache:rust:cache_tag",
     "route:cache:rust:compute_transpile_tooling_hash",
+    "route:cache:rust:directory_size",
+    "route:cache:rust:enforce_transpile_cache_quota",
     "route:cache:rust:ensure_transpile_cache_dir",
+    "route:cache:rust:find_js_runner",
+    "route:cache:rust:format_oxc_errors",
     "route:cache:rust:from_value",
     "route:cache:rust:module_cache_key",
+    "route:cache:rust:output_has_esm_module_syntax",
+    "route:cache:rust:oxc_target",
+    "route:cache:rust:program_has_top_level_await",
+    "route:cache:rust:prune_transpile_cache_to_limit",
+    "route:cache:rust:publish_transpile_artifact",
+    "route:cache:rust:read_transpile_cache",
     "route:cache:rust:resolve_transpile_cache_dir",
+    "route:cache:rust:run_transpile_command",
+    "route:cache:rust:run_transpile_override",
+    "route:cache:rust:run_transpile_subprocess",
     "route:cache:rust:selected_engine_cache_tag",
     "route:cache:rust:selected_transform_engine",
-    "route:cache:rust:should_rebuild_output",
+    "route:cache:rust:sha256_hex",
+    "route:cache:rust:touch_transpile_artifact",
     "route:cache:rust:transpile_cache_dir",
+    "route:cache:rust:transpile_cache_is_valid",
+    "route:cache:rust:transpile_override_identity",
     "route:cache:rust:transpile_script_path",
+    "route:cache:rust:transpile_source_to_cjs",
+    "route:cache:rust:transpile_to_cjs",
     "route:cache:rust:transpile_tooling_hash",
+    "route:cache:rust:transpile_with_oxc",
+    "route:cache:rust:transpile_with_swc",
+    "route:cache:rust:unique_staged_transpile_input",
+    "route:cache:rust:unique_tmp_path",
+    "route:cache:rust:wait_for_transpile_test_barrier",
     "route:load:rust:cache_tag",
     "route:load:rust:compute_transpile_tooling_hash",
+    "route:load:rust:contains_using_keyword",
+    "route:load:rust:directory_size",
+    "route:load:rust:enforce_transpile_cache_quota",
     "route:load:rust:ensure_transpile_cache_dir",
     "route:load:rust:find_js_runner",
     "route:load:rust:format_oxc_errors",
@@ -6069,21 +6111,28 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:output_has_esm_module_syntax",
     "route:load:rust:oxc_target",
     "route:load:rust:program_has_top_level_await",
+    "route:load:rust:prune_transpile_cache_to_limit",
+    "route:load:rust:publish_transpile_artifact",
+    "route:load:rust:read_transpile_cache",
     "route:load:rust:resolve_transpile_cache_dir",
     "route:load:rust:run_transpile_command",
+    "route:load:rust:run_transpile_override",
     "route:load:rust:run_transpile_subprocess",
     "route:load:rust:scan_balanced_region",
     "route:load:rust:scan_block_scoped_loop_closures",
     "route:load:rust:selected_engine_cache_tag",
     "route:load:rust:selected_transform_engine",
-    "route:load:rust:should_rebuild_output",
+    "route:load:rust:sha256_hex",
     "route:load:rust:skip_ws_and_comments",
     "route:load:rust:source_needs_async_downlevel",
     "route:load:rust:source_needs_downlevel",
     "route:load:rust:source_needs_for_of_scoping_fix",
     "route:load:rust:source_needs_loop_scope_downlevel",
+    "route:load:rust:touch_transpile_artifact",
     "route:load:rust:transpile_cache_dir",
+    "route:load:rust:transpile_cache_is_valid",
     "route:load:rust:transpile_module",
+    "route:load:rust:transpile_override_identity",
     "route:load:rust:transpile_script_path",
     "route:load:rust:transpile_source_to_cjs",
     "route:load:rust:transpile_target_for_source",
@@ -6091,9 +6140,14 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:load:rust:transpile_tooling_hash",
     "route:load:rust:transpile_with_oxc",
     "route:load:rust:transpile_with_swc",
+    "route:load:rust:unique_staged_transpile_input",
     "route:load:rust:unique_tmp_path",
+    "route:load:rust:wait_for_transpile_test_barrier",
     "route:resolution:rust:cache_tag",
     "route:resolution:rust:compute_transpile_tooling_hash",
+    "route:resolution:rust:contains_using_keyword",
+    "route:resolution:rust:directory_size",
+    "route:resolution:rust:enforce_transpile_cache_quota",
     "route:resolution:rust:ensure_transpile_cache_dir",
     "route:resolution:rust:find_js_runner",
     "route:resolution:rust:find_package_root",
@@ -6114,7 +6168,10 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:package_version_for",
     "route:resolution:rust:pick_package_import_path",
     "route:resolution:rust:program_has_top_level_await",
+    "route:resolution:rust:prune_transpile_cache_to_limit",
+    "route:resolution:rust:publish_transpile_artifact",
     "route:resolution:rust:read_package_manifest",
+    "route:resolution:rust:read_transpile_cache",
     "route:resolution:rust:resolve",
     "route:resolution:rust:resolve_meta",
     "route:resolution:rust:resolve_package_import",
@@ -6123,19 +6180,23 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:resolve_with_oxc",
     "route:resolution:rust:resolve_with_oxc_at",
     "route:resolution:rust:run_transpile_command",
+    "route:resolution:rust:run_transpile_override",
     "route:resolution:rust:run_transpile_subprocess",
     "route:resolution:rust:scan_balanced_region",
     "route:resolution:rust:scan_block_scoped_loop_closures",
     "route:resolution:rust:selected_engine_cache_tag",
     "route:resolution:rust:selected_transform_engine",
-    "route:resolution:rust:should_rebuild_output",
+    "route:resolution:rust:sha256_hex",
     "route:resolution:rust:skip_ws_and_comments",
     "route:resolution:rust:source_needs_async_downlevel",
     "route:resolution:rust:source_needs_downlevel",
     "route:resolution:rust:source_needs_for_of_scoping_fix",
     "route:resolution:rust:source_needs_loop_scope_downlevel",
+    "route:resolution:rust:touch_transpile_artifact",
     "route:resolution:rust:transpile_cache_dir",
+    "route:resolution:rust:transpile_cache_is_valid",
     "route:resolution:rust:transpile_module",
+    "route:resolution:rust:transpile_override_identity",
     "route:resolution:rust:transpile_script_path",
     "route:resolution:rust:transpile_source_to_cjs",
     "route:resolution:rust:transpile_target_for_source",
@@ -6143,12 +6204,15 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:resolution:rust:transpile_tooling_hash",
     "route:resolution:rust:transpile_with_oxc",
     "route:resolution:rust:transpile_with_swc",
+    "route:resolution:rust:unique_staged_transpile_input",
     "route:resolution:rust:unique_tmp_path",
+    "route:resolution:rust:wait_for_transpile_test_barrier",
     "route:subprocess:rust:find_js_runner",
     "route:subprocess:rust:run_transpile_subprocess",
-    "route:subprocess:rust:transpile_script_path",
     "route:transform:rust:cache_tag",
     "route:transform:rust:compute_transpile_tooling_hash",
+    "route:transform:rust:directory_size",
+    "route:transform:rust:enforce_transpile_cache_quota",
     "route:transform:rust:ensure_transpile_cache_dir",
     "route:transform:rust:find_js_runner",
     "route:transform:rust:format_oxc_errors",
@@ -6157,21 +6221,30 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "route:transform:rust:output_has_esm_module_syntax",
     "route:transform:rust:oxc_target",
     "route:transform:rust:program_has_top_level_await",
+    "route:transform:rust:prune_transpile_cache_to_limit",
+    "route:transform:rust:publish_transpile_artifact",
+    "route:transform:rust:read_transpile_cache",
     "route:transform:rust:resolve_transpile_cache_dir",
     "route:transform:rust:run_transpile_command",
+    "route:transform:rust:run_transpile_override",
     "route:transform:rust:run_transpile_subprocess",
     "route:transform:rust:selected_engine_cache_tag",
     "route:transform:rust:selected_transform_engine",
-    "route:transform:rust:should_rebuild_output",
+    "route:transform:rust:sha256_hex",
+    "route:transform:rust:touch_transpile_artifact",
     "route:transform:rust:transpile_cache_dir",
+    "route:transform:rust:transpile_cache_is_valid",
     "route:transform:rust:transpile_module",
+    "route:transform:rust:transpile_override_identity",
     "route:transform:rust:transpile_script_path",
     "route:transform:rust:transpile_source_to_cjs",
     "route:transform:rust:transpile_to_cjs",
     "route:transform:rust:transpile_tooling_hash",
     "route:transform:rust:transpile_with_oxc",
     "route:transform:rust:transpile_with_swc",
+    "route:transform:rust:unique_staged_transpile_input",
     "route:transform:rust:unique_tmp_path",
+    "route:transform:rust:wait_for_transpile_test_barrier",
     "transform-engine:oxc",
     "transform-engine:swc",
     "unknown-exact-rejection",
@@ -6220,6 +6293,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:EXACT_DEBUG_EMIT_LISTENER",
     "env:EXACT_EXECUTABLE",
     "env:EXACT_HERMESC_TIMEOUT_MS",
+    "env:EXACT_HERMES_TOOL_DIR",
     "env:EXACT_IPC_FD",
     "env:EXACT_IPC_SERIALIZATION",
     "env:EXACT_LOOP_TRACE",
@@ -6285,10 +6359,14 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:HOST",
     "env:HOSTNAME",
     "env:IBEX_AWAIT_UNWRAP_TIMEOUT_MS",
+    "env:IBEX_BUNDLE_CACHE_MAX_BYTES",
+    "env:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_ALLOW_ADVISORY",
+    "env:IBEX_CAPSEC_RECIPE_CATALOG",
     "env:IBEX_CDP_LOG",
     "env:IBEX_DNS_SERVER",
     "env:IBEX_HERMESC_TIMEOUT_MS",
+    "env:IBEX_HERMES_TOOL_DIR",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
     "env:IBEX_LOOP_TRACE",
     "env:IBEX_NO_BYTECODE",
@@ -6304,6 +6382,9 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
     "env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
     "env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
+    "env:IBEX_TEST_HBC_COMPILE_BARRIER",
+    "env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
+    "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
     "env:LINES",
     "env:NODE_CHANNEL_FD",
@@ -9057,14 +9138,16 @@ function loaderClassification(surface) {
 
   if (name.startsWith("operation:")) {
     const operation = name.split(":").at(-1);
-    if (/^(?:canonicalize|metadata)$/u.test(operation)) {
+    if (/^(?:canonicalize|metadata|read_dir)$/u.test(operation)) {
       return effectSpec(["fs:list"], "loader", "WP7", loaderOptions);
     }
     if (/^(?:read|read_to_string)$/u.test(operation)) {
       return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
     }
     if (
-      /^(?:create|create_dir_all|remove_file|rename|write)$/u.test(operation)
+      /^(?:create|create_dir_all|remove_dir_all|remove_file|rename|write)$/u.test(
+        operation,
+      )
     ) {
       return effectSpec(
         ["fs:list", "fs:write"],
@@ -9079,7 +9162,7 @@ function loaderClassification(surface) {
     if (/^(?:env-current_dir|env-temp_dir|process-id)$/u.test(operation)) {
       return effectSpec(["sys:read"], "system", "WP7");
     }
-    if (operation === "command-new") {
+    if (/^(?:command-new|new)$/u.test(operation)) {
       return nonCapabilitySpec("unbound-owned-resource", "WP7");
     }
     if (operation === "status") {
@@ -9093,7 +9176,7 @@ function loaderClassification(surface) {
   if (name.startsWith("route:")) {
     const functionName = name.split(":").at(-1);
     if (
-      /^(?:cache_tag|format_oxc_errors|from_value|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_tmp_path)$/u.test(
+      /^(?:cache_tag|contains_using_keyword|format_oxc_errors|from_value|module_kind_from_path|needs_js_downlevel|needs_transpile|output_has_esm_module_syntax|oxc_target|package_name_and_root_in_node_modules|package_name_from_bare_specifier|package_root_in_node_modules|pick_package_import_path|program_has_top_level_await|scan_balanced_region|scan_block_scoped_loop_closures|sha256_hex|skip_ws_and_comments|source_needs_async_downlevel|source_needs_downlevel|source_needs_for_of_scoping_fix|source_needs_loop_scope_downlevel|transpile_source_to_cjs|transpile_target_for_source|transpile_to_cjs|transpile_with_oxc|transpile_with_swc|unique_staged_transpile_input|unique_tmp_path)$/u.test(
         functionName,
       )
     ) {
@@ -9107,7 +9190,7 @@ function loaderClassification(surface) {
       return effectSpec(["env:read"], "environment", "WP7");
     }
     if (
-      /^(?:find_package_root|normalize_import_target|should_rebuild_output)$/u.test(
+      /^(?:find_package_root|normalize_import_target|transpile_cache_is_valid)$/u.test(
         functionName,
       )
     ) {
@@ -9121,7 +9204,7 @@ function loaderClassification(surface) {
       return loaderSourceSelectionEffectSpec(loaderOptions);
     }
     if (
-      /^(?:compute_transpile_tooling_hash|module_cache_key|transpile_tooling_hash)$/u.test(
+      /^(?:compute_transpile_tooling_hash|module_cache_key|transpile_override_identity|transpile_tooling_hash)$/u.test(
         functionName,
       )
     ) {
@@ -9136,6 +9219,24 @@ function loaderClassification(surface) {
       );
     }
     if (
+      /^(?:directory_size|enforce_transpile_cache_quota|prune_transpile_cache_to_limit|publish_transpile_artifact)$/u.test(
+        functionName,
+      )
+    ) {
+      return effectSpec(
+        ["fs:list", "fs:read", "fs:write"],
+        "loader",
+        "WP7",
+        loaderOptions,
+      );
+    }
+    if (functionName === "read_transpile_cache") {
+      return effectSpec(["fs:read"], "loader", "WP7", loaderOptions);
+    }
+    if (functionName === "touch_transpile_artifact") {
+      return effectSpec(["fs:write"], "loader", "WP7", loaderOptions);
+    }
+    if (
       /^(?:resolve_transpile_cache_dir|transpile_cache_dir)$/u.test(
         functionName,
       )
@@ -9146,12 +9247,20 @@ function loaderClassification(surface) {
       return loaderExecutableRouteEffectSpec(loaderOptions);
     }
     if (
-      /^(?:load_module_source|load_source|load_source_bytes|resolve|run_transpile_command|run_transpile_subprocess|transpile_module)$/u.test(
+      /^(?:load_module_source|load_source|load_source_bytes|resolve|run_transpile_command|run_transpile_override|run_transpile_subprocess|transpile_module)$/u.test(
         functionName,
       )
     ) {
       return fullLoaderEffects(
         "This transitive loader route may resolve/read source, update the cache, and invoke an environment-selected transform subprocess.",
+      );
+    }
+    if (functionName === "wait_for_transpile_test_barrier") {
+      return effectSpec(
+        ["env:read", "fs:list", "fs:read", "fs:write"],
+        "loader",
+        "WP7",
+        loaderOptions,
       );
     }
     return null;
@@ -9378,10 +9487,14 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_TEST_MODULE",
   "EXACT_TEST_SECTION",
   "EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
+  "IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
+  "IBEX_CAPSEC_RECIPE_CATALOG",
   "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
   "IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
   "IBEX_TEST_FS_WORKER_MAX_QUEUE",
   "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
+  "IBEX_TEST_HBC_COMPILE_BARRIER",
+  "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
 ]);
 
 const BOOTSTRAP_STARTUP_ENVIRONMENT_CONTROLS = new Set([
@@ -9469,6 +9582,8 @@ const ORDINARY_STARTUP_ENVIRONMENT_READS = new Set([
   "HOME",
   "HOST",
   "HOSTNAME",
+  "IBEX_BUNDLE_CACHE_MAX_BYTES",
+  "IBEX_TRANSPILE_CACHE_MAX_BYTES",
   "NODE_ENV",
   "TEMP",
   "TEST",
@@ -9647,6 +9762,17 @@ function startupEnvironmentClassification(surface) {
       ["env:read", "fs:list", "fs:read", "process:spawn"],
       "loader",
       "environment.startup.exact_transpile_script",
+      { lifetimeContract: "child-process" },
+    );
+  }
+  if (
+    environmentName === "EXACT_HERMES_TOOL_DIR" ||
+    environmentName === "IBEX_HERMES_TOOL_DIR"
+  ) {
+    return environmentValueEffectSpec(
+      ["env:read", "fs:list", "process:spawn"],
+      "process",
+      `environment.startup.${environmentName.toLowerCase()}`,
       { lifetimeContract: "child-process" },
     );
   }

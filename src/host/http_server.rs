@@ -529,7 +529,7 @@ fn notify_if_draining_complete(state: &Arc<ServerState>) {
     // Drop any pending request body streams.
     lock_or_recover(&state.request_bodies).clear();
     // Drop any pending response body streams.
-    lock_or_recover(&state.response_bodies).clear();
+    clear_all_response_bodies(state);
 
     lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
     // Remove from global registry.
@@ -564,7 +564,7 @@ fn fail_startup(state: &Arc<ServerState>, message: String) {
     let _ = lock_or_recover(&state.shutdown_tx).take();
     lock_or_recover(&state.responders).clear();
     lock_or_recover(&state.request_bodies).clear();
-    lock_or_recover(&state.response_bodies).clear();
+    clear_all_response_bodies(state);
     lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
     lock_or_recover(servers()).remove(&state.id);
 }
@@ -597,7 +597,7 @@ fn schedule_forced_close(state: Arc<ServerState>) {
                 }
                 lock_or_recover(&state.responders).clear();
                 lock_or_recover(&state.request_bodies).clear();
-                lock_or_recover(&state.response_bodies).clear();
+                clear_all_response_bodies(&state);
                 lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
                 lock_or_recover(servers()).remove(&state.id);
                 return;
@@ -632,6 +632,16 @@ fn clear_response_body(state: &Arc<ServerState>, request_id: u32) -> bool {
     }
 }
 
+fn clear_all_response_bodies(state: &Arc<ServerState>) {
+    let pipes: Vec<ResponseBodyPipe> = {
+        let mut bodies = lock_or_recover(&state.response_bodies);
+        bodies.drain().map(|(_, pipe)| pipe).collect()
+    };
+    for pipe in pipes {
+        pipe.drain.notify();
+    }
+}
+
 fn clear_pending_responder(state: &Arc<ServerState>, request_id: u32) {
     lock_or_recover(&state.responders).remove(&request_id);
 }
@@ -651,6 +661,7 @@ fn empty_body_response() -> BoxBody<Bytes, IoError> {
 fn streamed_body_response(
     receiver: mpsc::Receiver<RequestBodyChunk>,
     drain: Arc<DrainSignal>,
+    owner: Option<(Arc<ServerState>, u32)>,
 ) -> BoxBody<Bytes, IoError> {
     /// Unfold state with a Drop guard: when hyper drops the response stream
     /// (peer disconnected mid-body), close the channel FIRST so producers'
@@ -661,12 +672,17 @@ fn streamed_body_response(
     struct StreamState {
         rx: mpsc::Receiver<RequestBodyChunk>,
         drain: Arc<DrainSignal>,
+        owner: Option<(Arc<ServerState>, u32)>,
         errored: bool,
     }
     impl Drop for StreamState {
         fn drop(&mut self) {
             self.rx.close();
-            self.drain.notify();
+            if let Some((state, request_id)) = &self.owner {
+                clear_response_body(state, *request_id);
+            } else {
+                self.drain.notify();
+            }
         }
     }
 
@@ -674,6 +690,7 @@ fn streamed_body_response(
         StreamState {
             rx: receiver,
             drain,
+            owner,
             errored: false,
         },
         |mut st| async move {
@@ -1335,7 +1352,11 @@ async fn handle_request(
                 } else {
                     Ok(build_response(
                         builder,
-                        streamed_body_response(response_body_rx, response_drain),
+                        streamed_body_response(
+                            response_body_rx,
+                            response_drain,
+                            Some((state.clone(), request_id)),
+                        ),
                     ))
                 }
             }
@@ -1993,7 +2014,7 @@ fn close_server_state(state: Arc<ServerState>, force: i32) -> i32 {
         }
         lock_or_recover(&state.responders).clear();
         lock_or_recover(&state.request_bodies).clear();
-        lock_or_recover(&state.response_bodies).clear();
+        clear_all_response_bodies(&state);
         lock_or_recover(closed_servers()).insert(server_id, state.runtime_nonce);
         lock_or_recover(servers()).remove(&server_id);
         notify_request_available(&state);
@@ -2817,7 +2838,7 @@ mod tests {
             .expect("test runtime");
         rt.block_on(async {
             let (tx, rx) = mpsc::channel::<RequestBodyChunk>(8);
-            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()));
+            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()), None);
             tx.send(RequestBodyChunk::Data(b"partial".to_vec()))
                 .await
                 .expect("send data");
@@ -2849,7 +2870,7 @@ mod tests {
             .expect("test runtime");
         rt.block_on(async {
             let (tx, rx) = mpsc::channel::<RequestBodyChunk>(8);
-            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()));
+            let mut body = streamed_body_response(rx, Arc::new(DrainSignal::new()), None);
             tx.send(RequestBodyChunk::Data(b"whole".to_vec()))
                 .await
                 .expect("send data");
@@ -2965,7 +2986,7 @@ mod tests {
                 drain: drain.clone(),
             },
         );
-        let body = streamed_body_response(body_rx, drain);
+        let body = streamed_body_response(body_rx, drain, None);
         assert!(matches!(
             try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
             ChunkSend::Sent

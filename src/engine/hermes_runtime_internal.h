@@ -206,9 +206,15 @@ struct ExactHermesRuntime {
 struct NativeWebSocketCallbackContext {
   ExactHermesRuntime* runtime;
   std::shared_ptr<facebook::jsi::Object> ws_instance;
+  uint64_t runtime_nonce;
   uint64_t principal;
   std::string capability;
   std::atomic<uint32_t> ref_count{1};
+  // Guarded by g_websocket_mutex in hermes_runtime_websocket.cc. Keeping the
+  // pre-registration terminal state on the exact per-runtime callback
+  // context avoids process-global missing-ID tombstones.
+  bool websocket_registered{false};
+  bool websocket_terminal{false};
 };
 
 extern "C" int32_t ex_host_is_allow_all(void);
@@ -592,6 +598,17 @@ inline bool parseNetworkPort(const std::string& value, int& port) {
   }
   port = parsed;
   return true;
+}
+
+inline std::string formatNetworkEndpoint(const std::string& host, int port) {
+  // Capability resources must use URI-style brackets for IPv6. Without them,
+  // `::1:443` is ambiguous and policy parsing can reinterpret the final
+  // address component as a port.
+  if (host.find(':') != std::string::npos &&
+      !(host.size() >= 2 && host.front() == '[' && host.back() == ']')) {
+    return "[" + host + "]:" + std::to_string(port);
+  }
+  return host + ":" + std::to_string(port);
 }
 
 inline bool parseNetworkUrl(const std::string& url, ParsedNetworkUrl& parsed) {

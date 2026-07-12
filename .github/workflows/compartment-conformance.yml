@@ -81,6 +81,9 @@ jobs:
       - name: Build ibex
         run: cargo build
 
+      - name: Link-check every feature profile
+        run: cargo test --all-features --no-run
+
       - name: Verify frame attribution is compiled in
         run: |
           nm -u target/debug/ibex | grep -q ex_hermes_vm_current_package_id \

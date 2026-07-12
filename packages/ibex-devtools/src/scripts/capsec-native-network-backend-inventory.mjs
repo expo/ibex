@@ -84,6 +84,7 @@ const DECLARATION_SOURCE_SPECS = Object.freeze([
     declarations: [
       "native_ws_close",
       "native_ws_connect",
+      "native_ws_destroy",
       "native_ws_pause",
       "native_ws_resume",
       "native_ws_send",
