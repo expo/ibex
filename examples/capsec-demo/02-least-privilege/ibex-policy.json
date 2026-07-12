@@ -2,9 +2,9 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-mUQxJi6bVsmsHSt5WKrajOLQ3XOMt3bxA-4nyGjomxs",
-  "registryDigest": "sha256-Ik3FO4_hO-QE6J8WqKUeBogVVxQm8mhHt3PFRvhGefQ",
-  "policyDigest": "sha256-LbTKOFx9QykvCEEyIBbMd8Qa_VkVSbHmtnzrPx1SLHU",
+  "vocabDigest": "sha256-kOAWMRLIZ6neoKyD33s3Dkz2sH06G8oubs0yBPYbFms",
+  "registryDigest": "sha256-t3IPp-VrpM88fEErKTAN2zXIfHkbWc56ESBbFUgL8OA",
+  "policyDigest": "sha256-MdHXFJGtZPLMDUxTRaOVJCuNOshR3U9TDuvODKreLBU",
   "purpose": "production",
   "mode": "enforce",
   "principals": [
@@ -12,7 +12,7 @@
       "principal": {
         "kind": "package",
         "name": "logger",
-        "integrity": "sha256-PRUF2jB0w8btgcLgeSTKOJtTb5jlrTFlggdpmgg5Ezo",
+        "integrity": "sha256-4tDKE1LYtkQ3fxovWSv0WLgPdW7n6HTX7UoXweUTlKk",
         "locator": "logger@1.0.0"
       },
       "floor": [
@@ -28,7 +28,7 @@
           "provenance": [
             {
               "kind": "import-site",
-              "source": "app.mjs:3"
+              "source": "examples/capsec-demo/02-least-privilege/app.mjs:3"
             }
           ]
         }

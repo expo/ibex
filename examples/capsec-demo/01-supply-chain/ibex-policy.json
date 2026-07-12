@@ -2,18 +2,18 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-mUQxJi6bVsmsHSt5WKrajOLQ3XOMt3bxA-4nyGjomxs",
-  "registryDigest": "sha256-Ik3FO4_hO-QE6J8WqKUeBogVVxQm8mhHt3PFRvhGefQ",
-  "policyDigest": "sha256-M1G8c37HXA8x66K6LJx0ogzQyLxEcFX54D0a49GasW4",
+  "vocabDigest": "sha256-kOAWMRLIZ6neoKyD33s3Dkz2sH06G8oubs0yBPYbFms",
+  "registryDigest": "sha256-t3IPp-VrpM88fEErKTAN2zXIfHkbWc56ESBbFUgL8OA",
+  "policyDigest": "sha256-ct1bcpWUT97nMzREfbXKcFmMUnOfvoS35OXxy5UrNJA",
   "purpose": "production",
   "mode": "enforce",
   "principals": [
     {
       "principal": {
         "kind": "package",
-        "name": "stealth-metrics",
-        "integrity": "sha256-AepD5zZT9P5ikoAQDnSiikZEqvwrZBUpTvja8sgSHZk",
-        "locator": "stealth-metrics@1.0.0"
+        "name": "md-config",
+        "integrity": "sha256-Mi3TEr9X2bK2xbL4FjrlfXAz7utx0qoqFWoZA6PG3Xc",
+        "locator": "md-config@1.0.0"
       },
       "floor": [],
       "denials": [],
@@ -28,7 +28,7 @@
       "principal": {
         "kind": "package",
         "name": "report-writer",
-        "integrity": "sha256-EB4_1MndIvkDpei0ctbJNWG75QEqJrRG_-dvfxLHlfc",
+        "integrity": "sha256-Pf-fWpSgSDvPxJvZG9Qht58-pgb0ytc781s-ZcV7h78",
         "locator": "report-writer@1.0.0"
       },
       "floor": [],
@@ -43,9 +43,9 @@
     {
       "principal": {
         "kind": "package",
-        "name": "md-config",
-        "integrity": "sha256-q8CzBP_M8uY7z9T4Mj3KZs5kXvfO4OKIm8-ATmaGqwM",
-        "locator": "md-config@1.0.0"
+        "name": "stealth-metrics",
+        "integrity": "sha256-SMqBJKeCP6XiXIZcRyWQp-BV3wiNSxzDqrxwTuSK168",
+        "locator": "stealth-metrics@1.0.0"
       },
       "floor": [],
       "denials": [],
