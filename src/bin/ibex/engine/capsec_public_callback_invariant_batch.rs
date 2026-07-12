@@ -6,7 +6,6 @@ use std::io::Write as _;
 
 const CALLBACK_INVOCATION_SCHEMA: &str = "ibex/capsec-callback-invariant-invocation/1";
 const ENV_AUXILIARY_EDGE_ID: &str = "surface.native.op.exactgetenv.0k6bv7a";
-const SNAPSHOT_AUXILIARY_EDGE_ID: &str = "surface.host.abi.ex.host.fs.read.file.042wgnk";
 const CALLBACK_BATCH_COMMAND: [&str; 9] = [
     "cargo",
     "test",
@@ -97,7 +96,6 @@ struct PackageFixture {
     _directory: tempfile::TempDir,
     root: std::path::PathBuf,
     package_root: std::path::PathBuf,
-    project_file: std::path::PathBuf,
     principal_value: serde_json::Value,
     principal: capsec_semantics::model::Principal,
 }
@@ -193,30 +191,46 @@ fn checked_registry_rows() -> (
     (branches, edges)
 }
 
-fn expected_invariant(scenario: &str) -> (&'static str, Vec<&'static str>, Vec<&'static str>) {
+fn expected_invariant(
+    scenario: &str,
+) -> (
+    &'static str,
+    Vec<&'static str>,
+    Vec<&'static str>,
+    Vec<&'static str>,
+) {
     match scenario {
         "attribution-missing-deny" => (
             "callback-attribution-carrier",
-            vec!["deny"],
-            vec!["invalid-attribution"],
+            vec!["requested", "commit"],
+            vec!["allow", "allow"],
+            vec!["ambient-root", "ambient-root"],
         ),
         "generation-recheck" => (
             "callback-attribution-carrier",
-            vec!["allow", "deny"],
-            vec!["dynamic-session", "missing-authority"],
+            vec!["requested", "commit", "requested"],
+            vec!["allow", "allow", "deny"],
+            vec!["dynamic-session", "dynamic-session", "missing-authority"],
         ),
         "principal-restore" => (
             "callback-attribution-carrier",
-            vec!["allow", "allow"],
-            vec!["static-floor", "ambient-root"],
+            vec!["requested", "commit", "requested", "commit"],
+            vec!["allow", "allow", "allow", "allow"],
+            vec!["static-floor", "static-floor", "ambient-root", "ambient-root"],
         ),
         "snapshot-mismatch-deny" => (
             "callback-attribution-carrier",
-            vec!["allow", "deny"],
-            vec!["bearer-handle", "invalid-attribution"],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
         ),
         "cannot-widen-authority" | "post-lockdown-invariant" => {
-            ("authority-control-plane", Vec::new(), Vec::new())
+            (
+                "authority-control-plane",
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+            )
         }
         other => panic!("unsupported callback invariant scenario {other}"),
     }
@@ -246,7 +260,7 @@ fn validate_recipe_source_binding(
         .expect("callback invariant recipe has no public probe");
     let invocation = &probe.invocation;
     let descriptor = &invocation.source_descriptor;
-    let (rationale, outcomes, reasons) = expected_invariant(&recipe.scenario);
+    let (rationale, stages, outcomes, reasons) = expected_invariant(&recipe.scenario);
     assert_eq!(recipe.classification, "non-capability");
     assert!(recipe.action_ids.is_empty());
     assert_eq!(recipe.edge_ids.len(), 1);
@@ -268,14 +282,12 @@ fn validate_recipe_source_binding(
     assert_eq!(invocation.scenario, recipe.scenario);
     assert_eq!(invocation.expected_result, "invariant-passed");
     assert_eq!(invocation.expected_typed_decision_count, outcomes.len());
-    let expected_stage = if recipe.scenario == "snapshot-mismatch-deny" {
-        "commit"
-    } else {
-        "requested"
-    };
     assert_eq!(
         invocation.expected_typed_stages,
-        vec![expected_stage.to_owned(); outcomes.len()]
+        stages
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>()
     );
     assert_eq!(
         invocation.expected_typed_outcomes,
@@ -295,13 +307,11 @@ fn validate_recipe_source_binding(
         assert!(invocation.allowed_coverage_edge_ids.is_empty());
         assert!(invocation.expected_action_ids.is_empty());
     } else {
-        let (edge_id, action) = if recipe.scenario == "snapshot-mismatch-deny" {
-            (SNAPSHOT_AUXILIARY_EDGE_ID, "fs:read")
-        } else {
-            (ENV_AUXILIARY_EDGE_ID, "env:read")
-        };
-        assert_eq!(invocation.allowed_coverage_edge_ids, [edge_id]);
-        assert_eq!(invocation.expected_action_ids, [action]);
+        assert_eq!(
+            invocation.allowed_coverage_edge_ids,
+            [ENV_AUXILIARY_EDGE_ID]
+        );
+        assert_eq!(invocation.expected_action_ids, ["env:read"]);
     }
     assert_eq!(
         tagged_jcs_digest(descriptor),
@@ -364,7 +374,7 @@ fn invariant_selector() -> serde_json::Value {
         "resource": {
             "kind": "environment-name",
             "target": "broker-base",
-            "name": "IBEX_CALLBACK_INVARIANT"
+            "name": "PATH",
         },
     })
 }
@@ -442,10 +452,12 @@ fn prepare_package_fixture() -> PackageFixture {
     .expect("write callback package manifest");
     std::fs::write(
         package_root.join("index.js"),
-        r#"module.exports = function(sink, operation, request) {
-  var result;
-  try { result = { value: __hostCall(operation, request) }; }
-  catch (error) { result = { threw: String(error && error.message || error) }; }
+        r#"module.exports = function(sink, observer, env) {
+  var result = { context: observer() };
+  try {
+    result.value = typeof env.PATH === 'string';
+  }
+  catch (error) { result.threw = String(error && error.message || error); }
   sink(result);
 };
 "#,
@@ -465,7 +477,6 @@ fn prepare_package_fixture() -> PackageFixture {
         _directory: directory,
         root,
         package_root,
-        project_file,
         principal_value,
         principal,
     }
@@ -521,239 +532,308 @@ fn build_callback_host(
     )
 }
 
-fn typed_request(
-    session_id: &str,
-    operation_id: &str,
-    principal: serde_json::Value,
-    constrained_principals: Vec<serde_json::Value>,
-    presented_handle_ids: Vec<String>,
-) -> serde_json::Value {
-    let decision = serde_json::json!({
-        "decisionSetSchema": "ibex/capsec-decision-set/1",
-        "operationId": operation_id,
-        "atomicityGroup": format!("{ENV_AUXILIARY_EDGE_ID}.decision"),
-        "combination": "conjunction",
-        "context": {
-            "stage": "requested",
-            "actor": principal,
-            "constrainedPrincipals": constrained_principals,
-            "presentedHandleIds": presented_handle_ids,
-        },
-        "effects": [{
-            "cap": "env:read",
-            "effectOwner": principal,
-            "resource": {
-                "kind": "environment-occurrence",
-                "requested": {
-                    "kind": "environment-name",
-                    "target": "broker-base",
-                    "name": "IBEX_CALLBACK_INVARIANT"
-                },
-                "valueOrigin": "broker-base",
-            },
-        }],
-    });
-    let gates = serde_json::json!([{
-        "coverageEdgeId": ENV_AUXILIARY_EDGE_ID,
-        "targetCell": "complete",
-        "definitionAndEdgePredicatesSatisfied": true,
-    }]);
-    serde_json::json!({
-        "terminalBranchId": session_id,
-        "decisionSetJson": serde_json::to_string(&decision).unwrap(),
-        "gatesJson": serde_json::to_string(&gates).unwrap(),
-    })
+struct ObservedInvocation {
+    result: serde_json::Value,
+    typed_decisions: Vec<serde_json::Value>,
 }
 
-fn snapshot_typed_request(
-    session_id: &str,
-    operation_id: &str,
-    package: &PackageFixture,
-    handle_id: &str,
-) -> serde_json::Value {
-    let principal = root_principal_value();
-    let decision = serde_json::json!({
-        "decisionSetSchema": "ibex/capsec-decision-set/1",
-        "operationId": operation_id,
-        "atomicityGroup": format!("{SNAPSHOT_AUXILIARY_EDGE_ID}.decision"),
-        "combination": "conjunction",
-        "context": {
-            "stage": "commit",
-            "actor": principal.clone(),
-            "constrainedPrincipals": [principal.clone()],
-            "presentedHandleIds": [handle_id],
-        },
-        "effects": [{
-            "cap": "fs:read",
-            "effectOwner": principal,
-            "resource": {
-                "kind": "path-occurrence",
-                "requested": {
-                    "root": "project",
-                    "components": [{"encoding": "utf8", "value": "callback-data.txt"}],
-                },
-                "followMode": "follow-final",
-                "objectState": "existing",
-                "parentObject": object_identity(&package.root),
-                "finalObject": object_identity(&package.project_file),
-                "retainedHandle": format!("callback:{operation_id}"),
-            },
-        }],
-    });
-    let gates = serde_json::json!([{
-        "coverageEdgeId": SNAPSHOT_AUXILIARY_EDGE_ID,
-        "targetCell": "complete",
-        "definitionAndEdgePredicatesSatisfied": true,
-    }]);
-    serde_json::json!({
-        "terminalBranchId": session_id,
-        "decisionSetJson": serde_json::to_string(&decision).unwrap(),
-        "gatesJson": serde_json::to_string(&gates).unwrap(),
-    })
-}
-
-fn decode_adapter_wrapper(encoded: &str) -> serde_json::Value {
-    let wrapper: serde_json::Value =
-        serde_json::from_str(encoded).expect("callback adapter wrapper must be JSON");
+fn begin_observation(session_id: &str) {
     assert!(
-        wrapper["threw"].is_null(),
-        "callback adapter threw: {wrapper}"
+        ibex_runtime::host::abi::begin_installed_conformance_observation(session_id),
+        "install callback conformance observation {session_id}"
     );
-    wrapper["value"].clone()
 }
 
-async fn invoke_root_callback(
+fn finish_observation(session_id: &str) -> Vec<serde_json::Value> {
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty(), "rev2 public path consulted the legacy plane");
+    typed
+        .into_iter()
+        .map(|observation| {
+            let mut decision = serde_json::to_value(observation)
+                .expect("typed callback observation must serialize");
+            assert_eq!(decision["terminalBranchId"], session_id);
+            decision
+                .as_object_mut()
+                .expect("typed callback observation must be an object")
+                .remove("terminalBranchId");
+            decision
+        })
+        .collect()
+}
+
+fn assert_context_principal(
+    result: &serde_json::Value,
+    host: &crate::host::Host,
+    expected_principal: &capsec_semantics::model::Principal,
+) {
+    let principal_id = result["context"]["principalId"]
+        .as_str()
+        .expect("context observer returned no principal id")
+        .strip_prefix("u64:")
+        .expect("context observer principal id is not tagged");
+    assert_eq!(
+        host.typed_principal_for_module(principal_id).as_ref(),
+        Some(expected_principal),
+        "public operation did not run under the observed Hermes principal"
+    );
+    assert!(result["context"]["runtimeNonce"]
+        .as_str()
+        .is_some_and(|value| value.strip_prefix("u64:").is_some_and(|raw| raw.parse::<u64>().is_ok())));
+}
+
+fn typed_actor_reason(decision: &serde_json::Value) -> Option<&str> {
+    let actor = &decision["decisionSet"]["context"]["actor"];
+    decision["evidence"]["evidence"]
+        .as_array()?
+        .iter()
+        .find(|entry| entry["principal"] == *actor)?["reason"]
+        .as_str()
+}
+
+fn assert_typed_decisions(
+    decisions: &[serde_json::Value],
+    expected_principal: &capsec_semantics::model::Principal,
+    expected_stages: &[&str],
+    expected_outcomes: &[&str],
+    expected_reasons: &[&str],
+    expected_edge_id: &str,
+    expected_action: &str,
+) {
+    assert_eq!(
+        decisions.len(),
+        expected_stages.len(),
+        "unexpected typed decision count: {decisions:#?}"
+    );
+    assert_eq!(decisions.len(), expected_outcomes.len());
+    assert_eq!(decisions.len(), expected_reasons.len());
+    let expected_principal =
+        serde_json::to_value(expected_principal).expect("expected principal must serialize");
+    for (index, decision) in decisions.iter().enumerate() {
+        assert_eq!(
+            decision["decisionSet"]["context"]["actor"], expected_principal,
+            "public decision actor drifted: {decision}"
+        );
+        assert_eq!(
+            decision["decisionSet"]["context"]["stage"], expected_stages[index]
+        );
+        assert_eq!(decision["decisionSet"]["effects"][0]["cap"], expected_action);
+        assert_eq!(decision["gates"][0]["coverageEdgeId"], expected_edge_id);
+        assert_eq!(decision["gates"][0]["targetCell"], "complete");
+        assert_eq!(
+            decision["gates"][0]["definitionAndEdgePredicatesSatisfied"],
+            true
+        );
+        assert_eq!(
+            decision["evidence"]["outcome"], expected_outcomes[index],
+            "unexpected callback invariant decision: {decision}"
+        );
+        assert_eq!(
+            typed_actor_reason(decision),
+            Some(expected_reasons[index]),
+            "callback decision has no actor-bound reason: {decision}"
+        );
+    }
+}
+
+async fn read_callback_result(engine: &HermesEngine) -> serde_json::Value {
+    let encoded = engine
+        .eval_immediate("JSON.stringify(globalThis.__capsecCallbackResult)")
+        .await
+        .expect("read callback public-operation result")
+        .expect("callback public operation returned no result");
+    serde_json::from_str(&encoded).expect("callback public-operation result must be JSON")
+}
+
+async fn prewarm_package_public_operation(engine: &HermesEngine) {
+    engine
+        .eval_immediate("require('image-lib'); 'ready'")
+        .await
+        .expect("load callback package before observation");
+}
+
+async fn invoke_package_environment_read(
     engine: &HermesEngine,
+    session_id: &str,
+) -> ObservedInvocation {
+    prewarm_package_public_operation(engine).await;
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install immediate package context observer");
+    let invocation = format!(
+        r#"globalThis.__capsecCallbackResult = null;
+var observer = globalThis[{0}];
+var removed = delete globalThis[{0}];
+if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
+require('image-lib')(function(result) {{ globalThis.__capsecCallbackResult = result; }}, observer, process.env);"#,
+        serde_json::to_string(&observer_name).unwrap()
+    );
+    begin_observation(session_id);
+    engine
+        .eval_immediate(&invocation)
+        .await
+        .expect("invoke package public environment read");
+    let typed_decisions = finish_observation(session_id);
+    let result = read_callback_result(engine).await;
+    ObservedInvocation {
+        result,
+        typed_decisions,
+    }
+}
+
+async fn schedule_package_environment_read(engine: &HermesEngine) {
+    prewarm_package_public_operation(engine).await;
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install scheduled package context observer");
+    let invocation = format!(
+        r#"globalThis.__capsecCallbackResult = null;
+var observer = globalThis[{0}];
+var removed = delete globalThis[{0}];
+if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
+setTimeout(require('image-lib'), 0, function(result) {{ globalThis.__capsecCallbackResult = result; }}, observer, process.env);"#,
+        serde_json::to_string(&observer_name).unwrap()
+    );
+    engine
+        .eval_immediate(&invocation)
+        .await
+        .expect("schedule package public environment read");
+}
+
+async fn take_scheduled_package_operation(
+    engine: &HermesEngine,
+    session_id: &str,
+) -> ObservedInvocation {
+    begin_observation(session_id);
+    engine
+        .drive_event_loop()
+        .await
+        .expect("drive package public operation");
+    let typed_decisions = finish_observation(session_id);
+    let result = read_callback_result(engine).await;
+    ObservedInvocation {
+        result,
+        typed_decisions,
+    }
+}
+
+async fn invoke_root_environment_read(
+    engine: &HermesEngine,
+    session_id: &str,
+) -> ObservedInvocation {
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install root context observer");
+    let script = format!(
+        r#"JSON.stringify((function(name) {{
+  var observer = globalThis[name];
+  var removed = delete globalThis[name];
+  if (typeof observer !== 'function' || !removed || (name in globalThis)) throw new Error('CapSec context observer was project-reachable');
+  var result = {{context: observer()}};
+  try {{ result.value = typeof process.env.PATH === 'string'; }}
+  catch (error) {{ result.threw = String(error && error.message || error); }}
+  return result;
+}})({0}))"#,
+        serde_json::to_string(&observer_name).unwrap()
+    );
+    begin_observation(session_id);
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("invoke root public environment read")
+        .expect("root public environment read returned no result");
+    let typed_decisions = finish_observation(session_id);
+    let result =
+        serde_json::from_str(&encoded).expect("root public environment result must be JSON");
+    ObservedInvocation {
+        result,
+        typed_decisions,
+    }
+}
+
+async fn invoke_attribution_guard_callback(
+    engine: &HermesEngine,
+    session_id: &str,
     request: &serde_json::Value,
-) -> serde_json::Value {
+) -> ObservedInvocation {
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install attribution context observer");
     let script = format!(
         r#"globalThis.__capsecCallbackResult = null;
-setTimeout(function(request) {{
-  try {{ globalThis.__capsecCallbackResult = {{value: __hostCall('capsec.conformance.evaluate', request)}}; }}
-  catch (error) {{ globalThis.__capsecCallbackResult = {{threw: String(error && error.message || error)}}; }}
-}}, 0, {});"#,
+var observer = globalThis[{0}];
+var removed = delete globalThis[{0}];
+if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
+setTimeout(function(observer, request) {{
+  var result = {{context: observer(), requestRefused: false, errorMessage: null}};
+  try {{ result.requestRefused = !Ibex.permissions.requestTyped(request); }}
+  catch (error) {{ result.requestRefused = true; result.errorMessage = String(error && error.message || error); }}
+  try {{ result.value = typeof process.env.PATH === 'string'; }}
+  catch (error) {{ result.threw = String(error && error.message || error); }}
+  globalThis.__capsecCallbackResult = result;
+}}, 0, observer, {1});"#,
+        serde_json::to_string(&observer_name).unwrap(),
         serde_json::to_string(request).unwrap()
     );
     engine
         .eval_immediate(&script)
         .await
-        .expect("schedule root callback invariant");
+        .expect("schedule public attribution-guard callback");
+    begin_observation(session_id);
     engine
         .drive_event_loop()
         .await
-        .expect("drive root callback invariant");
-    let encoded = engine
-        .eval_immediate("JSON.stringify(globalThis.__capsecCallbackResult)")
-        .await
-        .expect("read root callback invariant")
-        .expect("root callback invariant returned no result");
-    decode_adapter_wrapper(&encoded)
-}
-
-async fn invoke_package_adapter(
-    engine: &HermesEngine,
-    request: &serde_json::Value,
-    scheduled: bool,
-) -> serde_json::Value {
-    if scheduled {
-        schedule_package_adapter(engine, request).await;
-        return take_scheduled_package_adapter(engine).await;
+        .expect("drive public attribution-guard callback");
+    let typed_decisions = finish_observation(session_id);
+    let result = read_callback_result(engine).await;
+    ObservedInvocation {
+        result,
+        typed_decisions,
     }
-    let invocation = format!(
+}
+
+async fn invoke_root_handle_mint_callback(
+    engine: &HermesEngine,
+    session_id: &str,
+    request: &serde_json::Value,
+) -> ObservedInvocation {
+    let observer_name = engine
+        .install_capsec_context_test_observer()
+        .await
+        .expect("install handle callback context observer");
+    let script = format!(
         r#"globalThis.__capsecCallbackResult = null;
-require('image-lib')(function(result) {{ globalThis.__capsecCallbackResult = result; }}, 'capsec.conformance.evaluate', {});"#,
+var observer = globalThis[{0}];
+var removed = delete globalThis[{0}];
+if (typeof observer !== 'function' || !removed || ({0} in globalThis)) throw new Error('CapSec context observer was project-reachable');
+setTimeout(function(observer, request) {{
+  var result = {{context: observer()}};
+  try {{ result.value = Ibex.authority.mintHandle(request); }}
+  catch (error) {{ result.threw = String(error && error.message || error); }}
+  globalThis.__capsecCallbackResult = result;
+}}, 0, observer, {1});"#,
+        serde_json::to_string(&observer_name).unwrap(),
         serde_json::to_string(request).unwrap()
     );
     engine
-        .eval_immediate(&invocation)
+        .eval_immediate(&script)
         .await
-        .expect("invoke package callback invariant");
-    read_package_adapter_result(engine).await
-}
-
-async fn schedule_package_adapter(engine: &HermesEngine, request: &serde_json::Value) {
-    let invocation = format!(
-        r#"globalThis.__capsecCallbackResult = null;
-setTimeout(require('image-lib'), 0, function(result) {{ globalThis.__capsecCallbackResult = result; }}, 'capsec.conformance.evaluate', {});"#,
-        serde_json::to_string(request).unwrap()
-    );
-    engine
-        .eval_immediate(&invocation)
-        .await
-        .expect("schedule package callback invariant");
-}
-
-async fn take_scheduled_package_adapter(engine: &HermesEngine) -> serde_json::Value {
+        .expect("schedule public handle-mint callback");
+    begin_observation(session_id);
     engine
         .drive_event_loop()
         .await
-        .expect("drive package callback invariant");
-    read_package_adapter_result(engine).await
-}
-
-async fn read_package_adapter_result(engine: &HermesEngine) -> serde_json::Value {
-    let encoded = engine
-        .eval_immediate("JSON.stringify(globalThis.__capsecCallbackResult)")
-        .await
-        .expect("read package callback invariant")
-        .expect("package callback invariant returned no result");
-    decode_adapter_wrapper(&encoded)
-}
-
-fn parse_principal_id(value: &serde_json::Value) -> String {
-    value["executionContext"]["principalId"]
-        .as_str()
-        .expect("adapter response has no actual principal id")
-        .strip_prefix("u64:")
-        .expect("actual principal id is not tagged")
-        .to_owned()
-}
-
-fn typed_from_response(
-    response: &serde_json::Value,
-    session_id: &str,
-    host: &crate::host::Host,
-    expected_principal: &capsec_semantics::model::Principal,
-    expected_outcome: &str,
-    expected_reason: &str,
-    expected_edge_id: &str,
-    expected_action: &str,
-    expected_stage: &str,
-) -> serde_json::Value {
-    assert_eq!(response["legacyObservations"], serde_json::json!([]));
-    let principal_id = parse_principal_id(response);
-    assert_eq!(
-        host.typed_principal_for_module(&principal_id).as_ref(),
-        Some(expected_principal),
-        "adapter JSON actor was not bound to the actual Hermes principal"
-    );
-    let typed = response["typedObservations"]
-        .as_array()
-        .expect("adapter response has no typed observations");
-    assert_eq!(typed.len(), 1);
-    let mut decision = typed[0].clone();
-    assert_eq!(decision["terminalBranchId"], session_id);
-    decision.as_object_mut().unwrap().remove("terminalBranchId");
-    assert_eq!(decision["decisionSet"]["context"]["stage"], expected_stage);
-    assert_eq!(
-        decision["decisionSet"]["effects"][0]["cap"],
-        expected_action
-    );
-    assert_eq!(decision["gates"][0]["coverageEdgeId"], expected_edge_id);
-    assert_eq!(decision["gates"][0]["targetCell"], "complete");
-    assert_eq!(
-        decision["gates"][0]["definitionAndEdgePredicatesSatisfied"],
-        true
-    );
-    assert_eq!(
-        decision["evidence"]["outcome"], expected_outcome,
-        "unexpected callback invariant decision: {decision}"
-    );
-    assert_eq!(
-        decision["evidence"]["evidence"][0]["reason"],
-        expected_reason
-    );
-    decision
+        .expect("drive public handle-mint callback");
+    let typed_decisions = finish_observation(session_id);
+    let result = read_callback_result(engine).await;
+    ObservedInvocation {
+        result,
+        typed_decisions,
+    }
 }
 
 fn install_armed_host(host: &crate::host::Host) -> HostResetGuard {
@@ -772,6 +852,15 @@ async fn armed_engine(digest: &str) -> HermesEngine {
         .load_runtime()
         .await
         .expect("load exact callback invariant runtime");
+    assert_eq!(
+        engine
+            .eval_immediate("typeof __hostCall + '/' + typeof __hostCallAsync")
+            .await
+            .expect("inspect generic host bridges")
+            .as_deref(),
+        Some("undefined/undefined"),
+        "armed callback evidence must not reopen the generic host bridge"
+    );
     engine
 }
 
@@ -779,28 +868,32 @@ async fn execute_attribution_missing(recipe: &Recipe) -> ScenarioExecution {
     let (host, digest) = build_callback_host(None, None, false, None);
     let _reset = install_armed_host(&host);
     let engine = armed_engine(&digest).await;
+    let before = host.typed_generations().unwrap();
     let session = format!("callback-attribution:{}", recipe.plan_digest);
-    let request = typed_request(
-        &session,
-        &format!("missing-attribution:{}", recipe.plan_digest),
-        root_principal_value(),
-        Vec::new(),
-        Vec::new(),
-    );
-    let response = invoke_root_callback(&engine, &request).await;
+    let request = serde_json::json!({
+        "grantId": format!("missing-attribution-{}", recipe.plan_digest.trim_start_matches("sha256-")),
+        "principal": {"kind": "root", "identity": "forged-callback-root"},
+        "authority": invariant_selector(),
+    });
+    let invocation = invoke_attribution_guard_callback(&engine, &session, &request).await;
     let root: capsec_semantics::model::Principal =
         serde_json::from_value(root_principal_value()).unwrap();
-    let typed = typed_from_response(
-        &response,
-        &session,
-        &host,
+    assert_context_principal(&invocation.result, &host, &root);
+    assert_eq!(invocation.result["requestRefused"], true);
+    assert!(invocation.result["errorMessage"]
+        .as_str()
+        .is_some_and(|message| message.contains("refused")));
+    assert!(invocation.result["threw"].is_null());
+    assert_typed_decisions(
+        &invocation.typed_decisions,
         &root,
-        "deny",
-        "invalid-attribution",
+        &["requested", "commit"],
+        &["allow", "allow"],
+        &["ambient-root", "ambient-root"],
         ENV_AUXILIARY_EDGE_ID,
         "env:read",
-        "requested",
     );
+    assert_eq!(host.typed_generations().unwrap(), before);
     ScenarioExecution {
         result: serde_json::json!({
             "kind": "callback-security-invariant",
@@ -810,10 +903,10 @@ async fn execute_attribution_missing(recipe: &Recipe) -> ScenarioExecution {
                 "callbackExecuted": true,
                 "actualPrincipal": root_principal_value(),
                 "invalidAttributionDenied": true,
-                "runtimeNonce": response["executionContext"]["runtimeNonce"],
+                "runtimeNonce": invocation.result["context"]["runtimeNonce"],
             },
         }),
-        typed_decisions: vec![typed],
+        typed_decisions: invocation.typed_decisions,
         legacy_observation_count: 0,
     }
 }
@@ -834,67 +927,60 @@ async fn execute_generation_recheck(
     ))
     .unwrap();
     assert!(host
-        .grant_typed_dynamic(grant_id.clone(), package.principal.clone(), selector,)
-        .expect("publish callback dynamic grant"));
+        .grant_typed_dynamic(grant_id.clone(), package.principal.clone(), selector)
+        .expect("publish callback dynamic environment grant"));
     let granted_generations = host.typed_generations().unwrap();
     let allow_session = format!("callback-generation-allow:{}", recipe.plan_digest);
-    let allow_request = typed_request(
-        &allow_session,
-        &format!("generation-before:{}", recipe.plan_digest),
-        package.principal_value.clone(),
-        vec![package.principal_value.clone()],
-        Vec::new(),
+    let allow = invoke_package_environment_read(&engine, &allow_session).await;
+    assert_context_principal(&allow.result, &host, &package.principal);
+    assert!(
+        allow.result["threw"].is_null(),
+        "authorized package environment read threw: {}",
+        allow.result
     );
-    let allow_response = invoke_package_adapter(&engine, &allow_request, false).await;
-    let allow = typed_from_response(
-        &allow_response,
-        &allow_session,
-        &host,
+    assert_typed_decisions(
+        &allow.typed_decisions,
         &package.principal,
-        "allow",
-        "dynamic-session",
+        &["requested", "commit"],
+        &["allow", "allow"],
+        &["dynamic-session", "dynamic-session"],
         ENV_AUXILIARY_EDGE_ID,
         "env:read",
-        "requested",
     );
     let deny_session = format!("callback-generation-deny:{}", recipe.plan_digest);
-    let deny_request = typed_request(
-        &deny_session,
-        &format!("generation-after:{}", recipe.plan_digest),
-        package.principal_value.clone(),
-        vec![package.principal_value.clone()],
-        Vec::new(),
-    );
-    schedule_package_adapter(&engine, &deny_request).await;
+    schedule_package_environment_read(&engine).await;
     assert!(host
         .revoke_typed_dynamic(&grant_id)
-        .expect("revoke callback dynamic grant"));
+        .expect("revoke callback dynamic environment grant"));
     let revoked_generations = host.typed_generations().unwrap();
     assert!(revoked_generations.negative > granted_generations.negative);
     assert!(revoked_generations.dynamic > granted_generations.dynamic);
-    let deny_response = take_scheduled_package_adapter(&engine).await;
-    let deny = typed_from_response(
-        &deny_response,
-        &deny_session,
-        &host,
+    assert_eq!(revoked_generations.handle, granted_generations.handle);
+    let deny = take_scheduled_package_operation(&engine, &deny_session).await;
+    assert_context_principal(&deny.result, &host, &package.principal);
+    assert!(deny.result["threw"].is_null());
+    assert_typed_decisions(
+        &deny.typed_decisions,
         &package.principal,
-        "deny",
-        "missing-authority",
+        &["requested"],
+        &["deny"],
+        &["missing-authority"],
         ENV_AUXILIARY_EDGE_ID,
         "env:read",
-        "requested",
     );
+    for decision in &allow.typed_decisions {
+        assert_eq!(
+            decision["evidence"]["generations"],
+            generations_value(granted_generations)
+        );
+    }
     assert_eq!(
-        allow["evidence"]["generations"],
-        generations_value(granted_generations)
-    );
-    assert_eq!(
-        deny["evidence"]["generations"],
+        deny.typed_decisions[0]["evidence"]["generations"],
         generations_value(revoked_generations)
     );
     assert_eq!(
-        allow_response["executionContext"]["runtimeNonce"],
-        deny_response["executionContext"]["runtimeNonce"]
+        allow.result["context"]["runtimeNonce"],
+        deny.result["context"]["runtimeNonce"]
     );
     ScenarioExecution {
         result: serde_json::json!({
@@ -908,10 +994,14 @@ async fn execute_generation_recheck(
                 "generationsAfter": generations_value(revoked_generations),
                 "generationAdvanced": true,
                 "scheduledDecisionRechecked": true,
-                "runtimeNonce": deny_response["executionContext"]["runtimeNonce"],
+                "runtimeNonce": deny.result["context"]["runtimeNonce"],
             },
         }),
-        typed_decisions: vec![allow, deny],
+        typed_decisions: allow
+            .typed_decisions
+            .into_iter()
+            .chain(deny.typed_decisions)
+            .collect(),
         legacy_observation_count: 0,
     }
 }
@@ -921,66 +1011,45 @@ async fn execute_principal_restore(recipe: &Recipe, package: &PackageFixture) ->
     let _reset = install_armed_host(&host);
     let engine = armed_engine(&digest).await;
     let package_session = format!("callback-package-principal:{}", recipe.plan_digest);
-    let package_request = typed_request(
-        &package_session,
-        &format!("principal-package:{}", recipe.plan_digest),
-        package.principal_value.clone(),
-        vec![package.principal_value.clone()],
-        Vec::new(),
-    );
-    let package_response = invoke_package_adapter(&engine, &package_request, true).await;
-    let package_decision = typed_from_response(
-        &package_response,
-        &package_session,
-        &host,
+    schedule_package_environment_read(&engine).await;
+    let package_invocation = take_scheduled_package_operation(&engine, &package_session).await;
+    assert_context_principal(&package_invocation.result, &host, &package.principal);
+    assert!(package_invocation.result["threw"].is_null());
+    assert_typed_decisions(
+        &package_invocation.typed_decisions,
         &package.principal,
-        "allow",
-        "static-floor",
+        &["requested", "commit"],
+        &["allow", "allow"],
+        &["static-floor", "static-floor"],
         ENV_AUXILIARY_EDGE_ID,
         "env:read",
-        "requested",
     );
     let root_value = root_principal_value();
     let root: capsec_semantics::model::Principal =
         serde_json::from_value(root_value.clone()).unwrap();
     let root_session = format!("callback-restored-root:{}", recipe.plan_digest);
-    let root_request = typed_request(
-        &root_session,
-        &format!("principal-root:{}", recipe.plan_digest),
-        root_value.clone(),
-        vec![root_value.clone()],
-        Vec::new(),
-    );
-    let root_script = format!(
-        "JSON.stringify(__hostCall('capsec.conformance.evaluate', {}))",
-        serde_json::to_string(&root_request).unwrap()
-    );
-    let root_encoded = engine
-        .eval_immediate(&root_script)
-        .await
-        .expect("execute restored-root invariant")
-        .expect("restored-root invariant returned no result");
-    let root_response: serde_json::Value =
-        serde_json::from_str(&root_encoded).expect("restored-root response must be JSON");
-    let root_decision = typed_from_response(
-        &root_response,
-        &root_session,
-        &host,
+    let root_invocation = invoke_root_environment_read(&engine, &root_session).await;
+    assert_context_principal(&root_invocation.result, &host, &root);
+    assert!(root_invocation.result["threw"].is_null());
+    assert_typed_decisions(
+        &root_invocation.typed_decisions,
         &root,
-        "allow",
-        "ambient-root",
+        &["requested", "commit"],
+        &["allow", "allow"],
+        &["ambient-root", "ambient-root"],
         ENV_AUXILIARY_EDGE_ID,
         "env:read",
-        "requested",
     );
     assert_ne!(
-        package_response["executionContext"]["principalId"],
-        root_response["executionContext"]["principalId"]
+        package_invocation.result["context"]["principalId"],
+        root_invocation.result["context"]["principalId"]
     );
     assert_eq!(
-        package_response["executionContext"]["runtimeNonce"],
-        root_response["executionContext"]["runtimeNonce"]
+        package_invocation.result["context"]["runtimeNonce"],
+        root_invocation.result["context"]["runtimeNonce"]
     );
+    let mut typed_decisions = package_invocation.typed_decisions;
+    typed_decisions.extend(root_invocation.typed_decisions);
     ScenarioExecution {
         result: serde_json::json!({
             "kind": "callback-security-invariant",
@@ -991,10 +1060,10 @@ async fn execute_principal_restore(recipe: &Recipe, package: &PackageFixture) ->
                 "callbackPrincipal": package.principal_value,
                 "restoredPrincipal": root_value,
                 "principalRestored": true,
-                "runtimeNonce": root_response["executionContext"]["runtimeNonce"],
+                "runtimeNonce": root_invocation.result["context"]["runtimeNonce"],
             },
         }),
-        typed_decisions: vec![package_decision, root_decision],
+        typed_decisions,
         legacy_observation_count: 0,
     }
 }
@@ -1021,29 +1090,25 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
             None,
         )
         .expect("mint source-snapshot bearer");
-    let source_response = {
+    let request = serde_json::json!({
+        "actor": root_principal_value(),
+        "holder": root_principal_value(),
+        "authority": snapshot_selector(),
+        "parentHandleId": handle_id.as_str(),
+        "operationId": format!("snapshot-recheck-{}", recipe.plan_digest.trim_start_matches("sha256-")),
+    });
+    let source_invocation = {
         let _reset = install_armed_host(&source_host);
         let engine = armed_engine(&source_digest).await;
         let session = format!("callback-source-snapshot:{}", recipe.plan_digest);
-        let request = snapshot_typed_request(
-            &session,
-            &format!("snapshot-source:{}", recipe.plan_digest),
-            package,
-            handle_id.as_str(),
-        );
-        let response = invoke_root_callback(&engine, &request).await;
-        let decision = typed_from_response(
-            &response,
-            &session,
-            &source_host,
-            &root,
-            "allow",
-            "bearer-handle",
-            SNAPSHOT_AUXILIARY_EDGE_ID,
-            "fs:read",
-            "commit",
-        );
-        (response, decision)
+        let invocation = invoke_root_handle_mint_callback(&engine, &session, &request).await;
+        assert_context_principal(&invocation.result, &source_host, &root);
+        assert!(invocation.result["threw"].is_null());
+        assert!(invocation.result["value"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty() && value != handle_id.as_str()));
+        assert!(invocation.typed_decisions.is_empty());
+        invocation
     };
     let (target_host, target_digest) = build_callback_host(
         Some(package),
@@ -1052,42 +1117,24 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
         Some("AQIDBAUGBwgJCgsMDQ4PEQ"),
     );
     assert_ne!(source_digest, target_digest);
-    let target_response = {
+    let target_invocation = {
         let _reset = install_armed_host(&target_host);
         let engine = armed_engine(&target_digest).await;
         let session = format!("callback-target-snapshot:{}", recipe.plan_digest);
-        let request = snapshot_typed_request(
-            &session,
-            &format!("snapshot-target:{}", recipe.plan_digest),
-            package,
-            handle_id.as_str(),
-        );
-        let response = invoke_root_callback(&engine, &request).await;
-        let decision = typed_from_response(
-            &response,
-            &session,
-            &target_host,
-            &root,
-            "deny",
-            "invalid-attribution",
-            SNAPSHOT_AUXILIARY_EDGE_ID,
-            "fs:read",
-            "commit",
-        );
-        (response, decision)
+        let invocation = invoke_root_handle_mint_callback(&engine, &session, &request).await;
+        assert_context_principal(&invocation.result, &target_host, &root);
+        assert!(invocation.result["threw"]
+            .as_str()
+            .is_some_and(|message| message.contains("parent handle is absent or revoked")));
+        assert!(invocation.typed_decisions.is_empty());
+        invocation
     };
-    assert_eq!(
-        source_response.1["evidence"]["identity"]["armedSnapshotDigest"],
-        source_digest
-    );
-    assert_eq!(
-        target_response.1["evidence"]["identity"]["armedSnapshotDigest"],
-        target_digest
-    );
     assert_ne!(
-        source_response.0["executionContext"]["runtimeNonce"],
-        target_response.0["executionContext"]["runtimeNonce"]
+        source_invocation.result["context"]["runtimeNonce"],
+        target_invocation.result["context"]["runtimeNonce"]
     );
+    assert!(source_invocation.typed_decisions.is_empty());
+    assert!(target_invocation.typed_decisions.is_empty());
     ScenarioExecution {
         result: serde_json::json!({
             "kind": "callback-security-invariant",
@@ -1100,11 +1147,11 @@ async fn execute_snapshot_mismatch(recipe: &Recipe, package: &PackageFixture) ->
                 "targetSnapshotDigest": target_digest,
                 "snapshotDigestsDiffer": true,
                 "foreignBearerDenied": true,
-                "sourceRuntimeNonce": source_response.0["executionContext"]["runtimeNonce"],
-                "targetRuntimeNonce": target_response.0["executionContext"]["runtimeNonce"],
+                "sourceRuntimeNonce": source_invocation.result["context"]["runtimeNonce"],
+                "targetRuntimeNonce": target_invocation.result["context"]["runtimeNonce"],
             },
         }),
-        typed_decisions: vec![source_response.1, target_response.1],
+        typed_decisions: Vec::new(),
         legacy_observation_count: 0,
     }
 }
@@ -1282,7 +1329,13 @@ fn build_execution(
     let observed_reasons = scenario
         .typed_decisions
         .iter()
-        .map(|decision| decision["evidence"]["evidence"][0]["reason"].clone())
+        .map(|decision| {
+            serde_json::Value::String(
+                typed_actor_reason(decision)
+                    .expect("callback decision has no actor-bound reason")
+                    .to_owned(),
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         observed_stages,
@@ -1393,7 +1446,7 @@ async fn capsec_callback_invariant_mechanisms_smoke() {
     ] {
         let recipe = smoke_recipe(scenario);
         let execution = execute_scenario(&recipe, &package).await;
-        let (_, outcomes, _) = expected_invariant(scenario);
+        let (_, _, outcomes, _) = expected_invariant(scenario);
         assert_eq!(execution.result["outcome"], "passed");
         assert_eq!(execution.legacy_observation_count, 0);
         assert_eq!(execution.typed_decisions.len(), outcomes.len());

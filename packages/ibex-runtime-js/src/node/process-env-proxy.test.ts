@@ -97,6 +97,25 @@ test('native capability denials are fail-closed without aborting bootstrap reads
   expect(Object.keys(env)).toEqual(['NODE_ENV']);
 });
 
+test('a cached native value is reauthorized after capability revocation', () => {
+  let authorized = true;
+  let scalarReads = 0;
+  g.__exactGetAllEnv = () => ({ CALLBACK_SECRET: 'secret' });
+  g.__exactGetEnv = () => {
+    scalarReads += 1;
+    if (!authorized) {
+      throw new Error('Permission denied: env:read authority required');
+    }
+    return 'secret';
+  };
+  const env = createEnvProxy();
+
+  expect(env.CALLBACK_SECRET).toBe('secret');
+  authorized = false;
+  expect(env.CALLBACK_SECRET).toBeUndefined();
+  expect(scalarReads).toBe(2);
+});
+
 test('toJSON reflects writes and deletes with correct precedence', () => {
   stubNativeEnv({ TZ: 'America/New_York', PATH: '/usr/bin' });
   const env = createEnvProxy();

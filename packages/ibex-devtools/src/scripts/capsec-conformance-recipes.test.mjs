@@ -387,26 +387,41 @@ describe("exact-target CapSec executable recipes", () => {
       invocation: {
         kind: "callback-security-invariant",
         expectedResult: "invariant-passed",
-        expectedTypedDecisionCount: 2,
-        expectedTypedStages: ["commit", "commit"],
-        expectedTypedOutcomes: ["allow", "deny"],
-        expectedTypedReasons: ["bearer-handle", "invalid-attribution"],
-        allowedCoverageEdgeIds: [
-          "surface.host.abi.ex.host.fs.read.file.042wgnk",
-        ],
-        expectedActionIds: ["fs:read"],
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        expectedTypedOutcomes: [],
+        expectedTypedReasons: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
         sourceDescriptor: {
           kind: "callback-security-invariant",
           scenario: "snapshot-mismatch-deny",
           rationaleId: "callback-attribution-carrier",
-          auxiliaryDecisionEdgeId:
-            "surface.host.abi.ex.host.fs.read.file.042wgnk",
+          executionMechanism: "cross-snapshot-public-handle-reattenuation",
+          auxiliaryDecisionEdgeId: null,
         },
       },
     });
     expect(snapshot.publicSurfaceProbe.invocation.sourceDescriptorDigest).toMatch(
       /^sha256-/u,
     );
+    const generation = callbackRecipes.find(
+      (recipe) => recipe.scenario === "generation-recheck",
+    );
+    expect(generation.publicSurfaceProbe.invocation).toMatchObject({
+      expectedTypedDecisionCount: 3,
+      expectedTypedStages: ["requested", "commit", "requested"],
+      expectedTypedOutcomes: ["allow", "allow", "deny"],
+      expectedTypedReasons: [
+        "dynamic-session",
+        "dynamic-session",
+        "missing-authority",
+      ],
+      allowedCoverageEdgeIds: [
+        "surface.native.op.exactgetenv.0k6bv7a",
+      ],
+      expectedActionIds: ["env:read"],
+    });
     const control = callbackRecipes.find(
       (recipe) => recipe.scenario === "post-lockdown-invariant",
     );

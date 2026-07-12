@@ -946,6 +946,10 @@ fn main() {
 
     build.std("c++17");
 
+    if std::env::var_os("CARGO_FEATURE_CAPSEC_CONFORMANCE_OBSERVER").is_some() {
+        build.define("IBEX_CAPSEC_CONFORMANCE_OBSERVER", None);
+    }
+
     if target_os == "windows" {
         let hermes_jsi_cpp = hermes_include_dir.join("jsi").join("jsi.cpp");
         let hermes_jsilib_windows_cpp = hermes_include_dir.join("jsi").join("jsilib-windows.cpp");

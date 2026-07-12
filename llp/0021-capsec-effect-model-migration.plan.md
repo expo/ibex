@@ -1009,14 +1009,18 @@ the response.
 
 Implementation update (2026-07-12): exact source-bound public conformance now
 executes six callback/control-plane invariants against the loaded armed Hermes
-engine: missing attribution denies, scheduled decisions recheck authority after
+engine through production `process.env` and public authority-control operations:
+missing attribution denies, scheduled decisions recheck authority after
 generation changes, callback principals restore after delivery, bearer handles
 cannot cross snapshot identities, public grant requests cannot widen the static
-ceiling, and lockdown remains structurally immutable. The 2,822 applicable
-non-capability fixtures carry runtime-derived results, exact structured typed
-outcomes/reasons where an auxiliary decision is required, and zero legacy
-observations. This closes those recipe obligations without advertising a target;
-target promotion remains gated on the complete exact-target execution report.
+ceiling, and lockdown remains structurally immutable. A feature-gated one-shot
+observer records only the actual principal and runtime nonce; it cannot evaluate
+or authorize an operation, and the harness deletes its global before the public
+invariant operation runs. The 2,822 applicable non-capability fixtures carry
+runtime-derived results, exact structured typed outcomes/reasons where an
+auxiliary decision is required, and zero legacy observations. This closes those
+recipe obligations without advertising a target; target promotion remains gated
+on the complete exact-target execution report.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

@@ -104,6 +104,11 @@ extern "C" {
     fn ex_hermes_current_runtime_nonce() -> u64;
     #[cfg(all(test, feature = "capsec-conformance-observer"))]
     fn ex_hermes_current_principal_id() -> u64;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_install_capsec_context_observer(
+        runtime: *mut HermesRuntimeOpaque,
+        global_name: *const std::os::raw::c_char,
+    ) -> i32;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,
@@ -1087,6 +1092,28 @@ impl HermesEngine {
             .as_ref()
             .map(RuntimeHandle::shared)
             .ok_or_else(|| anyhow!("Hermes runtime missing after initialization"))
+    }
+
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    async fn install_capsec_context_test_observer(&self) -> Result<String> {
+        self.ensure_thread()?;
+        let mut nonce = [0u8; 16];
+        getrandom::getrandom(&mut nonce)
+            .context("failed to generate an ephemeral CapSec context-observer name")?;
+        let suffix = nonce
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let name = format!("__ibexCapsecContextObserver_{suffix}");
+        let name_c = CString::new(name.as_str()).expect("hex observer name has no interior NUL");
+        let runtime = self.ensure_runtime().await?;
+        let installed = runtime.with_runtime(|raw| unsafe {
+            ibex_test_install_capsec_context_observer(raw, name_c.as_ptr())
+        })?;
+        if installed != 1 {
+            anyhow::bail!("armed Hermes refused the ephemeral CapSec context observer");
+        }
+        Ok(name)
     }
 
     async fn maybe_enable_debugger(&self) -> Result<()> {

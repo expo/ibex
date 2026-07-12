@@ -589,7 +589,7 @@ function completeCallbackCatalog() {
       kind: "native-op",
       name: "__exactCallbackCarrier",
     },
-    executionMechanism: "scheduled-dynamic-revocation-recheck",
+    executionMechanism: "scheduled-public-environment-revocation-recheck",
     auxiliaryDecisionEdgeId: "edge.terminal",
   };
   Object.assign(recipe, {
@@ -623,12 +623,16 @@ function completeCallbackCatalog() {
       sourceDescriptor,
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       expectedResult: "invariant-passed",
-      expectedTypedDecisionCount: 2,
-      expectedTypedStages: ["requested", "requested"],
-      expectedTypedOutcomes: ["allow", "deny"],
-      expectedTypedReasons: ["dynamic-session", "missing-authority"],
+      expectedTypedDecisionCount: 3,
+      expectedTypedStages: ["requested", "commit", "requested"],
+      expectedTypedOutcomes: ["allow", "allow", "deny"],
+      expectedTypedReasons: [
+        "dynamic-session",
+        "dynamic-session",
+        "missing-authority",
+      ],
       allowedCoverageEdgeIds: ["edge.terminal"],
-      expectedActionIds: ["sys:read"],
+      expectedActionIds: ["env:read"],
     },
   });
   catalog.summary.byScenario = { "generation-recheck": 1 };
@@ -763,25 +767,30 @@ function callbackRuntimeObservation(recipe) {
   };
   const generationsBefore = { negative: 0, dynamic: 1, handle: 0 };
   const generationsAfter = { negative: 1, dynamic: 2, handle: 0 };
-  const decision = (outcome, reason, suffix, generations) => ({
+  const decision = (stage, outcome, reason, suffix, generations) => ({
     decisionSet: {
       decisionSetSchema: "ibex/capsec-decision-set/1",
       operationId: `fixture-callback-${suffix}`,
       atomicityGroup: "edge.terminal.decision",
       combination: "conjunction",
       context: {
-        stage: "requested",
+        stage,
         actor: packagePrincipal,
         constrainedPrincipals: [packagePrincipal],
         presentedHandleIds: [],
       },
       effects: [
         {
-          cap: "sys:read",
+          cap: "env:read",
           effectOwner: packagePrincipal,
           resource: {
-            kind: "system-info-occurrence",
-            requested: { kind: "system-info", name: "platform" },
+            kind: "environment-occurrence",
+            requested: {
+              kind: "environment-name",
+              target: "broker-base",
+              name: "PATH",
+            },
+            valueOrigin: "broker-base",
           },
         },
       ],
@@ -793,7 +802,11 @@ function callbackRuntimeObservation(recipe) {
         definitionAndEdgePredicatesSatisfied: true,
       },
     ],
-    evidence: { outcome, generations, evidence: [{ reason }] },
+    evidence: {
+      outcome,
+      generations,
+      evidence: [{ principal: packagePrincipal, reason }],
+    },
   });
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
@@ -822,8 +835,27 @@ function callbackRuntimeObservation(recipe) {
     },
     legacyObservationCount: 0,
     typedDecisions: [
-      decision("allow", "dynamic-session", "before", generationsBefore),
-      decision("deny", "missing-authority", "after", generationsAfter),
+      decision(
+        "requested",
+        "allow",
+        "dynamic-session",
+        "before-requested",
+        generationsBefore,
+      ),
+      decision(
+        "commit",
+        "allow",
+        "dynamic-session",
+        "before-commit",
+        generationsBefore,
+      ),
+      decision(
+        "requested",
+        "deny",
+        "missing-authority",
+        "after-requested",
+        generationsAfter,
+      ),
     ],
   };
 }
@@ -1061,7 +1093,7 @@ describe("CapSec public-surface promotion evidence", () => {
     );
 
     const wrongReason = structuredClone(observed);
-    wrongReason.typedDecisions[1].evidence.evidence[0].reason =
+    wrongReason.typedDecisions[2].evidence.evidence[0].reason =
       "dynamic-session";
     expect(() =>
       buildPublicFixtureEvidence({

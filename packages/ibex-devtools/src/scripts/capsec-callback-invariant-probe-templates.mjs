@@ -28,23 +28,23 @@ const CALLBACK_SCENARIOS = new Map([
   [
     "attribution-missing-deny",
     {
-      mechanism: "scheduled-invalid-attribution-decision",
+      mechanism: "scheduled-public-attribution-guard",
       auxiliaryObservedKey: "native-op:__exactGetEnv",
       action: "env:read",
-      stage: "requested",
-      outcomes: ["deny"],
-      reasons: ["invalid-attribution"],
+      stages: ["requested", "commit"],
+      outcomes: ["allow", "allow"],
+      reasons: ["ambient-root", "ambient-root"],
     },
   ],
   [
     "generation-recheck",
     {
-      mechanism: "scheduled-dynamic-revocation-recheck",
+      mechanism: "scheduled-public-environment-revocation-recheck",
       auxiliaryObservedKey: "native-op:__exactGetEnv",
       action: "env:read",
-      stage: "requested",
-      outcomes: ["allow", "deny"],
-      reasons: ["dynamic-session", "missing-authority"],
+      stages: ["requested", "commit", "requested"],
+      outcomes: ["allow", "allow", "deny"],
+      reasons: ["dynamic-session", "dynamic-session", "missing-authority"],
     },
   ],
   [
@@ -53,20 +53,20 @@ const CALLBACK_SCENARIOS = new Map([
       mechanism: "scheduled-package-principal-scope",
       auxiliaryObservedKey: "native-op:__exactGetEnv",
       action: "env:read",
-      stage: "requested",
-      outcomes: ["allow", "allow"],
-      reasons: ["static-floor", "ambient-root"],
+      stages: ["requested", "commit", "requested", "commit"],
+      outcomes: ["allow", "allow", "allow", "allow"],
+      reasons: ["static-floor", "static-floor", "ambient-root", "ambient-root"],
     },
   ],
   [
     "snapshot-mismatch-deny",
     {
-      mechanism: "cross-snapshot-bearer-recheck",
-      auxiliaryObservedKey: "host-abi:ex_host_fs_read_file",
-      action: "fs:read",
-      stage: "commit",
-      outcomes: ["allow", "deny"],
-      reasons: ["bearer-handle", "invalid-attribution"],
+      mechanism: "cross-snapshot-public-handle-reattenuation",
+      auxiliaryObservedKey: null,
+      action: null,
+      stages: [],
+      outcomes: [],
+      reasons: [],
     },
   ],
 ]);
@@ -153,16 +153,18 @@ export function authoredCallbackInvariantProbe({
     return null;
   }
 
-  const auxiliaryEdge = callback
+  const auxiliaryEdge = callback?.auxiliaryObservedKey
     ? coverageByObservedKey.get(callback.auxiliaryObservedKey)
     : null;
   if (
-    callback &&
+    callback?.auxiliaryObservedKey &&
     (!auxiliaryEdge ||
       auxiliaryEdge.classification !== "effects" ||
       auxiliaryEdge.effects?.length !== 1 ||
       auxiliaryEdge.effects[0].cap !== callback.action ||
-      !auxiliaryEdge.effects[0].stages.includes(callback.stage))
+      !callback.stages.every((stage) =>
+        auxiliaryEdge.effects[0].stages.includes(stage),
+      ))
   ) {
     return null;
   }
@@ -182,6 +184,13 @@ export function authoredCallbackInvariantProbe({
     auxiliaryDecisionEdgeId: auxiliaryEdge?.id ?? null,
   };
   const expectedTypedDecisionCount = template.outcomes.length;
+  if (
+    callback &&
+    (callback.stages.length !== expectedTypedDecisionCount ||
+      callback.reasons.length !== expectedTypedDecisionCount)
+  ) {
+    throw new Error(`callback template ${scenario} has inconsistent decision arrays`);
+  }
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
@@ -196,9 +205,7 @@ export function authoredCallbackInvariantProbe({
       sourceDescriptorDigest: taggedDigest(sourceDescriptor),
       expectedResult: "invariant-passed",
       expectedTypedDecisionCount,
-      expectedTypedStages: Array(expectedTypedDecisionCount).fill(
-        callback?.stage ?? "requested",
-      ),
+      expectedTypedStages: clone(callback?.stages ?? []),
       expectedTypedOutcomes: clone(template.outcomes),
       expectedTypedReasons: clone(template.reasons),
       allowedCoverageEdgeIds: auxiliaryEdge ? [auxiliaryEdge.id] : [],

@@ -861,7 +861,10 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       callbackInvariant &&
       (!Array.isArray(decision.evidence?.evidence) ||
         decision.evidence.evidence.length === 0 ||
-        decision.evidence.evidence[0]?.reason !==
+        decision.evidence.evidence.find((entry) =>
+          canonicalJson(entry?.principal) ===
+          canonicalJson(decision.decisionSet.context.actor),
+        )?.reason !==
           authored.expectedTypedReasons[decisionIndex])
     ) {
       throw new Error(`${recipe.fixtureId}: observed typed reason disagrees with invariant`);
@@ -874,7 +877,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     const same = (left, right) => canonicalJson(left) === canonicalJson(right);
     if (
       authored.scenario === "attribution-missing-deny" &&
-      !same(actorAt(0), checks.actualPrincipal)
+      !observation.typedDecisions.every((decision) =>
+        same(decision.decisionSet.context.actor, checks.actualPrincipal),
+      )
     ) {
       throw new Error(`${recipe.fixtureId}: attribution evidence used the wrong actor`);
     }
@@ -889,6 +894,10 @@ function validateRuntimeObservation(observation, recipe, coverage) {
         ) ||
         !same(
           observation.typedDecisions[1]?.evidence?.generations,
+          checks.generationsBefore,
+        ) ||
+        !same(
+          observation.typedDecisions[2]?.evidence?.generations,
           checks.generationsAfter,
         ))
     ) {
@@ -897,19 +906,15 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     if (
       authored.scenario === "principal-restore" &&
       (!same(actorAt(0), checks.callbackPrincipal) ||
-        !same(actorAt(1), checks.restoredPrincipal))
+        !same(actorAt(1), checks.callbackPrincipal) ||
+        !same(actorAt(2), checks.restoredPrincipal) ||
+        !same(actorAt(3), checks.restoredPrincipal))
     ) {
       throw new Error(`${recipe.fixtureId}: principal restoration is not decision-bound`);
     }
     if (
       authored.scenario === "snapshot-mismatch-deny" &&
-      (!observation.typedDecisions.every((decision) =>
-        same(decision.decisionSet.context.actor, checks.actualPrincipal),
-      ) ||
-        observation.typedDecisions[0]?.evidence?.identity?.armedSnapshotDigest !==
-          checks.sourceSnapshotDigest ||
-        observation.typedDecisions[1]?.evidence?.identity?.armedSnapshotDigest !==
-          checks.targetSnapshotDigest)
+      observation.typedDecisions.length !== 0
     ) {
       throw new Error(`${recipe.fixtureId}: snapshot evidence is not decision-bound`);
     }

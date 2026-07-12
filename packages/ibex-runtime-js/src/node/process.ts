@@ -1294,18 +1294,20 @@ export function createEnvProxy(): Record<string, string | undefined> {
   }
 
   function getNativeValue(key: string): string | undefined {
-    if (nativeCache && Object.prototype.hasOwnProperty.call(nativeCache, key)) {
-      return nativeCache[key];
-    }
     if (typeof __exactGetEnv === 'function') {
       let value: string | undefined;
       try {
         value = __exactGetEnv(key);
       } catch (_error) {
+        if (nativeCache) {
+          delete nativeCache[key];
+        }
         return undefined;
       }
       if (value !== undefined) {
-        refreshNativeCache()[key] = value;
+        (nativeCache ??= {})[key] = value;
+      } else if (nativeCache) {
+        delete nativeCache[key];
       }
       return value;
     }

@@ -3644,6 +3644,72 @@ bool decodeHostCallPayload(facebook::jsi::Runtime& rt,
 
 }  // namespace
 
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+// Test-harness-only context observer for callback-invariant evidence. This is
+// not an embedding ABI and is never compiled into ordinary artifacts. It can
+// neither authorize nor evaluate an operation: genuine production process.env
+// and authority-control paths perform every decision exercised by the batch.
+// The Rust harness gives the observer an unpredictable name, captures it into
+// the test callback, and deletes the global before the invariant operation.
+// Keeping it one-shot prevents a retained fixture reference from becoming a
+// general runtime-introspection channel.
+// @ref LLP 0002#the-__hostcall-bridge--the-generic-host-channel
+// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+extern "C" int ibex_test_install_capsec_context_observer(
+    ExactHermesRuntime* runtime,
+    const char* global_name) {
+  constexpr const char* kPrefix = "__ibexCapsecContextObserver_";
+  if (!runtime || !runtime->armed || runtime->restricted ||
+      runtime->runtime_thread != std::this_thread::get_id() || !global_name ||
+      std::strncmp(global_name, kPrefix, std::strlen(kPrefix)) != 0) {
+    return 0;
+  }
+
+  try {
+    auto& rt = *runtime->runtime;
+    std::string name(global_name);
+    auto property = facebook::jsi::PropNameID::forUtf8(rt, name);
+    if (rt.global().hasProperty(rt, property)) {
+      return 0;
+    }
+    auto called = std::make_shared<std::atomic<bool>>(false);
+    auto observer = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forUtf8(rt, name),
+        0,
+        [runtime, called](facebook::jsi::Runtime& rt,
+                          const facebook::jsi::Value&,
+                          const facebook::jsi::Value*,
+                          size_t count) -> facebook::jsi::Value {
+          if (count != 0) {
+            throw facebook::jsi::JSError(rt, "CapSec context observer takes no arguments");
+          }
+          if (called->exchange(true)) {
+            throw facebook::jsi::JSError(rt, "CapSec context observer is single-use");
+          }
+          facebook::jsi::Object context(rt);
+          context.setProperty(
+              rt,
+              "principalId",
+              facebook::jsi::String::createFromUtf8(
+                  rt, "u64:" + std::to_string(currentPrincipalId())));
+          context.setProperty(
+              rt,
+              "runtimeNonce",
+              facebook::jsi::String::createFromUtf8(
+                  rt, "u64:" + std::to_string(runtime->runtime_nonce)));
+          return context;
+        });
+    rt.global().setProperty(rt, property, std::move(observer));
+    return 1;
+  } catch (const facebook::jsi::JSIException&) {
+    return 0;
+  } catch (const std::exception&) {
+    return 0;
+  }
+}
+#endif
+
 extern "C" void ex_hermes_set_host_call(
     ExactHermesRuntime* runtime,
     char* (*callback)(const char* op, const char* args_json)) {

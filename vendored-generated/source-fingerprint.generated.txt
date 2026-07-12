@@ -1,4 +1,4 @@
 # GENERATED FILE - DO NOT EDIT.
 # Source authority: src/builtins, packages/ibex-runtime-js/src, modules.ts (LLP 0018)
 # Generator: bun run generate:vendored-fingerprint
-1173f5d7a26bcc03
+e043db9b95cee2be
