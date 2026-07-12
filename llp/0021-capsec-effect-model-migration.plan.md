@@ -1182,6 +1182,19 @@ Hermes evaluator identities additionally bind the reviewed engine identity and
 lockdown-taming digest, resolve their exact intrinsic access path, and must
 actually throw the native lockdown error when invoked on the loaded engine.
 
+Production startup evidence now covers ten curated structural stages against a
+fresh armed runtime from the exact mapped Hermes artifact: runtime creation,
+global/module-loader/shared-runtime installation, capability-hatch sealing,
+eager lazy-installer sealing, lockdown, freeze-hatch sealing, compartment
+registry installation, and explicitly enabled Web Streams installation. Each
+stage has one fixed source descriptor and an independently validated
+postcondition; the probe then executes a project marker and requires zero
+legacy or typed decisions. Scanner-only script URLs, evaluation/call-site
+facets, installer definitions, skipped legacy bootstraps, and platform-only
+routes remain residual rather than inheriting these stage results.
+The runtime-create descriptor binds `ex_hermes_create_armed`, not the historical
+`ex_hermes_create` symbol that production deliberately leaves non-executable.
+
 A zero-effect conditional branch may pass without a typed decision only when a
 source-bound public invocation itself selects the registry's exact branch facts,
 returns normally, emits zero legacy and typed observations, and releases every

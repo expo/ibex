@@ -3870,6 +3870,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       true,
     );
     expect(
+      first.startup.find((row) => row.name === "runtime-create").sourceRefs,
+    ).toEqual([
+      "src/engine/hermes_runtime.cc#ex_hermes_create_armed",
+    ]);
+    expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
     const hermesAbi = first.hostAbi.filter((row) =>

@@ -55,6 +55,11 @@ const coverage = {
         },
       ],
     },
+    {
+      id: "edge.startup",
+      classification: "non-capability",
+      surface: { kind: "startup", name: "lockdown-install" },
+    },
   ],
 };
 
@@ -524,6 +529,87 @@ function completeClosedLoaderCatalog() {
   });
   catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
   return catalog;
+}
+
+function completeStartupCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const requiredFacts = [
+    "lockdown-flag-pinned",
+    "eval-tamed",
+    "object-prototype-frozen",
+  ];
+  const sourceDescriptor = {
+    kind: "startup-loaded-engine-postcondition",
+    surfaceName: "lockdown-install",
+    postcondition: "lockdown-installed",
+    requiredFacts,
+    sourceRefs: ["src/engine/hermes_runtime.cc#kLockdownJS"],
+    sourceMetadata: null,
+    environment: null,
+  };
+  Object.assign(recipe, {
+    fixtureId: "fixture.startup.lockdown",
+    classification: "non-capability",
+    scenario: "non-capability",
+    edgeIds: ["edge.startup"],
+    implementationBranchIds: ["edge.startup.main"],
+    enforcementBranchIds: ["edge.startup.main"],
+    terminalObservedKey: "startup:lockdown-install",
+  });
+  recipe.expectedObservation.branchId = "edge.startup.main";
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.route.alternatives[0].proofPaths = [recipe.terminalObservedKey];
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    invocationSchema: "ibex/capsec-startup-surface-invocation/1",
+    kind: "startup-loaded-engine",
+    surfaceKind: "startup",
+    surfaceName: "lockdown-install",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "loaded-engine-startup",
+      postcondition: "lockdown-installed",
+      requiredFacts,
+      environment: null,
+    },
+    expectedResult: "return",
+  });
+  catalog.summary.byScenario = { "non-capability": 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function startupRuntimeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "return",
+        surfaceKind: "startup",
+        surfaceName: invocation.surfaceName,
+        mechanism: invocation.operation.kind,
+        postcondition: invocation.operation.postcondition,
+        engineExecuted: true,
+        projectCodeExecuted: true,
+        observedFacts: Object.fromEntries(
+          invocation.operation.requiredFacts.map((fact) => [fact, true]),
+        ),
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
 }
 
 function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
@@ -1023,6 +1109,53 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not prove absence/);
+  });
+
+  test("accepts structural startup only with exact loaded-engine postconditions", () => {
+    const catalog = completeStartupCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: startupRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+
+    const failedFact = startupRuntimeObservation(recipe);
+    failedFact.invocation.result.observedFacts["eval-tamed"] = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: failedFact,
+        coverage,
+      }),
+    ).toThrow(/did not prove the startup postcondition/);
+
+    const noProject = startupRuntimeObservation(recipe);
+    noProject.invocation.result.projectCodeExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: noProject,
+        coverage,
+      }),
+    ).toThrow(/did not prove the startup postcondition/);
+
+    const drifted = structuredClone(recipe);
+    drifted.publicSurfaceProbe.invocation.operation.postcondition =
+      "runtime-created";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: drifted,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: startupRuntimeObservation(drifted),
+        coverage,
+      }),
+    ).toThrow(/startup runtime invocation descriptor drift/);
   });
 
   test("accepts a closed surface only when project code did not execute", () => {

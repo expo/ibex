@@ -14769,7 +14769,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime.cc",
-      "ex_hermes_create",
+      "ex_hermes_create_armed",
     ),
   ),
   fixedSurface(

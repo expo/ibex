@@ -657,6 +657,44 @@ describe("exact-target CapSec executable recipes", () => {
     expect(moduleLoader.residualReasons).toEqual([]);
   });
 
+  test("binds curated structural startup stages to loaded-engine postconditions", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-startup-surface-invocation/1",
+    );
+    expect(rows).toHaveLength(10);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.surfaceName,
+        recipe.publicSurfaceProbe.invocation.operation.postcondition,
+      ]),
+    ).toEqual([
+      ["capability-hardening-seal", "capability-hatches-sealed"],
+      ["compartment-registry-install", "compartment-registry-installed"],
+      ["eager-native-seal", "lazy-installers-sealed"],
+      ["freeze-seal", "freeze-hatches-sealed"],
+      ["globals-install", "globals-installed"],
+      ["lockdown-install", "lockdown-installed"],
+      ["module-loader-install", "module-loader-installed"],
+      ["runtime-create", "runtime-created"],
+      ["shared-runtime-install", "shared-runtime-installed"],
+      ["web-streams-install", "web-streams-installed"],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.scenario === "non-capability" &&
+          recipe.actionIds.length === 0 &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs
+            .length === 1,
+      ),
+    ).toBe(true);
+  });
+
   test("binds executable loader kinds to real fail-closed file imports", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

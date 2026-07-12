@@ -23,6 +23,89 @@ const taggedDigest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+// Independent verifier authority for the small curated startup family. Keep
+// this separate from recipe authorship so descriptor tampering cannot change
+// both the claim and its validator through one shared table.
+const STARTUP_EXPECTATIONS = new Map(
+  [
+    [
+      "runtime-create",
+      "runtime-created",
+      "src/engine/hermes_runtime.cc#ex_hermes_create_armed",
+      ["engine-can-evaluate"],
+      null,
+    ],
+    [
+      "globals-install",
+      "globals-installed",
+      "src/engine/hermes_runtime.cc#installGlobals",
+      ["console-installed", "timers-installed"],
+      null,
+    ],
+    [
+      "module-loader-install",
+      "module-loader-installed",
+      "src/engine/hermes_bootstrap.cc#installModuleLoader",
+      ["module-loader-installed"],
+      null,
+    ],
+    [
+      "shared-runtime-install",
+      "shared-runtime-installed",
+      "src/engine/hermes_bootstrap.cc#installSharedRuntimeBundle",
+      ["shared-runtime-loaded"],
+      null,
+    ],
+    [
+      "capability-hardening-seal",
+      "capability-hatches-sealed",
+      "src/engine/hermes_runtime.cc#kCapabilityHardeningJS",
+      ["capability-hatches-absent"],
+      null,
+    ],
+    [
+      "eager-native-seal",
+      "lazy-installers-sealed",
+      "src/engine/hermes_runtime.cc#kEagerInstallSealJS",
+      ["lazy-installers-absent"],
+      null,
+    ],
+    [
+      "lockdown-install",
+      "lockdown-installed",
+      "src/engine/hermes_runtime.cc#kLockdownJS",
+      ["lockdown-flag-pinned", "eval-tamed", "object-prototype-frozen"],
+      null,
+    ],
+    [
+      "freeze-seal",
+      "freeze-hatches-sealed",
+      "src/engine/hermes_runtime.cc#kFreezeSealJS",
+      ["freeze-hatches-absent"],
+      null,
+    ],
+    [
+      "compartment-registry-install",
+      "compartment-registry-installed",
+      "src/engine/hermes_runtime.cc#kCompartmentRegistryJS",
+      ["compartment-registry-pinned"],
+      null,
+    ],
+    [
+      "web-streams-install",
+      "web-streams-installed",
+      "src/engine/hermes_bootstrap.cc#installWebStreamsPolyfill",
+      ["web-stream-constructors-installed"],
+      { name: "EX_WEB_STREAMS_POLYFILL", value: "1" },
+    ],
+  ].map(
+    ([surfaceName, postcondition, sourceRef, requiredFacts, environment]) => [
+      surfaceName,
+      { postcondition, sourceRef, requiredFacts, environment },
+    ],
+  ),
+);
+
 function exactKeys(value, keys, label) {
   if (
     !value ||
@@ -485,6 +568,62 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-startup-surface-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceKind", "surfaceName"],
+      `${recipe.fixtureId}: startup runtime invocation`,
+    );
+    const expectation = STARTUP_EXPECTATIONS.get(authored.surfaceName);
+    const descriptor = authored.sourceDescriptor;
+    const operation = authored.operation;
+    exactKeys(
+      descriptor,
+      [
+        "kind",
+        "surfaceName",
+        "postcondition",
+        "requiredFacts",
+        "sourceRefs",
+        "sourceMetadata",
+        "environment",
+      ],
+      `${recipe.fixtureId}: startup source descriptor`,
+    );
+    exactKeys(
+      operation,
+      ["kind", "postcondition", "requiredFacts", "environment"],
+      `${recipe.fixtureId}: startup operation`,
+    );
+    if (
+      invocation.kind !== "startup-loaded-engine" ||
+      invocation.surfaceKind !== "startup" ||
+      invocation.surfaceName !== authored.surfaceName ||
+      expectation === undefined ||
+      descriptor.kind !== "startup-loaded-engine-postcondition" ||
+      descriptor.surfaceName !== authored.surfaceName ||
+      descriptor.postcondition !== expectation.postcondition ||
+      canonicalJson(descriptor.requiredFacts) !==
+        canonicalJson(expectation.requiredFacts) ||
+      canonicalJson(descriptor.sourceRefs) !==
+        canonicalJson([expectation.sourceRef]) ||
+      descriptor.sourceMetadata !== null ||
+      canonicalJson(descriptor.environment) !==
+        canonicalJson(expectation.environment) ||
+      operation.kind !== "loaded-engine-startup" ||
+      operation.postcondition !== expectation.postcondition ||
+      canonicalJson(operation.requiredFacts) !==
+        canonicalJson(expectation.requiredFacts) ||
+      canonicalJson(operation.environment) !==
+        canonicalJson(expectation.environment)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: startup runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
     invocation?.invocationSchema === "ibex/capsec-target-absence-invocation/1"
   ) {
     exactKeys(
@@ -626,6 +765,45 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+        );
+      }
+    } else if (
+      authored.invocationSchema ===
+      "ibex/capsec-startup-surface-invocation/1"
+    ) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "postcondition",
+          "engineExecuted",
+          "projectCodeExecuted",
+          "observedFacts",
+        ],
+        `${recipe.fixtureId}: startup runtime result`,
+      );
+      const expectation = STARTUP_EXPECTATIONS.get(authored.surfaceName);
+      exactKeys(
+        invocation.result.observedFacts,
+        expectation.requiredFacts,
+        `${recipe.fixtureId}: startup observed facts`,
+      );
+      if (
+        invocation.result.surfaceKind !== "startup" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== "loaded-engine-startup" ||
+        invocation.result.postcondition !== expectation.postcondition ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true ||
+        !expectation.requiredFacts.every(
+          (fact) => invocation.result.observedFacts[fact] === true,
+        )
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: loaded engine did not prove the startup postcondition`,
         );
       }
     }
