@@ -832,6 +832,7 @@ public final class IbexNetworking {
         entry.closed = true;
         entry.pending.clear();
         entry.pendingBytes = 0;
+        entry.draining = false;
       }
     }
     if (socket != null) {
@@ -854,22 +855,39 @@ public final class IbexNetworking {
     if (entry == null) {
       return;
     }
+    synchronized (entry) {
+      if (entry.closed || entry.draining) {
+        return;
+      }
+      // Keep newly arriving frames queued until the pre-existing backlog is
+      // drained. Clearing `paused` without a separate drain state lets an
+      // OkHttp callback deliver a new frame ahead of an older queued frame.
+      entry.paused = false;
+      entry.draining = true;
+    }
     for (;;) {
       WsMessage message;
       synchronized (entry) {
-        entry.paused = false;
+        if (entry.closed) {
+          entry.draining = false;
+          return;
+        }
         message = entry.pending.poll();
         if (message == null) {
+          entry.draining = false;
           return;
         }
         entry.pendingBytes -= message.bytes.length;
-        if (entry.flowControlled) {
-          entry.paused = true;
-        }
       }
       deliverMessage(entry.id, message);
       synchronized (entry) {
+        if (entry.closed) {
+          entry.draining = false;
+          return;
+        }
         if (entry.flowControlled) {
+          entry.paused = true;
+          entry.draining = false;
           return;
         }
       }
@@ -1975,13 +1993,14 @@ public final class IbexNetworking {
       if (entry.closed) {
         return;
       }
-      if (entry.paused) {
+      if (entry.paused || entry.draining) {
         long nextBytes = entry.pendingBytes + message.bytes.length;
         if (entry.pending.size() >= MAX_WS_PENDING_MESSAGES
             || nextBytes > MAX_WS_PENDING_BYTES) {
           entry.closed = true;
           entry.pending.clear();
           entry.pendingBytes = 0;
+          entry.draining = false;
           overflowSocket = entry.socket;
           overflow = true;
         } else {
@@ -2014,6 +2033,7 @@ public final class IbexNetworking {
       entry.closed = true;
       entry.pending.clear();
       entry.pendingBytes = 0;
+      entry.draining = false;
     }
   }
 
@@ -2051,6 +2071,7 @@ public final class IbexNetworking {
     volatile WebSocket socket;
     volatile boolean closed;
     boolean paused;
+    boolean draining;
     boolean flowControlled;
 
     WsEntry(int id) {
