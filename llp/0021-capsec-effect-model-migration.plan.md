@@ -767,6 +767,9 @@ configuration flag (`inspect`, wait/open/pause, host, and port), including the
 duplicate `run`-subcommand spellings, before reading arming artifacts or
 allocating the engine. The opt-in Bun compatibility facade is closed at the
 same boundary before its process-global environment marker can be installed.
+Hidden compatibility-fidelity controls that expose internals or alter
+process-wide stack/HTTP-parser configuration are rejected there as well,
+before armed artifact I/O.
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 

@@ -1550,6 +1550,14 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             if cli.compat.is_some() {
                 anyhow::bail!("armed capability startup closes compatibility facades");
             }
+            if cli.expose_internals
+                || cli.stack_size.is_some()
+                || cli.max_http_header_size.is_some()
+            {
+                anyhow::bail!(
+                    "armed capability startup closes hidden runtime-fidelity configuration"
+                );
+            }
             if cli.policy.is_some()
                 || !cli.allow.is_empty()
                 || !cli.deny.is_empty()
@@ -3477,6 +3485,35 @@ mod tests {
             !error.contains("failed to read"),
             "compatibility closure must precede artifact I/O: {error}"
         );
+    }
+
+    #[test]
+    fn armed_startup_closes_hidden_runtime_fidelity_flags_before_io() {
+        for fidelity_args in [
+            vec!["--expose-internals"],
+            vec!["--stack-size", "2048"],
+            vec!["--max-http-header-size", "32768"],
+        ] {
+            let mut args = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            args.extend(fidelity_args);
+            args.push("app.ts");
+            let cli = Cli::parse_from(args);
+            let error = build_host(&cli)
+                .err()
+                .expect("armed hidden runtime configuration must be closed")
+                .to_string();
+            assert!(error.contains("runtime-fidelity"), "{error}");
+            assert!(
+                !error.contains("failed to read"),
+                "runtime configuration closure must precede artifact I/O: {error}"
+            );
+        }
     }
 
     #[test]
