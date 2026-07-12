@@ -41,10 +41,17 @@ const coverage = {
       id: "edge.callback-terminal",
       classification: "effects",
       surface: { kind: "native-op", name: "__exactGetEnv" },
-      effects: [
+      effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
+    },
+    {
+      id: "edge.host-sqlite",
+      classification: "effects",
+      surface: { kind: "host-abi", name: "ex_host_sqlite_open" },
+      logicalBranches: [
         {
-          cap: "env:read",
-          stages: ["requested", "commit"],
+          id: "memory",
+          when: [{ fact: "sqlite.open.mode", equals: "memory" }],
+          effects: [],
         },
       ],
     },
@@ -1089,6 +1096,100 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);
+  });
+
+  test("accepts a source-bound zero-effect host ABI branch with cleanup", () => {
+    const catalog = completeCatalog();
+    const recipe = catalog.recipes[0];
+    const selectedBranch = {
+      id: "memory",
+      when: [{ fact: "sqlite.open.mode", equals: "memory" }],
+    };
+    const sourceDescriptor = {
+      kind: "host-abi-function",
+      functionName: "ex_host_sqlite_open",
+      sourceRefs: ["src/host/abi.rs#ex_host_sqlite_open"],
+      sourceMetadata: {
+        definitions: [
+          {
+            language: "rust",
+            sourceRef: "src/host/abi.rs#ex_host_sqlite_open",
+            targetVariant: "default",
+          },
+        ],
+      },
+      selectedBranch,
+    };
+    Object.assign(recipe, {
+      fixtureId: "fixture.host-sqlite.memory.no-effect",
+      scenario: "no-effect",
+      edgeIds: ["edge.host-sqlite"],
+      actionIds: [],
+      terminalObservedKey: "host-abi:ex_host_sqlite_open",
+      route: {
+        surfaceObservedKeys: ["host-abi:ex_host_sqlite_open"],
+        alternatives: [
+          {
+            terminalObservedKey: "host-abi:ex_host_sqlite_open",
+            proofPaths: ["host-abi:ex_host_sqlite_open"],
+          },
+        ],
+        ambiguousCallees: [],
+      },
+    });
+    recipe.publicSurfaceProbe = {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: recipe.terminalObservedKey,
+      command: ["cargo", "test", "capsec_public_native_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        functionName: "ex_host_sqlite_open",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        operation: { kind: "sqlite-memory", selectedBranch },
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.host-sqlite"],
+        expectedActionIds: [],
+      },
+    };
+    const observation = {
+      observationSchema: "ibex/capsec-runtime-public-observation/1",
+      invocation: {
+        invocationSchema: "ibex/capsec-host-abi-invocation/1",
+        kind: "host-abi-function",
+        surfaceObservedKey: recipe.terminalObservedKey,
+        functionName: "ex_host_sqlite_open",
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        result: {
+          kind: "return",
+          functionName: "ex_host_sqlite_open",
+          operation: "sqlite-memory",
+          cleanup: "released-sqlite-memory-state",
+        },
+      },
+      legacyObservationCount: 0,
+      typedDecisions: [],
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.result.cleanup = "none";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).toThrow(/did not prove bounded cleanup/);
   });
 
   test("accepts callback invariants only with exact typed outcomes and reasons", () => {

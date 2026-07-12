@@ -75,6 +75,13 @@ const REJECTION_FRAGMENTS = Object.freeze({
   ],
 });
 
+const TAMED_EVALUATOR_ACCESS = new Map([
+  ["global:eval", "global-eval"],
+  ["global:Function", "global-function"],
+  ["global:AsyncFunction", "async-function-constructor"],
+  ["global:GeneratorFunction", "generator-function-constructor"],
+]);
+
 function compareText(left, right) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
@@ -114,7 +121,13 @@ function optionControlDescriptor(live, liveByObservedKey) {
   if (!route || !commandPath || !argumentId) return null;
   const template = CLI_OPTION_TEMPLATES.get(`${commandPath}\0${argumentId}`);
   const evidenceType = metadata.evidenceType;
-  if (!template || evidenceType === "cli-default-value") return null;
+  if (!template) return null;
+  if (
+    evidenceType === "cli-default-value" &&
+    !route.metadata.valueShape?.defaultValues?.includes(metadata.value)
+  ) {
+    return null;
+  }
 
   let value = template.value;
   if (evidenceType === "cli-enum-value") {
@@ -176,6 +189,79 @@ function optionControlDescriptor(live, liveByObservedKey) {
     },
     argumentVectors,
     rejection: template.rejection,
+  };
+}
+
+function tamedEvaluatorProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "native-op:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const surfaceName = surfaceObservedKey.slice(prefix.length);
+  const accessMode = TAMED_EVALUATOR_ACCESS.get(surfaceName);
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadata = live?.metadata;
+  if (
+    !accessMode ||
+    live?.kind !== "native-op" ||
+    live.name !== surfaceName ||
+    metadata?.evidenceType !== "hermes-evaluator-reachability" ||
+    metadata?.exportName !== surfaceName.slice("global:".length) ||
+    typeof metadata.engineIdentityReviewId !== "string" ||
+    typeof metadata.lockdownTamingDigest !== "string" ||
+    metadata.tamingEvidence !== "kLockdownJS" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "closed-tamed-evaluator",
+    surfaceObservedKey,
+    globalName: metadata.exportName,
+    accessMode,
+    engineIdentityReviewId: metadata.engineIdentityReviewId,
+    lockdownTamingDigest: metadata.lockdownTamingDigest,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(metadata),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "native-op",
+      surfaceName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "tamed-evaluator",
+        globalName: metadata.exportName,
+        accessMode,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
   };
 }
 
@@ -366,7 +452,11 @@ export function authoredClosedPublicProbe(options) {
   ) {
     return null;
   }
-  return startupEnvironmentProbe(options) ?? cliControlProbe(options);
+  return (
+    startupEnvironmentProbe(options) ??
+    cliControlProbe(options) ??
+    tamedEvaluatorProbe(options)
+  );
 }
 
 export const closedBatchCommand = CLOSED_BATCH_COMMAND;

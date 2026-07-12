@@ -72,15 +72,44 @@ enum PublicInvocation {
         #[serde(flatten)]
         details: BuiltinPublicInvocation,
     },
+    #[serde(rename = "ibex/capsec-host-abi-invocation/1")]
+    HostAbi {
+        #[serde(flatten)]
+        details: HostAbiPublicInvocation,
+    },
+    #[serde(other)]
+    Other,
 }
 
 impl PublicInvocation {
     fn native(&self) -> Option<&NativePublicInvocation> {
         match self {
             Self::NativeGlobal { details } => Some(details),
-            Self::BuiltinExport { .. } => None,
+            Self::BuiltinExport { .. } | Self::HostAbi { .. } | Self::Other => None,
         }
     }
+
+    fn host_abi(&self) -> Option<&HostAbiPublicInvocation> {
+        match self {
+            Self::HostAbi { details } => Some(details),
+            Self::NativeGlobal { .. } | Self::BuiltinExport { .. } | Self::Other => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostAbiPublicInvocation {
+    kind: String,
+    function_name: String,
+    source_descriptor: serde_json::Value,
+    source_descriptor_digest: String,
+    operation: serde_json::Value,
+    expected_result: String,
+    expected_typed_stages: Vec<String>,
+    expected_typed_decision_count: usize,
+    allowed_coverage_edge_ids: Vec<String>,
+    expected_action_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1012,7 +1041,7 @@ fn native_invocation_script(
         "sqliteStatementHandle": setup_state.sqlite_statement_handle,
     });
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteOpen\"&&typeof value===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(value);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqlitePrepare\"&&value&&typeof value.handle===\"number\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(value.handle);globalThis.__exactSqliteClose(args[0]);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if((n===\"__exactSqliteAll\"||n===\"__exactSqliteGet\"||n===\"__exactSqliteRun\"||n===\"__exactSqliteValues\")&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExec\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments"),
         serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
@@ -1351,8 +1380,14 @@ fn validate_native_runtime_observation(
         assert_eq!(recipe.terminal_observed_key, probe.surface_observed_key);
         probe.surface_observed_key.clone()
     } else if typed_decisions.is_empty() {
-        assert_eq!(recipe.classification, "non-capability");
-        assert_eq!(recipe.scenario, "non-capability");
+        assert!(
+            (recipe.classification == "non-capability" && recipe.scenario == "non-capability")
+                || (recipe.classification == "effects"
+                    && recipe.action_ids.is_empty()
+                    && matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect")),
+            "{}: a zero-decision public invocation did not select a reviewed zero-effect branch",
+            recipe.fixture_id
+        );
         probe.surface_observed_key.clone()
     } else {
         assert_eq!(observed_terminals.len(), 1);
@@ -1490,6 +1525,196 @@ async fn execute_native_public_recipe(
     })
 }
 
+fn take_host_sqlite_json(pointer: *mut std::ffi::c_char) -> serde_json::Value {
+    assert!(!pointer.is_null(), "host SQLite operation returned no result");
+    let text = unsafe { std::ffi::CStr::from_ptr(pointer) }
+        .to_str()
+        .expect("host SQLite result must be UTF-8");
+    let value = capsec_semantics::strict_json::parse_strict(text)
+        .expect("host SQLite result must be strict JSON");
+    crate::host::abi::ex_host_free_string(pointer);
+    value
+}
+
+async fn execute_host_abi_public_recipe(
+    recipe: &Recipe,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("host ABI recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .host_abi()
+        .expect("host ABI executor received another invocation schema");
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "effects");
+    assert!(matches!(recipe.scenario.as_str(), "branch-selection" | "no-effect"));
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(probe.surface_observed_key, format!("host-abi:{}", invocation.function_name));
+    assert_eq!(probe.surface_observed_key, recipe.terminal_observed_key);
+    assert!(recipe.route.alternatives.iter().any(|alternative| {
+        alternative.terminal_observed_key == probe.surface_observed_key
+    }));
+    assert_eq!(invocation.kind, "host-abi-function");
+    assert_eq!(invocation.expected_result, "return");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    assert_eq!(invocation.source_descriptor["kind"], "host-abi-function");
+    assert_eq!(
+        invocation.source_descriptor["functionName"],
+        invocation.function_name
+    );
+    assert_eq!(
+        invocation.source_descriptor["sourceRefs"],
+        serde_json::json!([format!("src/host/abi.rs#{}", invocation.function_name)])
+    );
+    assert_eq!(
+        invocation.source_descriptor["sourceMetadata"]["definitions"][0]["language"],
+        "rust"
+    );
+    assert_eq!(
+        invocation.source_descriptor["selectedBranch"],
+        invocation.operation["selectedBranch"]
+    );
+    assert_eq!(invocation.operation["kind"], "sqlite-memory");
+    assert_eq!(invocation.operation["selectedBranch"]["id"], "memory");
+    assert_eq!(
+        invocation.operation["selectedBranch"]["when"][0]["equals"],
+        "memory"
+    );
+
+    let session_id = format!("public-host-abi:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let memory = std::ffi::CString::new(":memory:").unwrap();
+    let select = std::ffi::CString::new("SELECT 1 AS value").unwrap();
+    let create = std::ffi::CString::new("CREATE TABLE value(id INTEGER)").unwrap();
+    let db = crate::host::abi::ex_host_sqlite_open(memory.as_ptr(), std::ptr::null());
+    assert_ne!(db, 0, "host SQLite memory setup failed");
+    let mut statement = 0_u64;
+    let operation_result = match invocation.function_name.as_str() {
+        "ex_host_sqlite_open" => serde_json::json!({"handle": db}),
+        "ex_host_sqlite_prepare" => {
+            let value = take_host_sqlite_json(crate::host::abi::ex_host_sqlite_prepare(
+                db,
+                select.as_ptr(),
+            ));
+            statement = value["handle"]
+                .as_u64()
+                .expect("host SQLite prepare returned no handle");
+            value
+        }
+        name @ ("ex_host_sqlite_all" | "ex_host_sqlite_get" | "ex_host_sqlite_values") => {
+            let prepared = take_host_sqlite_json(crate::host::abi::ex_host_sqlite_prepare(
+                db,
+                select.as_ptr(),
+            ));
+            statement = prepared["handle"]
+                .as_u64()
+                .expect("host SQLite query setup returned no handle");
+            let pointer = match name {
+                "ex_host_sqlite_all" => {
+                    crate::host::abi::ex_host_sqlite_all(statement, std::ptr::null())
+                }
+                "ex_host_sqlite_get" => {
+                    crate::host::abi::ex_host_sqlite_get(statement, std::ptr::null())
+                }
+                "ex_host_sqlite_values" => {
+                    crate::host::abi::ex_host_sqlite_values(statement, std::ptr::null())
+                }
+                _ => unreachable!(),
+            };
+            take_host_sqlite_json(pointer)
+        }
+        "ex_host_sqlite_run" => {
+            let prepared = take_host_sqlite_json(crate::host::abi::ex_host_sqlite_prepare(
+                db,
+                create.as_ptr(),
+            ));
+            statement = prepared["handle"]
+                .as_u64()
+                .expect("host SQLite run setup returned no handle");
+            take_host_sqlite_json(crate::host::abi::ex_host_sqlite_run(
+                statement,
+                std::ptr::null(),
+            ))
+        }
+        "ex_host_sqlite_exec" => take_host_sqlite_json(crate::host::abi::ex_host_sqlite_exec(
+            db,
+            create.as_ptr(),
+            std::ptr::null(),
+        )),
+        other => panic!("unsupported conditional host ABI {other}"),
+    };
+    if statement != 0 {
+        assert_eq!(crate::host::abi::ex_host_sqlite_finalize(statement), 0);
+    }
+    assert_eq!(crate::host::abi::ex_host_sqlite_close(db), 0);
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+    assert!(operation_result.is_object());
+
+    let invocation_result = serde_json::json!({
+        "kind": "return",
+        "functionName": invocation.function_name,
+        "operation": "sqlite-memory",
+        "cleanup": "released-sqlite-memory-state",
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-host-abi-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "functionName": invocation.function_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected host ABI observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": probe.surface_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
     "cargo",
     "test",
@@ -1503,7 +1728,7 @@ const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
 ];
 
 fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
-    probe.invocation.native().is_some()
+    (probe.invocation.native().is_some() || probe.invocation.host_abi().is_some())
         && probe
             .command
             .iter()
@@ -1555,40 +1780,59 @@ async fn capsec_public_native_recipe_batch() {
             native_recipe_indexes.len(),
             recipe.fixture_id
         );
-        let invocation = recipe
+        let probe = recipe
             .public_surface_probe
             .as_ref()
-            .and_then(|probe| probe.invocation.native())
-            .expect("native recipe index must contain a native invocation");
-        let needs_listener = invocation
-            .setup
-            .iter()
-            .any(|setup| matches!(setup, NativeProbeSetup::TcpLoopbackListener));
-        let listener = needs_listener.then(|| {
-            std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-                .expect("bind bounded native public loopback listener")
-        });
-        let listener_port = listener
-            .as_ref()
-            .map(|listener| listener.local_addr().unwrap().port());
-        let (_reset, snapshot_digest) =
-            install_native_public_test_host(invocation, listener_port, recipe.scenario == "deny");
-        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
-            .expect("create isolated native public recipe engine");
-        engine
-            .load_runtime()
-            .await
-            .expect("load runtime in isolated native public recipe engine");
-        executions.push(
-            execute_native_public_recipe(
-                &engine,
-                recipe,
-                &coverage_terminals,
-                listener,
-                &identity_before.binary_digest,
-            )
-            .await,
-        );
+            .expect("native recipe index must contain a public invocation");
+        if let Some(invocation) = probe.invocation.native() {
+            let needs_listener = invocation
+                .setup
+                .iter()
+                .any(|setup| matches!(setup, NativeProbeSetup::TcpLoopbackListener));
+            let listener = needs_listener.then(|| {
+                std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                    .expect("bind bounded native public loopback listener")
+            });
+            let listener_port = listener
+                .as_ref()
+                .map(|listener| listener.local_addr().unwrap().port());
+            let (_reset, snapshot_digest) = install_native_public_test_host(
+                invocation,
+                listener_port,
+                recipe.scenario == "deny",
+            );
+            let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+                .expect("create isolated native public recipe engine");
+            engine
+                .load_runtime()
+                .await
+                .expect("load runtime in isolated native public recipe engine");
+            executions.push(
+                execute_native_public_recipe(
+                    &engine,
+                    recipe,
+                    &coverage_terminals,
+                    listener,
+                    &identity_before.binary_digest,
+                )
+                .await,
+            );
+        } else {
+            assert!(probe.invocation.host_abi().is_some());
+            let (host, snapshot_digest) =
+                build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+            assert_ne!(crate::host::abi::install_host(host), 0);
+            let _reset = HostResetGuard;
+            let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+                .expect("create isolated host-ABI public recipe engine");
+            engine
+                .load_runtime()
+                .await
+                .expect("load runtime before host-ABI public recipe");
+            executions.push(
+                execute_host_abi_public_recipe(recipe, &identity_before.binary_digest).await,
+            );
+        }
         eprintln!("CapSec native public fixture passed: {}", recipe.fixture_id);
     }
 

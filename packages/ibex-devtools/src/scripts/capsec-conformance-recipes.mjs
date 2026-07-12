@@ -627,6 +627,20 @@ const nativeNoEffectTemplate = (
     requiredSourceArity,
     setup,
   });
+const nativeConditionalNoEffectTemplate = (
+  requiredSourceArity,
+  argumentsList = [],
+  setup = [],
+) =>
+  Object.freeze({
+    actionIds: [],
+    arguments: argumentsList,
+    expectedDecisionCounts: { "branch-selection": 0, "no-effect": 0 },
+    expectedResults: { "branch-selection": "return", "no-effect": "return" },
+    expectedStages: { "branch-selection": [], "no-effect": [] },
+    requiredSourceArity,
+    setup,
+  });
 const nativeSystemInfoTemplate = (name) =>
   Object.freeze({
     actionIds: ["sys:read"],
@@ -1079,6 +1093,47 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
 ]);
 
+const NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES = new Map([
+  [
+    "__exactSqliteOpen",
+    nativeConditionalNoEffectTemplate(2, [
+      literalArgument(":memory:"),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactSqlitePrepare",
+    nativeConditionalNoEffectTemplate(
+      2,
+      [
+        harnessSqliteDatabaseHandleArgument(),
+        literalArgument("SELECT 1 AS value"),
+      ],
+      sqliteMemorySetup(),
+    ),
+  ],
+  ...["All", "Get", "Run", "Values"].map((suffix) => [
+    `__exactSqlite${suffix}`,
+    nativeConditionalNoEffectTemplate(
+      2,
+      [harnessSqliteStatementHandleArgument(), literalArgument(null)],
+      sqliteMemorySetup(true),
+    ),
+  ]),
+  [
+    "__exactSqliteExec",
+    nativeConditionalNoEffectTemplate(
+      3,
+      [
+        harnessSqliteDatabaseHandleArgument(),
+        literalArgument("SELECT 1"),
+        literalArgument(null),
+      ],
+      sqliteMemorySetup(),
+    ),
+  ],
+]);
+
 const GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS = new Set([
   "dynamic-table",
   "inherited",
@@ -1331,7 +1386,11 @@ function nativePublicProbeForPlan({
           requiredSourceArity: invocation.arity,
           setup: [],
         }
-      : NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName);
+      : (NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName) ??
+        (plan.actionIds.length === 0 &&
+        new Set(["branch-selection", "no-effect"]).has(scenario)
+          ? NATIVE_PUBLIC_CONDITIONAL_PROBE_TEMPLATES.get(invocation.globalName)
+          : null));
   if (!template) {
     return {
       probe: null,
@@ -1418,6 +1477,120 @@ function nativePublicProbeForPlan({
   };
 }
 
+const CONDITIONAL_SQLITE_HOST_ABIS = new Set([
+  "ex_host_sqlite_all",
+  "ex_host_sqlite_exec",
+  "ex_host_sqlite_get",
+  "ex_host_sqlite_open",
+  "ex_host_sqlite_prepare",
+  "ex_host_sqlite_run",
+  "ex_host_sqlite_values",
+]);
+
+function conditionalHostAbiProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+  coverageByEdge,
+}) {
+  if (
+    plan.classification !== "effects" ||
+    !new Set(["branch-selection", "no-effect"]).has(scenario) ||
+    plan.actionIds.length !== 0 ||
+    plan.edgeIds.length !== 1 ||
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const prefix = "host-abi:";
+  if (!surfaceObservedKey.startsWith(prefix)) return null;
+  const functionName = surfaceObservedKey.slice(prefix.length);
+  if (!CONDITIONAL_SQLITE_HOST_ABIS.has(functionName)) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByEdge.get(plan.edgeIds[0]);
+  const logicalBranch = edge?.logicalBranches?.find((branch) =>
+    plan.fixtureId.includes(`.logical.${branch.id}.`),
+  );
+  const definitions = live?.metadata?.definitions;
+  if (
+    live?.kind !== "host-abi" ||
+    live.name !== functionName ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length !== 1 ||
+    !Array.isArray(definitions) ||
+    definitions.length !== 1 ||
+    definitions[0].language !== "rust" ||
+    definitions[0].targetVariant !== "default" ||
+    definitions[0].sourceRef !== live.sourceRefs[0] ||
+    edge?.surface?.kind !== "host-abi" ||
+    edge.surface.name !== functionName ||
+    logicalBranch?.id !== "memory" ||
+    logicalBranch.effects.length !== 0 ||
+    canonicalJson(logicalBranch.when) !==
+      canonicalJson([
+        {
+          fact:
+            functionName === "ex_host_sqlite_open"
+              ? "sqlite.open.mode"
+              : new Set(["ex_host_sqlite_exec", "ex_host_sqlite_run"]).has(
+                    functionName,
+                  )
+                ? "sqlite.statement.effect"
+                : "sqlite.storage.kind",
+          equals: "memory",
+        },
+      ]) ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const sourceDescriptor = {
+    kind: "host-abi-function",
+    functionName,
+    sourceRefs: clone(live.sourceRefs),
+    sourceMetadata: clone(live.metadata),
+    selectedBranch: {
+      id: logicalBranch.id,
+      when: clone(logicalBranch.when),
+    },
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [
+      "cargo",
+      "test",
+      "--bin",
+      "ibex",
+      "--features",
+      "capsec-conformance-observer",
+      "capsec_public_native_recipe_batch",
+      "--",
+      "--test-threads=1",
+    ],
+    invocation: {
+      invocationSchema: "ibex/capsec-host-abi-invocation/1",
+      kind: "host-abi-function",
+      functionName,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "sqlite-memory",
+        selectedBranch: clone(sourceDescriptor.selectedBranch),
+      },
+      expectedResult: "return",
+      expectedTypedStages: [],
+      expectedTypedDecisionCount: 0,
+      allowedCoverageEdgeIds: clone(plan.edgeIds),
+      expectedActionIds: [],
+    },
+  };
+}
+
 function residualReasons({
   plan,
   scenario,
@@ -1466,7 +1639,18 @@ function residualReasons({
       reasons.push(`callback-invariant-${scenario}-probe-not-authored`);
     }
   } else if (plan.classification === "effects" && !adapterProbe) {
-    if (plan.actionIds.length === 0) {
+    // A conditional branch is selected by the real public invocation, not by
+    // the diagnostic typed evaluator. When that invocation is source-bound
+    // and observes the branch's exact decisions (or deliberately observes no
+    // decisions for a zero-effect branch), it is the stronger witness. The
+    // malformed-branch-facts obligation remains adapter-specific because a
+    // valid public API cannot inject malformed internal facts.
+    if (
+      (scenario === "branch-selection" || scenario === "no-effect") &&
+      publicSurfaceProbe
+    ) {
+      // Resolved by loaded-engine public evidence.
+    } else if (plan.actionIds.length === 0) {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
     } else if (
       scenario === "branch-selection" ||
@@ -1622,6 +1806,13 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       adapterProbe,
     });
+    const conditionalHostAbiProbe = conditionalHostAbiProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+      coverageByEdge,
+    });
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]
       : [
@@ -1629,6 +1820,7 @@ export function buildConformanceRecipeCatalog({
           closedPublicSurfaceProbe,
           effectBuiltinPublicSurfaceProbe,
           nonCapabilityBuiltinPublicSurfaceProbe,
+          conditionalHostAbiProbe,
           nativePublicSurface.probe,
         ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {

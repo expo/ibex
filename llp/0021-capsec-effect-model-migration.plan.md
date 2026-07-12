@@ -1167,6 +1167,25 @@ weakening primordial lockdown. Source inventory also preserves own prototype
 overrides when an inherited member of the same name was propagated into a
 concrete constructor.
 
+Closed and conditional evidence remains branch-executed rather than
+classification-derived. A closed CLI facet is executable only when the harness
+first reconciles its source-discovered spelling, action, arity, defaults, and
+parser against the live Clap command and then observes the production entry
+reject that selected control before artifact or project execution. The four
+Hermes evaluator identities additionally bind the reviewed engine identity and
+lockdown-taming digest, resolve their exact intrinsic access path, and must
+actually throw the native lockdown error when invoked on the loaded engine.
+
+A zero-effect conditional branch may pass without a typed decision only when a
+source-bound public invocation itself selects the registry's exact branch facts,
+returns normally, emits zero legacy and typed observations, and releases every
+harness-owned resource. The first such family covers the seven native JSI and
+seven Rust host-ABI SQLite operations on exact in-memory handles; each proves
+both branch selection and the no-effect result while the file-backed branches
+remain independent obligations. A valid public API cannot inject malformed
+internal branch facts, so malformed-branch-fact fixtures remain residual rather
+than reusing a generic malformed adapter result or a hand-labelled terminal.
+
 The macOS/aarch64
 candidate has exact loaded-Hermes adapter-probe evidence, but probe coverage is
 deliberately non-promotable and is not represented as fixture pass claims.

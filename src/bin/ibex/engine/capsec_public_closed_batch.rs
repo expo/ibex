@@ -67,6 +67,14 @@ struct ClosedSourceDescriptor {
     source_metadata: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_descriptor: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    global_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    access_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    engine_identity_review_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lockdown_taming_digest: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -93,6 +101,12 @@ enum ClosedOperation {
         #[serde(rename = "evaluationMarker")]
         evaluation_marker: String,
     },
+    TamedEvaluator {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "accessMode")]
+        access_mode: String,
+    },
 }
 
 impl ClosedOperation {
@@ -100,13 +114,14 @@ impl ClosedOperation {
         match self {
             Self::StartupEnvironment { .. } => "startup-environment",
             Self::CliControl { .. } => "cli-control",
+            Self::TamedEvaluator { .. } => "tamed-evaluator",
         }
     }
 
     fn environment_name(&self) -> Option<&str> {
         match self {
             Self::StartupEnvironment { environment_name } => Some(environment_name),
-            Self::CliControl { .. } => None,
+            Self::CliControl { .. } | Self::TamedEvaluator { .. } => None,
         }
     }
 }
@@ -414,6 +429,182 @@ async fn execute_closed_startup_environment(
     })
 }
 
+#[cfg(test)]
+async fn execute_closed_tamed_evaluator(
+    recipe: &Recipe,
+    probe: &ClosedSurfaceProbe,
+    coverage: &BTreeMap<String, (String, String)>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let invocation = &probe.invocation;
+    let ClosedOperation::TamedEvaluator {
+        global_name,
+        access_mode,
+    } = &invocation.operation
+    else {
+        panic!("tamed evaluator probe has the wrong operation")
+    };
+    assert_eq!(recipe.status, "fully-executable");
+    assert_eq!(recipe.classification, "closed");
+    assert_eq!(recipe.scenario, "closed");
+    assert!(recipe.action_ids.is_empty());
+    assert_eq!(recipe.edge_ids.len(), 1);
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert!(probe.command.iter().map(String::as_str).eq(CLOSED_BATCH_COMMAND));
+    assert_eq!(invocation.invocation_schema, "ibex/capsec-closed-surface-invocation/1");
+    assert_eq!(invocation.kind, "closed-surface");
+    assert_eq!(invocation.surface_kind, "native-op");
+    assert_eq!(invocation.surface_name, format!("global:{global_name}"));
+    assert_eq!(invocation.expected_result, "closed");
+    assert_eq!(invocation.expected_typed_decision_count, 0);
+    assert!(invocation.expected_typed_stages.is_empty());
+    assert!(invocation.allowed_coverage_edge_ids.is_empty());
+    assert!(invocation.expected_action_ids.is_empty());
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor)
+    );
+    let descriptor = &invocation.source_descriptor;
+    assert_eq!(descriptor.kind, "closed-tamed-evaluator");
+    assert_eq!(descriptor.global_name.as_deref(), Some(global_name.as_str()));
+    assert_eq!(descriptor.access_mode.as_deref(), Some(access_mode.as_str()));
+    assert_eq!(
+        descriptor.surface_observed_key.as_deref(),
+        Some(probe.surface_observed_key.as_str())
+    );
+    assert!(descriptor.environment_name.is_none());
+    assert!(descriptor.control_descriptor.is_none());
+    assert!(!descriptor.source_refs.is_empty());
+    assert!(descriptor
+        .engine_identity_review_id
+        .as_deref()
+        .is_some_and(|value| value.starts_with("hermes-evaluators.")));
+    assert!(descriptor
+        .lockdown_taming_digest
+        .as_deref()
+        .is_some_and(|value| value.starts_with("sha256-") && value.len() == 71));
+    assert_eq!(descriptor.source_metadata["evidenceType"], "hermes-evaluator-reachability");
+    assert_eq!(descriptor.source_metadata["exportName"], global_name.as_str());
+    assert_eq!(descriptor.source_metadata["tamingEvidence"], "kLockdownJS");
+    assert_eq!(
+        descriptor.source_metadata["engineIdentityReviewId"],
+        descriptor.engine_identity_review_id.as_deref().unwrap()
+    );
+    assert_eq!(
+        descriptor.source_metadata["lockdownTamingDigest"],
+        descriptor.lockdown_taming_digest.as_deref().unwrap()
+    );
+    assert!(matches!(
+        (global_name.as_str(), access_mode.as_str()),
+        ("eval", "global-eval")
+            | ("Function", "global-function")
+            | ("AsyncFunction", "async-function-constructor")
+            | ("GeneratorFunction", "generator-function-constructor")
+    ));
+    let (surface_kind, surface_name) = coverage
+        .get(&recipe.edge_ids[0])
+        .expect("closed evaluator recipe names an unknown coverage edge");
+    assert_eq!(surface_kind, &invocation.surface_kind);
+    assert_eq!(surface_name, &invocation.surface_name);
+    let terminal_observed_key = format!("{surface_kind}:{surface_name}");
+    assert_eq!(terminal_observed_key, recipe.terminal_observed_key);
+    assert_eq!(terminal_observed_key, probe.surface_observed_key);
+
+    let expression = match access_mode.as_str() {
+        "global-eval" => "globalThis.eval",
+        "global-function" => "globalThis.Function",
+        "async-function-constructor" => "Object.getPrototypeOf(async function(){}).constructor",
+        "generator-function-constructor" => "Object.getPrototypeOf(function*(){}).constructor",
+        other => panic!("unsupported tamed evaluator access mode {other}"),
+    };
+    let (host, snapshot_digest) =
+        build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |_| {});
+    assert_ne!(crate::host::abi::install_host(host), 0);
+    let _reset = HostResetGuard;
+    let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+        .expect("create exact tamed-evaluator engine");
+    engine
+        .load_runtime()
+        .await
+        .expect("load exact tamed-evaluator runtime");
+    let session_id = format!("closed-evaluator:{}", recipe.plan_digest);
+    assert!(ibex_runtime::host::abi::begin_installed_conformance_observation(
+        &session_id
+    ));
+    let script = format!(
+        "JSON.stringify((function(){{var evaluator={expression};try{{Reflect.apply(evaluator,globalThis,['return 7']);return {{kind:'return',tamed:evaluator&&evaluator.__ibexTamed===true}};}}catch(error){{return {{kind:'throw',tamed:evaluator&&evaluator.__ibexTamed===true,errorName:String(error&&error.name||'Error'),errorMessage:String(error&&error.message||error)}};}}}})())"
+    );
+    let encoded = engine
+        .eval_immediate(&script)
+        .await
+        .expect("execute tamed evaluator public probe")
+        .expect("tamed evaluator public probe returned no result");
+    let result: serde_json::Value =
+        serde_json::from_str(&encoded).expect("tamed evaluator result must be JSON");
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    assert!(legacy.is_empty());
+    assert!(typed.is_empty());
+    assert_eq!(result["kind"], "throw");
+    assert_eq!(result["tamed"], true);
+    assert_eq!(result["errorName"], "TypeError");
+    assert!(result["errorMessage"]
+        .as_str()
+        .is_some_and(|message| message.contains("disabled under lockdown")));
+
+    let result = serde_json::json!({
+        "kind": "closed",
+        "surfaceKind": surface_kind,
+        "surfaceName": surface_name,
+        "mechanism": invocation.operation.kind(),
+        "errorName": "ClosedSurface",
+        "errorMessage": result["errorMessage"],
+        "engineExecuted": true,
+        "projectCodeExecuted": false,
+    });
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": invocation.invocation_schema,
+            "kind": invocation.kind,
+            "surfaceObservedKey": terminal_observed_key,
+            "surfaceKind": surface_kind,
+            "surfaceName": surface_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": [],
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected closed evaluator observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let evidence_digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), evidence_digest.into());
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-closed-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
 fn clap_command_at_path<'a>(root: &'a clap::Command, path: &str) -> &'a clap::Command {
     let mut components = path.split(' ');
     assert_eq!(components.next(), Some(root.get_name()));
@@ -592,6 +783,10 @@ fn assert_cli_source_facet(
             assert_eq!(source_metadata["maxValues"], arity.max_values());
         }
         "cli-default-missing-value" => assert!(value_shape["defaultMissingValues"]
+            .as_array()
+            .unwrap()
+            .contains(&source_metadata["value"])),
+        "cli-default-value" => assert!(value_shape["defaultValues"]
             .as_array()
             .unwrap()
             .contains(&source_metadata["value"])),
@@ -993,14 +1188,41 @@ async fn capsec_public_closed_recipe_batch() {
             )
         })
         .count();
-    let cli_count = recipe_indexes.len() - startup_count;
+    let cli_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::CliControl { .. }
+            )
+        })
+        .count();
+    let evaluator_count = recipe_indexes
+        .iter()
+        .filter(|index| {
+            matches!(
+                &closed_surface_probe(&catalog.recipes[**index])
+                    .unwrap()
+                    .invocation
+                    .operation,
+                ClosedOperation::TamedEvaluator { .. }
+            )
+        })
+        .count();
     assert_eq!(
         startup_count,
         ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES.len(),
         "expected every generated closed startup environment control"
     );
     assert_eq!(startup_count, 19);
-    assert_eq!(cli_count, 122, "expected every rejecting closed CLI facet");
+    assert_eq!(cli_count, 134, "expected every rejecting closed CLI facet");
+    assert_eq!(
+        evaluator_count, 4,
+        "expected every reviewed lockdown-tamed evaluator"
+    );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();
     let identity_before = HermesEngine::loaded_engine_identity()
@@ -1028,6 +1250,15 @@ async fn capsec_public_closed_recipe_batch() {
                 &identity_before.binary_digest,
             )
             .await,
+            ClosedOperation::TamedEvaluator { .. } => {
+                execute_closed_tamed_evaluator(
+                    recipe,
+                    &probe,
+                    &coverage,
+                    &identity_before.binary_digest,
+                )
+                .await
+            }
         });
     }
     executions.sort_by(|left, right| {

@@ -442,6 +442,28 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else if (
+    invocation?.invocationSchema === "ibex/capsec-host-abi-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "functionName"],
+      `${recipe.fixtureId}: host ABI runtime invocation`,
+    );
+    if (
+      invocation.kind !== "host-abi-function" ||
+      invocation.functionName !== authored.functionName ||
+      authored.operation?.kind !== "sqlite-memory" ||
+      authored.operation?.selectedBranch?.id !== "memory" ||
+      authored.sourceDescriptor?.kind !== "host-abi-function" ||
+      authored.sourceDescriptor?.functionName !== authored.functionName ||
+      canonicalJson(authored.sourceDescriptor?.selectedBranch) !==
+        canonicalJson(authored.operation?.selectedBranch)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: host ABI runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
     ["ibex/capsec-builtin-export-invocation/1"].includes(
       invocation?.invocationSchema,
     )
@@ -588,6 +610,24 @@ function validateRuntimeInvocation(observation, recipe) {
   if (authored.expectedResult === "return") {
     if (invocation.result.kind !== "return") {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
+    }
+    if (
+      authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"
+    ) {
+      exactKeys(
+        invocation.result,
+        ["kind", "functionName", "operation", "cleanup"],
+        `${recipe.fixtureId}: host ABI runtime result`,
+      );
+      if (
+        invocation.result.functionName !== authored.functionName ||
+        invocation.result.operation !== "sqlite-memory" ||
+        invocation.result.cleanup !== "released-sqlite-memory-state"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: host ABI runtime result did not prove bounded cleanup`,
+        );
+      }
     }
   } else if (authored.expectedResult === "permission-denied") {
     if (
@@ -736,6 +776,21 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed CLI control reached execution or the wrong rejection`,
       );
     }
+    if (
+      authored.operation?.kind === "tamed-evaluator" &&
+      (invocation.result.engineExecuted !== true ||
+        !invocation.result.errorMessage.includes("disabled under lockdown") ||
+        !new Set([
+          "global-eval",
+          "global-function",
+          "async-function-constructor",
+          "generator-function-constructor",
+        ]).has(authored.operation.accessMode))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: evaluator was not closed by the reviewed loaded-engine taming path`,
+      );
+    }
   } else if (authored.expectedResult === "invariant-passed") {
     if (!callbackInvariant) {
       throw new Error(`${recipe.fixtureId}: non-callback probe claimed an invariant result`);
@@ -809,11 +864,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
   const callbackInvariant =
     authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
   if (callbackInvariant) {
-    // Callback/control surfaces are deliberately classified as
-    // non-capabilities. Their runtime invariant may nevertheless exercise one
-    // independently reviewed effect edge (for example, an environment read
-    // before and after revocation). Bind that auxiliary action to the checked
-    // coverage edge instead of pretending it belongs to the callback surface.
+    // Callback/control surfaces are non-capabilities, but their invariant can
+    // exercise one separately reviewed effect edge. Bind that auxiliary
+    // decision to checked coverage instead of attributing it to the carrier.
     const auxiliaryEdgeId =
       authored.sourceDescriptor?.auxiliaryDecisionEdgeId ?? null;
     const expectedAuxiliaryEdgeIds = auxiliaryEdgeId ? [auxiliaryEdgeId] : [];
@@ -825,7 +878,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       : [];
     const auxiliaryStages = auxiliaryEdge
       ? new Set(
-          (auxiliaryEdge.effects ?? []).flatMap((effect) => effect.stages ?? []),
+          (auxiliaryEdge.effects ?? []).flatMap(
+            (effect) => effect.stages ?? [],
+          ),
         )
       : new Set();
     if (
@@ -993,6 +1048,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       (recipe.classification === "non-capability" &&
         recipe.scenario === "non-capability") ||
       (recipe.classification === "closed" && recipe.scenario === "closed") ||
+      (recipe.classification === "effects" &&
+        recipe.actionIds.length === 0 &&
+        ["branch-selection", "no-effect"].includes(recipe.scenario)) ||
       recipe.scenario === "absent";
     if (
       !validZeroDecisionScenario ||

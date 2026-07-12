@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(193);
+    expect(nativePublicFixtures).toHaveLength(207);
     expect(
       nativePublicFixtures
         .filter(
@@ -754,7 +754,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "cli-control",
     );
-    expect(rows).toHaveLength(122);
+    expect(rows).toHaveLength(134);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
     );
@@ -808,13 +808,54 @@ describe("exact-target CapSec executable recipes", () => {
       ],
     });
     expect(
+      rows.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .evidenceType === "cli-default-value",
+      ),
+    ).toHaveLength(12);
+    expect(
       recipes.recipes.filter(
         (recipe) =>
           recipe.scenario === "closed" &&
           recipe.terminalObservedKey.startsWith("cli:") &&
           recipe.status !== "fully-executable",
       ),
-    ).toHaveLength(21);
+    ).toHaveLength(9);
+  });
+
+  test("binds reviewed evaluator identities to real lockdown taming", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "tamed-evaluator",
+    );
+    expect(rows).toHaveLength(4);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.operation.globalName,
+        recipe.publicSurfaceProbe.invocation.operation.accessMode,
+      ]),
+    ).toEqual([
+      ["AsyncFunction", "async-function-constructor"],
+      ["eval", "global-eval"],
+      ["Function", "global-function"],
+      ["GeneratorFunction", "generator-function-constructor"],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "closed-tamed-evaluator" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
+            .tamingEvidence === "kLockdownJS" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.lockdownTamingDigest.startsWith(
+            "sha256-",
+          ),
+      ),
+    ).toBe(true);
   });
 
   test("binds readable globals to exact source-derived paths and shapes", () => {
@@ -1075,6 +1116,89 @@ describe("exact-target CapSec executable recipes", () => {
         });
       }
     }
+  });
+
+  test("executes exact in-memory SQLite conditional branches without authority", () => {
+    const globalNames = [
+      "__exactSqliteAll",
+      "__exactSqliteExec",
+      "__exactSqliteGet",
+      "__exactSqliteOpen",
+      "__exactSqlitePrepare",
+      "__exactSqliteRun",
+      "__exactSqliteValues",
+    ];
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        globalNames.includes(
+          recipe.publicSurfaceProbe?.invocation?.globalName,
+        ) &&
+        ["branch-selection", "no-effect"].includes(recipe.scenario) &&
+        recipe.fixtureId.includes(".logical.memory."),
+    );
+    expect(rows).toHaveLength(14);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.globalName,
+        recipe.scenario,
+      ]),
+    ).toEqual(
+      globalNames.flatMap((globalName) => [
+        [globalName, "branch-selection"],
+        [globalName, "no-effect"],
+      ]),
+    );
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
+      ),
+    ).toBe(true);
+  });
+
+  test("executes source-defined SQLite host ABIs on the exact memory branch", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-host-abi-invocation/1",
+    );
+    expect(rows).toHaveLength(14);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.classification === "effects" &&
+          ["branch-selection", "no-effect"].includes(recipe.scenario) &&
+          recipe.fixtureId.includes(".logical.memory.") &&
+          recipe.actionIds.length === 0 &&
+          recipe.adapterProbe === null &&
+          recipe.publicSurfaceProbe.surfaceObservedKey ===
+            `host-abi:${recipe.publicSurfaceProbe.invocation.functionName}` &&
+          recipe.publicSurfaceProbe.invocation.operation.kind ===
+            "sqlite-memory" &&
+          recipe.publicSurfaceProbe.invocation.operation.selectedBranch.id ===
+            "memory" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "host-abi-function" &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs[0] ===
+            `src/host/abi.rs#${recipe.publicSurfaceProbe.invocation.functionName}` &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages.length ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.expectedActionIds.length === 0,
+      ),
+    ).toBe(true);
   });
 
   test("binds OS-info calls to exact typed selectors and stages", () => {
