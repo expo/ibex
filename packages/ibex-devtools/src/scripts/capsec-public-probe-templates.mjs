@@ -52,6 +52,12 @@ const EFFECT_SCENARIOS = new Set([
   "wrong-principal",
 ]);
 
+const FS_LIST_EXPORTS = new Set(["lstatSync", "statSync"]);
+const FS_FIXTURE_PATH = Object.freeze({
+  root: "project",
+  components: [{ encoding: "utf8", value: "capsec-stat-fixture.txt" }],
+});
+
 const BUILTIN_BATCH_COMMAND = Object.freeze([
   "cargo",
   "test",
@@ -69,15 +75,15 @@ function observedKeyForEdge(edge) {
   return `${edge.surface.kind}:${edge.surface.name}`;
 }
 
-function sourceDescriptor(surface, exportName) {
+function sourceDescriptor(surface, sourceKey, exportName, moduleSpecifier) {
   const metadata = surface?.metadata;
   if (
-    surface?.observedKey !== `builtin:export:node_os:${exportName}` ||
-    metadata?.sourceKey !== "node_os" ||
+    surface?.observedKey !== `builtin:export:${sourceKey}:${exportName}` ||
+    metadata?.sourceKey !== sourceKey ||
     metadata?.exportName !== exportName ||
     metadata?.surfaceType !== "export" ||
     !Array.isArray(metadata.moduleSpecifiers) ||
-    !metadata.moduleSpecifiers.includes("node:os") ||
+    !metadata.moduleSpecifiers.includes(moduleSpecifier) ||
     !Array.isArray(surface.sourceRefs) ||
     surface.sourceRefs.length !== 1
   ) {
@@ -92,6 +98,19 @@ function sourceDescriptor(surface, exportName) {
   };
 }
 
+function allowedCoverageEdgeIdsForRoute(route, coverageByObservedKey) {
+  const edgeIds = [];
+  for (const alternative of route.alternatives) {
+    const edge = coverageByObservedKey.get(alternative.terminalObservedKey);
+    if (!edge || observedKeyForEdge(edge) !== alternative.terminalObservedKey) {
+      return null;
+    }
+    edgeIds.push(edge.id);
+  }
+  edgeIds.sort();
+  return edgeIds;
+}
+
 export function authoredBuiltinPublicProbe({
   plan,
   scenario,
@@ -102,40 +121,80 @@ export function authoredBuiltinPublicProbe({
   if (
     plan.classification !== "effects" ||
     !EFFECT_SCENARIOS.has(scenario) ||
-    plan.actionIds.length !== 1 ||
-    plan.actionIds[0] !== "sys:read" ||
     route.surfaceObservedKeys.length !== 1
   ) {
     return null;
   }
   const surfaceObservedKey = route.surfaceObservedKeys[0];
-  const prefix = "builtin:export:node_os:";
-  if (!surfaceObservedKey.startsWith(prefix)) return null;
-  const exportName = surfaceObservedKey.slice(prefix.length);
-  const systemInfoName = OS_SYSTEM_INFO_EXPORTS.get(exportName);
-  if (!systemInfoName) return null;
-  const descriptor = sourceDescriptor(
-    liveByObservedKey.get(surfaceObservedKey),
-    exportName,
+  const allowedCoverageEdgeIds = allowedCoverageEdgeIdsForRoute(
+    route,
+    coverageByObservedKey,
   );
-  if (!descriptor) return null;
+  if (!allowedCoverageEdgeIds) return null;
+  const publicDenial = scenario === "deny";
 
-  const allowedCoverageEdgeIds = [];
-  for (const alternative of route.alternatives) {
-    const edge = coverageByObservedKey.get(alternative.terminalObservedKey);
-    if (!edge || observedKeyForEdge(edge) !== alternative.terminalObservedKey) {
+  const osPrefix = "builtin:export:node_os:";
+  if (surfaceObservedKey.startsWith(osPrefix)) {
+    if (plan.actionIds.length !== 1 || plan.actionIds[0] !== "sys:read") {
       return null;
     }
-    allowedCoverageEdgeIds.push(edge.id);
-  }
-  allowedCoverageEdgeIds.sort();
+    const exportName = surfaceObservedKey.slice(osPrefix.length);
+    const systemInfoName = OS_SYSTEM_INFO_EXPORTS.get(exportName);
+    if (!systemInfoName) return null;
+    const descriptor = sourceDescriptor(
+      liveByObservedKey.get(surfaceObservedKey),
+      "node_os",
+      exportName,
+      "node:os",
+    );
+    if (!descriptor) return null;
 
-  // Malformed and attribution behavior is exercised by the fixture's typed
-  // adapter probe. The public half of the same fixture independently proves
-  // that the exact source export reaches a real typed terminal on the bound
-  // engine. Only the principal-denial scenario changes the public host policy;
-  // every other scenario receives the exact floor needed for that export.
-  const publicDenial = scenario === "deny";
+    // Malformed and attribution behavior is exercised by the fixture's typed
+    // adapter probe. The public half independently proves that the exact source
+    // export reaches a real terminal on the bound engine.
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-export-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:os",
+        exportName,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [],
+        setup: { kind: "none" },
+        requiredAuthority: [
+          {
+            cap: "sys:read",
+            resource: { kind: "system-info", name: systemInfoName },
+          },
+        ],
+        expectedResult: publicDenial ? "permission-denied" : "return",
+        expectedTypedDecisionCount: publicDenial ? 1 : 2,
+        expectedTypedStages:
+          publicDenial ? ["requested"] : ["requested", "commit"],
+        allowedCoverageEdgeIds,
+        expectedActionIds: ["sys:read"],
+      },
+    };
+  }
+
+  const fsPrefix = "builtin:export:node_fs:";
+  if (!surfaceObservedKey.startsWith(fsPrefix)) return null;
+  if (plan.actionIds.length !== 1 || plan.actionIds[0] !== "fs:list") {
+    return null;
+  }
+  const exportName = surfaceObservedKey.slice(fsPrefix.length);
+  if (!FS_LIST_EXPORTS.has(exportName)) return null;
+  const descriptor = sourceDescriptor(
+    liveByObservedKey.get(surfaceObservedKey),
+    "node_fs",
+    exportName,
+    "node:fs",
+  );
+  if (!descriptor) return null;
 
   return {
     kind: "public-surface-invocation",
@@ -144,24 +203,30 @@ export function authoredBuiltinPublicProbe({
     invocation: {
       invocationSchema: "ibex/capsec-builtin-export-invocation/1",
       kind: "builtin-export-call",
-      moduleSpecifier: "node:os",
+      moduleSpecifier: "node:fs",
       exportName,
       sourceDescriptor: descriptor,
       sourceDescriptorDigest: taggedDigest(descriptor),
-      arguments: [],
-      setup: { kind: "none" },
+      arguments: [
+        { kind: "filesystem-fixture-path", logicalPath: FS_FIXTURE_PATH },
+      ],
+      setup: {
+        kind: "filesystem-file",
+        logicalPath: FS_FIXTURE_PATH,
+        contents: "ibex-capsec-stat-fixture\n",
+      },
       requiredAuthority: [
         {
-          cap: "sys:read",
-          resource: { kind: "system-info", name: systemInfoName },
+          cap: "fs:list",
+          resource: { kind: "path-exact", path: FS_FIXTURE_PATH },
         },
       ],
       expectedResult: publicDenial ? "permission-denied" : "return",
-      expectedTypedDecisionCount: publicDenial ? 1 : 2,
+      expectedTypedDecisionCount: publicDenial ? 1 : 3,
       expectedTypedStages:
-        publicDenial ? ["requested"] : ["requested", "commit"],
+        publicDenial ? ["requested"] : ["requested", "discovery", "repeat"],
       allowedCoverageEdgeIds,
-      expectedActionIds: ["sys:read"],
+      expectedActionIds: ["fs:list"],
     },
   };
 }

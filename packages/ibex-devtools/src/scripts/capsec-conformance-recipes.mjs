@@ -1320,6 +1320,16 @@ function residualReasons({
   const callbackInvariantProbe =
     publicSurfaceProbe?.invocation?.invocationSchema ===
     "ibex/capsec-callback-invariant-invocation/1";
+  const effectBuiltinProbe =
+    plan.classification === "effects" &&
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+      "ibex/capsec-builtin-export-invocation/1" &&
+    Number.isSafeInteger(
+      publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+    ) &&
+    publicSurfaceProbe.invocation.expectedTypedDecisionCount > 0 &&
+    Array.isArray(publicSurfaceProbe.invocation.allowedCoverageEdgeIds) &&
+    publicSurfaceProbe.invocation.allowedCoverageEdgeIds.length > 0;
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -1370,7 +1380,14 @@ function residualReasons({
   if (route.alternatives.length > 1 && !publicSurfaceProbe) {
     reasons.push("argument-selected-terminal-alternatives-not-authored");
   }
-  if (route.ambiguousCallees.length > 0 && !callbackInvariantProbe) {
+  // An exact effect-builtin probe resolves its authored setup/arguments at
+  // runtime and must observe a typed gate from the source-derived terminal
+  // allow-list. Static ambiguity remains a residual without that witness.
+  if (
+    route.ambiguousCallees.length > 0 &&
+    !callbackInvariantProbe &&
+    !effectBuiltinProbe
+  ) {
     reasons.push("ambiguous-static-enforcement-route");
   }
   return canonicalSet(reasons);

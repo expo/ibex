@@ -190,13 +190,93 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .collect()
 }
 
-fn invocation_script(invocation: &BuiltinInvocation) -> String {
+fn invocation_script(
+    invocation: &BuiltinInvocation,
+    arguments: &[serde_json::Value],
+) -> String {
     format!(
         "JSON.stringify((function(){{var m={};var e={};try{{var api=require(m);var f=api[e];if(typeof f!==\"function\")return {{kind:\"missing\",moduleSpecifier:m,exportName:e}};var value=Reflect.apply(f,api,{});return {{kind:\"return\",moduleSpecifier:m,exportName:e,valueType:value===null?\"null\":typeof value}};}}catch(error){{return {{kind:\"throw\",moduleSpecifier:m,exportName:e,errorName:String(error&&error.name||\"Error\"),errorMessage:String(error&&error.message||error)}};}}}})())",
         serde_json::to_string(&invocation.module_specifier).expect("serialize builtin module"),
         serde_json::to_string(&invocation.export_name).expect("serialize builtin export"),
-        serde_json::to_string(&invocation.arguments).expect("serialize builtin arguments")
+        serde_json::to_string(arguments).expect("serialize builtin arguments")
     )
+}
+
+struct PreparedInvocation {
+    _fixture_root: Option<tempfile::TempDir>,
+    project_root: Option<std::path::PathBuf>,
+    arguments: Vec<serde_json::Value>,
+}
+
+impl PreparedInvocation {
+    fn project_root(&self) -> Option<&std::path::Path> {
+        self.project_root.as_deref()
+    }
+}
+
+fn prepare_invocation(invocation: &BuiltinInvocation) -> PreparedInvocation {
+    match invocation.setup["kind"].as_str() {
+        Some("none") => {
+            assert_eq!(invocation.module_specifier, "node:os");
+            assert_eq!(invocation.source_descriptor["sourceKey"], "node_os");
+            assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+            assert!(invocation.arguments.is_empty());
+            PreparedInvocation {
+                _fixture_root: None,
+                project_root: None,
+                arguments: invocation.arguments.clone(),
+            }
+        }
+        Some("filesystem-file") => {
+            assert_eq!(invocation.module_specifier, "node:fs");
+            assert_eq!(invocation.source_descriptor["sourceKey"], "node_fs");
+            assert!(matches!(
+                invocation.export_name.as_str(),
+                "lstatSync" | "statSync"
+            ));
+            let logical_path = serde_json::json!({
+                "root": "project",
+                "components": [
+                    {"encoding": "utf8", "value": "capsec-stat-fixture.txt"}
+                ]
+            });
+            assert_eq!(invocation.setup["logicalPath"], logical_path);
+            assert_eq!(
+                invocation.required_authority,
+                vec![serde_json::json!({
+                    "cap": "fs:list",
+                    "resource": {"kind": "path-exact", "path": logical_path.clone()},
+                })]
+            );
+            let contents = invocation.setup["contents"]
+                .as_str()
+                .expect("filesystem fixture contents must be a string");
+            assert_eq!(invocation.arguments.len(), 1);
+            assert_eq!(
+                invocation.arguments[0],
+                serde_json::json!({
+                    "kind": "filesystem-fixture-path",
+                    "logicalPath": logical_path,
+                })
+            );
+            let fixture_root = tempfile::tempdir().expect("create builtin filesystem fixture");
+            let project_root = std::fs::canonicalize(fixture_root.path())
+                .expect("canonicalize builtin filesystem fixture root");
+            let fixture_path = project_root.join("capsec-stat-fixture.txt");
+            std::fs::write(&fixture_path, contents).expect("write builtin filesystem fixture");
+            PreparedInvocation {
+                _fixture_root: Some(fixture_root),
+                project_root: Some(project_root),
+                arguments: vec![serde_json::Value::String(
+                    fixture_path
+                        .to_str()
+                        .expect("builtin fixture path must be UTF-8")
+                        .to_owned(),
+                )],
+            }
+        }
+        other => panic!("unsupported effect-builtin setup {other:?}"),
+    }
 }
 
 fn typed_decision_values(
@@ -243,7 +323,10 @@ fn validate_observation(
     );
     assert_eq!(invocation.kind, "builtin-export-call");
     assert_eq!(invocation.expected_action_ids, recipe.action_ids);
-    assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+    assert!(matches!(
+        invocation.setup["kind"].as_str(),
+        Some("none" | "filesystem-file")
+    ));
     assert_eq!(
         tagged_jcs_digest(&invocation.source_descriptor),
         invocation.source_descriptor_digest,
@@ -337,26 +420,33 @@ fn validate_observation(
         assert_eq!(
             decisive.len(),
             1,
-            "{}: system-info decision must have one decisive authority row",
+            "{}: builtin decision must have one decisive authority row",
             recipe.fixture_id
         );
-        let (expected_stratum, expected_reason, expected_source) =
+        let (expected_stratum, expected_reason, expected_source_prefix) =
             if public_denial {
                 (
                     "principal-denial",
                     "principal-denial",
-                    "principal.000000.denial.000000",
+                    "principal.000000.denial.",
                 )
             } else {
-                (
-                    "static-floor",
-                    "static-floor",
-                    "principal.000000.floor.000000",
-                )
+                ("static-floor", "static-floor", "principal.000000.floor.")
             };
         assert_eq!(decisive[0]["stratum"], expected_stratum);
         assert_eq!(decisive[0]["reason"], expected_reason);
-        assert_eq!(decisive[0]["sourceId"], expected_source);
+        assert_eq!(
+            decisive[0]["principal"],
+            serde_json::json!({"kind": "root", "identity": "project-root"})
+        );
+        assert!(
+            decisive[0]["sourceId"]
+                .as_str()
+                .is_some_and(|source| source.starts_with(expected_source_prefix)),
+            "{}: decisive authority source has the wrong stratum index: {}",
+            recipe.fixture_id,
+            decisive[0]
+        );
     }
     assert!(!observed_edges.is_empty());
     assert!(observed_edges.is_subset(&allowed_edges));
@@ -381,6 +471,7 @@ fn validate_observation(
 async fn execute_recipe(
     engine: &HermesEngine,
     recipe: &Recipe,
+    arguments: &[serde_json::Value],
     terminal_by_edge: &BTreeMap<String, String>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
@@ -394,7 +485,7 @@ async fn execute_recipe(
         "public builtin observer has no installed host"
     );
     let encoded = engine
-        .eval_immediate(&invocation_script(&probe.invocation))
+        .eval_immediate(&invocation_script(&probe.invocation, arguments))
         .await
         .expect("execute public builtin invocation")
         .expect("public builtin invocation returned no result");
@@ -459,39 +550,42 @@ async fn execute_isolated_recipe(
     terminal_by_edge: &BTreeMap<String, String>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
-    let authority = canonical_values(
-        recipe
-            .public_surface_probe
-            .as_ref()
-            .and_then(|probe| match probe {
-                PublicSurfaceProbe::EffectBuiltin(probe) => Some(&probe.invocation),
-                PublicSurfaceProbe::Other { .. } => None,
-            })
-            .expect("isolated recipe has no effect-builtin invocation")
-            .required_authority
-            .clone(),
-    );
+    let invocation = recipe
+        .public_surface_probe
+        .as_ref()
+        .and_then(|probe| match probe {
+            PublicSurfaceProbe::EffectBuiltin(probe) => Some(&probe.invocation),
+            PublicSurfaceProbe::Other { .. } => None,
+        })
+        .expect("isolated recipe has no effect-builtin invocation");
+    let authority = canonical_values(invocation.required_authority.clone());
     assert_eq!(
         authority.len(),
         1,
-        "{}: isolated OS recipe must bind one exact authority selector",
+        "{}: isolated builtin recipe must bind one exact authority selector",
         recipe.fixture_id
     );
-    let (host, digest) = build_armed_test_host_custom(
-        None,
+    let prepared = prepare_invocation(invocation);
+    let module_specifier = invocation.module_specifier.clone();
+    let denials = (recipe.scenario == "deny")
+        .then(|| authority.clone())
+        .unwrap_or_default();
+    let (host, digest) = build_armed_test_host_control(
+        prepared.project_root(),
         false,
         false,
         false,
+        authority,
         Vec::new(),
+        false,
+        0,
         None,
-        |snapshot| {
+        move |snapshot| {
             snapshot["principals"][0]["imports"]["builtins"] =
-                serde_json::json!(["node:os"]);
-            snapshot["principals"][0]["floor"] =
-                serde_json::Value::Array(authority.clone());
-            if recipe.scenario == "deny" {
+                serde_json::json!([module_specifier]);
+            if !denials.is_empty() {
                 snapshot["principals"][0]["denials"] =
-                    serde_json::Value::Array(authority.clone());
+                    serde_json::Value::Array(denials);
             }
         },
     );
@@ -506,6 +600,7 @@ async fn execute_isolated_recipe(
     execute_recipe(
         &engine,
         recipe,
+        &prepared.arguments,
         terminal_by_edge,
         engine_binary_digest,
     )
@@ -525,7 +620,11 @@ async fn capsec_public_builtin_recipe_batch() {
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
     let recipes = builtin_recipes(&catalog);
-    assert_eq!(recipes.len(), 90, "expected the authored node:os recipe slice");
+    assert_eq!(
+        recipes.len(),
+        100,
+        "expected the authored OS and filesystem builtin recipe slices"
+    );
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before builtin public recipes");

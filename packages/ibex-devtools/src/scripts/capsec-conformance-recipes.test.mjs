@@ -222,6 +222,64 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
+  test("binds synchronous filesystem metadata probes to an owned logical path", () => {
+    for (const exportName of ["lstatSync", "statSync"]) {
+      const surface = `builtin:export:node_fs:${exportName}`;
+      const effectRecipes = recipes.recipes.filter(
+        (recipe) =>
+          recipe.route.surfaceObservedKeys.includes(surface) &&
+          [
+            "allow",
+            "deny",
+            "malformed",
+            "missing-attribution",
+            "wrong-principal",
+          ].includes(recipe.scenario),
+      );
+      expect(effectRecipes).toHaveLength(5);
+      expect(
+        effectRecipes.every((recipe) => recipe.status === "fully-executable"),
+      ).toBe(true);
+      for (const recipe of effectRecipes) {
+        expect(recipe.publicSurfaceProbe).toMatchObject({
+          surfaceObservedKey: surface,
+          invocation: {
+            moduleSpecifier: "node:fs",
+            exportName,
+            setup: {
+              kind: "filesystem-file",
+              logicalPath: {
+                root: "project",
+                components: [
+                  { encoding: "utf8", value: "capsec-stat-fixture.txt" },
+                ],
+              },
+            },
+            requiredAuthority: [
+              {
+                cap: "fs:list",
+                resource: { kind: "path-exact" },
+              },
+            ],
+            expectedActionIds: ["fs:list"],
+          },
+        });
+        expect(recipe.residualReasons).not.toContain(
+          "ambiguous-static-enforcement-route",
+        );
+        const denial = recipe.scenario === "deny";
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+        ).toEqual(
+          denial ? ["requested"] : ["requested", "discovery", "repeat"],
+        );
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        ).toBe(denial ? 1 : 3);
+      }
+    }
+  });
+
   test("source-binds every callback and authority-control invariant", () => {
     const callbackRecipes = recipes.recipes.filter(
       (recipe) =>

@@ -900,6 +900,13 @@ fixtures independently observe the public requested/commit route under its
 exact floor while their typed adapter cases exercise the scenario-specific
 semantic branch; principal-deny fixtures observe the public requested-stage
 denial. Neither path consults the legacy string oracle (ENG-24450).
+The same exact-engine batch now exercises `node:fs` `statSync` and `lstatSync`
+against a harness-owned file beneath an authenticated, canonical logical-root
+binding. Each non-denial fixture must return after emitting the native
+requested, discovery, and repeat decisions; the denial fixture must stop at
+requested. For these exact source/setup/argument recipes, a noisy static
+dynamic-call list is diagnostic rather than residual: promotion still requires
+the runtime-observed gate to belong to the source-derived terminal allow-list.
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 
