@@ -2454,8 +2454,7 @@ function ClientRequest(options, callback) {
     _setClientRequestHeaderState(this, 'Host', _getClientRequestHostHeaderValue(this), false);
     this._implicitHostHeader = true;
   }
-  if (!this._headersIsArray &&
-      this.options &&
+  if (this.options &&
       this.options.auth &&
       !_clientRequestHasHeader(this, 'authorization')) {
     _setClientRequestHeaderState(

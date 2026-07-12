@@ -16,6 +16,7 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+const AUDIT_STARTUP_HEADROOM_SECS: u64 = 30;
 
 /// Self-signed localhost certificate (SAN: DNS:localhost, IP:127.0.0.1),
 /// valid until 2046, used purely as in-process emulation fixture material.
@@ -85,10 +86,18 @@ async fn run_script(script: &str, secs: u64) -> Value {
     let mut cmd = Command::new(IBEX);
     cmd.arg("capsec").arg("audit").arg(&entry);
 
-    let output = timeout(Duration::from_secs(secs), cmd.output())
-        .await
-        .expect("ibex process timed out (harness-level; the script watchdog should fire first)")
-        .expect("failed to spawn or read ibex process output");
+    // `secs` remains the fixture's semantic runtime budget (and its JS
+    // watchdog should fire within it). Foreground audit first performs bundle
+    // generation/authentication, which can wait on the shared content-cache
+    // lock before any fixture code or watchdog exists, so account for that
+    // startup phase separately while keeping the harness strictly bounded.
+    let output = timeout(
+        Duration::from_secs(secs.saturating_add(AUDIT_STARTUP_HEADROOM_SECS)),
+        cmd.output(),
+    )
+    .await
+    .expect("ibex process timed out (harness-level; the script watchdog should fire first)")
+    .expect("failed to spawn or read ibex process output");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
