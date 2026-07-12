@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -46,10 +47,33 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactAuthorizeSystemInfo: invalid information kind");
         }
+        auto name =
+            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw));
         exactRequireTypedSystemInfo(
             runtime,
             ExactSystemInfoSurface::CachedValue,
-            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw)));
+            name);
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — storage-path
+        // values cross the disclosure barrier only after the sys:read gate;
+        // routing back through process.env would require unrelated env:read
+        // authority and make the generated builtin effect model incomplete.
+        if (name == ExactSystemInfoName::StoragePaths) {
+          const auto environmentValue = [](const char* key) -> std::string {
+            const char* value = std::getenv(key);
+            return value ? std::string(value) : std::string();
+          };
+          auto home = environmentValue("HOME");
+          if (home.empty()) home = environmentValue("USERPROFILE");
+          if (home.empty()) home = "/";
+          auto temporary = environmentValue("TMPDIR");
+          if (temporary.empty()) temporary = environmentValue("TMP");
+          if (temporary.empty()) temporary = environmentValue("TEMP");
+          if (temporary.empty()) temporary = "/tmp";
+          facebook::jsi::Object paths(runtime);
+          paths.setProperty(runtime, "home", home);
+          paths.setProperty(runtime, "temporary", temporary);
+          return paths;
+        }
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(

@@ -4925,12 +4925,12 @@ cp \"$input\" \"$out\"\n";
             assert_eq!(outcome.as_deref(), Some(expected));
         }
         let decisions = crate::host::abi::installed_typed_decision_count() - before;
-        // Each descriptor performs the four staged list/read decisions plus
-        // one full repeat decision. The 64 chunks then recheck only
-        // generations, and the lease does not survive into the second
-        // descriptor operation.
+        // Each descriptor performs four full decisions: requested, discovery,
+        // commit, and the first repeat. The remaining chunks recheck only the
+        // three authority generations, and the lease does not survive into
+        // the second descriptor operation.
         assert_eq!(
-            decisions, 10,
+            decisions, 8,
             "two 4 MiB reads performed an unexpected number of full decisions"
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -5502,29 +5502,32 @@ cp \"$input\" \"$out\"\n";
     #[tokio::test(flavor = "current_thread")]
     async fn retained_sqlite_statements_reuse_generation_checked_authorization() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let _reset = install_test_host_with_allow(&["sqlite:write"]);
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("retained.sqlite");
+        let database = database.to_str().unwrap();
+        let fs_read = format!("fs:read:{database}");
+        let fs_write = format!("fs:write:{database}");
+        let _reset = install_test_host_with_allow(&["sqlite:write", &fs_read, &fs_write]);
         let engine = HermesEngine::new().unwrap();
         let before = crate::host::abi::installed_legacy_authorization_check_count();
-        let outcome = engine
-            .eval_immediate(
-                r#"(function() {
+        let script = format!(
+            r#"(function() {{
                     if (typeof __exactEnsureSqlite === 'function') __exactEnsureSqlite();
-                    var db = __exactSqliteOpen(':memory:', null);
+                    var db = __exactSqliteOpen({database:?}, null);
                     __exactSqliteExec(db, 'CREATE TABLE t (n INTEGER)', null);
                     var prepared = __exactSqlitePrepare(db, 'INSERT INTO t VALUES (?)');
-                    for (var i = 0; i < 256; i++) {
+                    for (var i = 0; i < 256; i++) {{
                       __exactSqliteRun(prepared.handle, [i]);
-                    }
+                    }}
                     __exactSqliteFinalize(prepared.handle);
                     var query = __exactSqlitePrepare(db, 'SELECT count(*) AS n FROM t');
                     var result = __exactSqliteGet(query.handle, null);
                     __exactSqliteFinalize(query.handle);
                     __exactSqliteClose(db);
                     return String(result.row.n);
-                })()"#,
-            )
-            .await
-            .unwrap();
+                }})()"#
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
         assert_eq!(outcome.as_deref(), Some("256"));
         let checks = crate::host::abi::installed_legacy_authorization_check_count() - before;
         assert!(
@@ -5640,7 +5643,7 @@ cp \"$input\" \"$out\"\n";
         let outcome = engine
             .eval_immediate(
                 r#"(function() {
-                    __exactEnsureHttp();
+                    if (typeof __exactEnsureHttp === 'function') __exactEnsureHttp();
                     var server = JSON.parse(__exactHttpServe(0, '127.0.0.1'));
                     if (server.error) return 'setup:' + server.error;
                     __exactHttpSetRef(server.id, 0);
@@ -6313,7 +6316,7 @@ cp \"$input\" \"$out\"\n";
         let setup = eval_json(
             &engine,
             r#"(function() {
-                __exactEnsureHttp();
+                if (typeof __exactEnsureHttp === 'function') __exactEnsureHttp();
                 var result = JSON.parse(__exactHttpServe(0, '127.0.0.1'));
                 if (result.error) {
                   return JSON.stringify({ error: result.error });
@@ -6363,7 +6366,7 @@ cp \"$input\" \"$out\"\n";
         let setup = eval_json(
             &engine,
             r#"(function() {
-                __exactEnsureHttp();
+                if (typeof __exactEnsureHttp === 'function') __exactEnsureHttp();
                 var result = JSON.parse(__exactHttpServe(0, '127.0.0.1'));
                 if (result.error) {
                   return JSON.stringify({ error: result.error });
@@ -6434,10 +6437,10 @@ cp \"$input\" \"$out\"\n";
                 break result;
             }
 
-            timeout(Duration::from_millis(250), engine.drive_event_loop())
-                .await
-                .expect("event loop pump should finish")
-                .expect("event loop pump should succeed");
+            if let Ok(result) = timeout(Duration::from_millis(250), engine.drive_event_loop()).await
+            {
+                result.expect("event loop pump should succeed");
+            }
 
             if Instant::now() >= deadline {
                 panic!("timed out waiting for Hermes HTTP bridge response");

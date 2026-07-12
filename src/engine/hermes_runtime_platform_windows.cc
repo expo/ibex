@@ -1647,10 +1647,28 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, "__exactAuthorizeSystemInfo: invalid information kind");
         }
+        auto name =
+            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw));
         exactRequireTypedSystemInfo(
             runtime,
             ExactSystemInfoSurface::CachedValue,
-            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw)));
+            name);
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — return host
+        // storage paths only after the sys:read decision instead of re-entering
+        // the separately gated process.env compatibility facade.
+        if (name == ExactSystemInfoName::StoragePaths) {
+          auto home = getenvString("HOME");
+          if (home.empty()) home = getenvString("USERPROFILE");
+          if (home.empty()) home = "/";
+          auto temporary = getenvString("TMPDIR");
+          if (temporary.empty()) temporary = getenvString("TMP");
+          if (temporary.empty()) temporary = getenvString("TEMP");
+          if (temporary.empty()) temporary = "/tmp";
+          facebook::jsi::Object paths(runtime);
+          paths.setProperty(runtime, "home", home);
+          paths.setProperty(runtime, "temporary", temporary);
+          return paths;
+        }
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(
