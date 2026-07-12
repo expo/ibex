@@ -1135,15 +1135,21 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const rows = scanStaticBuiltinExports(
       String.raw`
         Array.prototype.slice = service.slice;
+        Number = service.Number;
+        Array = service.Array;
         function mutatedIntrinsic() {
           return Array.prototype.slice.call(arguments);
         }
+        function reassignedIntrinsicCall() { return Number(1); }
+        function reassignedIntrinsicConstructor() { return new Array(); }
         function dynamicTerminalCall() {
           return service.__exactReadHandle.call(service);
         }
         function shadowedRequire(require) { return require('node:path'); }
         module.exports = {
           mutatedIntrinsic,
+          reassignedIntrinsicCall,
+          reassignedIntrinsicConstructor,
           dynamicTerminalCall,
           shadowedRequire,
         };
@@ -1160,6 +1166,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(evidence("mutatedIntrinsic").ambiguousCallees).toContain(
       "dynamic-call-receiver:call",
     );
+    expect(evidence("reassignedIntrinsicCall").ambiguousCallees).toContain(
+      "unresolved-call:Number",
+    );
+    expect(
+      evidence("reassignedIntrinsicConstructor").ambiguousCallees,
+    ).toContain("unresolved-call:Array");
     expect(evidence("dynamicTerminalCall").ambiguousCallees).toContain(
       "dynamic-terminal-receiver:__exactReadHandle",
     );
@@ -1167,6 +1179,28 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(evidence("shadowedRequire").ambiguousCallees).toContain(
       "unresolved-call:require",
     );
+  });
+
+  test("builtin call/apply routes fail closed after Function prototype mutation", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        Function.prototype.call = service.call;
+        function readImpl() { return globalThis.__exactReadHandle(); }
+        function mutatedFunctionCall() { return readImpl.call(null); }
+        module.exports = { mutatedFunctionCall };
+      `,
+      {
+        sourceKey: "node_route_function_tampering",
+        sourcePath: "src/builtins/route-function-tampering.js",
+      },
+    );
+    const evidence = rows.find(
+      (row) =>
+        row.name ===
+        "export:node_route_function_tampering:mutatedFunctionCall",
+    ).metadata.enforcementRouteEvidence;
+    expect(evidence.ambiguousCallees).toContain("dynamic-call-receiver:call");
+    expect(evidence.terminals).toEqual([]);
   });
 
   test("builtin routes retain terminals from opaque callable alternatives", () => {

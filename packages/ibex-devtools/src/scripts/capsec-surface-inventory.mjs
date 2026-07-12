@@ -2146,7 +2146,9 @@ export function scanStaticBuiltinExports(
       expression.type === "NewExpression" &&
       expression.callee?.type === "Identifier" &&
       intrinsicGlobalReceivers.has(expression.callee.name) &&
-      !declaredIdentifiers.has(expression.callee.name)
+      !declaredIdentifiers.has(expression.callee.name) &&
+      !assignedIdentifiers.has(expression.callee.name) &&
+      !mutatedIntrinsicRoots.has(expression.callee.name)
     ) {
       return true;
     }
@@ -2154,7 +2156,9 @@ export function scanStaticBuiltinExports(
       if (
         expression.callee?.type === "Identifier" &&
         intrinsicGlobalReceivers.has(expression.callee.name) &&
-        !declaredIdentifiers.has(expression.callee.name)
+        !declaredIdentifiers.has(expression.callee.name) &&
+        !assignedIdentifiers.has(expression.callee.name) &&
+        !mutatedIntrinsicRoots.has(expression.callee.name)
       ) {
         return true;
       }
@@ -2209,6 +2213,9 @@ export function scanStaticBuiltinExports(
       !call.callee.computed &&
       new Set(["apply", "call"]).has(call.callee.property?.name)
     ) {
+      if (mutatedIntrinsicRoots.has("Function")) {
+        return { ambiguity: `dynamic-call-receiver:${call.callee.property.name}` };
+      }
       const invokedReference = terminalReference(call.callee.object);
       if (invokedReference?.ambiguity) return invokedReference;
       if (invokedReference?.name) return { name: invokedReference.name };
@@ -2289,7 +2296,9 @@ export function scanStaticBuiltinExports(
             ? [name]
             : (intrinsicGlobalCalls.has(name) ||
                   intrinsicGlobalReceivers.has(name)) &&
-                !declaredIdentifiers.has(name)
+                !declaredIdentifiers.has(name) &&
+                !assignedIdentifiers.has(name) &&
+                !mutatedIntrinsicRoots.has(name)
               ? []
               : [`unresolved-call:${name}`],
         paths: [],
@@ -2354,7 +2363,8 @@ export function scanStaticBuiltinExports(
           if (
             intrinsicGlobalReceivers.has(node.callee.name) &&
             !declaredIdentifiers.has(node.callee.name) &&
-            !assignedIdentifiers.has(node.callee.name)
+            !assignedIdentifiers.has(node.callee.name) &&
+            !mutatedIntrinsicRoots.has(node.callee.name)
           ) {
             return;
           }
@@ -2399,7 +2409,8 @@ export function scanStaticBuiltinExports(
         new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
         node.callee.object?.type === "Identifier" &&
         (callableDefinitionsByName.get(node.callee.object.name) ?? []).length ===
-          1
+          1 &&
+        !mutatedIntrinsicRoots.has("Function")
       ) {
         calleeNames.add(node.callee.object.name);
       } else if (
@@ -2407,7 +2418,8 @@ export function scanStaticBuiltinExports(
         node.callee?.type === "MemberExpression" &&
         new Set(["apply", "call"]).has(directMemberName(node.callee)) &&
         node.callee.object?.type === "MemberExpression" &&
-        node.callee.object.object?.type === "ThisExpression"
+        node.callee.object.object?.type === "ThisExpression" &&
+        !mutatedIntrinsicRoots.has("Function")
       ) {
         const method = directMemberName(node.callee.object);
         if (method) calleeNames.add(`${owner}.${method}`);
