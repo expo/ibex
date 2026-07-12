@@ -100,7 +100,9 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(175);
+    // Callback-invariant probes intentionally take precedence for 30 native
+    // routes that this harness could otherwise claim structurally.
+    expect(nativePublicFixtures).toHaveLength(177);
     expect(
       nativePublicFixtures
         .filter(
@@ -122,7 +124,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(131);
+    ).toHaveLength(133);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -882,9 +884,11 @@ describe("exact-target CapSec executable recipes", () => {
   });
 
   test("uses exact in-memory SQLite databases for zero-decision status and release", () => {
-    for (const globalName of [
-      "__exactSqliteClose",
-      "__exactSqliteInTransaction",
+    for (const [globalName, statement] of [
+      ["__exactSqliteClose", false],
+      ["__exactSqliteExpandedSql", true],
+      ["__exactSqliteFinalize", true],
+      ["__exactSqliteInTransaction", false],
     ]) {
       const recipe = recipes.recipes.find(
         (candidate) =>
@@ -897,27 +901,40 @@ describe("exact-target CapSec executable recipes", () => {
         residualReasons: [],
         publicSurfaceProbe: {
           invocation: {
-            arguments: [
-              {
-                kind: "native-global-result",
-                globalName: "__exactSqliteOpen",
-                arguments: [
-                  { kind: "json-literal", value: ":memory:" },
-                  { kind: "json-literal", value: null },
-                ],
-                sourceDescriptor: {
-                  arity: 2,
-                  globalName: "__exactSqliteOpen",
-                  kind: "native-global-function",
-                },
-              },
-            ],
             expectedResult: "return",
             expectedTypedDecisionCount: 0,
             expectedTypedStages: [],
           },
         },
       });
+      expect(recipe.publicSurfaceProbe.invocation.arguments[0]).toEqual({
+        kind: statement
+          ? "harness-sqlite-statement-handle"
+          : "harness-sqlite-database-handle",
+      });
+      expect(recipe.publicSurfaceProbe.invocation.setup[0]).toMatchObject({
+        kind: "sqlite-memory-database",
+        globalName: "__exactSqliteOpen",
+        sourceDescriptor: {
+          arity: 2,
+          globalName: "__exactSqliteOpen",
+          kind: "native-global-function",
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.setup[0].sourceDescriptorDigest,
+      ).toMatch(/^sha256-/u);
+      if (statement) {
+        expect(recipe.publicSurfaceProbe.invocation.setup[1]).toMatchObject({
+          kind: "sqlite-memory-statement",
+          globalName: "__exactSqlitePrepare",
+          sourceDescriptor: {
+            arity: 2,
+            globalName: "__exactSqlitePrepare",
+            kind: "native-global-function",
+          },
+        });
+      }
     }
   });
 

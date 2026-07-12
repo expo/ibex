@@ -554,6 +554,12 @@ const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
 const harnessLoopbackClientHandleArgument = () => ({
   kind: "harness-loopback-client-handle",
 });
+const harnessSqliteDatabaseHandleArgument = () => ({
+  kind: "harness-sqlite-database-handle",
+});
+const harnessSqliteStatementHandleArgument = () => ({
+  kind: "harness-sqlite-statement-handle",
+});
 const tcpLoopbackClientSetup = () => [
   { kind: "tcp-loopback-listener" },
   {
@@ -561,6 +567,22 @@ const tcpLoopbackClientSetup = () => [
     globalName: "__exactTcpConnect",
     requiredSourceArity: 4,
   },
+];
+const sqliteMemorySetup = (withStatement = false) => [
+  {
+    kind: "sqlite-memory-database",
+    globalName: "__exactSqliteOpen",
+    requiredSourceArity: 2,
+  },
+  ...(withStatement
+    ? [
+        {
+          kind: "sqlite-memory-statement",
+          globalName: "__exactSqlitePrepare",
+          requiredSourceArity: 2,
+        },
+      ]
+    : []),
 ];
 const nativeResultArgument = (
   globalName,
@@ -591,11 +613,6 @@ const generatedKeyArgument = (keyType, property, options = null) =>
     3,
     [literalArgument(keyType), literalArgument(options), literalArgument(null)],
   );
-const sqliteMemoryDatabaseArgument = () =>
-  nativeResultArgument("__exactSqliteOpen", 2, [
-    literalArgument(":memory:"),
-    literalArgument(null),
-  ]);
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -899,11 +916,35 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   [
     "__exactSqliteClose",
-    nativeNoEffectTemplate(1, [sqliteMemoryDatabaseArgument()]),
+    nativeNoEffectTemplate(
+      1,
+      [harnessSqliteDatabaseHandleArgument()],
+      sqliteMemorySetup(),
+    ),
+  ],
+  [
+    "__exactSqliteExpandedSql",
+    nativeNoEffectTemplate(
+      1,
+      [harnessSqliteStatementHandleArgument()],
+      sqliteMemorySetup(true),
+    ),
+  ],
+  [
+    "__exactSqliteFinalize",
+    nativeNoEffectTemplate(
+      1,
+      [harnessSqliteStatementHandleArgument()],
+      sqliteMemorySetup(true),
+    ),
   ],
   [
     "__exactSqliteInTransaction",
-    nativeNoEffectTemplate(1, [sqliteMemoryDatabaseArgument()]),
+    nativeNoEffectTemplate(
+      1,
+      [harnessSqliteDatabaseHandleArgument()],
+      sqliteMemorySetup(),
+    ),
   ],
   [
     "__exactStringToUtf8Bytes",
@@ -1052,7 +1093,15 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
 }
 
 function bindNativeSetupSources(setup, liveByObservedKey) {
-  if (setup.kind !== "tcp-loopback-client") return clone(setup);
+  if (
+    !new Set([
+      "sqlite-memory-database",
+      "sqlite-memory-statement",
+      "tcp-loopback-client",
+    ]).has(setup.kind)
+  ) {
+    return clone(setup);
+  }
   const producer = liveByObservedKey.get(
     `native-op:${setup.globalName}`,
   )?.metadata?.publicInvocation;

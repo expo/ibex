@@ -145,6 +145,8 @@ enum NativeProbeArgument {
     },
     HarnessNoopCallback,
     HarnessLoopbackClientHandle,
+    HarnessSqliteDatabaseHandle,
+    HarnessSqliteStatementHandle,
     HarnessLoopbackAddress {
         family: String,
     },
@@ -182,6 +184,22 @@ enum NativeProbeSetup {
         arguments: Vec<serde_json::Value>,
     },
     TcpLoopbackClient {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
+    SqliteMemoryDatabase {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
+    SqliteMemoryStatement {
         #[serde(rename = "globalName")]
         global_name: String,
         #[serde(rename = "sourceDescriptor")]
@@ -682,7 +700,7 @@ fn install_native_public_test_host(
 
 fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{var value=Reflect.apply(f,globalThis,{});return {{kind:\"return\",globalName:n,value:typeof value===\"number\"?value:null}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{var value=Reflect.apply(f,globalThis,{});return {{kind:\"return\",globalName:n,value:typeof value===\"number\"?value:null,handle:value!==null&&typeof value===\"object\"&&typeof value.handle===\"number\"?value.handle:null}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(global_name).expect("serialize setup global"),
         serde_json::to_string(arguments).expect("serialize setup arguments")
     )
@@ -691,6 +709,8 @@ fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
 #[derive(Default)]
 struct NativeSetupState {
     tcp_loopback_client_handle: Option<f64>,
+    sqlite_database_handle: Option<f64>,
+    sqlite_statement_handle: Option<f64>,
 }
 
 async fn run_native_setup(
@@ -715,6 +735,74 @@ async fn run_native_setup(
                 assert_eq!(
                     result["kind"], "return",
                     "native public setup {global_name} failed: {result}"
+                );
+            }
+            NativeProbeSetup::SqliteMemoryDatabase {
+                global_name,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                assert_eq!(global_name, "__exactSqliteOpen");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 2);
+                assert!(state.sqlite_database_handle.is_none());
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!(":memory:"), serde_json::Value::Null],
+                    ))
+                    .await
+                    .expect("execute native in-memory SQLite setup")
+                    .expect("native in-memory SQLite setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native in-memory SQLite setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.sqlite_database_handle = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native in-memory SQLite setup must return a numeric handle"),
+                );
+            }
+            NativeProbeSetup::SqliteMemoryStatement {
+                global_name,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                assert_eq!(global_name, "__exactSqlitePrepare");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 2);
+                assert!(state.sqlite_statement_handle.is_none());
+                let database_handle = state
+                    .sqlite_database_handle
+                    .expect("SQLite statement setup requires a database setup");
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[
+                            serde_json::json!(database_handle),
+                            serde_json::json!("SELECT 1 AS value"),
+                        ],
+                    ))
+                    .await
+                    .expect("execute native in-memory SQLite statement setup")
+                    .expect("native in-memory SQLite statement setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native in-memory SQLite statement setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.sqlite_statement_handle = Some(
+                    result["handle"]
+                        .as_f64()
+                        .expect("native SQLite statement setup must return a numeric handle"),
                 );
             }
             NativeProbeSetup::TcpLoopbackClient {
@@ -779,6 +867,18 @@ fn materialize_native_arguments(
                 "value": setup_state
                     .tcp_loopback_client_handle
                     .expect("loopback client argument requires client setup"),
+            }),
+            NativeProbeArgument::HarnessSqliteDatabaseHandle => serde_json::json!({
+                "kind": "json-literal",
+                "value": setup_state
+                    .sqlite_database_handle
+                    .expect("SQLite database argument requires database setup"),
+            }),
+            NativeProbeArgument::HarnessSqliteStatementHandle => serde_json::json!({
+                "kind": "json-literal",
+                "value": setup_state
+                    .sqlite_statement_handle
+                    .expect("SQLite statement argument requires statement setup"),
             }),
             NativeProbeArgument::HarnessLoopbackAddress { family } => {
                 assert_eq!(
@@ -873,6 +973,7 @@ fn materialize_native_arguments(
 fn native_invocation_script(
     invocation: &NativePublicInvocation,
     arguments: &[serde_json::Value],
+    setup_state: &NativeSetupState,
 ) -> String {
     if invocation.kind == "global-property-read" {
         let descriptor: GlobalReadSourceDescriptor =
@@ -885,10 +986,15 @@ fn native_invocation_script(
             serde_json::to_string(&descriptor.value_shape).expect("serialize global read shape")
         );
     }
+    let cleanup_state = serde_json::json!({
+        "sqliteDatabaseHandle": setup_state.sqlite_database_handle,
+        "sqliteStatementHandle": setup_state.sqlite_statement_handle,
+    });
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var cleanupState={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactSqliteClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-sqlite-db\";}}else if(n===\"__exactSqliteInTransaction\"&&typeof args[0]===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(args[0]);cleanup=\"closed-sqlite-db\";}}else if(n===\"__exactSqliteFinalize\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"consumed-sqlite-statement-closed-db\";}}else if(n===\"__exactSqliteExpandedSql\"&&typeof args[0]===\"number\"&&typeof cleanupState.sqliteDatabaseHandle===\"number\"&&typeof globalThis.__exactSqliteFinalize===\"function\"&&typeof globalThis.__exactSqliteClose===\"function\"){{globalThis.__exactSqliteFinalize(args[0]);globalThis.__exactSqliteClose(cleanupState.sqliteDatabaseHandle);cleanup=\"finalized-sqlite-statement-closed-db\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
-        serde_json::to_string(arguments).expect("serialize native arguments")
+        serde_json::to_string(arguments).expect("serialize native arguments"),
+        serde_json::to_string(&cleanup_state).expect("serialize native cleanup state")
     )
 }
 
@@ -1284,7 +1390,11 @@ async fn execute_native_public_recipe(
         "public native observer has no installed host"
     );
     let result = engine
-        .eval_immediate(&native_invocation_script(invocation, &arguments))
+        .eval_immediate(&native_invocation_script(
+            invocation,
+            &arguments,
+            &setup_state,
+        ))
         .await;
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let encoded = result
