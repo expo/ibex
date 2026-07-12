@@ -876,6 +876,14 @@ spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child
 environment, stdio, and IPC option parsing cannot reach process creation via
 the legacy `process:spawn` oracle.
+Diagnostic audit keeps the child-process compatibility suite executable without
+widening that production boundary. Its low-descriptor regression uses a plain
+POSIX child to exercise IPC and extra-stdio `dup2` mapping directly; it does not
+grant a nested Ibex runtime ambient ownership of inherited numeric descriptors.
+Parent-side extra stdio is a bounded, backpressure-aware full-duplex stream:
+`end` half-closes writes, readable EOF gates the child `close` event, and
+`destroy` releases both directions. Production child environment and inherited
+stdio effects remain closed pending their typed conjunctive spawn implementation.
 The armed import gate also carries an artifact-independent terminal-builtin
 deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
 (including `node:` aliases and subpaths). A deliberately overbroad but

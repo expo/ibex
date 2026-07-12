@@ -324,6 +324,13 @@ static int s_mapChildFd(int source, int target) {
     return 0;
   }
   if (dup2(source, target) < 0) return errno;
+  // POSIX specifies that dup2 clears FD_CLOEXEC on the new descriptor, but
+  // make that postcondition explicit: these sources are deliberately marked
+  // close-on-exec before fork, and every mapped child descriptor must survive
+  // the immediately following execve on every supported libc/kernel pair.
+  int flags = fcntl(target, F_GETFD, 0);
+  if (flags < 0) return errno;
+  if (fcntl(target, F_SETFD, flags & ~FD_CLOEXEC) < 0) return errno;
   close(source);
   return 0;
 }
@@ -606,6 +613,20 @@ static void s_setEnvEntry(std::vector<std::string>& entries,
   entries.push_back(prefix + value);
 }
 
+static void s_removeEnvEntry(
+    std::vector<std::string>& entries,
+    const std::string& key) {
+  const std::string prefix = key + "=";
+  entries.erase(
+      std::remove_if(
+          entries.begin(),
+          entries.end(),
+          [&](const std::string& entry) {
+            return entry.compare(0, prefix.size(), prefix) == 0;
+          }),
+      entries.end());
+}
+
 static std::string s_envValue(const std::vector<std::string>& entries,
                               const std::string& key) {
   const std::string prefix = key + "=";
@@ -615,6 +636,27 @@ static std::string s_envValue(const std::vector<std::string>& entries,
     }
   }
   return {};
+}
+
+static std::optional<size_t> s_parseExtraStreamName(
+    const std::string& streamName) {
+  constexpr char kPrefix[] = "extra:";
+  if (streamName.compare(0, sizeof(kPrefix) - 1, kPrefix) != 0) {
+    return std::nullopt;
+  }
+  const char* start = streamName.c_str() + sizeof(kPrefix) - 1;
+  if (*start == '\0') return std::nullopt;
+  for (const char* current = start; *current != '\0'; ++current) {
+    if (*current < '0' || *current > '9') return std::nullopt;
+  }
+  errno = 0;
+  char* end = nullptr;
+  unsigned long long parsed = std::strtoull(start, &end, 10);
+  if (errno != 0 || end == start || *end != '\0' ||
+      parsed > static_cast<unsigned long long>(std::numeric_limits<size_t>::max())) {
+    return std::nullopt;
+  }
+  return static_cast<size_t>(parsed);
 }
 
 static std::string s_absoluteChildPath(const std::string& path,
@@ -689,6 +731,9 @@ static SpawnExecPlan s_buildSpawnExecPlan(
     plan.envEntries = customEnv;
   }
   s_setEnvEntry(plan.envEntries, "EXACT_QUIET", "1");
+  // Never let a caller-supplied/stale IPC marker reach a child without a
+  // corresponding native IPC socket. The actual mapped slot is authoritative.
+  s_removeEnvEntry(plan.envEntries, "EXACT_IPC_FD");
   if (ipcFd >= 0) {
     s_setEnvEntry(plan.envEntries, "EXACT_IPC_FD", std::to_string(ipcFd));
   }
@@ -2560,7 +2605,8 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawn", std::move(spawnFn));
 
   // __exactSpawnRead(handle, stream) -> Uint8Array (raw bytes read, empty if
-  // nothing available). stream is "stdout", "stderr", or "ipc". Non-blocking.
+  // nothing available). `_exactEof` distinguishes EOF from EAGAIN. One bounded
+  // read per call prevents a chatty child from monopolizing the JS turn.
   // (ENG-23009) The data channel is byte-accurate: child output is handed to JS
   // as raw bytes rather than a UTF-8 string, so bytes >= 0x80 and NULs survive
   // the native->JS boundary instead of being mangled by createFromUtf8/U+FFFD.
@@ -2573,19 +2619,26 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        auto makeReadResult = [&](std::vector<uint8_t> bytes, bool eof) {
+          auto value = makeUint8Array(runtime, std::move(bytes));
+          auto object = value.asObject(runtime);
+          object.setProperty(runtime, "_exactEof", facebook::jsi::Value(eof));
+          return facebook::jsi::Value(std::move(object));
+        };
         if (count < 2 || !args[0].isNumber()) {
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
         int handle = static_cast<int>(args[0].asNumber());
         auto proc = trySpawnHandle(runtime, handle, "__exactSpawnRead");
         if (!proc) {
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
         std::string streamName;
         if (args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
         } else if (args[1].isNumber()) {
-          switch (static_cast<int>(args[1].asNumber())) {
+          int streamIndex = static_cast<int>(args[1].asNumber());
+          switch (streamIndex) {
             case 1:
               streamName = "stdout";
               break;
@@ -2596,10 +2649,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
               streamName = "ipc";
               break;
             default:
-              return makeUint8Array(runtime, {});
+              if (streamIndex >= 4) {
+                streamName = "extra:" + std::to_string(streamIndex - 4);
+              } else {
+                return makeReadResult({}, true);
+              }
           }
         } else {
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
 
         int fd = -1;
@@ -2609,35 +2666,39 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           fd = proc->stderrFd;
         } else if (streamName == "ipc") {
           fd = proc->ipcFd;
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            fd = proc->extraFds[*extraIdx];
+          }
         }
 
         if (fd < 0) {
           if (streamName == "ipc" && startup_trace_enabled()) {
             fprintf(stderr, "[spawn_read] ipc fd=-1 for handle %d\n", handle);
           }
-          return makeUint8Array(runtime, {});
+          return makeReadResult({}, true);
         }
 
-        // Non-blocking read
+        // One non-blocking chunk per call. JS owns the scheduling/backpressure
+        // policy and will promptly call again after activity.
         char buf[65536];
         std::vector<uint8_t> result;
-        while (true) {
-          ssize_t n = read(fd, buf, sizeof(buf));
-          if (n > 0) {
-            result.insert(result.end(), buf, buf + n);
-          } else {
-            if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
-              fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
-            }
-            break;  // EAGAIN/EWOULDBLOCK or EOF
-          }
+        ssize_t n;
+        do {
+          n = read(fd, buf, sizeof(buf));
+        } while (n < 0 && errno == EINTR);
+        bool eof = n == 0;
+        if (n > 0) result.insert(result.end(), buf, buf + n);
+        if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) eof = true;
+        if (streamName == "ipc" && startup_trace_enabled() && n < 0) {
+          fprintf(stderr, "[spawn_read] ipc fd=%d errno=%d (%s)\n", fd, errno, strerror(errno));
         }
 
         if (!result.empty() && streamName == "ipc" && startup_trace_enabled()) {
           fprintf(stderr, "[spawn_read] ipc fd=%d got %zu bytes\n", fd, result.size());
         }
 
-        return makeUint8Array(runtime, std::move(result));
+        return makeReadResult(std::move(result), eof);
       });
   rt.global().setProperty(rt, "__exactSpawnRead", std::move(spawnReadFn));
 
@@ -2724,10 +2785,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           fd = proc->stdinFd;
         } else if (streamName == "ipc") {
           fd = proc->ipcFd;
-        } else if (streamName.substr(0, 6) == "extra:") {
-          int extraIdx = std::atoi(streamName.c_str() + 6);
-          if (extraIdx >= 0 && extraIdx < (int)proc->extraFds.size()) {
-            fd = proc->extraFds[extraIdx];
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            fd = proc->extraFds[*extraIdx];
           }
         }
 
@@ -3063,9 +3123,9 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(
       rt, "__exactSpawnSetReferenced", std::move(spawnSetReferencedFn));
 
-  // __exactSpawnCloseStdin(handle) -> void
-  // __exactSpawnCloseStdin(handle, stream?) -> void
-  // Closes the requested stream so the child process sees EOF.
+  // __exactSpawnCloseStdin(handle, stream?, fullClose?) -> void
+  // stdin/ipc close outright. Extra socketpairs half-close their writable side
+  // for Duplex.end(), while Duplex.destroy() requests a full close.
   auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnCloseStdin"),
@@ -3086,6 +3146,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (count > 1 && args[1].isString()) {
           streamName = args[1].toString(runtime).utf8(runtime);
         }
+        bool fullClose = count > 2 && args[2].isBool() && args[2].getBool();
 
         if (streamName == "ipc") {
           // Only close the IPC fd, not stdin
@@ -3093,11 +3154,24 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
             close(proc->ipcFd);
             proc->ipcFd = -1;
           }
-        } else {
-          // Close stdin (default behavior)
+        } else if (streamName == "stdin") {
           if (proc->stdinFd >= 0) {
             close(proc->stdinFd);
             proc->stdinFd = -1;
+          }
+        } else if (auto extraIdx = s_parseExtraStreamName(streamName)) {
+          if (*extraIdx < proc->extraFds.size()) {
+            int& fd = proc->extraFds[*extraIdx];
+            if (fd >= 0) {
+              if (fullClose) {
+                close(fd);
+                fd = -1;
+              } else {
+                // Ignore ENOTCONN/EPIPE: a child may have closed first. Keep
+                // the readable half registered until EOF or disposal.
+                shutdown(fd, SHUT_WR);
+              }
+            }
           }
         }
         return facebook::jsi::Value::undefined();

@@ -2472,6 +2472,67 @@ function _writeSpawnStream(handle, streamName, data, callback) {
   step();
 }
 
+function _makeSpawnExtraStream(Stream, owner, extraIndex) {
+  var closedForWrite = false;
+  var fullyClosed = false;
+
+  function wakePump() {
+    if (typeof setTimeout !== 'function') return;
+    setTimeout(function() {
+      if (owner && typeof owner.__pumpFromNative === 'function') {
+        owner.__pumpFromNative();
+      }
+    }, 0);
+  }
+
+  function closeNative(fullClose) {
+    if (fullClose ? fullyClosed : closedForWrite) return;
+    if (fullClose) fullyClosed = true;
+    closedForWrite = true;
+    if (typeof globalThis.__exactSpawnCloseStdin === 'function' &&
+        owner && owner._handle !== null && owner._handle !== undefined &&
+        owner._handle >= 0) {
+      try {
+        globalThis.__exactSpawnCloseStdin(
+          owner._handle,
+          'extra:' + extraIndex,
+          fullClose === true
+        );
+      } catch (_) { /* child exit/disposal may win the close race */ }
+    }
+  }
+
+  var stream = new Stream.Duplex({
+    read: function() {
+      this._exactReadPaused = false;
+      wakePump();
+    },
+    write: function(chunk, encoding, callback) {
+      _writeSpawnStream(owner._handle, 'extra:' + extraIndex, chunk, callback);
+    },
+    final: function(callback) {
+      // Extra pipes are socketpairs. Writable EOF is a half-close so child
+      // output can continue flowing through the readable half.
+      closeNative(false);
+      if (typeof callback === 'function') callback(null);
+    },
+    destroy: function(err, callback) {
+      closeNative(true);
+      stream._exactReadableEnded = true;
+      wakePump();
+      if (typeof callback === 'function') callback(err || null);
+    }
+  });
+  stream._extraIndex = extraIndex;
+  stream._exactReadPaused = false;
+  stream._exactReadableEnded = false;
+  return stream;
+}
+
+function _spawnReadReachedEof(bytes) {
+  return !!(bytes && bytes._exactEof === true);
+}
+
 // Signal name<->number maps for the async spawn path. Reuse the canonical
 // Darwin maps defined above (_signalMap / _signalNumbers) rather than a second,
 // divergent copy: the previous literal here used Linux numbering, so on macOS/iOS
@@ -2755,12 +2816,7 @@ function ChildProcess(handle, pid, stdioModes) {
     this.stdio.push(this._ipcMode ? null : undefined);
     for (var extraIdx = 0; extraIdx < modes.extra.length; extraIdx++) {
       if (modes.extra[extraIdx] === 'pipe') {
-        var extraStream = new Stream.Writable({
-          write: function(chunk, encoding, callback) {
-            _writeSpawnStream(self._handle, 'extra:' + this._extraIndex, chunk, callback);
-          }
-        });
-        extraStream._extraIndex = extraIdx;
+        var extraStream = _makeSpawnExtraStream(Stream, self, extraIdx);
         this.stdio.push(extraStream);
       } else {
         this.stdio.push(null);
@@ -2872,6 +2928,34 @@ function ChildProcess(handle, pid, stdioModes) {
   var pollInterval = 2; // ms
   var stdoutEnded = false;
   var stderrEnded = false;
+  var closeFinalized = false;
+
+  function allExtraStreamsEnded() {
+    for (var index = 0; index < (modes.extra ? modes.extra.length : 0); index++) {
+      if (modes.extra[index] !== 'pipe') continue;
+      var stream = self.stdio[index + 4];
+      if (stream && stream._exactReadableEnded !== true) return false;
+    }
+    return true;
+  }
+
+  function finishCloseIfReady() {
+    if (closeFinalized || !self._exited || !allExtraStreamsEnded()) {
+      return closeFinalized;
+    }
+    closeFinalized = true;
+    self._closeFinalized = true;
+    setTimeout(function() {
+      self.emit('close', self.exitCode, self.signalCode);
+      if (globalThis.__exactSpawnProcesses) {
+        delete globalThis.__exactSpawnProcesses[String(self._handle)];
+      }
+      if (typeof globalThis.__exactSpawnDispose === 'function') {
+        globalThis.__exactSpawnDispose(self._handle);
+      }
+    }, 0);
+    return true;
+  }
 
   function closeStreams() {
     if (!stdoutEnded) {
@@ -2894,7 +2978,7 @@ function ChildProcess(handle, pid, stdioModes) {
 
   function pollStreams() {
     if (self._pumpInProgress) return;
-    if (self._exited && stdoutEnded && stderrEnded) return;
+    if (closeFinalized) return;
     self._pumpInProgress = true;
     var hadActivity = false;
 
@@ -2915,6 +2999,23 @@ function ChildProcess(handle, pid, stdioModes) {
       pushStreamData('stderr', errData, modes.stderr);
       if (modes.stderr === 'pipe' && (!errData || !errData.length)) {
         if (self._exited) stderrEnded = true;
+      }
+    }
+
+    for (var extraIndex = 0; extraIndex < (modes.extra ? modes.extra.length : 0); extraIndex++) {
+      var extra = self.stdio[extraIndex + 4];
+      if (!extra || modes.extra[extraIndex] !== 'pipe' ||
+          extra._exactReadableEnded === true || extra._exactReadPaused === true) continue;
+      var extraData = globalThis.__exactSpawnRead(self._handle, extraIndex + 4);
+      if (extraData && extraData.length) {
+        hadActivity = true;
+        if (extra.push(_bytesToBuffer(extraData)) === false) {
+          extra._exactReadPaused = true;
+        }
+      }
+      if (_spawnReadReachedEof(extraData)) {
+        extra._exactReadableEnded = true;
+        extra.push(null);
       }
     }
 
@@ -2984,24 +3085,15 @@ function ChildProcess(handle, pid, stdioModes) {
         }
 
         self.emit('exit', self.exitCode, self.signalCode);
-        // 'close' fires after streams are done
-        setTimeout(function() {
-          self.emit('close', self.exitCode, self.signalCode);
-          if (globalThis.__exactSpawnProcesses) {
-            delete globalThis.__exactSpawnProcesses[String(self._handle)];
-          }
-          if (typeof globalThis.__exactSpawnDispose === 'function') {
-            globalThis.__exactSpawnDispose(self._handle);
-          }
-        }, 0);
-        self._pumpInProgress = false;
-        return;
+        finishCloseIfReady();
       }
     }
 
+    finishCloseIfReady();
+
     // (ENG-23032) Record activity so the driver loops below back off when idle.
     self._lastPollActivity = hadActivity;
-    if (!self._useNativePump) {
+    if (!closeFinalized && !self._useNativePump) {
       self._pollTimer = setTimeout(pollStreams, _nextSpawnPollDelay(self, hadActivity));
       if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
     }
@@ -3012,13 +3104,13 @@ function ChildProcess(handle, pid, stdioModes) {
 
   if (self._useNativePump && self._handle >= 0) {
     var nativePollFallback = function() {
-      if (self._exited) {
+      if (closeFinalized) {
         return;
       }
       if (typeof self.__pumpFromNative === 'function') {
         self.__pumpFromNative();
       }
-      if (!self._exited) {
+      if (!closeFinalized) {
         self._pollTimer = setTimeout(nativePollFallback, _nextSpawnPollDelay(self, self._lastPollActivity));
         if (!self._ref && self._pollTimer && typeof self._pollTimer.unref === 'function') self._pollTimer.unref();
       }
@@ -3027,7 +3119,7 @@ function ChildProcess(handle, pid, stdioModes) {
     // where no other pending tasks exist.
     if (self._handle >= 0) {
       self._pollTimer = setTimeout(function() {
-        if (self._exited) return;
+        if (closeFinalized) return;
         if (!self._spawnEmitted) { self._spawnEmitted = true; self.emit('spawn'); }
         nativePollFallback();
       }, 0);
@@ -3194,13 +3286,7 @@ ChildProcess.prototype.spawn = function(options) {
     this.stdio.push(this._ipcMode ? null : undefined);
     for (var extraIdx = 0; extraIdx < stdioCfg.extra.length; extraIdx++) {
       if (stdioCfg.extra[extraIdx] === 'pipe') {
-        var extraStreamIdx = extraIdx;
-        var extraStream = new Stream.Writable({
-          write: function(chunk, encoding, callback) {
-            _writeSpawnStream(self2._handle, 'extra:' + this._extraIndex, chunk, callback);
-          }
-        });
-        extraStream._extraIndex = extraIdx;
+        var extraStream = _makeSpawnExtraStream(Stream, self2, extraIdx);
         this.stdio.push(extraStream);
       } else {
         this.stdio.push(null);
@@ -3307,13 +3393,42 @@ ChildProcess.prototype.spawn = function(options) {
     if (self3.stdin && typeof self3.stdin.end === 'function') self3.stdin.end();
   }
 
+  var closeFinalized2 = false;
+
+  function allExtraStreamsEnded2() {
+    for (var index = 0; index < (stdioCfg.extra ? stdioCfg.extra.length : 0); index++) {
+      if (stdioCfg.extra[index] !== 'pipe') continue;
+      var stream = self3.stdio[index + 4];
+      if (stream && stream._exactReadableEnded !== true) return false;
+    }
+    return true;
+  }
+
+  function finishCloseIfReady2() {
+    if (closeFinalized2 || !self3._exited || !allExtraStreamsEnded2()) {
+      return closeFinalized2;
+    }
+    closeFinalized2 = true;
+    self3._closeFinalized = true;
+    setTimeout(function() {
+      self3.emit('close', self3.exitCode, self3.signalCode);
+      if (globalThis.__exactSpawnProcesses) {
+        delete globalThis.__exactSpawnProcesses[String(self3._handle)];
+      }
+      if (typeof globalThis.__exactSpawnDispose === 'function') {
+        globalThis.__exactSpawnDispose(self3._handle);
+      }
+    }, 0);
+    return true;
+  }
+
   function parseStatus2(jsonText) {
     if (!jsonText) return { exited: false };
     try { return JSON.parse(jsonText); } catch(e) { return { exited: false }; }
   }
 
   function pollStreams2() {
-    if (self3._exited) return;
+    if (closeFinalized2) return;
     var hadActivity = false;
     // Read stdout
     if (self3.stdout && self3._useNativePump && !self3._exactSuppressStdoutPump) {
@@ -3334,6 +3449,24 @@ ChildProcess.prototype.spawn = function(options) {
           self3.stderr.push(_bytesToBuffer(errOut)); // (ENG-23009) preserve binary bytes
         }
       } catch (e) { _swallowDebug('stderr pump read failed', e); }
+    }
+    for (var extraIndex = 0; extraIndex < (stdioCfg.extra ? stdioCfg.extra.length : 0); extraIndex++) {
+      var extra = self3.stdio[extraIndex + 4];
+      if (!extra || stdioCfg.extra[extraIndex] !== 'pipe' ||
+          extra._exactReadableEnded === true || extra._exactReadPaused === true) continue;
+      try {
+        var extraData = globalThis.__exactSpawnRead(self3._handle, extraIndex + 4);
+        if (extraData && extraData.length > 0) {
+          hadActivity = true;
+          if (extra.push(_bytesToBuffer(extraData)) === false) {
+            extra._exactReadPaused = true;
+          }
+        }
+        if (_spawnReadReachedEof(extraData)) {
+          extra._exactReadableEnded = true;
+          extra.push(null);
+        }
+      } catch (e) { _swallowDebug('extra stdio pump read failed', e); }
     }
     // Poll IPC messages
     if (self3._ipcMode && !self3._disconnectPending) {
@@ -3392,20 +3525,12 @@ ChildProcess.prototype.spawn = function(options) {
           }
           _flushSentSocketEntries(self3._sentSocketServers);
           self3.emit('exit', self3.exitCode, self3.signalCode);
-          setTimeout(function() {
-            self3.emit('close', self3.exitCode, self3.signalCode);
-            if (globalThis.__exactSpawnProcesses) {
-              delete globalThis.__exactSpawnProcesses[String(self3._handle)];
-            }
-            if (typeof globalThis.__exactSpawnDispose === 'function') {
-              globalThis.__exactSpawnDispose(self3._handle);
-            }
-          }, 0);
-          return;
+          finishCloseIfReady2();
         }
       } catch (e) { _swallowDebug('spawn status poll failed', e); }
     }
-    if (!self3._exited) {
+    finishCloseIfReady2();
+    if (!closeFinalized2) {
       self3._pollTimer = setTimeout(pollStreams2, _nextSpawnPollDelay(self3, hadActivity)); // (ENG-23032) back off when idle
       if (!self3._ref && self3._pollTimer && typeof self3._pollTimer.unref === 'function') self3._pollTimer.unref();
     }

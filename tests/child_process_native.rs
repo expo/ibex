@@ -778,40 +778,38 @@ setTimeout(function () {
 /// reuse fd 0/1/2/3, so a naive sequence of dup2 calls overwrites a source fd
 /// needed by a later mapping. Exercise IPC and an extra pipe together because
 /// they require two distinct source descriptors above the standard streams.
+/// The child is a plain POSIX shell so this remains a descriptor-remapping
+/// regression test; it does not invent ambient authority for a nested Ibex
+/// runtime to adopt an otherwise unowned numeric fd.
 #[test]
 fn fork_stdio_remap_survives_closed_low_parent_fds() {
     let dir = unique_dir("closed-low-fds");
-    write_text(
-        &dir.join("child.js"),
-        r#"
-const fs = require('fs');
-fs.writeSync(4, 'extra-fd-ok');
-process.send({ ipc: 'ipc-ok' });
-setTimeout(function () { process.exit(0); }, 20);
-"#,
-    );
     write_text(
         &dir.join("app.js"),
         r#"
 const cp = require('child_process');
 const fs = require('fs');
 const resultPath = __dirname + '/result.json';
-const child = cp.fork(__dirname + '/child.js', [], {
+const packet = JSON.stringify({ __exactIpc: true, type: 'message', data: { ipc: 'ipc-ok' } });
+const script = "printf 'extra-fd-ok' >&4; printf '%s\\n' '" + packet + "' >&3";
+const child = cp.spawn('/bin/sh', ['-c', script], {
   stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe']
 });
 let ipc = null;
 let extra = '';
 let extraClosed = false;
 let childClosed = false;
+let watchdog = null;
 function finish() {
   if (!childClosed || !extraClosed) return;
+  if (watchdog !== null) { clearTimeout(watchdog); watchdog = null; }
   fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, code: child.exitCode }));
 }
 child.on('message', function (message) { ipc = message && message.ipc; });
 child.stdio[4].on('data', function (chunk) { extra += chunk.toString(); });
 child.stdio[4].on('end', function () { extraClosed = true; finish(); });
 child.on('close', function () { childClosed = true; finish(); });
-setTimeout(function () {
+watchdog = setTimeout(function () {
   if (!childClosed || !extraClosed) {
     fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, timeout: true }));
     try { child.kill(); } catch (_) {}
@@ -868,6 +866,95 @@ setTimeout(function () {
         "forked child did not exit cleanly: {result}"
     );
     assert_eq!(result.get("timeout"), None, "fd remap stalled: {result}");
+}
+
+#[test]
+fn extra_stdio_is_backpressure_aware_full_duplex_and_closes_after_eof() {
+    let dir = unique_dir("extra-duplex");
+    let app = r#"
+const cp = require('child_process');
+const script = "payload=$(cat <&4); printf 'reply:%s:' \"$payload\" >&4; dd if=/dev/zero bs=1024 count=256 >&4 2>/dev/null; exec 4>&-; sleep 1";
+const child = cp.spawn('/bin/sh', ['-c', script], {
+  stdio: ['ignore', 'ignore', 'ignore', 'ignore', 'pipe']
+});
+const extra = child.stdio[4];
+let bytes = 0;
+let prefix = '';
+let exited = false;
+let ended = false;
+let endBeforeExit = false;
+let watchdog = setTimeout(function () {
+  console.log('RESULT|timeout=true|bytes=' + bytes + '|prefix=' + prefix);
+  try { child.kill(); } catch (_) {}
+  process.exit(1);
+}, 15000);
+
+// Forgeable internal stream names must be parsed strictly. The historical
+// atoi-based decoder treated this as extra stream zero and closed fd4.
+globalThis.__exactSpawnCloseStdin(child._handle, 'extra:not-a-number', true);
+
+// `end` must half-close only the writable side. The child reads to EOF before
+// replying through the same socket, which would deadlock if the fd were kept
+// fully open or would lose the reply if it were fully closed.
+extra.end(Buffer.from('ping'));
+
+// Delay consumption long enough to fill the Readable high-water mark. The
+// native pump must pause instead of buffering the entire child output, then
+// resume when adding the data listener calls _read again.
+setTimeout(function () {
+  extra.on('data', function (chunk) {
+    bytes += chunk.length;
+    if (prefix.length < 11) prefix += chunk.toString('utf8', 0, Math.min(chunk.length, 11 - prefix.length));
+  });
+  extra.on('end', function () {
+    ended = true;
+    endBeforeExit = !exited;
+  });
+}, 150);
+
+child.on('exit', function () { exited = true; });
+child.on('close', function () {
+  clearTimeout(watchdog);
+  console.log(
+    'RESULT|timeout=false|bytes=' + bytes + '|prefix=' + prefix +
+    '|ended=' + ended + '|endBeforeExit=' + endBeforeExit +
+    '|closeAfterEnd=' + ended + '|code=' + child.exitCode
+  );
+});
+"#;
+    let run = run_app_in(&dir, app, Duration::from_secs(35));
+    let line = result_line(&run);
+    assert_eq!(
+        field(line, "timeout="),
+        Some("false"),
+        "duplex stalled: {line}"
+    );
+    assert_eq!(
+        field(line, "prefix="),
+        Some("reply:ping:"),
+        "reply lost: {line}"
+    );
+    assert_eq!(
+        field(line, "bytes="),
+        Some("262155"),
+        "backpressured payload was truncated: {line}"
+    );
+    assert_eq!(
+        field(line, "ended="),
+        Some("true"),
+        "EOF not surfaced: {line}"
+    );
+    assert_eq!(
+        field(line, "endBeforeExit="),
+        Some("true"),
+        "early EOF was delayed until process exit: {line}"
+    );
+    assert_eq!(
+        field(line, "closeAfterEnd="),
+        Some("true"),
+        "child close raced readable EOF: {line}"
+    );
+    assert_eq!(field(line, "code="), Some("0"), "child failed: {line}");
 }
 
 /// ENG-24262: fork happens while native fs/DNS workers are active. Child setup
