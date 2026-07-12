@@ -4813,7 +4813,7 @@ cp \"$input\" \"$out\"\n";
         );
         revoker.join().unwrap();
         assert!(
-            outcome.contains("Permission denied"),
+            outcome.to_ascii_lowercase().contains("permission denied"),
             "read continued after authority revocation: {outcome}"
         );
         assert!(host.typed_decision_count() >= before + 6);
