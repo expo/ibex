@@ -1,0 +1,44 @@
+{
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-Cf3R5xS04EEXszjH43A3qYEM68h2C3zlTl1p-O0Fv4M",
+  "policyDigest": "sha256-uatix1CunjbIbORAjhVWV0nLJxVcbmMeslWWY3IbM_A",
+  "purpose": "production",
+  "mode": "enforce",
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "logger",
+        "integrity": "sha256-PRUF2jB0w8btgcLgeSTKOJtTb5jlrTFlggdpmgg5Ezo",
+        "locator": "logger@1.0.0"
+      },
+      "floor": [
+        {
+          "authority": {
+            "cap": "env:read",
+            "resource": {
+              "kind": "environment-name",
+              "target": "principal-overlay",
+              "name": "APP_MODE"
+            }
+          },
+          "provenance": [
+            {
+              "kind": "import-site",
+              "source": "app.mjs:3"
+            }
+          ]
+        }
+      ],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    }
+  ]
+}

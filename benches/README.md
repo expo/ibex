@@ -1,5 +1,36 @@
 # Runtime benchmarks
 
+## `runtime_compare` — local Hermes shell vs production Ibex
+
+This broad harness runs plain JavaScript fixtures through:
+
+- `tools/hermes/hermes` (or `HERMES_BENCH_BIN`)
+- ordinary `ibex run` (enforce + lockdown by default)
+- the separate `ibex capsec audit` foreground diagnostic
+
+Retired permissive/audit flags are intentionally absent: they are not members
+of the production profile. The harness reports median subprocess wall-clock and
+median absolute deviation (MAD) for startup-only, math/global lookup,
+object/array, JSON/string, and Promise workloads. It rotates runner order per
+sample and disables Ibex's persistent bytecode cache, so both subprocess arms
+parse each sample instead of granting only Ibex a warm compile cache.
+
+```sh
+cargo build --release --bin ibex
+BENCH_SAMPLES=9 BENCH_WARMUP=2 \
+  IBEX_BENCH_BIN=target/release/ibex \
+  cargo bench --bench runtime_compare
+```
+
+The harness refuses a debug Ibex binary by default because a debug-vs-release
+headline is not meaningful. `BENCH_ALLOW_DEBUG=1` permits an explicitly
+non-comparable smoke run while iterating locally.
+
+Use `HERMES_BENCH_BIN=/path/to/upstream/hermes` for a strict upstream-unpatched
+Hermes control. The default local `tools/hermes/hermes` is a useful shell
+baseline, but in this repo it is normally installed by Ibex's Hermes scripts and
+may include the carried patch stack.
+
 ## `compartment_overhead` — LLP 0013 Goal 3 steady-state overhead
 
 [LLP 0013](../llp/0013-per-package-capability-compartments.rfc.md) Goal 3 budgets

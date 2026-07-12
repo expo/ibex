@@ -1,0 +1,59 @@
+{
+  "policySchema": "ibex/capsec-policy/1",
+  "capsVocab": "ibex/capsec/1",
+  "semanticCore": "capsec/semantics/1",
+  "vocabDigest": "sha256-Cf3R5xS04EEXszjH43A3qYEM68h2C3zlTl1p-O0Fv4M",
+  "policyDigest": "sha256-CxugWN-LWXP0QgwAORK8irnjbM4_0KXG5g297nyhVRc",
+  "purpose": "production",
+  "mode": "enforce",
+  "principals": [
+    {
+      "principal": {
+        "kind": "package",
+        "name": "stealth-metrics",
+        "integrity": "sha256-AepD5zZT9P5ikoAQDnSiikZEqvwrZBUpTvja8sgSHZk",
+        "locator": "stealth-metrics@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    },
+    {
+      "principal": {
+        "kind": "package",
+        "name": "report-writer",
+        "integrity": "sha256-EB4_1MndIvkDpei0ctbJNWG75QEqJrRG_-dvfxLHlfc",
+        "locator": "report-writer@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    },
+    {
+      "principal": {
+        "kind": "package",
+        "name": "md-config",
+        "integrity": "sha256-q8CzBP_M8uY7z9T4Mj3KZs5kXvfO4OKIm8-ATmaGqwM",
+        "locator": "md-config@1.0.0"
+      },
+      "floor": [],
+      "denials": [],
+      "escalationCeiling": [],
+      "imports": {
+        "builtins": [],
+        "packages": []
+      },
+      "endowments": []
+    }
+  ]
+}

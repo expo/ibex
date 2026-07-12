@@ -141,3 +141,11 @@ tempfile = "3"
 [[bench]]
 name = "compartment_overhead"
 harness = false
+
+# Broad subprocess wall-clock comparison for local Hermes shell vs Ibex CLI
+# variants. Complements `compartment_overhead`: this captures startup/bootstrap
+# and user-visible CLI mode costs for plain JS workloads, while that bench
+# isolates the LLP 0013 hot interpreter-path guard.
+[[bench]]
+name = "runtime_compare"
+harness = false
