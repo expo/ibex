@@ -1045,9 +1045,9 @@ impl Runtime {
         if cli.compat.as_deref() == Some("bun") {
             std::env::set_var("EXACT_COMPAT_BUN", "1");
         }
-        let host = Host::new(build_host_config(cli)?);
+        let (host, armed_snapshot_digest) = build_host(cli)?;
         crate::host::abi::install_host(host.clone());
-        let engine = engine::create_engine(&cli.engine)?;
+        let engine = engine::create_engine(&cli.engine, armed_snapshot_digest.as_deref())?;
 
         // If the engine doesn't support ESM, fall back to CJS bundling.
         // Hermes evaluateJavaScript() only supports script mode, not ES modules.
@@ -1517,6 +1517,67 @@ impl Runtime {
 
     pub async fn wait_for_debugger(&self) -> Result<()> {
         self.engine.wait_for_debugger().await
+    }
+}
+
+/// Authenticate the immutable production snapshot before either the host or
+/// Hermes can observe project code. The independently generated expected
+/// identity is launcher input, not policy authority, and is discarded after
+/// arming. @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
+    use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    use std::sync::Arc;
+
+    match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
+        (None, None) => Ok((Host::new(build_host_config(cli)?), None)),
+        (Some(_), None) | (None, Some(_)) => anyhow::bail!(
+            "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
+        ),
+        (Some(snapshot_path), Some(identity_path)) => {
+            if cli.policy.is_some()
+                || !cli.allow.is_empty()
+                || !cli.deny.is_empty()
+                || cli.allow_all
+                || cli.allow_env_endowments
+                || cli.capsec != crate::cli::CapSecMode::Auto
+            {
+                anyhow::bail!(
+                    "armed capability startup cannot be combined with legacy policy, mode, allow, deny, allow-all, or environment-endowment overrides"
+                );
+            }
+            let snapshot_bytes = std::fs::read(snapshot_path).with_context(|| {
+                format!(
+                    "failed to read armed capability snapshot {}",
+                    snapshot_path.display()
+                )
+            })?;
+            let identity_bytes = std::fs::read(identity_path).with_context(|| {
+                format!(
+                    "failed to read capsec arming identity {}",
+                    identity_path.display()
+                )
+            })?;
+            let identity_text = std::str::from_utf8(&identity_bytes)
+                .context("capsec arming identity is not UTF-8")?;
+            let identity_value = capsec_semantics::strict_json::parse_strict(identity_text)
+                .context("invalid strict JSON in capsec arming identity")?;
+            let expected: ExpectedArmingIdentity =
+                serde_json::from_value(identity_value).context("invalid capsec arming identity")?;
+            let snapshot = Arc::new(
+                ArmedSnapshot::load(&snapshot_bytes, &expected)
+                    .context("refused to arm capability snapshot")?,
+            );
+            let digest = snapshot.digest().as_str().to_owned();
+            let host = Host::new_armed(
+                HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                snapshot,
+            )
+            .context("failed to construct armed capability host")?;
+            Ok((host, Some(digest)))
+        }
     }
 }
 
@@ -3261,6 +3322,111 @@ mod tests {
     use crate::cli::Cli;
     use clap::Parser;
     use tempfile::tempdir;
+
+    fn write_arming_fixture(directory: &Path) -> (PathBuf, PathBuf, String) {
+        use capsec_semantics::arming::ExpectedArmingIdentity;
+        use capsec_semantics::model::Digest;
+
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        value["workflow"] = serde_json::Value::String("production".into());
+        value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let digest = capsec_semantics::digest::compute_domain_digest(
+            capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+            &value,
+            &["armedSnapshotDigest".to_string()],
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
+        let digest_at = |path: &[&str]| {
+            let field = path
+                .iter()
+                .fold(&value, |current, segment| &current[*segment]);
+            Digest::new(field.as_str().unwrap()).unwrap()
+        };
+        let expected = ExpectedArmingIdentity {
+            profile: value["capsVocab"].as_str().unwrap().into(),
+            semantic_core: value["semanticCore"].as_str().unwrap().into(),
+            vocab_digest: digest_at(&["vocabDigest"]),
+            registry_digest: digest_at(&["registryDigest"]),
+            policy_digest: digest_at(&["policyDigest"]),
+            target: value["engine"]["target"].as_str().unwrap().into(),
+            engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+            features: value["engine"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().into())
+                .collect(),
+            package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            target_complete_and_advertised: true,
+        };
+        let snapshot_path = directory.join("armed.json");
+        let identity_path = directory.join("identity.json");
+        std::fs::write(&snapshot_path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+        std::fs::write(
+            &identity_path,
+            serde_json::to_vec_pretty(&expected).unwrap(),
+        )
+        .unwrap();
+        (snapshot_path, identity_path, digest)
+    }
+
+    #[test]
+    fn armed_startup_requires_paired_artifacts() {
+        let cli = Cli::parse_from(["ibex", "--capsec-armed-snapshot", "snapshot.json", "app.ts"]);
+        let error = build_host(&cli)
+            .err()
+            .expect("must reject unpaired artifacts")
+            .to_string();
+        assert!(error.contains("must be provided together"), "{error}");
+    }
+
+    #[test]
+    fn armed_startup_rejects_legacy_authority_overrides_before_io() {
+        let cli = Cli::parse_from([
+            "ibex",
+            "--capsec-armed-snapshot",
+            "missing-snapshot.json",
+            "--capsec-arming-identity",
+            "missing-identity.json",
+            "--allow",
+            "fs:read:/tmp",
+            "app.ts",
+        ]);
+        let error = build_host(&cli)
+            .err()
+            .expect("must reject legacy overrides")
+            .to_string();
+        assert!(error.contains("cannot be combined with legacy"), "{error}");
+        assert!(
+            !error.contains("failed to read"),
+            "override must fail before artifact I/O: {error}"
+        );
+    }
+
+    #[test]
+    fn armed_startup_authenticates_snapshot_and_returns_engine_digest() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, expected_digest) = write_arming_fixture(directory.path());
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.into_os_string(),
+            "app.ts".into(),
+        ]);
+        let (host, digest) = build_host(&cli).expect("fixture must arm");
+        assert_eq!(digest.as_deref(), Some(expected_digest.as_str()));
+        assert_eq!(
+            host.armed_snapshot().unwrap().digest().as_str(),
+            expected_digest
+        );
+    }
 
     fn file_hash(path: &Path) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

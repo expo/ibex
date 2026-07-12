@@ -320,7 +320,7 @@ async fn run(cli: Cli) -> Result<()> {
     // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
     // the environment (std::getenv). Setting it here, before any runtime is
     // created, lets `--lockdown` reach the in-process Hermes runtime.
-    if cli.lockdown {
+    if cli.lockdown || cli.capsec_armed_snapshot.is_some() {
         std::env::set_var("IBEX_LOCKDOWN", "1");
     }
 
@@ -951,6 +951,18 @@ fn watch_child_args(cli: &Cli) -> Vec<String> {
     if let Some(policy) = &cli.policy {
         flags.extend(["--policy".into(), policy.to_string_lossy().into_owned()]);
     }
+    if let Some(snapshot) = &cli.capsec_armed_snapshot {
+        flags.extend([
+            "--capsec-armed-snapshot".into(),
+            snapshot.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(identity) = &cli.capsec_arming_identity {
+        flags.extend([
+            "--capsec-arming-identity".into(),
+            identity.to_string_lossy().into_owned(),
+        ]);
+    }
     for allow in &cli.allow {
         flags.extend(["--allow".into(), allow.clone()]);
     }
@@ -1576,6 +1588,26 @@ mod tests {
         let cli = cli::Cli::parse_from(["ibex", "--watch", "--compat", "bun", "app.ts"]);
         let joined = watch_child_args(&cli).join(" ");
         assert!(joined.contains("--compat bun"), "flags: {joined}");
+    }
+
+    #[test]
+    fn watch_child_preserves_armed_snapshot_pair() {
+        let cli = cli::Cli::parse_from([
+            "ibex",
+            "--watch",
+            "--capsec-armed-snapshot",
+            "armed.json",
+            "--capsec-arming-identity",
+            "identity.json",
+            "app.ts",
+        ]);
+        let flags = watch_child_args(&cli);
+        assert!(flags
+            .windows(2)
+            .any(|pair| pair == ["--capsec-armed-snapshot", "armed.json"]));
+        assert!(flags
+            .windows(2)
+            .any(|pair| pair == ["--capsec-arming-identity", "identity.json"]));
     }
 
     #[test]

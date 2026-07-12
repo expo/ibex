@@ -120,9 +120,11 @@ pub enum EngineFeature {
 ///
 /// The CLI's clap value list rejects non-Hermes names before this runs; the
 /// unknown-engine arm guards internal callers.
-pub fn create_engine(name: &str) -> Result<Arc<dyn Engine>> {
+pub fn create_engine(name: &str, armed_snapshot_digest: Option<&str>) -> Result<Arc<dyn Engine>> {
     match name {
-        "hermes" => Ok(Arc::new(hermes::HermesEngine::new()?)),
+        "hermes" => Ok(Arc::new(hermes::HermesEngine::new_with_armed_snapshot(
+            armed_snapshot_digest,
+        )?)),
         other => anyhow::bail!("Unknown engine: {other}. Ibex currently supports Hermes only."),
     }
 }

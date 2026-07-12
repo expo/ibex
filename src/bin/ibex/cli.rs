@@ -86,6 +86,19 @@ pub struct Cli {
     #[arg(long)]
     pub policy: Option<PathBuf>,
 
+    /// Immutable capability snapshot selected by the trusted launcher.
+    /// Must be paired with --capsec-arming-identity. Hidden until WP9 flips
+    /// ordinary execution to the generated armed-artifact workflow.
+    /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    #[arg(long = "capsec-armed-snapshot", value_name = "FILE", hide = true)]
+    pub capsec_armed_snapshot: Option<PathBuf>,
+
+    /// Independently observed execution identity used to authenticate the
+    /// immutable snapshot. Must be paired with --capsec-armed-snapshot.
+    /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    #[arg(long = "capsec-arming-identity", value_name = "FILE", hide = true)]
+    pub capsec_arming_identity: Option<PathBuf>,
+
     /// Allow capability (can be repeated)
     #[arg(long, value_name = "CAPABILITY")]
     pub allow: Vec<String>,

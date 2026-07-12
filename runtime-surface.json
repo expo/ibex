@@ -50,6 +50,8 @@
       "nonEnumeratedParsers": [
         { "commandPath": "ibex", "argumentId": "allow", "parserKind": "utf8-string" },
         { "commandPath": "ibex", "argumentId": "args", "parserKind": "utf8-string" },
+        { "commandPath": "ibex", "argumentId": "capsec_armed_snapshot", "parserKind": "os-path" },
+        { "commandPath": "ibex", "argumentId": "capsec_arming_identity", "parserKind": "os-path" },
         { "commandPath": "ibex", "argumentId": "deny", "parserKind": "utf8-string" },
         { "commandPath": "ibex", "argumentId": "eval_code", "parserKind": "utf8-string" },
         { "commandPath": "ibex", "argumentId": "file", "parserKind": "utf8-string" },
@@ -238,6 +240,42 @@
               "allowHyphenValues": false
             },
             "hiddenAliases": ["--allow-advisory-attribution"]
+          },
+          {
+            "id": "capsec_armed_snapshot",
+            "names": ["--capsec-armed-snapshot"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "hidden": true
+          },
+          {
+            "id": "capsec_arming_identity",
+            "names": ["--capsec-arming-identity"],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            },
+            "hidden": true
           },
           {
             "id": "compat",

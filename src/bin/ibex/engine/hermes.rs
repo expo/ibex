@@ -53,6 +53,9 @@ struct HermesRuntimeOpaque {
 
 extern "C" {
     fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
+    fn ex_hermes_create_armed(
+        armed_snapshot_digest: *const std::os::raw::c_char,
+    ) -> *mut HermesRuntimeOpaque;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
         runtime: *mut HermesRuntimeOpaque,
@@ -466,6 +469,7 @@ pub struct HermesEngine {
     debugger_requested: Arc<AtomicBool>,
     debugger_enabled: AtomicBool,
     debugger_warned: AtomicBool,
+    armed_snapshot_digest: Option<String>,
 }
 
 struct RuntimeHandle {
@@ -499,9 +503,23 @@ impl Drop for DebuggerInflightGuard<'_> {
 }
 
 impl SharedRuntime {
-    fn new() -> Result<Self> {
-        let raw = unsafe { ex_hermes_create() };
+    fn new(armed_snapshot_digest: Option<&str>) -> Result<Self> {
+        let digest = armed_snapshot_digest
+            .map(CString::new)
+            .transpose()
+            .context("armed snapshot digest contains an interior NUL")?;
+        let raw = unsafe {
+            match digest.as_ref() {
+                Some(digest) => ex_hermes_create_armed(digest.as_ptr()),
+                None => ex_hermes_create(),
+            }
+        };
         if raw.is_null() {
+            if armed_snapshot_digest.is_some() {
+                anyhow::bail!(
+                    "Failed to create Hermes runtime: armed snapshot handshake was rejected"
+                );
+            }
             anyhow::bail!("Failed to create Hermes runtime");
         }
         unsafe {
@@ -577,9 +595,9 @@ impl SharedRuntime {
 }
 
 impl RuntimeHandle {
-    fn new() -> Result<Self> {
+    fn new(armed_snapshot_digest: Option<&str>) -> Result<Self> {
         Ok(Self {
-            shared: Arc::new(SharedRuntime::new()?),
+            shared: Arc::new(SharedRuntime::new(armed_snapshot_digest)?),
         })
     }
 
@@ -760,7 +778,15 @@ impl CdpBackend for HermesCdpBackend {
 
 impl HermesEngine {
     /// Create a new Hermes engine instance
+    #[cfg(test)]
     pub fn new() -> Result<Self> {
+        Self::new_with_armed_snapshot(None)
+    }
+
+    /// Create Hermes bound to the exact immutable snapshot already installed
+    /// in the host. Runtime allocation fails if the host does not authenticate
+    /// this digest.
+    pub fn new_with_armed_snapshot(armed_snapshot_digest: Option<&str>) -> Result<Self> {
         // (ENG-23234) Must run before the first event-loop park so callback
         // pushes wake the select! in wait_for_callback_or_sleep even without
         // the `cli-notify` feature. No-op under `cli-notify`.
@@ -774,6 +800,7 @@ impl HermesEngine {
             debugger_requested: Arc::new(AtomicBool::new(false)),
             debugger_enabled: AtomicBool::new(false),
             debugger_warned: AtomicBool::new(false),
+            armed_snapshot_digest: armed_snapshot_digest.map(str::to_owned),
         })
     }
 
@@ -807,7 +834,7 @@ impl HermesEngine {
         self.ensure_thread()?;
         let mut runtime = self.runtime.lock().await;
         if runtime.is_none() {
-            *runtime = Some(RuntimeHandle::new()?);
+            *runtime = Some(RuntimeHandle::new(self.armed_snapshot_digest.as_deref())?);
         }
         runtime
             .as_ref()
@@ -843,7 +870,7 @@ impl HermesEngine {
         self.ensure_thread()?;
         let mut runtime = self.runtime.lock().await;
         if runtime.is_none() {
-            *runtime = Some(RuntimeHandle::new()?);
+            *runtime = Some(RuntimeHandle::new(self.armed_snapshot_digest.as_deref())?);
         }
         let handle = runtime
             .as_ref()
@@ -2096,6 +2123,61 @@ mod tests {
         LOCK.get_or_init(Mutex::default)
     }
 
+    fn install_armed_test_host() -> (HostResetGuard, String) {
+        use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+        use capsec_semantics::model::Digest;
+
+        let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/capsec/examples/armed-snapshot.canonical.json"
+        )))
+        .unwrap();
+        value["workflow"] = serde_json::Value::String("production".into());
+        value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        let digest = capsec_semantics::digest::compute_domain_digest(
+            capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+            &value,
+            &["armedSnapshotDigest".to_string()],
+        )
+        .unwrap();
+        value["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
+        let digest_at = |path: &[&str]| {
+            let field = path
+                .iter()
+                .fold(&value, |current, segment| &current[*segment]);
+            Digest::new(field.as_str().unwrap()).unwrap()
+        };
+        let expected = ExpectedArmingIdentity {
+            profile: value["capsVocab"].as_str().unwrap().into(),
+            semantic_core: value["semanticCore"].as_str().unwrap().into(),
+            vocab_digest: digest_at(&["vocabDigest"]),
+            registry_digest: digest_at(&["registryDigest"]),
+            policy_digest: digest_at(&["policyDigest"]),
+            target: value["engine"]["target"].as_str().unwrap().into(),
+            engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
+            features: value["engine"]["features"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|feature| feature.as_str().unwrap().into())
+                .collect(),
+            package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            target_complete_and_advertised: true,
+        };
+        let snapshot =
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+        let host = crate::host::Host::new_armed(
+            crate::host::HostConfig {
+                mode: crate::host::SecurityMode::Enforce,
+                ..Default::default()
+            },
+            Arc::new(snapshot),
+        )
+        .unwrap();
+        crate::host::abi::install_host(host);
+        (HostResetGuard, digest)
+    }
+
     struct HostResetGuard;
 
     impl Drop for HostResetGuard {
@@ -2114,6 +2196,22 @@ mod tests {
             ..Default::default()
         }));
         HostResetGuard
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_runtime_creation_requires_exact_installed_snapshot_digest() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+
+        let error = match SharedRuntime::new(Some("sha256:wrong")) {
+            Ok(_) => panic!("mismatched digest must reject Hermes allocation"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("handshake was rejected"));
+
+        let runtime =
+            SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
+        runtime.shutdown();
     }
 
     #[tokio::test(flavor = "current_thread")]

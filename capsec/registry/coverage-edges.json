@@ -128194,6 +128194,26 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.capsec.armed.snapshot.os.path.0e9n3fy",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex:capsec_armed_snapshot:os-path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.argument.parser.ibex.capsec.arming.identity.os.path.1r1tc6j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex:capsec_arming_identity:os-path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.deny.utf8.string.07a7bjv",
       "classification": "non-capability",
       "surface": {
@@ -130484,6 +130504,86 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.cli.option.ibex.capsec.armed.snapshot.0qm4ppc",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_armed_snapshot"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.armed.snapshot.action.set.0o8sbne",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_armed_snapshot:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.armed.snapshot.arity.1.1.0nws75j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_armed_snapshot:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.armed.snapshot.value.name.file.0k7hiln",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_armed_snapshot:value-name:FILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.arming.identity.0szoay5",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_arming_identity"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.arming.identity.action.set.1y5cpzp",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_arming_identity:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.arming.identity.arity.1.1.0zkhuz2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_arming_identity:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.capsec.arming.identity.value.name.file.0juvek2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:capsec_arming_identity:value-name:FILE"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.ibex.capsec.default.auto.16hulyp",
       "classification": "closed",
       "surface": {
@@ -131982,6 +132082,26 @@
       },
       "cap": "runtime:inspect",
       "rationale": "Public weakening, ambient endowment, internal exposure, or incomplete security-mode selection is closed by the enforced-default profile."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.capsec.armed.snapshot.capsec.armed.snapshot.0mhdz0u",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex:capsec_armed_snapshot:--capsec-armed-snapshot"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.name.ibex.capsec.arming.identity.capsec.arming.identity.1kpfrv0",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex:capsec_arming_identity:--capsec-arming-identity"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.cli.option.name.ibex.capsec.capsec.04m7ee4",
