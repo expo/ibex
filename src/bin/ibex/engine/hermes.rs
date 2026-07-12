@@ -2306,10 +2306,14 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut byte = [0u8; 1];
-            stream.read_exact(&mut byte).unwrap();
-            byte[0]
+            let mut bytes = Vec::new();
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut byte = [0u8; 1];
+                stream.read_exact(&mut byte).unwrap();
+                bytes.push(byte[0]);
+            }
+            bytes
         });
         let floor = serde_json::json!({
             "cap": "network:connect",
@@ -2331,12 +2335,20 @@ mod tests {
                 var socket = __exactTcpConnect('127.0.0.1', {port});
                 if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
                 __exactTcpClose(socket);
+                var pending = __exactTcpConnectStart('127.0.0.1', {port});
+                var connected = false;
+                for (var attempt = 0; attempt < 10000; attempt++) {{
+                  if (__exactTcpConnectPoll(pending) === 1) {{ connected = true; break; }}
+                }}
+                if (!connected) throw new Error('pending connect did not complete');
+                if (__exactTcpWrite(pending, 'y') !== 1) throw new Error('pending write');
+                __exactTcpClose(pending);
                 return 'ok';
             }})()"#
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
         assert_eq!(outcome.as_deref(), Some("ok"));
-        assert_eq!(server.join().unwrap(), b'x');
+        assert_eq!(server.join().unwrap(), vec![b'x', b'y']);
     }
 
     #[cfg(unix)]

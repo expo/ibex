@@ -36,6 +36,7 @@ struct SocketEntry {
   uint64_t owner = 0;
   std::string capability;
   bool typedConnect = false;
+  bool typedPending = false;
   std::string typedHost;
   uint16_t typedPort = 0;
   std::string typedCandidates;
@@ -120,6 +121,28 @@ int registerTypedConnectHandle(
   entry.typedSelected = std::move(selected);
   entry.typedPeer = std::move(peer);
   entry.typedConnectionId = std::move(connectionId);
+  g_socket_handles[handle] = std::move(entry);
+  return handle;
+}
+
+int registerTypedPendingConnectHandle(
+    int fd,
+    uint64_t owner,
+    const std::string& host,
+    uint16_t port,
+    std::string candidates,
+    std::string selected) {
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  int handle = g_next_socket_handle++;
+  SocketEntry entry;
+  entry.fd = fd;
+  entry.owner = owner;
+  entry.typedConnect = true;
+  entry.typedPending = true;
+  entry.typedHost = host;
+  entry.typedPort = port;
+  entry.typedCandidates = std::move(candidates);
+  entry.typedSelected = std::move(selected);
   g_socket_handles[handle] = std::move(entry);
   return handle;
 }
@@ -220,7 +243,8 @@ SocketEntry requireSocketHandle(
     facebook::jsi::Runtime& runtime,
     int handle,
     const char* syscall,
-    bool requireCapability = false) {
+    bool requireCapability = false,
+    bool allowPending = false) {
   SocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_socket_mutex);
@@ -235,6 +259,10 @@ SocketEntry requireSocketHandle(
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
     if (entry.typedConnect) {
+      if (entry.typedPending) {
+        if (allowPending) return entry;
+        throw facebook::jsi::JSError(runtime, "TCP connection is still pending");
+      }
       auto actualPeer = socketPeerText(entry.fd);
       if (!actualPeer || *actualPeer != entry.typedPeer ||
           !authorizeTypedTcp(
@@ -269,7 +297,7 @@ bool trySocketHandle(
 }
 
 int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
-  SocketEntry entry = requireSocketHandle(runtime, handle, syscall);
+  SocketEntry entry = requireSocketHandle(runtime, handle, syscall, false, true);
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   auto it = g_socket_handles.find(handle);
   if (it == g_socket_handles.end()) {
@@ -281,6 +309,30 @@ int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscal
   int fd = it->second.fd;
   g_socket_handles.erase(it);
   return fd;
+}
+
+void commitTypedPendingSocket(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const SocketEntry& pending,
+    const std::string& peer) {
+  std::string connectionId = "tcp:" + std::to_string(pending.fd);
+  if (peer != pending.typedSelected ||
+      !authorizeTypedTcp(
+          pending.owner, pending.typedHost, pending.typedPort, 2,
+          pending.typedCandidates, pending.typedSelected.c_str(), peer.c_str(),
+          connectionId.c_str())) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  auto current = g_socket_handles.find(handle);
+  if (current == g_socket_handles.end() || current->second.fd != pending.fd ||
+      current->second.owner != pending.owner || !current->second.typedPending) {
+    throw facebook::jsi::JSError(runtime, "TCP pending handle changed before commit");
+  }
+  current->second.typedPending = false;
+  current->second.typedPeer = peer;
+  current->second.typedConnectionId = std::move(connectionId);
 }
 
 void setSocketCapability(
@@ -472,6 +524,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           std::string host = args[0].toString(runtime).utf8(runtime);
           int port = static_cast<int>(args[1].asNumber());
+          if (port <= 0 || port > 65535) {
+            throw facebook::jsi::JSError(runtime, "__exactTcpConnectStart: port out of range");
+          }
           bool hasLocalAddress = count > 2 && !args[2].isUndefined() && !args[2].isNull();
           bool hasLocalPort = count > 3 && !args[3].isUndefined() && !args[3].isNull();
           std::string localAddress;
@@ -492,7 +547,28 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           // opening a TCP connection is a host-boundary operation.
           std::string connectCapability =
               networkEndpointCapability("network:connect", host, port);
-          requireNetworkCapability(runtime, connectCapability, "network:connect");
+          bool armed = ex_host_is_armed() == 1;
+          auto principal = currentPrincipalId();
+          if (armed) {
+            if (hasLocalAddress || hasLocalPort) {
+              throw facebook::jsi::JSError(
+                  runtime, "local TCP bind options are closed under armed startup");
+            }
+            struct in_addr ipv4 = {};
+            struct in6_addr ipv6 = {};
+            std::string requestedCandidates = "[]";
+            if (::inet_pton(AF_INET, host.c_str(), &ipv4) == 1 ||
+                ::inet_pton(AF_INET6, host.c_str(), &ipv6) == 1) {
+              requestedCandidates = "[\"" + host + "\"]";
+            }
+            if (!authorizeTypedTcp(
+                    principal, host, static_cast<uint16_t>(port), 0,
+                    requestedCandidates, nullptr, nullptr, nullptr)) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else {
+            requireNetworkCapability(runtime, connectCapability, "network:connect");
+          }
           struct addrinfo hints{}, *result = nullptr;
           hints.ai_family = AF_UNSPEC;
           hints.ai_socktype = SOCK_STREAM;
@@ -503,9 +579,22 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime,
                 ("getaddrinfo failed for " + host + ":" + portStr + ": " + gai_strerror(gai_err)).c_str());
           }
+          std::string candidatesJson = canonicalCandidateJson(result);
+          if (candidatesJson == "[]") {
+            freeaddrinfo(result);
+            throw facebook::jsi::JSError(runtime, "resolver returned no usable TCP candidates");
+          }
           int fd = -1;
           int connectErrno = 0;
+          std::string selectedCandidate;
           for (struct addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            auto candidate = addressText(rp->ai_addr);
+            if (!candidate) continue;
+            if (armed && !authorizeTypedTcp(
+                    principal, host, static_cast<uint16_t>(port), 1,
+                    candidatesJson, candidate->c_str(), nullptr, nullptr)) {
+              continue;
+            }
             fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
             if (fd == -1) { connectErrno = errno; continue; }
             // Non-blocking BEFORE ::connect so the syscall returns immediately
@@ -549,6 +638,7 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             // Both are success for the async model — register and hand back the
             // handle. Any other errno means this candidate failed; try the next.
             if (rc == 0 || errno == EINPROGRESS) {
+              selectedCandidate = std::move(*candidate);
               break;
             }
             connectErrno = errno;
@@ -560,7 +650,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime,
                 ("connect failed for " + host + ":" + portStr + ": " + strerror(connectErrno)).c_str());
           }
-          int handle = registerSocketHandle(fd, connectCapability);
+          int handle = armed
+              ? registerTypedPendingConnectHandle(
+                    fd, principal, host, static_cast<uint16_t>(port),
+                    std::move(candidatesJson), std::move(selectedCandidate))
+              : registerSocketHandle(fd, connectCapability);
           return facebook::jsi::Value(handle);
         });
     rt.global().setProperty(rt, "__exactTcpConnectStart", std::move(tcpConnectStartFn));
@@ -579,7 +673,9 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactTcpConnectPoll: handle required");
           }
           int handle = static_cast<int>(args[0].asNumber());
-          int fd = requireSocketHandle(runtime, handle, "__exactTcpConnectPoll").fd;
+          SocketEntry socket = requireSocketHandle(
+              runtime, handle, "__exactTcpConnectPoll", false, true);
+          int fd = socket.fd;
           struct pollfd pfd;
           pfd.fd = fd;
           pfd.events = POLLOUT;
@@ -602,6 +698,14 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           if (soError != 0) {
             throw facebook::jsi::JSError(runtime,
                 ("connect failed: " + std::string(strerror(soError))).c_str());
+          }
+          if (socket.typedPending) {
+            auto peer = socketPeerText(fd);
+            if (!peer) {
+              throw facebook::jsi::JSError(
+                  runtime, "connected TCP socket has no verifiable peer");
+            }
+            commitTypedPendingSocket(runtime, handle, socket, *peer);
           }
           return facebook::jsi::Value(1);  // connected
         });

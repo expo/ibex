@@ -720,9 +720,12 @@ the request before resolution, submits the canonically sorted complete
 `getaddrinfo` candidate set, authorizes each attempted address, verifies
 `getpeername` at commit, retains the candidate/peer/connection facts with the
 socket handle, and rechecks the actual peer and current principal stack on
-every later handle use. Armed local-bind options remain closed pending their
-own typed effects. The nonblocking, Windows, UDP, TLS, and WebSocket adapters
-are not yet migrated.
+every later handle use. The nonblocking POSIX path applies the same request and
+candidate gates, registers only a pending handle, and withholds read/write
+authority until poll observes successful `SO_ERROR`, verifies `getpeername`,
+and commits the peer. Pending handles may only be polled or closed. Armed
+local-bind options remain closed pending their own typed effects. Windows, UDP,
+TLS, and WebSocket adapters are not yet migrated.
 
 Acceptance:
 
