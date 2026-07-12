@@ -1197,7 +1197,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
 /// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
 ///
 /// `network_kind` is 0/1 for HTTP/HTTPS fetch and 2..=7 for
-/// TCP/TLS/UDP/WS/WSS/WebTransport connect. `stage` is requested, candidate,
+/// TCP/TLS/UDP/WS/WSS connect. `stage` is requested, candidate,
 /// commit, delivery, repeat, or cleanup as 0..=5. Candidates are a canonical
 /// JSON array of IP address strings; optional strings use null pointers.
 ///
@@ -1231,7 +1231,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
         || candidates_json.is_null()
         || port == 0
         || stage > 5
-        || network_kind > 7
+        || network_kind > 6
     {
         return -1;
     }
@@ -1336,8 +1336,20 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
                     connection_id,
                     redirect_index,
                 ),
-                2..=7 => host.authorize_typed_connect_stage(
+                2..=6 => host.authorize_typed_connect_stage(
                     &module_id.to_string(),
+                    match network_kind {
+                        2 | 3 => "tcp-connect",
+                        4 => "udp-send",
+                        5 | 6 => "websocket-connect",
+                        _ => unreachable!(),
+                    },
+                    match network_kind {
+                        2 | 3 => "surface.native.op.exacttcpconnect.1cs9rhu",
+                        4 => "surface.native.op.exactudpsend.0k2gg86",
+                        5 | 6 => "surface.native.op.exactwsconnect.026jz87",
+                        _ => unreachable!(),
+                    },
                     constrained_principals,
                     match network_kind {
                         2 => ConnectTransport::Tcp,
@@ -1345,7 +1357,6 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
                         4 => ConnectTransport::Udp,
                         5 => ConnectTransport::Ws,
                         6 => ConnectTransport::Wss,
-                        7 => ConnectTransport::Webtransport,
                         _ => unreachable!(),
                     },
                     concrete_host,

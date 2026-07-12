@@ -724,8 +724,14 @@ every later handle use. The nonblocking POSIX path applies the same request and
 candidate gates, registers only a pending handle, and withholds read/write
 authority until poll observes successful `SO_ERROR`, verifies `getpeername`,
 and commits the peer. Pending handles may only be polled or closed. Armed
-local-bind options remain closed pending their own typed effects. Windows, UDP,
-TLS, and WebSocket adapters are not yet migrated.
+local-bind options remain closed pending their own typed effects. Windows, TLS,
+WebSocket, and the remaining UDP adapters are not yet migrated. POSIX unconnected UDP sends
+are gated per datagram under their own registry edge: only canonical literal
+IPv4/IPv6 destinations are accepted, and requested, candidate, and committed
+destination facts are checked immediately before `sendto`. A live fixture
+delivers an authorized loopback datagram and proves a metadata datagram is
+rejected before transmission. UDP bind/receive/listen authority remains
+unmigrated and closed in armed execution.
 
 Acceptance:
 

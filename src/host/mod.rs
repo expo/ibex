@@ -580,6 +580,8 @@ impl Host {
     pub fn authorize_typed_connect_stage(
         &self,
         module_id: &str,
+        operation_key: &str,
+        coverage_edge_id: &str,
         constrained_principals: Vec<capsec_semantics::model::Principal>,
         transport: capsec_semantics::model::ConnectTransport,
         host: capsec_semantics::model::ConcreteHost,
@@ -635,13 +637,11 @@ impl Host {
         let set = DecisionSet {
             decision_set_schema: DecisionSetSchema::V1,
             operation_id: capsec_semantics::model::NonEmptyString::new(format!(
-                "connect:{module_id}:{operation_resource}"
+                "{operation_key}:{module_id}:{operation_resource}"
             ))
             .map_err(capsec_semantics::Error::InvalidModel)?,
-            atomicity_group: StableId::new(
-                "surface.native.op.exacttcpconnect.1cs9rhu.decision".to_owned(),
-            )
-            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(format!("{coverage_edge_id}.decision"))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
             combination: EffectCombination::Conjunction,
             context: DecisionContext {
                 stage,
@@ -667,7 +667,7 @@ impl Host {
         self.evaluate_typed_decision(
             &set,
             &[EffectGate {
-                coverage_edge_id: StableId::new("surface.native.op.exacttcpconnect.1cs9rhu")
+                coverage_edge_id: StableId::new(coverage_edge_id)
                     .map_err(capsec_semantics::Error::InvalidModel)?,
                 target_cell: TargetCellDisposition::Complete,
                 definition_and_edge_predicates_satisfied: true,
@@ -2031,6 +2031,8 @@ mod tests {
         let decision = connect_host
             .authorize_typed_connect_stage(
                 "7",
+                "tcp-connect",
+                "surface.native.op.exacttcpconnect.1cs9rhu",
                 vec![principal],
                 ConnectTransport::Tcp,
                 requested_host.clone(),
@@ -2066,6 +2068,8 @@ mod tests {
         let denied = fetch_only_host
             .authorize_typed_connect_stage(
                 "7",
+                "tcp-connect",
+                "surface.native.op.exacttcpconnect.1cs9rhu",
                 vec![principal],
                 ConnectTransport::Tcp,
                 requested_host,

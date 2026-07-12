@@ -147,8 +147,9 @@ int registerTypedPendingConnectHandle(
   return handle;
 }
 
-bool authorizeTypedTcp(
+bool authorizeTypedNetwork(
     uint64_t principal,
+    uint32_t networkKind,
     const std::string& host,
     uint16_t port,
     uint32_t stage,
@@ -158,9 +159,23 @@ bool authorizeTypedTcp(
     const char* connectionId) {
   auto principals = exactCollectTypedPrincipalStack();
   return ex_host_authorize_typed_network_stack(
-             principal, principals.data(), principals.size(), 2, host.c_str(),
+             principal, principals.data(), principals.size(), networkKind, host.c_str(),
              port, stage, candidates.c_str(), selected, peer, connectionId,
              UINT64_MAX) == 1;
+}
+
+bool authorizeTypedTcp(
+    uint64_t principal,
+    const std::string& host,
+    uint16_t port,
+    uint32_t stage,
+    const std::string& candidates,
+    const char* selected,
+    const char* peer,
+    const char* connectionId) {
+  return authorizeTypedNetwork(
+      principal, 2, host, port, stage, candidates, selected, peer,
+      connectionId);
 }
 
 std::optional<std::string> socketPeerText(int fd) {
@@ -1342,11 +1357,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           int handle = static_cast<int>(args[0].asNumber());
           int port = static_cast<int>(args[2].asNumber());
           std::string host = args[3].toString(runtime).utf8(runtime);
-          requireNetworkCapability(
-              runtime,
-              networkEndpointCapability("network:connect", host, port),
-              "network:connect");
-          int fd = requireSocketHandle(runtime, handle, "__exactUdpSend").fd;
+          if (port <= 0 || port > 65535) {
+            throw facebook::jsi::JSError(runtime, "__exactUdpSend: port out of range");
+          }
+          SocketEntry socket = requireSocketHandle(runtime, handle, "__exactUdpSend");
+          int fd = socket.fd;
           // Get data bytes
           const uint8_t* dataPtr = nullptr; size_t dataLen = 0;
           std::string strData;
@@ -1387,6 +1402,31 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             }
             sa = reinterpret_cast<struct sockaddr*>(&addr4);
             sa_len = sizeof(addr4);
+          }
+          if (ex_host_is_armed() == 1) {
+            // @ref LLP 0021#wp6--convert-network-effects-and-protected-peers — An unconnected UDP send authorizes and commits its literal destination for this datagram immediately before sendto.
+            std::string candidates = "[\"" + host + "\"]";
+            std::string connectionId =
+                "udp:" + std::to_string(fd) + ":" + host + ":" +
+                std::to_string(port);
+            auto principal = currentPrincipalId();
+            if (!authorizeTypedNetwork(
+                    principal, 4, host, static_cast<uint16_t>(port), 0,
+                    candidates, nullptr, nullptr, nullptr) ||
+                !authorizeTypedNetwork(
+                    principal, 4, host, static_cast<uint16_t>(port), 1,
+                    candidates, host.c_str(), nullptr, nullptr) ||
+                !authorizeTypedNetwork(
+                    principal, 4, host, static_cast<uint16_t>(port), 2,
+                    candidates, host.c_str(), host.c_str(),
+                    connectionId.c_str())) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+          } else {
+            requireNetworkCapability(
+                runtime,
+                networkEndpointCapability("network:connect", host, port),
+                "network:connect");
           }
           ssize_t sent = ::sendto(fd, dataPtr, dataLen, 0, sa, sa_len);
           if (sent == -1) {

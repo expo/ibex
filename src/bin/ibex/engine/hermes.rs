@@ -2359,6 +2359,51 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_udp_send_authorizes_each_literal_datagram_peer() {
+        use std::net::UdpSocket;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .unwrap();
+        let port = receiver.local_addr().unwrap().port();
+        let floor = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "udp",
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureNet();
+                var socket = __exactUdpSocket('udp4');
+                if (__exactUdpSend(socket, 'u', {port}, '127.0.0.1') !== 1) throw new Error('send');
+                __exactUdpClose(socket);
+                var metadataDenied = false;
+                var deniedSocket = __exactUdpSocket('udp4');
+                try {{ __exactUdpSend(deniedSocket, 'x', 80, '169.254.169.254'); }} catch (_) {{ metadataDenied = true; }}
+                __exactUdpClose(deniedSocket);
+                if (!metadataDenied) throw new Error('metadata datagram was allowed');
+                return 'ok';
+            }})()"#
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("ok"));
+        let mut byte = [0u8; 1];
+        let (amount, _) = receiver.recv_from(&mut byte).unwrap();
+        assert_eq!((amount, byte[0]), (1, b'u'));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
