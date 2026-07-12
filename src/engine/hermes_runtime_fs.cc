@@ -450,6 +450,21 @@ static std::shared_ptr<int> retainedFd(int fd) {
   });
 }
 
+static std::optional<std::string> resolvedPathForFd(int fd) {
+#if defined(__APPLE__)
+  std::array<char, PATH_MAX> path = {};
+  if (::fcntl(fd, F_GETPATH, path.data()) != 0) return std::nullopt;
+  return std::string(path.data());
+#else
+  std::array<char, PATH_MAX> path = {};
+  auto link = std::string("/proc/self/fd/") + std::to_string(fd);
+  ssize_t length = ::readlink(link.c_str(), path.data(), path.size() - 1);
+  if (length < 0) return std::nullopt;
+  path[static_cast<size_t>(length)] = '\0';
+  return std::string(path.data(), static_cast<size_t>(length));
+#endif
+}
+
 struct TypedPathDescriptors {
   std::shared_ptr<int> parent;
   std::shared_ptr<int> target;
@@ -1624,6 +1639,25 @@ static FsAsyncResult fsFstatWork(int fd) {
   return result;
 }
 
+static FsAsyncResult fsStatArmedWork(
+    uint64_t principal,
+    const std::string& path,
+    const std::string& presentedHandle,
+    const std::shared_ptr<int>& parent,
+    int targetFd) {
+  const char* presented = presentedHandle.empty() ? nullptr : presentedHandle.c_str();
+  if (ex_host_authorize_typed_fs_open(
+          principal, path.c_str(), 5, 8, *parent, targetFd, 0, 0,
+          presented) != 1) {
+    return fsAsyncError(EACCES, "fstat", path);
+  }
+  struct stat sb = {};
+  if (::fstat(targetFd, &sb) != 0) return fsAsyncError(errno, "fstat", path);
+  auto result = fsAsyncOk(FsAsyncResult::Kind::Json);
+  result.json = statJsonFromStat(sb);
+  return result;
+}
+
 // Run descriptor metadata/durability operations on a duplicate descriptor.
 // dup() is intentionally performed on the JS thread before dispatch: it pins
 // the open file description while a concurrent close() removes the public fd,
@@ -2294,7 +2328,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto realpathFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactRealpath"),
-      1,
+      2,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -2303,6 +2337,21 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactRealpath: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          std::string presentedHandle;
+          if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
+            if (!args[1].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactRealpath: typed handleId must be a string");
+            }
+            presentedHandle = args[1].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 9, O_RDONLY | O_NONBLOCK, presentedHandle);
+          auto resolved = resolvedPathForFd(*descriptors.target);
+          if (!resolved) throwFsError(runtime, "realpath", path);
+          return facebook::jsi::String::createFromUtf8(runtime, *resolved);
+        }
         std::string cap = "fs:read:" + path;
         if (!checkCapability(cap)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -4055,7 +4104,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   // kind is "stat" | "lstat" (path form) | "fstat" (fd form). Payload shape is
   // identical to __exactStat / __exactLstat / __exactFsFstatSync.
   auto fsStatAsyncFn = facebook::jsi::Function::createFromHostFunction(
-      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsStatAsync"), 2,
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactFsStatAsync"), 3,
       [handle](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
                const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
         if (count < 2 || !args[1].isString()) {
@@ -4068,6 +4117,24 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "__exactFsStatAsync: fd required");
           }
           int fd = static_cast<int>(args[0].asNumber());
+          if (ex_host_is_armed() == 1) {
+            auto entry = requireOwnedFd(runtime, fd, "fstat");
+            if (!entry.retainedParent) {
+              throw facebook::jsi::JSError(runtime, "Permission denied");
+            }
+            auto workerFd = duplicateFdForAsync(runtime, fd, "fstat");
+            auto parent = entry.retainedParent;
+            auto principal = entry.owner;
+            auto path = entry.path;
+            auto presentedHandle = entry.presentedHandleId;
+            return startFsAsync(
+                handle, runtime,
+                [workerFd, parent, principal, path, presentedHandle]() {
+                  return fsStatArmedWork(
+                      principal, path, presentedHandle, parent,
+                      workerFd->get());
+                });
+          }
           requireFdRead(runtime, fd, "fstat");
           auto workerFd = duplicateFdForAsync(runtime, fd, "fstat");
           return startFsAsync(handle, runtime, [workerFd]() -> FsAsyncResult {
@@ -4079,6 +4146,31 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
               runtime, "__exactFsStatAsync: path and stat/lstat kind required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        if (ex_host_is_armed() == 1) {
+          if (kind == "lstat") {
+            throw facebook::jsi::JSError(
+                runtime, "Permission denied: typed lstat is not supported");
+          }
+          std::string presentedHandle;
+          if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+            if (!args[2].isString()) {
+              throw facebook::jsi::JSError(
+                  runtime, "__exactFsStatAsync: typed handleId must be a string");
+            }
+            presentedHandle = args[2].asString(runtime).utf8(runtime);
+          }
+          auto descriptors = openArmedListTarget(
+              runtime, path, 8, O_RDONLY | O_NONBLOCK, presentedHandle);
+          uint64_t principal = currentPrincipalId();
+          auto targetFd = descriptors.target;
+          return startFsAsync(
+              handle, runtime,
+              [principal, path, presentedHandle,
+               parent = std::move(descriptors.parent), targetFd]() {
+                return fsStatArmedWork(
+                    principal, path, presentedHandle, parent, *targetFd);
+              });
+        }
         // Same gate as __exactStat / __exactLstat.
         if (!checkCapability("fs:read:" + path)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");

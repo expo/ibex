@@ -2329,6 +2329,7 @@ mod tests {
                 var reread = __exactReadFile({existing:?});
                 if (String.fromCharCode.apply(null, reread) !== 'new') throw new Error('readFile');
                 if (!JSON.parse(__exactStat({existing:?})).is_file) throw new Error('stat');
+                if (__exactRealpath({existing:?}) !== {existing:?}) throw new Error('realpath');
                 if (JSON.parse(__exactReaddir({root:?})).indexOf('existing.txt') < 0) throw new Error('readdir');
                 __exactWriteFile({existing:?}, 'whole');
                 __exactAppendFile({existing:?}, '+tail');
@@ -2352,6 +2353,8 @@ mod tests {
                __exactFsOpenAsync({path:?}, 'w+').then(function(fd) {{
                  __exactFsWrite(fd, 'async', -1);
                  return __exactFsFdAsync('fsync', fd, 0, 0).then(function() {{
+                   return __exactFsStatAsync(fd, 'fstat');
+                 }}).then(function() {{
                    __exactFsClose(fd);
                    globalThis.__armedAsyncOpen = 'ok';
                  }});
@@ -2384,6 +2387,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(async_read.as_deref(), Some("whole+tail"));
+        let async_stat_script = format!(
+            r#"globalThis.__armedAsyncStat = 'pending';
+               __exactFsStatAsync({path:?}, 'stat').then(function(json) {{
+                 globalThis.__armedAsyncStat = String(JSON.parse(json).is_file);
+               }}, function(error) {{
+                 globalThis.__armedAsyncStat = 'error:' + error.message;
+               }});"#,
+            path = existing.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_stat_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_stat = engine
+            .eval_immediate("globalThis.__armedAsyncStat")
+            .await
+            .unwrap();
+        assert_eq!(async_stat.as_deref(), Some("true"));
         let async_write_script = format!(
             r#"globalThis.__armedAsyncWrite = 'pending';
                __exactFsWriteFileAsync({path:?}, 'worker', 'w', 438, true).then(function() {{
@@ -2479,6 +2498,8 @@ mod tests {
                 var denied = 0;
                 try {{ __exactStat({file:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactReaddir({directory:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactFsStatAsync({file:?}, 'stat'); }} catch (_) {{ denied++; }}
+                try {{ __exactRealpath({file:?}); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             file = file.to_str().unwrap(),
@@ -2486,7 +2507,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("2"));
+        assert_eq!(outcome.as_deref(), Some("4"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2537,6 +2558,10 @@ mod tests {
                 try {{ __exactAppendFile({final_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsWriteFileAsync({parent_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
                 try {{ __exactFsWriteFileAsync({final_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
+                try {{ __exactFsStatAsync({parent_escape:?}, 'stat'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsStatAsync({final_escape:?}, 'stat'); }} catch (_) {{ denied++; }}
+                try {{ __exactRealpath({parent_escape:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactRealpath({final_escape:?}); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             parent_escape = parent_escape.to_str().unwrap(),
@@ -2544,7 +2569,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("14"));
+        assert_eq!(outcome.as_deref(), Some("18"));
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);
