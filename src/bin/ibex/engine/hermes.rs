@@ -2346,6 +2346,9 @@ mod tests {
                 if (!connected) throw new Error('pending connect did not complete');
                 if (__exactTcpWrite(pending, 'y') !== 1) throw new Error('pending write');
                 __exactTcpClose(pending);
+                var metadataDenied = false;
+                try {{ __exactTcpConnect('169.254.169.254', 80); }} catch (_) {{ metadataDenied = true; }}
+                if (!metadataDenied) throw new Error('metadata peer was reachable');
                 return 'ok';
             }})()"#
         );
