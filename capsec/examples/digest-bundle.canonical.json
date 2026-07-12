@@ -133162,6 +133162,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_typed_network_stack"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.check.capability.1h17wl4",
             "classification": "non-capability",
             "surface": {

@@ -5083,6 +5083,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
     "ex_host_authorize_typed_fs_stack",
+    "ex_host_authorize_typed_network_stack",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",
     "ex_host_check_capability_stack",
@@ -11239,7 +11240,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {

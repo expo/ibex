@@ -65239,6 +65239,26 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n",
+      "observedKey": "host-abi:ex_host_authorize_typed_network_stack",
+      "branchId": "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n.default.0vx34tx",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_typed_network_stack"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n.default.0vx34tx.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n.default.0vx34tx.non-capability",
+        "surface.host.abi.ex.host.authorize.typed.network.stack.13jwa8n.default.0vx34tx.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "observedKey": "host-abi:ex_host_check_capability",
       "branchId": "surface.host.abi.ex.host.check.capability.1h17wl4.default.073jogi",
@@ -136997,6 +137017,7 @@
       },
       "sourceRefs": [
         "src/bin/ibex/main.rs#env::set_var:IBEX_LOCKDOWN:write",
+        "src/bin/ibex/runtime.rs#env::set_var:IBEX_LOCKDOWN:write",
         "src/bin/ibex/runtime.rs#env_flag_enabled:IBEX_LOCKDOWN:read",
         "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read"
       ],
@@ -143804,53 +143825,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-SlTXmTYKaSB95W2ll3bcR6N8quTMJaIkjuP48FUsIsE"
+      "rawContentDigest": "sha256-2Qj8PUwPv7GciCv-gHHNLHQHh7wxR6VwicVwecqcd7c"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-4sn2OYGm6-N1zofOh3sVIdHM4FqWcfXVpzAxBNtqbAM"
+      "rawContentDigest": "sha256-V7UWOk4-Y6Yk-xzEf2LUgQ2NH0oXwh589rtiCSbwvec"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-wDPOxfjDFYmVrNKXLH5oKjMi7PMfwpG_fwuyAH1Cbjs"
+      "rawContentDigest": "sha256--6zIebeYp74-0MKX_DYM24PEe8XYUSlV_Dj2uoH8G6w"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-AQ_yuAiz8Gfown3S3bnVGsCJcr1gVS6B892NDubTrH8"
+      "rawContentDigest": "sha256-9iDX6Y_S98N2FqWjsIu7NHDd3pcFREEsxrHe65jcCwM"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-HA6dzmOj1gc-qLFHxrhIE7_6vCdRjDni80iN-UxGl7M"
+      "rawContentDigest": "sha256-egH5ve1Ko4wFXHUBxlzxPZE4xNejA_Pb2aoLGfOuDEg"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-smc4HkHlvT1_i46DNdJVRAzhKM0SzhL8JMfuMmAvuKU"
+      "rawContentDigest": "sha256-vYI5-Li2TAEw8XCEanNon5IJuTXsLZ8YOHvY7-tVzv0"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-n51Xpk4Y60SNUu6oogQI8ugWkGZNrWycXmKxBIOUhNI"
+      "rawContentDigest": "sha256-FWp7JTgKHyR__gbiRIU81bTBePb1WjU7BAkAI0V1Gac"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-eEuvU5e_0HmK-Aa9aMnUJ_iZenG5q6rnyL5MsShMOk0"
+      "rawContentDigest": "sha256-FGCFGVANwAzEdCpggnLvl-kK2GA0W3VFM1ws1hH4OXw"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-I2SsN0KQK4qASlRMDl3y2mhMNbufVsTjlLDVzTijq2k"
+      "rawContentDigest": "sha256-LxCtcCECn7v3VJ9A0tfAhnN-0mXWDbW8Ok-OkoRzaqE"
     }
   ],
   "counts": {
-    "observedReferences": 11118,
-    "logicalSurfaces": 6847,
-    "coverageEdges": 6847,
-    "targetCells": 6847
+    "observedReferences": 11120,
+    "logicalSurfaces": 6848,
+    "coverageEdges": 6848,
+    "targetCells": 6848
   }
 }

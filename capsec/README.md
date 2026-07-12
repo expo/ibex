@@ -85,6 +85,20 @@ manifest, and fixture catalog. `--require-conformant` makes any missing or
 failed result fatal. Inventory rows and a green sample suite never synthesize
 execution results.
 
+On the declared candidate target, produce the execution artifact and bound
+report from a clean committed tree with:
+
+```sh
+bun run verify:capsec-conformance
+```
+
+The executor runs the complete Rust library/runtime suites, the capsec
+contract, policy, target-branch, registry and conformance suites, both generated
+drift checks, and `ref-check`. It emits one result for every generated exact
+fixture obligation, all sharing the immutable digest of that command evidence;
+the report generator independently rejects any stale source, engine, target,
+registry, implementation-manifest, or fixture-catalog binding.
+
 Regenerate the source-derived registry and bindings first, then the exact
 digest bundles, policy/armed self- and cross-digests, digest-vector
 expectations, and reconciliation table:
