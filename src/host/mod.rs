@@ -656,6 +656,86 @@ impl Host {
         )
     }
 
+    /// Authorize one exact broker-base environment disclosure before the
+    /// native adapter reads the process environment.
+    // @ref LLP 0021#typed-resources-and-initial-vocabulary — environment
+    // authority is exact-name and target-specific; there is no wildcard read.
+    pub fn authorize_typed_environment_read_stage(
+        &self,
+        module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        name: capsec_semantics::model::EnvironmentName,
+        stage: capsec_semantics::model::Stage,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::EffectGate;
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            EnvironmentTarget, EnvironmentValueOrigin, OccurrenceResource, SelectorResource,
+            StableId,
+        };
+
+        if !matches!(
+            stage,
+            capsec_semantics::model::Stage::Requested | capsec_semantics::model::Stage::Commit
+        ) {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "environment reads support only requested and commit stages".into(),
+            ));
+        }
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "environment read has no authenticated typed principal".into(),
+            )
+        })?;
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "environment principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
+        let requested = SelectorResource::EnvironmentName {
+            target: EnvironmentTarget::BrokerBase,
+            name,
+        };
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let coverage_edge_id = "surface.native.op.exactgetenv.0k6bv7a";
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: capsec_semantics::model::NonEmptyString::new(format!(
+                "environment-read:{module_id}:{operation_resource}"
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(format!("{coverage_edge_id}.decision"))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals,
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: ActionId::new("env:read").map_err(capsec_semantics::Error::InvalidModel)?,
+                effect_owner: principal,
+                resource: OccurrenceResource::EnvironmentOccurrence {
+                    requested: Box::new(requested),
+                    value_origin: EnvironmentValueOrigin::BrokerBase,
+                },
+            }],
+        };
+        self.evaluate_typed_decision(
+            &set,
+            &[EffectGate {
+                coverage_edge_id: StableId::new(coverage_edge_id)
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                target_cell: self.target_cell(coverage_edge_id),
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn authorize_typed_fetch_stage(
         &self,

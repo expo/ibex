@@ -83,6 +83,20 @@ test('the seeded default applies when native provides nothing', () => {
   expect(env.NODE_ENV).toBe('development');
 });
 
+test('native capability denials are fail-closed without aborting bootstrap reads', () => {
+  g.__exactGetAllEnv = () => {
+    throw new Error('Permission denied: env:read authority required');
+  };
+  g.__exactGetEnv = () => {
+    throw new Error('Permission denied: env:read authority required');
+  };
+  const env = createEnvProxy();
+
+  expect(env.PATH).toBeUndefined();
+  expect(env.NODE_ENV).toBe('development');
+  expect(Object.keys(env)).toEqual(['NODE_ENV']);
+});
+
 test('toJSON reflects writes and deletes with correct precedence', () => {
   stubNativeEnv({ TZ: 'America/New_York', PATH: '/usr/bin' });
   const env = createEnvProxy();

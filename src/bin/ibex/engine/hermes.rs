@@ -4324,7 +4324,6 @@ cp \"$input\" \"$out\"\n";
         let script = format!(
             r#"(function() {{
                 var denied = 0;
-                if (__exactGetEnv('PATH') === undefined) denied++;
                 if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
                 try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactExecSync('touch ' + {marker:?}, '{{}}'); }} catch (_) {{ denied++; }}
@@ -4336,9 +4335,40 @@ cp \"$input\" \"$out\"\n";
             marker = marker.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("6"));
+        assert_eq!(outcome.as_deref(), Some("5"));
         assert_eq!(std::env::current_dir().unwrap(), original_cwd);
         assert!(!marker.exists());
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_environment_enumeration_closes_without_any_authorization_oracle() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let typed_before = crate::host::abi::installed_typed_decision_count();
+        let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "enforcement.test.environment-enumeration-closed"
+        ));
+        let outcome = engine
+            .eval_immediate("String(Object.keys(__exactGetAllEnv()).length)")
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("0"));
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert!(typed.is_empty());
+        assert_eq!(
+            crate::host::abi::installed_typed_decision_count() - typed_before,
+            0
+        );
+        assert_eq!(
+            crate::host::abi::installed_legacy_authorization_check_count() - legacy_before,
+            0
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]

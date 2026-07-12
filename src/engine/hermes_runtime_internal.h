@@ -287,6 +287,13 @@ extern "C" void ex_host_handle_revoke(uint64_t id);
 extern "C" int32_t ex_host_permission_request(const char* capability);
 extern "C" void ex_host_permission_revoke(const char* capability);
 extern "C" int32_t ex_host_permission_status(const char* capability);
+extern "C" int32_t ex_host_authorize_typed_environment_read_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage,
+    const uint8_t* name,
+    size_t name_len);
 
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
@@ -591,7 +598,27 @@ inline void exactRequireTypedSystemInfo(
     }
   }
 }
-
+// @ref LLP 0021#typed-resources-and-initial-vocabulary — a broker-base
+// environment read authorizes its exact canonical name before disclosure.
+inline void authorizeTypedEnvironmentRead(
+    facebook::jsi::Runtime& runtime,
+    const std::string& name) {
+  if (ex_host_is_armed() != 1) return;
+  auto principal = currentPrincipalId();
+  auto principals = exactCollectTypedPrincipalStack();
+  for (uint32_t stage = 0; stage <= 1; ++stage) {
+    if (ex_host_authorize_typed_environment_read_stack(
+            principal,
+            principals.data(),
+            principals.size(),
+            stage,
+            reinterpret_cast<const uint8_t*>(name.data()),
+            name.size()) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, "Permission denied: env:read authority required");
+    }
+  }
+}
 void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce);
 void exactCleanupRuntimeSockets(uint64_t runtimeNonce);
 void exactCleanupRuntimeSqlite(uint64_t runtimeNonce);

@@ -646,6 +646,29 @@ const nativeSystemInfoTemplate = (name) =>
     requiredSourceArity: 0,
     setup: [],
   });
+const nativeEnvironmentReadTemplate = (name) =>
+  Object.freeze({
+    actionIds: ["env:read"],
+    arguments: [literalArgument(name)],
+    expectedDecisionCounts: { allow: 2, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "commit"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "env:read",
+        resource: {
+          kind: "environment-name",
+          target: "broker-base",
+          name,
+        },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -848,6 +871,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ],
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
   ["__exactGetCwd", nativeSystemInfoTemplate("cwd")],
+  ["__exactGetEnv", nativeEnvironmentReadTemplate("PATH")],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
   ["__exactGetLoadAvg", nativeSystemInfoTemplate("load-average")],

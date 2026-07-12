@@ -866,9 +866,11 @@ before armed artifact I/O.
 Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
 are likewise rejected at the production dispatcher/runtime boundary before
 arming artifact I/O, engine allocation, or evaluation of supplied code.
-At runtime the unmigrated environment surfaces are explicitly closed:
-individual environment reads return `undefined` and enumeration returns an
-empty object. Process cwd disclosure now uses the same exact typed `sys:read`
+At runtime scalar broker-base environment reads use exact-name typed
+`env:read` decisions at requested and commit before disclosure. Environment
+enumeration remains explicitly closed and returns an empty object until it can
+authorize every concrete name without a wildcard. Process cwd disclosure now
+uses the same exact typed `sys:read`
 plane as other system information: requested and commit authorize the `cwd`
 selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
 remains denied without changing the host process directory. Live armed

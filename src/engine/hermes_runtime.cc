@@ -1242,10 +1242,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           return facebook::jsi::Value::undefined();
         }
         auto key = args[0].toString(runtime).utf8(runtime);
-        std::string cap = "env:read:" + key;
-        if (!checkCapability(cap)) {
-          return facebook::jsi::Value::undefined();
-        }
+        authorizeTypedEnvironmentRead(runtime, key);
         auto value = getEnvValue(key);
         if (!value.has_value()) {
           // Unset -> undefined; a present-but-empty value returns "" so callers
@@ -1261,11 +1258,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetAllEnv"),
       0,
-      [](facebook::jsi::Runtime& runtime,
-         const facebook::jsi::Value&,
-         const facebook::jsi::Value*,
-         size_t) -> facebook::jsi::Value {
+      [handle](facebook::jsi::Runtime& runtime,
+               const facebook::jsi::Value&,
+               const facebook::jsi::Value*,
+               size_t) -> facebook::jsi::Value {
         facebook::jsi::Object env(runtime);
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — enumeration
+        // cannot be represented by wildcard environment authority, so armed
+        // runtimes close it without consulting the legacy string oracle.
+        if (handle->armed) {
+          return env;
+        }
         if (!checkCapability("env:read:*")) {
           return env;
         }

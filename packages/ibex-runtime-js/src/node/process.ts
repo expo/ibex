@@ -1277,7 +1277,16 @@ export function createEnvProxy(): Record<string, string | undefined> {
 
   function refreshNativeCache(): Record<string, string> {
     if (typeof __exactGetAllEnv === 'function') {
-      nativeCache = { ...__exactGetAllEnv() };
+      try {
+        nativeCache = { ...__exactGetAllEnv() };
+      } catch (_error) {
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — the compatibility facade represents denied host environment values as absent.
+        // Native capability denial is represented as absence at the
+        // Node-compatible process.env layer. Direct native callers still see
+        // the typed denial, while bootstrap cannot be aborted by probing an
+        // ungranted key.
+        nativeCache = {};
+      }
     } else if (nativeCache === null) {
       nativeCache = {};
     }
@@ -1289,7 +1298,12 @@ export function createEnvProxy(): Record<string, string | undefined> {
       return nativeCache[key];
     }
     if (typeof __exactGetEnv === 'function') {
-      const value = __exactGetEnv(key);
+      let value: string | undefined;
+      try {
+        value = __exactGetEnv(key);
+      } catch (_error) {
+        return undefined;
+      }
       if (value !== undefined) {
         refreshNativeCache()[key] = value;
       }

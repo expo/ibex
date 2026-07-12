@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(181);
+    expect(nativePublicFixtures).toHaveLength(183);
     expect(
       nativePublicFixtures
         .filter(
@@ -1161,6 +1161,46 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
         ).toBe(recipe.scenario === "allow" ? 2 : 1);
       }
+    }
+  });
+
+  test("binds scalar environment reads to one exact broker-base name", () => {
+    const environmentRead = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactGetEnv",
+    );
+    expect(environmentRead).toHaveLength(2);
+    expect(environmentRead.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+    ]);
+    for (const recipe of environmentRead) {
+      expect(recipe).toMatchObject({
+        actionIds: ["env:read"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [{ kind: "json-literal", value: "PATH" }],
+            requiredFloor: [
+              {
+                cap: "env:read",
+                resource: {
+                  kind: "environment-name",
+                  target: "broker-base",
+                  name: "PATH",
+                },
+              },
+            ],
+            expectedActionIds: ["env:read"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "commit"]
+          : ["requested"],
+      );
     }
   });
 
