@@ -109,6 +109,8 @@ extern "C" {
         runtime: *mut HermesRuntimeOpaque,
         global_name: *const std::os::raw::c_char,
     ) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ibex_test_set_armed_startup_failure_stage(stage: *const std::os::raw::c_char);
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,
@@ -3280,10 +3282,12 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(repl_idle_wait(now as i64, now, floor, tiny), tiny);
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_test_host() -> (HostResetGuard, String) {
         install_armed_test_host_at(None, false, false, false, vec![])
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn install_armed_test_host_at(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3306,6 +3310,7 @@ cp \"$input\" \"$out\"\n";
         (HostResetGuard, digest)
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn build_armed_test_host_at(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3323,6 +3328,7 @@ cp \"$input\" \"$out\"\n";
         )
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn build_armed_test_host_at_with_protected(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3342,6 +3348,7 @@ cp \"$input\" \"$out\"\n";
         )
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     fn build_armed_test_host_custom(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3366,6 +3373,7 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(feature = "capsec-conformance-observer")]
     fn build_armed_test_host_control(
         project_root: Option<&std::path::Path>,
         allow_write: bool,
@@ -3498,6 +3506,7 @@ cp \"$input\" \"$out\"\n";
             vocab_digest: digest_at(&["vocabDigest"]),
             registry_digest: digest_at(&["registryDigest"]),
             policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
             target: value["engine"]["target"].as_str().unwrap().into(),
             engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
             features: value["engine"]["features"]
@@ -3507,6 +3516,43 @@ cp \"$input\" \"$out\"\n";
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            protected_artifacts: value["protectedObjects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let role: capsec_semantics::arming::ProtectedArtifactRole =
+                        serde_json::from_value(row["role"].clone()).unwrap();
+                    let content_digest = match role {
+                        capsec_semantics::arming::ProtectedArtifactRole::EngineBinary => {
+                            digest_at(&["engine", "binaryDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
+                            digest_at(&["policyDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::PackageGraph => {
+                            digest_at(&["packageGraph", "digest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::Registry => {
+                            digest_at(&["registryDigest"])
+                        }
+                    };
+                    capsec_semantics::arming::ExpectedProtectedArtifact {
+                        role,
+                        host_path: serde_json::from_value(serde_json::json!({
+                            "root": "absolute",
+                            "components": [
+                                {"encoding": "utf8", "value": "fixture"},
+                                {"encoding": "utf8", "value": row["role"].as_str().unwrap()}
+                            ],
+                            "hostBound": true
+                        }))
+                        .unwrap(),
+                        object: serde_json::from_value(row["object"].clone()).unwrap(),
+                        content_digest,
+                    }
+                })
+                .collect(),
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
@@ -3569,6 +3615,7 @@ cp \"$input\" \"$out\"\n";
         }
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_creation_requires_exact_installed_snapshot_digest() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -3590,6 +3637,46 @@ cp \"$input\" \"$out\"\n";
 
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
+        runtime.shutdown();
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_runtime_creation_refuses_every_injected_startup_failure() {
+        struct ResetInjectedFailure;
+        impl Drop for ResetInjectedFailure {
+            fn drop(&mut self) {
+                unsafe { ibex_test_set_armed_startup_failure_stage(std::ptr::null()) };
+            }
+        }
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset_failure = ResetInjectedFailure;
+        for stage in [
+            "install-globals",
+            "module-loader",
+            "process-setup",
+            "capability-hardening",
+            "eager-install-seal",
+            "lockdown",
+            "compartment-registry",
+        ] {
+            // A runtime claim consumes its installed host context even when
+            // startup subsequently refuses, so each injected construction gets
+            // an independently installed context just like a fresh launch.
+            let (_reset_host, digest) = install_armed_test_host();
+            let stage = CString::new(stage).unwrap();
+            unsafe { ibex_test_set_armed_startup_failure_stage(stage.as_ptr()) };
+            assert!(
+                SharedRuntime::new(Some(&digest)).is_err(),
+                "armed runtime survived injected startup failure at {}",
+                stage.to_string_lossy()
+            );
+        }
+        unsafe { ibex_test_set_armed_startup_failure_stage(std::ptr::null()) };
+        let (_reset_host, digest) = install_armed_test_host();
+        let runtime = SharedRuntime::new(Some(&digest))
+            .expect("clearing injection must restore armed runtime creation");
         runtime.shutdown();
     }
 
@@ -3766,6 +3853,7 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -4257,7 +4345,7 @@ cp \"$input\" \"$out\"\n";
         crate::host::abi::install_host(crate::host::Host::strict());
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_reauthenticates_exact_package_source_after_creation() {
         use std::os::unix::fs::MetadataExt;
@@ -4349,6 +4437,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(outcome.as_deref(), Some("false"));
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_process_environment_and_signal_surfaces_stay_closed() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -4409,6 +4498,7 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_authority_bridge_rejects_forged_principals_and_unknown_ids() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -4480,7 +4570,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(outcome.as_deref(), Some("[true,true,true,true]"));
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer() {
         use std::io::Read;
@@ -4627,7 +4717,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(remote["family"], "IPv4");
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_udp_send_authorizes_each_literal_datagram_peer() {
         use std::net::UdpSocket;
@@ -4681,7 +4771,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!((amount, byte[0]), (1, b'u'));
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_udp_repeat_lease_is_bounded_and_generation_checked() {
         use std::net::UdpSocket;
@@ -4844,7 +4934,7 @@ cp \"$input\" \"$out\"\n";
         assert!(!socket_path.exists());
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -5019,7 +5109,7 @@ cp \"$input\" \"$out\"\n";
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_large_reads_use_generation_checked_descriptor_leases() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -5066,7 +5156,7 @@ cp \"$input\" \"$out\"\n";
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_read_stops_after_dynamic_authority_is_revoked_mid_stream() {
         use std::os::unix::fs::MetadataExt;
@@ -5233,7 +5323,7 @@ cp \"$input\" \"$out\"\n";
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_denial_cannot_truncate_or_create() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -5358,7 +5448,7 @@ cp \"$input\" \"$out\"\n";
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_create_rollback_never_unlinks_a_racing_creator() {
         struct TestEnvironment;
@@ -5404,7 +5494,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(fs::read(&target).unwrap(), b"competitor-owned");
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn all_protected_roles_deny_write_unlink_rename_and_replace_before_mutation() {
         use std::os::unix::fs::MetadataExt;
@@ -5488,7 +5578,7 @@ cp \"$input\" \"$out\"\n";
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_list_denial_prevents_metadata_and_directory_disclosure() {
         let _lock = hermes_engine_test_lock().lock().await;
@@ -5530,7 +5620,7 @@ cp \"$input\" \"$out\"\n";
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_open_rejects_parent_and_final_symlink_escape() {
         use std::os::unix::fs::symlink;
@@ -6155,7 +6245,7 @@ cp \"$input\" \"$out\"\n";
         destroy.join().unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn diagnostic_allow_all_cannot_use_or_close_an_armed_runtime_fd_or_socket() {
         let _guard = hermes_engine_test_lock().lock().await;
@@ -6219,6 +6309,7 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(owner_result.as_deref(), Some("armed"));
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_cannot_use_or_close_diagnostic_sqlite_handles() {
         let _guard = hermes_engine_test_lock().lock().await;
@@ -6388,7 +6479,7 @@ cp \"$input\" \"$out\"\n";
         second_server.join.join().unwrap();
     }
 
-    #[cfg(feature = "host-http-server")]
+    #[cfg(all(feature = "host-http-server", feature = "capsec-conformance-observer"))]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_runtime_cannot_use_or_close_diagnostic_http_server() {
         let _guard = hermes_engine_test_lock().lock().await;

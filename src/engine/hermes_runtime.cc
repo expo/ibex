@@ -248,6 +248,44 @@ bool env_flag_enabled(const char* env_name) {
 }
 
 extern "C" void ex_host_console_log(int32_t level, const char* message);
+
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+thread_local std::string g_injected_armed_startup_failure_stage;
+
+extern "C" void ibex_test_set_armed_startup_failure_stage(const char* stage) {
+  g_injected_armed_startup_failure_stage = stage ? stage : "";
+}
+#endif
+
+void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage) {
+#ifdef IBEX_CAPSEC_CONFORMANCE_OBSERVER
+  if (handle != nullptr && handle->armed && stage != nullptr &&
+      g_injected_armed_startup_failure_stage == stage) {
+    throw std::runtime_error(
+        std::string("injected armed startup failure at ") + stage);
+  }
+#else
+  (void)handle;
+  (void)stage;
+#endif
+}
+
+void reportStartupFailure(ExactHermesRuntime* handle,
+                          const char* stage,
+                          const std::string& detail) {
+  std::string message = std::string(stage ? stage : "startup") +
+      " failed" + (detail.empty() ? std::string() : ": " + detail);
+  ex_host_console_log(1, message.c_str());
+  if (handle != nullptr && handle->armed) {
+    // Armed construction is transactional. A failed bootstrap/install stage
+    // may not degrade into a partially hardened runtime that later happens to
+    // satisfy a few marker checks.
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    throw std::runtime_error(message);
+  }
+}
+
+extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
@@ -806,9 +844,17 @@ bool exactPinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
 
 void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
   if (!runtime) return;
+  // Publish the final decrement while holding the same mutex destroy waits on.
+  // If the count reached zero before taking this lock, destroy could observe
+  // zero, delete the handle, and race this function's later lock/notify against
+  // freed mutex/condvar storage. Keeping decrement + notification inside the
+  // critical section guarantees the waiter cannot return until unpin has made
+  // its final access to the runtime and released the mutex.
+  // @ref LLP 0003#blocking-work-worker-pools — detached-worker pins must drain
+  // completely before runtime teardown destroys their synchronization state.
+  std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
   auto previous = runtime->native_worker_pins.fetch_sub(1, std::memory_order_acq_rel);
   if (previous == 1) {
-    std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
     runtime->native_worker_cv.notify_all();
   }
 }
@@ -1209,6 +1255,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (_tracing) {
       fprintf(stderr, "[startup]   host_functions skipped (set EX_SKIP_STARTUP_HOST_FUNCTIONS=0 to re-enable)\n");
     }
+    reportStartupFailure(handle, "Host function install", "disabled by startup control");
   } else {
   IG_TRACE_START(host_functions);
   installTimerGlobals(handle);
@@ -1870,9 +1917,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(webCryptoJS);
       rt.evaluateJavaScript(buffer, "<web-crypto>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Web Crypto setup error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Web Crypto setup", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Web Crypto setup error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Web Crypto setup", err.what());
     }
 #endif
   }
@@ -1889,9 +1936,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(storageJS);
       rt.evaluateJavaScript(buffer, "<web-storage>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("Storage setup error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Storage setup", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("Storage setup error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Storage setup", err.what());
     }
 #endif
   }
@@ -1910,9 +1957,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(formDataJS);
       rt.evaluateJavaScript(buffer, "<form-data>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(1, (std::string("FormData setup error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "FormData setup", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(1, (std::string("FormData setup error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "FormData setup", err.what());
     }
 #endif
   }
@@ -2390,11 +2437,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kFsHandleJS);
       handle->runtime->evaluateJavaScript(buffer, "<fs-handle>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1, (std::string("FsHandle install error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "FsHandle install", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1, (std::string("FsHandle install error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "FsHandle install", err.what());
     }
   }
 
@@ -2407,6 +2452,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // globals so no code that runs after bootstrap can reach them. Runs in all
   // modes (acceptance criterion: escape-hatch globals unreachable in all modes).
   {
+    requireArmedStartupStage(handle, "capability-hardening");
     // @ref LLP 0013 — §self-grant — under enforce (IBEX_SEAL_SELF_GRANT) the
     // runtime self-grant surface is removed entirely: package code must not
     // reach `Exact.setModuleCapabilities`, since grants come from the policy
@@ -2428,7 +2474,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
     if (sealSelfGrant) {
       // Enforce: remove the self-grant channel outright.
-      try { delete g.Exact.setModuleCapabilities; } catch (e) {}
+      try { delete g.Exact.setModuleCapabilities; } catch (e) { throw e; }
     } else if (grant) {
       // Permissive/dev/audit: rebind onto the captured grant for require({needs}).
       g.Exact.setModuleCapabilities = function (moduleId, capabilities) {
@@ -2444,7 +2490,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
                  '__exactResolveManifestBuiltinInternal'];
   if (!keepBareNameHelper) hatches.push('__ibexBarePackageName');
   for (var j = 0; j < hatches.length; j++) {
-    try { delete g[hatches[j]]; } catch (e) {}
+    try { delete g[hatches[j]]; } catch (e) { if (sealSelfGrant) throw e; }
   }
 })();
 )JS";
@@ -2454,13 +2500,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           std::make_shared<facebook::jsi::StringBuffer>(kCapabilityHardeningJS);
       handle->runtime->evaluateJavaScript(buffer, "<capability-hardening>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Capability hardening error: ") + err.getMessage())
-              .c_str());
+      reportStartupFailure(handle, "Capability hardening", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1, (std::string("Capability hardening error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Capability hardening", err.what());
     }
   }
 
@@ -2473,6 +2515,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // package runs, then delete the installer globals themselves. Off the
   // lockdown/compartment path the installers stay lazy for startup cost.
   if (handle->structural_lockdown) {
+    requireArmedStartupStage(handle, "eager-install-seal");
     static const char* kEagerInstallSealJS = R"JS((function () {
   var g = globalThis;
   var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
@@ -2481,8 +2524,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     '__exactEnsureWebStorage', '__exactEnsureFormData'];
   for (var i = 0; i < ensures.length; i++) {
     var fn = g[ensures[i]];
-    if (typeof fn === 'function') { try { fn(); } catch (e) {} }
-    try { delete g[ensures[i]]; } catch (e) {}
+    if (typeof fn === 'function') fn();
+    delete g[ensures[i]];
   }
   // @ref LLP 0013#phase-1 — close the ambient self-grant channel. The
   // end-of-bootstrap seal deletes __exactGrantCapability but rebinds
@@ -2495,7 +2538,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (g.Exact && typeof g.Exact.setModuleCapabilities === 'function') {
       delete g.Exact.setModuleCapabilities;
     }
-  } catch (e) {}
+  } catch (e) { throw e; }
 })();
 )JS";
     try {
@@ -2503,13 +2546,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           std::make_shared<facebook::jsi::StringBuffer>(kEagerInstallSealJS);
       handle->runtime->evaluateJavaScript(buffer, "<eager-install-seal>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Eager-install seal error: ") + err.getMessage())
-              .c_str());
+      reportStartupFailure(handle, "Eager-install seal", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1, (std::string("Eager-install seal error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Eager-install seal", err.what());
     }
   }
 
@@ -2520,6 +2559,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // `--lockdown` CLI flag) because freezing intrinsics can break packages that
   // mutate them — the top risk in the RFC. Composes with any --capsec mode.
   if (handle->structural_lockdown) {
+    requireArmedStartupStage(handle, "lockdown");
     // @ref LLP 0013#mechanism-1 — (Phase 3) — opt into the native transitive
     // freeze (__exactDeepFreeze) for the intrinsics graph instead of the JS
     // walk. Same result; native is faster at boot.
@@ -2527,10 +2567,12 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       try {
         rt.global().setProperty(rt, "__ibexNativeLockdown", true);
       } catch (...) {
+        if (handle->armed) throw;
       }
     }
-    static const char* kLockdownJS = R"JS((function () {
+    std::string lockdownJS = std::string(R"JS((function () {
   var g = globalThis;
+  var failClosed = )JS") + (handle->armed ? "true" : "false") + R"JS(;
   if (g.__ibexLockedDown) return;
   var freeze = Object.freeze;
   var getProto = Object.getPrototypeOf;
@@ -2554,13 +2596,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       defineProp(proto, 'constructor', {
         value: tamed, writable: false, enumerable: false, configurable: false
       });
-    } catch (e) {}
+    } catch (e) { if (failClosed) throw e; }
     return tamed;
   }
   var tamedFunction = tameCtor(Function.prototype, 'Function');
-  if (tamedFunction) { try { defineProp(g, 'Function', { value: tamedFunction, writable: false, configurable: false }); } catch (e) {} }
-  try { tameCtor(getProto(function*(){}), 'GeneratorFunction'); } catch (e) {}
-  try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) {}
+  if (tamedFunction) { try { defineProp(g, 'Function', { value: tamedFunction, writable: false, configurable: false }); } catch (e) { if (failClosed) throw e; } }
+  try { tameCtor(getProto(function*(){}), 'GeneratorFunction'); } catch (e) { if (failClosed) throw e; }
+  try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) { if (failClosed) throw e; }
   // NB: this engine (Hermes) has no native async generators, so there is no
   // reachable %AsyncGeneratorFunction% evaluator intrinsic to tame.
   try {
@@ -2569,13 +2611,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     // it non-writable so package code cannot restore the native evaluator.
     tamedEval.__exactWrappedForNativesSyntax = true;
     defineProp(g, 'eval', { value: tamedEval, writable: false, configurable: false });
-  } catch (e) {}
+  } catch (e) { if (failClosed) throw e; }
 
   // --- Freeze walk over the shared intrinsics graph ---
   var frozen = new WeakSet();
   function enqueueProp(obj, key, queue) {
     var desc;
-    try { desc = getOwnPropDesc(obj, key); } catch (e) { return; }
+    try { desc = getOwnPropDesc(obj, key); } catch (e) { if (failClosed) throw e; return; }
     if (!desc) return;
     if ('value' in desc) queue.push(desc.value);
     if (desc.get) queue.push(desc.get);
@@ -2589,13 +2631,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       if (t !== 'object' && t !== 'function') continue;
       if (frozen.has(obj)) continue;
       frozen.add(obj);
-      try { freeze(obj); } catch (e) {}
-      try { var p = getProto(obj); if (p) queue.push(p); } catch (e) {}
+      try { freeze(obj); } catch (e) { if (failClosed) throw e; }
+      try { var p = getProto(obj); if (p) queue.push(p); } catch (e) { if (failClosed) throw e; }
       var names;
-      try { names = getOwnPropNames(obj); } catch (e) { names = []; }
+      try { names = getOwnPropNames(obj); } catch (e) { if (failClosed) throw e; names = []; }
       for (var i = 0; i < names.length; i++) enqueueProp(obj, names[i], queue);
       var syms;
-      try { syms = getOwnPropSymbols(obj); } catch (e) { syms = []; }
+      try { syms = getOwnPropSymbols(obj); } catch (e) { if (failClosed) throw e; syms = []; }
       for (var j = 0; j < syms.length; j++) enqueueProp(obj, syms[j], queue);
     }
   }
@@ -2614,7 +2656,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   for (var k = 0; k < typedArrays.length; k++) {
     if (typeof g[typedArrays[k]] === 'function') roots.push(g[typedArrays[k]]);
   }
-  try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) {} // %IteratorPrototype%
+  try { roots.push(getProto(getProto([][Symbol.iterator]()))); } catch (e) { if (failClosed) throw e; } // %IteratorPrototype%
   // @ref LLP 0013#mechanism-1 — (Phase 3) — freeze the intrinsics graph. With
   // IBEX_NATIVE_LOCKDOWN the transitive freeze runs in native code
   // (__exactDeepFreeze) instead of this JS walk; both freeze the same graph.
@@ -2629,25 +2671,23 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       try {
         if (__nativeFreeze) __nativeFreeze(roots[r]); else harden(roots[r]);
       } catch (e) {
-        try { harden(roots[r]); } catch (e2) {}
+        try { harden(roots[r]); } catch (e2) { if (failClosed) throw e2; }
       }
     }
   }
 
   try {
     defineProp(g, '__ibexLockedDown', { value: true, writable: false, enumerable: false, configurable: false });
-  } catch (e) {}
+  } catch (e) { if (failClosed) throw e; }
 })();
 )JS";
     try {
-      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kLockdownJS);
+      auto buffer = std::make_shared<facebook::jsi::StringBuffer>(lockdownJS.c_str());
       handle->runtime->evaluateJavaScript(buffer, "<lockdown>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1, (std::string("Lockdown error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Lockdown", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(1,
-                          (std::string("Lockdown error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Lockdown", err.what());
     }
   }
 
@@ -2668,7 +2708,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   var g = globalThis;
   var freezeHatches = ['__exactDeepFreeze', '__exactNativeFreeze'];
   for (var i = 0; i < freezeHatches.length; i++) {
-    try { delete g[freezeHatches[i]]; } catch (e) {}
+    try { delete g[freezeHatches[i]]; } catch (e) { throw e; }
   }
 })();
 )JS";
@@ -2676,11 +2716,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
       auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kFreezeSealJS);
       handle->runtime->evaluateJavaScript(buffer, "<freeze-seal>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1, (std::string("Freeze seal error: ") + err.getMessage()).c_str());
+      reportStartupFailure(handle, "Freeze seal", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1, (std::string("Freeze seal error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Freeze seal", err.what());
     }
   }
 
@@ -2692,6 +2730,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // policy (globalThis.__ibexEndowments). Ships with lockdown (which closes the
   // prototype-walk channel) so the two mechanisms compose.
   if (handle->structural_lockdown) {
+    requireArmedStartupStage(handle, "compartment-registry");
     static const char* kCompartmentRegistryJS = R"JS((function () {
   var g = globalThis;
   if (g.__compartments) return;
@@ -2786,8 +2825,8 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     Object.defineProperty(g, '__compartments', {
       value: registry, writable: false, enumerable: false, configurable: false
     });
-  } catch (e) {}
-  try { delete g.__ibexBarePackageName; } catch (e) {}
+  } catch (e) { throw e; }
+  try { delete g.__ibexBarePackageName; } catch (e) { throw e; }
 })();
 )JS";
     try {
@@ -2807,14 +2846,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
       handle->runtime->evaluateJavaScript(buffer, "<compartment-registry>");
     } catch (const facebook::jsi::JSError& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Compartment registry error: ") + err.getMessage())
-              .c_str());
+      reportStartupFailure(handle, "Compartment registry", err.getMessage());
     } catch (const std::exception& err) {
-      ex_host_console_log(
-          1,
-          (std::string("Compartment registry error: ") + err.what()).c_str());
+      reportStartupFailure(handle, "Compartment registry", err.what());
     }
   }
 
@@ -2982,15 +3016,59 @@ static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
       auto marker = function.asObject(rt).getProperty(rt, "__ibexTamed");
       tamed = marker.isBool() && marker.getBool();
     }
+    static const char* kSealedGlobals[] = {
+        "__exactRegisterPackage",
+        "__exactSetPendingPackageId",
+        "__exactResolveManifestBuiltinInternal",
+        "__exactSetActiveModuleId",
+        "__exactGrantCapability",
+        "__exactCheckImport",
+        "__exactSetCompartmentFor",
+        "__exactDeepFreeze",
+        "__exactNativeFreeze",
+        "__exactEnsureFs",
+        "__exactEnsureHttp",
+        "__exactEnsureSqlite",
+        "__exactEnsureDns",
+        "__exactEnsureChildProcess",
+        "__exactEnsureNet",
+        "__exactEnsureStreamEnhance",
+        "__exactEnsureWebCrypto",
+        "__exactEnsureWebStorage",
+        "__exactEnsureFormData",
+    };
+    bool sealed = std::all_of(
+        std::begin(kSealedGlobals), std::end(kSealedGlobals),
+        [&rt](const char* name) { return !rt.global().hasProperty(rt, name); });
     return locked.isBool() && locked.getBool() && compartments.isObject() &&
-        require.isObject() && require.asObject(rt).isFunction(rt) && tamed &&
-        !rt.global().hasProperty(rt, "__exactRegisterPackage") &&
-        !rt.global().hasProperty(rt, "__exactSetPendingPackageId") &&
-        !rt.global().hasProperty(
-            rt, "__exactResolveManifestBuiltinInternal");
+        require.isObject() && require.asObject(rt).isFunction(rt) && tamed && sealed;
   } catch (...) {
     return false;
   }
+}
+
+static void cleanupPartiallyConstructedRuntime(ExactHermesRuntime* handle) {
+  if (handle == nullptr) return;
+  // Bootstrap can register runtime-scoped native state before the handle is
+  // admitted to g_activeRuntimes. Refusal must unwind every such registry just
+  // like normal destruction, without calling the registered-runtime wait path.
+  unregisterAndroidHostFunctions(handle);
+  exactCleanupRuntimeSpawnedProcesses(handle->runtime_nonce);
+  exactCleanupRuntimeWebSockets(handle->runtime_nonce);
+  ibex_tls_cleanup_runtime(handle->runtime_nonce);
+  ibex_zlib_streams::cleanupZlibStreams(handle);
+  exactCleanupRuntimeFileDescriptors(handle->runtime_nonce);
+  exactCleanupRuntimeSockets(handle->runtime_nonce);
+  exactCleanupRuntimeSqlite(handle->runtime_nonce);
+  ex_host_http_cleanup_runtime(handle->runtime_nonce, 1);
+  exactCleanupRuntimeHttpServers(handle->runtime_nonce);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime == handle->attribution_runtime) {
+    g_vm_runtime = nullptr;
+  }
+#endif
+  disableDebugger(handle);
+  delete handle;
 }
 
 extern "C" ExactHermesRuntime* ex_hermes_create_armed(
@@ -3110,14 +3188,31 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   TRACE_END(debugger_init);
 
   TRACE_START(install_globals);
-  installGlobals(handle);
-  if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
-    char* end = nullptr;
-    errno = 0;
-    long ipcFd = std::strtol(ipcFdEnv, &end, 10);
-    if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
-      exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
+  try {
+    requireArmedStartupStage(handle, "install-globals");
+    installGlobals(handle);
+    if (const char* ipcFdEnv = std::getenv("EXACT_IPC_FD")) {
+      char* end = nullptr;
+      errno = 0;
+      long ipcFd = std::strtol(ipcFdEnv, &end, 10);
+      if (end != ipcFdEnv && *end == '\0' && errno == 0 && ipcFd >= 0 && ipcFd <= INT_MAX) {
+        exactRegisterProcessIpcFd(static_cast<int>(ipcFd));
+      }
     }
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(
+        1, (std::string("Armed startup refused: ") + err.getMessage()).c_str());
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  } catch (const std::exception& err) {
+    ex_host_console_log(
+        1, (std::string("Armed startup refused: ") + err.what()).c_str());
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  } catch (...) {
+    ex_host_console_log(1, "Armed startup refused: unknown bootstrap failure");
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
   }
   TRACE_END(install_globals);
 
@@ -3126,23 +3221,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // sockets, Android callbacks, zlib streams, and debugger state. A posture
     // refusal must unwind those just like normal destruction; deleting only
     // the Hermes handle leaves stale authority keyed by its nonce.
-    unregisterAndroidHostFunctions(handle);
-    exactCleanupRuntimeSpawnedProcesses(handle->runtime_nonce);
-    exactCleanupRuntimeWebSockets(handle->runtime_nonce);
-    ibex_tls_cleanup_runtime(handle->runtime_nonce);
-    ibex_zlib_streams::cleanupZlibStreams(handle);
-    exactCleanupRuntimeFileDescriptors(handle->runtime_nonce);
-    exactCleanupRuntimeSockets(handle->runtime_nonce);
-    exactCleanupRuntimeSqlite(handle->runtime_nonce);
-    ex_host_http_cleanup_runtime(handle->runtime_nonce, 1);
-    exactCleanupRuntimeHttpServers(handle->runtime_nonce);
-#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-    if (g_vm_runtime == handle->attribution_runtime) {
-      g_vm_runtime = nullptr;
-    }
-#endif
-    disableDebugger(handle);
-    delete handle;
+    cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
 
@@ -3151,7 +3230,18 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   // on the final runtime surface that user code observes.
   if (env_flag_enabled("EX_WEB_STREAMS_POLYFILL")) {
     TRACE_START(web_streams_polyfill);
-    installWebStreamsPolyfill(handle);
+    try {
+      installWebStreamsPolyfill(handle);
+    } catch (const std::exception& err) {
+      ex_host_console_log(
+          1, (std::string("Armed startup refused: ") + err.what()).c_str());
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    } catch (...) {
+      ex_host_console_log(1, "Armed startup refused: Web Streams install failure");
+      cleanupPartiallyConstructedRuntime(handle);
+      return nullptr;
+    }
     TRACE_END(web_streams_polyfill);
   } else if (startup_trace_enabled()) {
     fprintf(stderr, "[startup]   web_streams_polyfill skipped (set EX_WEB_STREAMS_POLYFILL=1 to enable)\n");

@@ -33,10 +33,33 @@ pub struct ExpectedArmingIdentity {
     pub vocab_digest: Digest,
     pub registry_digest: Digest,
     pub policy_digest: Digest,
+    pub armed_snapshot_digest: Digest,
     pub target: String,
     pub engine_binary_digest: Digest,
     pub features: Vec<String>,
     pub package_graph_digest: Digest,
+    /// Independently authenticated artifact paths, object identities, and
+    /// content hashes. The snapshot's role labels are accepted only when they
+    /// exactly match this launcher-supplied set.
+    pub protected_artifacts: Vec<ExpectedProtectedArtifact>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProtectedArtifactRole {
+    ArmedPolicy,
+    EngineBinary,
+    PackageGraph,
+    Registry,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExpectedProtectedArtifact {
+    pub role: ProtectedArtifactRole,
+    pub host_path: LogicalPath,
+    pub object: ObjectIdentity,
+    pub content_digest: Digest,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,6 +93,7 @@ pub struct ArmedRootBinding {
 pub struct ArmedSnapshot {
     document: Arc<Value>,
     root_bindings: Arc<[ArmedRootBinding]>,
+    protected_artifacts: Arc<[ExpectedProtectedArtifact]>,
     armed_snapshot_digest: Digest,
     generations: SnapshotGenerations,
 }
@@ -131,6 +155,9 @@ impl ArmedSnapshot {
         }
         let claimed = Digest::new(required_str(&document, "armedSnapshotDigest")?)
             .map_err(Error::InvalidModel)?;
+        if claimed != expected.armed_snapshot_digest {
+            return refused("armed snapshot digest differs from the trusted arming identity");
+        }
         let computed = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &document)?;
         if claimed.as_str() != computed {
             return refused("armed snapshot digest is stale or tampered");
@@ -142,12 +169,14 @@ impl ArmedSnapshot {
             handle: generation(&document, "handle")?,
         };
         validate_snapshot_invariants(&document)?;
+        validate_expected_protected_artifacts(&document, expected)?;
         let root_bindings: Vec<ArmedRootBinding> =
             serde_json::from_value(value_at(&document, &["rootBindings"])?.clone())
                 .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
         Ok(Self {
             document: Arc::new(document),
             root_bindings: root_bindings.into(),
+            protected_artifacts: expected.protected_artifacts.clone().into(),
             armed_snapshot_digest: claimed,
             generations,
         })
@@ -188,6 +217,13 @@ impl ArmedSnapshot {
 
     pub fn root_bindings(&self) -> Result<&[ArmedRootBinding]> {
         Ok(&self.root_bindings)
+    }
+
+    /// Exact launcher-authenticated artifact identities backing the snapshot's
+    /// mandatory protected-object guards. The Host reopens these paths and
+    /// checks both object identity and content digest before runtime creation.
+    pub fn protected_artifacts(&self) -> &[ExpectedProtectedArtifact] {
+        &self.protected_artifacts
     }
 
     /// Convert an absolute host path into the most-specific authenticated
@@ -467,7 +503,7 @@ struct SnapshotPrincipalRow {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SnapshotProtectedObject {
-    role: String,
+    role: ProtectedArtifactRole,
     object: ObjectIdentity,
     denied_actions: Vec<ActionId>,
 }
@@ -666,7 +702,12 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
     let rows: Vec<SnapshotProtectedObject> =
         serde_json::from_value(value_at(document, &["protectedObjects"])?.clone())
             .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
-    const REQUIRED: [&str; 4] = ["armed-policy", "engine-binary", "package-graph", "registry"];
+    const REQUIRED: [ProtectedArtifactRole; 4] = [
+        ProtectedArtifactRole::ArmedPolicy,
+        ProtectedArtifactRole::EngineBinary,
+        ProtectedArtifactRole::PackageGraph,
+        ProtectedArtifactRole::Registry,
+    ];
     if rows.len() != REQUIRED.len() {
         return refused("armed snapshot must protect exactly four mandatory artifacts");
     }
@@ -686,6 +727,71 @@ fn validate_protected_object_rows(document: &Value) -> Result<()> {
     objects.sort();
     if objects.windows(2).any(|pair| pair[0] == pair[1]) {
         return refused("mandatory protected artifacts must have distinct object identities");
+    }
+    Ok(())
+}
+
+fn validate_expected_protected_artifacts(
+    document: &Value,
+    expected: &ExpectedArmingIdentity,
+) -> Result<()> {
+    const REQUIRED: [ProtectedArtifactRole; 4] = [
+        ProtectedArtifactRole::ArmedPolicy,
+        ProtectedArtifactRole::EngineBinary,
+        ProtectedArtifactRole::PackageGraph,
+        ProtectedArtifactRole::Registry,
+    ];
+    if expected.protected_artifacts.len() != REQUIRED.len() {
+        return refused("arming identity must authenticate exactly four protected artifacts");
+    }
+    let mut authenticated = expected.protected_artifacts.clone();
+    authenticated.sort_by_key(|artifact| artifact.role);
+    if authenticated
+        .iter()
+        .map(|artifact| artifact.role)
+        .collect::<Vec<_>>()
+        != REQUIRED
+    {
+        return refused("arming identity protected artifact roles are incomplete or duplicated");
+    }
+    let mut host_paths = BTreeSet::new();
+    let mut objects = BTreeSet::new();
+    for artifact in &authenticated {
+        if artifact.host_path.root != LogicalRoot::Absolute
+            || artifact.host_path.host_bound != Some(true)
+            || artifact.host_path.components.is_empty()
+        {
+            return refused("protected artifact path is not a non-empty absolute host binding");
+        }
+        let path_key = crate::canonical::to_jcs_bytes(
+            &serde_json::to_value(&artifact.host_path)
+                .map_err(|error| invalid(format!("invalid protected artifact path: {error}")))?,
+        )?;
+        if !host_paths.insert(path_key) || !objects.insert(artifact.object.clone()) {
+            return refused("protected artifact paths and objects must be distinct");
+        }
+        if artifact.role == ProtectedArtifactRole::EngineBinary
+            && artifact.content_digest != expected.engine_binary_digest
+        {
+            return refused(
+                "protected engine content digest differs from the loaded engine digest",
+            );
+        }
+    }
+
+    let rows: Vec<SnapshotProtectedObject> =
+        serde_json::from_value(value_at(document, &["protectedObjects"])?.clone())
+            .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
+    let by_role = rows
+        .into_iter()
+        .map(|row| (row.role, row.object))
+        .collect::<BTreeMap<_, _>>();
+    for artifact in &authenticated {
+        if by_role.get(&artifact.role) != Some(&artifact.object) {
+            return refused(
+                "protected object does not match the independently authenticated artifact role",
+            );
+        }
     }
     Ok(())
 }
@@ -830,12 +936,42 @@ mod tests {
         value["armedSnapshotDigest"] = Value::String(digest);
         let digest_at =
             |path: &[&str]| Digest::new(value_at(&value, path).unwrap().as_str().unwrap()).unwrap();
+        let protected_artifacts = value["protectedObjects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| {
+                let role: ProtectedArtifactRole =
+                    serde_json::from_value(row["role"].clone()).unwrap();
+                let content_digest = match role {
+                    ProtectedArtifactRole::EngineBinary => digest_at(&["engine", "binaryDigest"]),
+                    ProtectedArtifactRole::ArmedPolicy => digest_at(&["policyDigest"]),
+                    ProtectedArtifactRole::PackageGraph => digest_at(&["packageGraph", "digest"]),
+                    ProtectedArtifactRole::Registry => digest_at(&["registryDigest"]),
+                };
+                ExpectedProtectedArtifact {
+                    role,
+                    host_path: serde_json::from_value(serde_json::json!({
+                        "root": "absolute",
+                        "components": [
+                            {"encoding": "utf8", "value": "fixture"},
+                            {"encoding": "utf8", "value": row["role"].as_str().unwrap()}
+                        ],
+                        "hostBound": true
+                    }))
+                    .unwrap(),
+                    object: serde_json::from_value(row["object"].clone()).unwrap(),
+                    content_digest,
+                }
+            })
+            .collect();
         let expected = ExpectedArmingIdentity {
             profile: value["capsVocab"].as_str().unwrap().into(),
             semantic_core: value["semanticCore"].as_str().unwrap().into(),
             vocab_digest: digest_at(&["vocabDigest"]),
             registry_digest: digest_at(&["registryDigest"]),
             policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
             target: value["engine"]["target"].as_str().unwrap().into(),
             engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
             features: value["engine"]["features"]
@@ -845,6 +981,7 @@ mod tests {
                 .map(|item| item.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            protected_artifacts,
         };
         (serde_json::to_vec_pretty(&value).unwrap(), expected)
     }
@@ -972,7 +1109,7 @@ mod tests {
 
     #[test]
     fn binds_package_root_process_ceiling_for_each_package_principal() {
-        let (bytes, expected) = fixture();
+        let (bytes, mut expected) = fixture();
         let mut value: Value = serde_json::from_slice(&bytes).unwrap();
         value["processAuthorityCeiling"] = serde_json::json!({
             "kind": "bounded",
@@ -1020,7 +1157,8 @@ mod tests {
             .unwrap()
             .push(second_binding);
         let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
-        value["armedSnapshotDigest"] = Value::String(digest);
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
         let authority = snapshot.authority_state().unwrap();
@@ -1074,6 +1212,35 @@ mod tests {
             compute_checked_contract_digest(DigestKind::ArmedSnapshot, &duplicate).unwrap(),
         );
         assert!(ArmedSnapshot::load(&serde_json::to_vec(&duplicate).unwrap(), &expected).is_err());
+    }
+
+    #[test]
+    fn refuses_protected_role_object_mismatch_against_launcher_identity() {
+        let (bytes, mut expected) = fixture();
+        let first = expected.protected_artifacts[0].object.clone();
+        expected.protected_artifacts[0].object = expected.protected_artifacts[1].object.clone();
+        expected.protected_artifacts[1].object = first;
+
+        assert!(matches!(
+            ArmedSnapshot::load(&bytes, &expected),
+            Err(Error::ArmRefused(message))
+                if message.contains("independently authenticated artifact role")
+        ));
+    }
+
+    #[test]
+    fn refuses_self_consistent_snapshot_mutation_without_trusted_digest_update() {
+        let (bytes, expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["runNonce"] = Value::String("attacker-recomputed-snapshot".into());
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest);
+
+        assert!(matches!(
+            ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected),
+            Err(Error::ArmRefused(message))
+                if message.contains("trusted arming identity")
+        ));
     }
 
     #[test]

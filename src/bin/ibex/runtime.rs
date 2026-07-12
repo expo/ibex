@@ -2012,10 +2012,10 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         &registry_bytes,
     )?;
     value["protectedObjects"] = serde_json::json!([
-        {"role": "armed-policy", "object": policy_object, "deniedActions": ["fs:write"]},
+        {"role": "armed-policy", "object": policy_object.object, "deniedActions": ["fs:write"]},
         {"role": "engine-binary", "object": engine_object, "deniedActions": ["fs:write"]},
-        {"role": "package-graph", "object": graph_object, "deniedActions": ["fs:write"]},
-        {"role": "registry", "object": registry_object, "deniedActions": ["fs:write"]},
+        {"role": "package-graph", "object": graph_object.object, "deniedActions": ["fs:write"]},
+        {"role": "registry", "object": registry_object.object, "deniedActions": ["fs:write"]},
     ]);
     let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value)?;
     value["armedSnapshotDigest"] = serde_json::json!(digest);
@@ -2026,12 +2026,23 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         Digest::new(field.as_str().context("missing default arming digest")?)
             .map_err(anyhow::Error::msg)
     };
+    let engine_host_path = serde_json::from_value(serde_json::json!({
+        "root": "absolute",
+        "components": runtime_path_components_json(&engine_identity.engine_artifact_path)?,
+        "hostBound": true,
+    }))?;
     let expected = ExpectedArmingIdentity {
         profile: value["capsVocab"].as_str().unwrap().into(),
         semantic_core: value["semanticCore"].as_str().unwrap().into(),
         vocab_digest: digest_at(&["vocabDigest"])?,
         registry_digest: digest_at(&["registryDigest"])?,
         policy_digest: digest_at(&["policyDigest"])?,
+        armed_snapshot_digest: Digest::new(
+            value["armedSnapshotDigest"]
+                .as_str()
+                .context("missing armed snapshot digest")?,
+        )
+        .map_err(anyhow::Error::msg)?,
         target: value["engine"]["target"].as_str().unwrap().into(),
         engine_binary_digest: digest_at(&["engine", "binaryDigest"])?,
         features: value["engine"]["features"]
@@ -2041,6 +2052,32 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             .map(|feature| feature.as_str().unwrap().into())
             .collect(),
         package_graph_digest: digest_at(&["packageGraph", "digest"])?,
+        protected_artifacts: vec![
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
+                host_path: policy_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][0]["object"].clone())?,
+                content_digest: policy_object.content_digest,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::EngineBinary,
+                host_path: engine_host_path,
+                object: engine_identity.object,
+                content_digest: digest_at(&["engine", "binaryDigest"])?,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::PackageGraph,
+                host_path: graph_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][2]["object"].clone())?,
+                content_digest: graph_object.content_digest,
+            },
+            capsec_semantics::arming::ExpectedProtectedArtifact {
+                role: capsec_semantics::arming::ProtectedArtifactRole::Registry,
+                host_path: registry_object.host_path,
+                object: serde_json::from_value(value["protectedObjects"][3]["object"].clone())?,
+                content_digest: registry_object.content_digest,
+            },
+        ],
     };
     let snapshot = Arc::new(ArmedSnapshot::load(
         &serde_json::to_vec(&value)?,
@@ -2365,14 +2402,22 @@ fn runtime_path_component_json(value: &std::ffi::OsStr) -> Result<serde_json::Va
     serde_json::to_value(component).map_err(Into::into)
 }
 
+#[derive(Debug)]
+struct MaterializedProtectedArtifact {
+    host_path: capsec_semantics::model::LogicalPath,
+    object: serde_json::Value,
+    content_digest: capsec_semantics::model::Digest,
+}
+
 fn materialize_protected_artifact(
     cache_root: &std::path::Path,
     role: &str,
     digest: &str,
     bytes: &[u8],
-) -> Result<serde_json::Value> {
+) -> Result<MaterializedProtectedArtifact> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
     use std::io::{Read as _, Seek as _, Write as _};
 
     fn validate_pinned_artifact(
@@ -2436,51 +2481,68 @@ fn materialize_protected_artifact(
             .with_context(|| format!("failed to pin protected artifact {}", path.display()))
     };
 
-    if path.exists() {
+    let object = if path.exists() {
         let mut file = open_existing()?;
-        return validate_pinned_artifact(&mut file, bytes, &path);
-    }
-
-    let mut nonce = [0u8; 16];
-    getrandom::getrandom(&mut nonce).context("failed to name protected artifact staging file")?;
-    let temporary = directory.join(format!(
-        ".{filename_digest}.{role}.{}.tmp",
-        URL_SAFE_NO_PAD.encode(nonce)
-    ));
-    let mut staged = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
-    let publish_result = (|| -> Result<serde_json::Value> {
-        staged.write_all(bytes)?;
-        staged.sync_all()?;
-        let mut permissions = staged.metadata()?.permissions();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            permissions.set_mode(0o400);
-        }
-        #[cfg(not(unix))]
-        permissions.set_readonly(true);
-        staged.set_permissions(permissions)?;
-        staged.sync_all()?;
-        let identity = validate_pinned_artifact(&mut staged, bytes, &temporary)?;
-
-        match std::fs::hard_link(&temporary, &path) {
-            Ok(()) => {
-                std::fs::File::open(&directory)?.sync_all()?;
-                Ok(identity)
+        validate_pinned_artifact(&mut file, bytes, &path)?
+    } else {
+        let mut nonce = [0u8; 16];
+        getrandom::getrandom(&mut nonce)
+            .context("failed to name protected artifact staging file")?;
+        let temporary = directory.join(format!(
+            ".{filename_digest}.{role}.{}.tmp",
+            URL_SAFE_NO_PAD.encode(nonce)
+        ));
+        let mut staged = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        let publish_result = (|| -> Result<serde_json::Value> {
+            staged.write_all(bytes)?;
+            staged.sync_all()?;
+            let mut permissions = staged.metadata()?.permissions();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                permissions.set_mode(0o400);
             }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let mut existing = open_existing()?;
-                validate_pinned_artifact(&mut existing, bytes, &path)
+            #[cfg(not(unix))]
+            permissions.set_readonly(true);
+            staged.set_permissions(permissions)?;
+            staged.sync_all()?;
+            let identity = validate_pinned_artifact(&mut staged, bytes, &temporary)?;
+
+            match std::fs::hard_link(&temporary, &path) {
+                Ok(()) => {
+                    std::fs::File::open(&directory)?.sync_all()?;
+                    Ok(identity)
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let mut existing = open_existing()?;
+                    validate_pinned_artifact(&mut existing, bytes, &path)
+                }
+                Err(error) => Err(error.into()),
             }
-            Err(error) => Err(error.into()),
-        }
-    })();
-    let _ = std::fs::remove_file(&temporary);
-    publish_result
+        })();
+        let _ = std::fs::remove_file(&temporary);
+        publish_result?
+    };
+    let path = std::fs::canonicalize(&path)?;
+    let host_path = serde_json::from_value(serde_json::json!({
+        "root": "absolute",
+        "components": runtime_path_components_json(&path)?,
+        "hostBound": true,
+    }))?;
+    let content_digest = capsec_semantics::model::Digest::new(format!(
+        "sha256-{}",
+        URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))
+    ))
+    .map_err(anyhow::Error::msg)?;
+    Ok(MaterializedProtectedArtifact {
+        host_path,
+        object,
+        content_digest,
+    })
 }
 
 /// Ad-hoc evaluation and runtime-registry diagnostics are separate diagnostic
@@ -5280,7 +5342,7 @@ mod tests {
                 bytes.as_bytes(),
             )
             .unwrap();
-            assert!(identities.insert(identity.to_string()));
+            assert!(identities.insert(identity.object.to_string()));
         }
         assert_eq!(identities.len(), 4);
 
@@ -5331,7 +5393,40 @@ mod tests {
             .iter_mut()
             .find(|row| row["role"] == "engine-binary")
             .unwrap();
-        protected_engine["object"] = serde_json::to_value(engine.object).unwrap();
+        protected_engine["object"] = serde_json::to_value(&engine.object).unwrap();
+        let policy_artifact = materialize_protected_artifact(
+            directory,
+            "armed-policy",
+            value["policyDigest"].as_str().unwrap(),
+            b"authenticated canonical policy fixture",
+        )
+        .unwrap();
+        let graph_artifact = materialize_protected_artifact(
+            directory,
+            "package-graph",
+            value["packageGraph"]["digest"].as_str().unwrap(),
+            b"authenticated package graph fixture",
+        )
+        .unwrap();
+        let registry_artifact = materialize_protected_artifact(
+            directory,
+            "registry",
+            value["registryDigest"].as_str().unwrap(),
+            b"authenticated registry fixture",
+        )
+        .unwrap();
+        for (role, object) in [
+            ("armed-policy", &policy_artifact.object),
+            ("package-graph", &graph_artifact.object),
+            ("registry", &registry_artifact.object),
+        ] {
+            value["protectedObjects"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|row| row["role"] == role)
+                .unwrap()["object"] = object.clone();
+        }
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
@@ -5350,6 +5445,7 @@ mod tests {
             vocab_digest: digest_at(&["vocabDigest"]),
             registry_digest: digest_at(&["registryDigest"]),
             policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
             target: value["engine"]["target"].as_str().unwrap().into(),
             engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
             features: value["engine"]["features"]
@@ -5359,6 +5455,41 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            protected_artifacts: vec![
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy,
+                    host_path: policy_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][0]["object"].clone())
+                        .unwrap(),
+                    content_digest: policy_artifact.content_digest,
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::EngineBinary,
+                    host_path: serde_json::from_value(serde_json::json!({
+                        "root": "absolute",
+                        "components": runtime_path_components_json(&engine.engine_artifact_path)
+                            .unwrap(),
+                        "hostBound": true,
+                    }))
+                    .unwrap(),
+                    object: engine.object,
+                    content_digest: digest_at(&["engine", "binaryDigest"]),
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::PackageGraph,
+                    host_path: graph_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][2]["object"].clone())
+                        .unwrap(),
+                    content_digest: graph_artifact.content_digest,
+                },
+                capsec_semantics::arming::ExpectedProtectedArtifact {
+                    role: capsec_semantics::arming::ProtectedArtifactRole::Registry,
+                    host_path: registry_artifact.host_path,
+                    object: serde_json::from_value(value["protectedObjects"][3]["object"].clone())
+                        .unwrap(),
+                    content_digest: registry_artifact.content_digest,
+                },
+            ],
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");
@@ -5584,6 +5715,54 @@ mod tests {
             .expect("explicit enforce cannot bypass target advertisements");
         let explicit_error = format!("{explicit_error:#}");
         assert_eq!(explicit_error, default_error);
+    }
+
+    #[test]
+    fn external_snapshot_refuses_mismatched_protected_artifact_identity_and_content() {
+        let directory = tempdir().unwrap();
+        let (snapshot, identity, _) = write_arming_fixture(directory.path());
+        let original_identity = std::fs::read(&identity).unwrap();
+
+        let mut mismatched_object: serde_json::Value =
+            serde_json::from_slice(&original_identity).unwrap();
+        let first = mismatched_object["protectedArtifacts"][0]["object"].clone();
+        mismatched_object["protectedArtifacts"][0]["object"] =
+            mismatched_object["protectedArtifacts"][1]["object"].clone();
+        mismatched_object["protectedArtifacts"][1]["object"] = first;
+        std::fs::write(&identity, serde_json::to_vec(&mismatched_object).unwrap()).unwrap();
+        let cli = Cli::parse_from([
+            "ibex".into(),
+            "--capsec-armed-snapshot".into(),
+            snapshot.clone().into_os_string(),
+            "--capsec-arming-identity".into(),
+            identity.clone().into_os_string(),
+            "app.ts".into(),
+        ]);
+        let error = format!(
+            "{:#}",
+            build_host(&cli).err().expect("object mismatch must refuse")
+        );
+        assert!(
+            error.contains("independently authenticated artifact role"),
+            "{error}"
+        );
+
+        let mut mismatched_content: serde_json::Value =
+            serde_json::from_slice(&original_identity).unwrap();
+        mismatched_content["protectedArtifacts"][0]["contentDigest"] =
+            serde_json::json!("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        std::fs::write(&identity, serde_json::to_vec(&mismatched_content).unwrap()).unwrap();
+        let error = format!(
+            "{:#}",
+            build_host(&cli)
+                .err()
+                .expect("content mismatch must refuse")
+        );
+        assert!(error.contains("content digest changed"), "{error}");
+        assert!(
+            !error.contains("no unique verified advertisement"),
+            "artifact mismatch must refuse before target promotion: {error}"
+        );
     }
 
     fn file_hash(path: &Path) -> String {

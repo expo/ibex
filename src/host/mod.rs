@@ -276,6 +276,7 @@ impl Host {
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
     ) -> capsec_semantics::Result<Self> {
         validate_loaded_engine_identity(&armed_snapshot)?;
+        validate_snapshot_protected_artifacts(&armed_snapshot)?;
         let target_cells = authenticated_target_cells(&armed_snapshot)?;
         validate_snapshot_root_bindings(&armed_snapshot)?;
         Self::new_armed_with_target_cells(config, armed_snapshot, target_cells)
@@ -327,9 +328,10 @@ impl Host {
         Ok(host)
     }
 
-    /// Test-harness escape hatch for debug builds only. Production/release
-    /// embedders cannot bypass the checked target registry.
-    #[cfg(debug_assertions)]
+    /// Test-harness escape hatch compiled only into unit tests or the explicit
+    /// conformance-observer profile. Ordinary downstream debug embedders must
+    /// not be able to bypass the checked target registry.
+    #[cfg(any(test, feature = "capsec-conformance-observer"))]
     #[doc(hidden)]
     pub unsafe fn new_armed_for_test(
         config: HostConfig,
@@ -2805,18 +2807,19 @@ fn host_path_component(
     ))
 }
 
-fn host_path_from_binding(
-    binding: &capsec_semantics::arming::ArmedRootBinding,
+fn host_path_from_logical_path(
+    host_path: &capsec_semantics::model::LogicalPath,
+    label: &str,
 ) -> capsec_semantics::Result<std::path::PathBuf> {
-    if binding.host_path.root != capsec_semantics::model::LogicalRoot::Absolute
-        || binding.host_path.host_bound != Some(true)
+    if host_path.root != capsec_semantics::model::LogicalRoot::Absolute
+        || host_path.host_bound != Some(true)
     {
-        return Err(capsec_semantics::Error::ArmRefused(
-            "armed root binding is not an absolute host binding".into(),
-        ));
+        return Err(capsec_semantics::Error::ArmRefused(format!(
+            "{label} is not an absolute host binding"
+        )));
     }
     let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
-    for component in &binding.host_path.components {
+    for component in &host_path.components {
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
@@ -2833,6 +2836,109 @@ fn host_path_from_binding(
         }
     }
     Ok(path)
+}
+
+fn host_path_from_binding(
+    binding: &capsec_semantics::arming::ArmedRootBinding,
+) -> capsec_semantics::Result<std::path::PathBuf> {
+    host_path_from_logical_path(&binding.host_path, "armed root binding")
+}
+
+fn validate_snapshot_protected_artifacts(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+) -> capsec_semantics::Result<()> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use sha2::{Digest as _, Sha256};
+    use std::io::Read as _;
+
+    for artifact in snapshot.protected_artifacts() {
+        let path = host_path_from_logical_path(&artifact.host_path, "protected artifact path")?;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let mut file = options.open(&path).map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot pin protected artifact {}: {error}",
+                path.display()
+            ))
+        })?;
+        let before = file.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot inspect protected artifact {}: {error}",
+                path.display()
+            ))
+        })?;
+        if !before.is_file() || object_identity_for_metadata(&before)? != artifact.object {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "protected artifact path does not identify its authenticated object: {}",
+                path.display()
+            )));
+        }
+        #[cfg(unix)]
+        if artifact.role != capsec_semantics::arming::ProtectedArtifactRole::EngineBinary {
+            use std::os::unix::fs::PermissionsExt;
+            if before.permissions().mode() & 0o222 != 0 {
+                return Err(capsec_semantics::Error::ArmRefused(format!(
+                    "protected artifact remains writable: {}",
+                    path.display()
+                )));
+            }
+        }
+        #[cfg(not(unix))]
+        if artifact.role != capsec_semantics::arming::ProtectedArtifactRole::EngineBinary
+            && !before.permissions().readonly()
+        {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "protected artifact remains writable: {}",
+                path.display()
+            )));
+        }
+
+        let mut hash = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = file.read(&mut buffer).map_err(|error| {
+                capsec_semantics::Error::ArmRefused(format!(
+                    "cannot hash protected artifact {}: {error}",
+                    path.display()
+                ))
+            })?;
+            if read == 0 {
+                break;
+            }
+            hash.update(&buffer[..read]);
+        }
+        let observed = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+        if observed != artifact.content_digest.as_str() {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "protected artifact content digest changed: {}",
+                path.display()
+            )));
+        }
+        let after = file.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot revalidate protected artifact {}: {error}",
+                path.display()
+            ))
+        })?;
+        if object_identity_for_metadata(&after)? != artifact.object || after.len() != before.len() {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "protected artifact changed while it was authenticated: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn object_identity_for_host_path(
@@ -3469,6 +3575,7 @@ mod tests {
             vocab_digest: digest_at(&["vocabDigest"]),
             registry_digest: digest_at(&["registryDigest"]),
             policy_digest: digest_at(&["policyDigest"]),
+            armed_snapshot_digest: digest_at(&["armedSnapshotDigest"]),
             target: value["engine"]["target"].as_str().unwrap().into(),
             engine_binary_digest: digest_at(&["engine", "binaryDigest"]),
             features: value["engine"]["features"]
@@ -3478,6 +3585,43 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
+            protected_artifacts: value["protectedObjects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| {
+                    let role: capsec_semantics::arming::ProtectedArtifactRole =
+                        serde_json::from_value(row["role"].clone()).unwrap();
+                    let content_digest = match role {
+                        capsec_semantics::arming::ProtectedArtifactRole::EngineBinary => {
+                            digest_at(&["engine", "binaryDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::ArmedPolicy => {
+                            digest_at(&["policyDigest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::PackageGraph => {
+                            digest_at(&["packageGraph", "digest"])
+                        }
+                        capsec_semantics::arming::ProtectedArtifactRole::Registry => {
+                            digest_at(&["registryDigest"])
+                        }
+                    };
+                    capsec_semantics::arming::ExpectedProtectedArtifact {
+                        role,
+                        host_path: serde_json::from_value(serde_json::json!({
+                            "root": "absolute",
+                            "components": [
+                                {"encoding": "utf8", "value": "fixture"},
+                                {"encoding": "utf8", "value": row["role"].as_str().unwrap()}
+                            ],
+                            "hostBound": true
+                        }))
+                        .unwrap(),
+                        object: serde_json::from_value(row["object"].clone()).unwrap(),
+                        content_digest,
+                    }
+                })
+                .collect(),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
     }

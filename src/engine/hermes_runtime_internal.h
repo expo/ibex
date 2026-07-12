@@ -946,6 +946,10 @@ inline std::vector<uint8_t> extractBytes(
 
 bool startup_trace_enabled();
 bool env_flag_enabled(const char* env_name);
+void requireArmedStartupStage(ExactHermesRuntime* handle, const char* stage);
+void reportStartupFailure(ExactHermesRuntime* handle,
+                          const char* stage,
+                          const std::string& detail);
 std::string valueToString(facebook::jsi::Runtime& rt, const facebook::jsi::Value& value);
 uint64_t nowMs();
 double processUptimeSeconds();

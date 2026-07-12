@@ -216,10 +216,24 @@ impl VerifiedDecisionContext {
                 same_snapshot: denial.armed_snapshot_digest == self.identity.armed_snapshot_digest,
                 same_package_root_owner: package_owner_equal_to(denial, package_root_owner),
             };
-            if matches!(
+            // A minted handle must not cover any authority the owner's static
+            // policy explicitly denies. Checking only whether the denial
+            // contains the requested selector misses the inverse shape: a
+            // broad requested handle can contain a narrower denied subtree and
+            // thereby launder that denial to its holder. Test both directions;
+            // either containment relationship means the requested authority
+            // includes denied authority and therefore cannot be delegated.
+            // @ref LLP 0021#handles-dynamic-authority-and-generations — denial
+            // strata remain effective across voluntary delegation.
+            let denial_contains_request = matches!(
                 try_compare_authority_containment(&denial.selector, selector, &context)?,
                 Containment::Equal | Containment::StrictSubset
-            ) {
+            );
+            let request_contains_denial = matches!(
+                try_compare_authority_containment(selector, &denial.selector, &context)?,
+                Containment::Equal | Containment::StrictSubset
+            );
+            if denial_contains_request || request_contains_denial {
                 return Ok(false);
             }
         }
@@ -1492,6 +1506,64 @@ mod tests {
             occurrence.constrained_principals
         );
         assert_eq!(structured.evidence[0].source_id.as_deref(), Some("deny"));
+    }
+
+    #[test]
+    fn broad_static_floor_cannot_delegate_over_a_narrower_denial() {
+        let principal = package("delegating-package");
+        let broad: AuthoritySelector = serde_json::from_value(json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-tree",
+                "path": {"root": "project", "components": []}
+            }
+        }))
+        .unwrap();
+        let denied: AuthoritySelector = serde_json::from_value(json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "secret.txt"}]
+                }
+            }
+        }))
+        .unwrap();
+        let allowed: AuthoritySelector = serde_json::from_value(json!({
+            "cap": "fs:read",
+            "resource": {
+                "kind": "path-exact",
+                "path": {
+                    "root": "project",
+                    "components": [{"encoding": "utf8", "value": "public.txt"}]
+                }
+            }
+        }))
+        .unwrap();
+        let bind = |selector: AuthoritySelector, source_id: &str| BoundAuthority {
+            source_id: NonEmptyString::new(source_id).unwrap(),
+            selector,
+            armed_snapshot_digest: identity().armed_snapshot_digest,
+            package_root_owner: None,
+        };
+        let mut state = empty_authority();
+        state.principal_policies.insert(
+            principal.clone(),
+            PrincipalPolicy {
+                denials: vec![bind(denied, "denial")],
+                static_floor: vec![bind(broad.clone(), "floor")],
+                ..PrincipalPolicy::default()
+            },
+        );
+        let context = arm(state).unwrap();
+
+        assert!(context
+            .static_authority_covers(&principal, &allowed, None)
+            .unwrap());
+        assert!(!context
+            .static_authority_covers(&principal, &broad, None)
+            .unwrap());
     }
 
     #[test]
