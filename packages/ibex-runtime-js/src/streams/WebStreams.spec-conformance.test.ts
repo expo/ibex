@@ -19,6 +19,13 @@ import {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+test('queuing strategy size stays non-constructible without a dynamic evaluator', () => {
+  const size = new CountQueuingStrategy({ highWaterMark: 1 }).size;
+  expect(size()).toBe(1);
+  expect('prototype' in size).toBe(false);
+  expect(() => new (size as any)()).toThrow(TypeError);
+});
+
 test('underlying stream algorithms may return plain objects', async () => {
   const token = {};
 

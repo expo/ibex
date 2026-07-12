@@ -24,6 +24,7 @@ function _copyExportDescriptors(target, source) {
 }
 var _httpsSocketTransportOptionNames = {
 	ALPNProtocols: true,
+	auth: true,
 	ca: true,
 	cert: true,
 	checkServerIdentity: true,
@@ -51,11 +52,14 @@ var _httpsSocketTransportOptionNames = {
 	servername: true,
 	session: true,
 	sessionIdContext: true,
-	socket: true
+	signal: true,
+	socket: true,
+	timeout: true
 };
 function _requiresSocketTransport(options) {
 	if (!options || typeof options !== "object") return false;
 	if (typeof options.createConnection === "function") return true;
+	if (Array.isArray(options.headers) || options.headers && typeof options.headers === "object" && typeof options.headers.forEach === "function") return true;
 	if (options.socketPath || options.path && options.protocol === "unix:") return true;
 	for (var key in _httpsSocketTransportOptionNames) {
 		if (!Object.prototype.hasOwnProperty.call(_httpsSocketTransportOptionNames, key)) continue;
@@ -84,7 +88,9 @@ function _isWindowsRuntime() {
 	return typeof process !== "undefined" && process && process.platform === "win32";
 }
 function _agentRequiresSocketTransport(agent) {
-	return !!(agent && typeof agent === "object" && _requiresSocketTransport(agent.options));
+	if (!agent || typeof agent !== "object") return false;
+	if (_requiresSocketTransport(agent.options)) return true;
+	return agent !== globalAgent && typeof agent.createConnection === "function" && agent.createConnection !== Agent.prototype.createConnection;
 }
 function _canUseNativeFetchTransport(options) {
 	return _isWindowsRuntime() && typeof fetch === "function" && !_requiresSocketTransport(options) && !_agentRequiresSocketTransport(options && options.agent);

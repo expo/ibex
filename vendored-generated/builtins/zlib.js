@@ -25,6 +25,17 @@ var Z_NO_FLUSH = 0;
 var Z_SYNC_FLUSH = 2;
 var Z_FULL_FLUSH = 3;
 var Z_FINISH = 4;
+var _zlibControlMarkers = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _zlibControlSymbol = typeof Symbol === "function" ? Symbol("ibex.zlib.control") : null;
+function setZlibControlMarker(marker, control) {
+	if (_zlibControlMarkers) _zlibControlMarkers.set(marker, control);
+	else if (_zlibControlSymbol) marker[_zlibControlSymbol] = control;
+}
+function getZlibControlMarker(marker) {
+	if (!marker || typeof marker !== "object" && typeof marker !== "function") return null;
+	if (_zlibControlMarkers) return _zlibControlMarkers.get(marker) || null;
+	return _zlibControlSymbol ? marker[_zlibControlSymbol] || null : null;
+}
 function makeError(code, name, message) {
 	var err = new (name === "RangeError" ? RangeError : name === "TypeError" ? TypeError : Error)(message);
 	err.code = code;
@@ -80,9 +91,8 @@ function toBuffer(uint8) {
 }
 function copyBytesForNative(data) {
 	var bytes = toBytes(data);
-	var copy = new Uint8Array(bytes.length);
-	copy.set(bytes);
-	return copy;
+	if (bytes.byteOffset !== 0 || bytes.byteLength !== bytes.buffer.byteLength) return new Uint8Array(bytes);
+	return bytes;
 }
 function countBytesForChunk(chunk, encoding) {
 	if (chunk === null || chunk === void 0) return 0;
@@ -128,8 +138,9 @@ function normalizeZlibStreamError(e) {
 	}
 	if (/unexpected end of file|invalid stored block|invalid block type|unknown compression method|incorrect data check/.test(msg)) {
 		var dataErr = new Error(msg);
-		dataErr.code = "Z_DATA_ERROR";
-		dataErr.errno = -3;
+		var unexpectedEnd = /unexpected end of file/.test(msg);
+		dataErr.code = unexpectedEnd ? "Z_BUF_ERROR" : "Z_DATA_ERROR";
+		dataErr.errno = unexpectedEnd ? -5 : -3;
 		return dataErr;
 	}
 	return e;
@@ -757,6 +768,7 @@ function ZlibTransform(syncFn, opts, isDecoder, nativeMode, dictionary) {
 	this._level = opts && opts.level !== void 0 && !isNaN(opts.level) && isFinite(opts.level) ? opts.level : -1;
 	this._strategy = opts && opts.strategy !== void 0 && !isNaN(opts.strategy) && isFinite(opts.strategy) ? opts.strategy : 0;
 	this._finishFlush = opts && opts.finishFlush;
+	this._flushFlag = opts && opts.flush !== void 0 ? opts.flush : Z_NO_FLUSH;
 	this._maxOutputLength = isDecoder ? validateMaxOutputLength(opts) : Infinity;
 	var self = this;
 	var defaultFinal = this._final;
@@ -816,6 +828,22 @@ ZlibTransform.prototype.write = function(chunk, encoding, callback) {
 	return Transform.prototype.write.call(this, chunk, encoding, callback);
 };
 ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
+	var control = getZlibControlMarker(chunk);
+	if (control) {
+		try {
+			if (control.type === "flush") {
+				if (this._ensureNativeStream()) this._writeNative(Buffer.alloc(0), control.kind, false);
+			} else if (control.type === "params") {
+				this._level = control.level;
+				this._strategy = control.strategy;
+				if (!this._isDecoder && this._ensureNativeStream()) this._pushNativeOutput(__exactZlibParams(this._nativeId, control.level, control.strategy));
+			}
+			callback();
+		} catch (controlErr) {
+			callback(normalizeZlibStreamError(controlErr));
+		}
+		return;
+	}
 	if (chunk !== null && chunk !== void 0 && typeof chunk !== "string" && !Buffer.isBuffer(chunk) && !(chunk instanceof ArrayBuffer) && !ArrayBuffer.isView(chunk)) {
 		var err = makeError("ERR_INVALID_ARG_TYPE", "TypeError", "Invalid data, chunk must be a string or Buffer, not " + typeof chunk);
 		if (typeof callback === "function") callback(err);
@@ -828,7 +856,7 @@ ZlibTransform.prototype._transform = function(chunk, encoding, callback) {
 	if (typeof chunk === "string") inputChunk = Buffer.from(chunk, encoding);
 	if (this._ensureNativeStream()) {
 		try {
-			this._writeNative(inputChunk, Z_NO_FLUSH, false);
+			this._writeNative(inputChunk, this._flushFlag, false);
 			if (typeof callback === "function") callback();
 		} catch (e) {
 			if (typeof callback === "function") callback(normalizeZlibStreamError(e));
@@ -917,10 +945,14 @@ ZlibTransform.prototype._flush = function(callback) {
 			if (/^inflate failed:/.test(msg)) {
 				var detail = msg.replace(/^inflate failed:\s*(data error:\s*)?/, "");
 				finalErr = new Error(detail);
-				finalErr.code = "Z_DATA_ERROR";
+				var unexpectedEnd = /unexpected end of file/.test(msg);
+				finalErr.code = unexpectedEnd ? "Z_BUF_ERROR" : "Z_DATA_ERROR";
+				finalErr.errno = unexpectedEnd ? -5 : -3;
 			} else if (!e.code && /unexpected end of file|invalid stored block|invalid block type|unknown compression method|incorrect data check/.test(msg)) {
 				finalErr = new Error(msg);
-				finalErr.code = "Z_DATA_ERROR";
+				var secondaryUnexpectedEnd = /unexpected end of file/.test(msg);
+				finalErr.code = secondaryUnexpectedEnd ? "Z_BUF_ERROR" : "Z_DATA_ERROR";
+				finalErr.errno = secondaryUnexpectedEnd ? -5 : -3;
 			}
 		}
 		callback(finalErr);
@@ -932,21 +964,19 @@ ZlibTransform.prototype.flush = function(kind, callback) {
 		kind = void 0;
 	}
 	var flushCallback = typeof callback === "function" ? callback : null;
-	if (this._ensureNativeStream()) try {
-		this._writeNative(Buffer.alloc(0), kind === void 0 ? Z_FULL_FLUSH : kind, false);
-	} catch (e) {
-		var err = normalizeZlibStreamError(e);
-		if (flushCallback) if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(function() {
-			flushCallback(err);
-		});
-		else setTimeout(function() {
-			flushCallback(err);
-		}, 0);
-		else this.emit("error", err);
+	if (this._flushed || this.writableEnded || this._writableState && (this._writableState.ended || this._writableState.finished)) {
+		if (flushCallback) if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(flushCallback);
+		else setTimeout(flushCallback, 0);
 		return this;
 	}
-	if (flushCallback) if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(flushCallback);
-	else setTimeout(flushCallback, 0);
+	var marker = Buffer.alloc(0);
+	setZlibControlMarker(marker, {
+		type: "flush",
+		kind: kind === void 0 ? Z_FULL_FLUSH : kind
+	});
+	Transform.prototype.write.call(this, marker, function(err) {
+		if (flushCallback) flushCallback(err);
+	});
 	return this;
 };
 ZlibTransform.prototype.reset = function() {
@@ -962,23 +992,15 @@ ZlibTransform.prototype.reset = function() {
 ZlibTransform.prototype.params = function(level, strategy, callback) {
 	validateLevelArg(level, "level");
 	validateStrategyArg(strategy, "strategy");
-	this._level = level;
-	this._strategy = strategy;
-	if (!this._isDecoder && this._ensureNativeStream()) try {
-		this._pushNativeOutput(__exactZlibParams(this._nativeId, level, strategy));
-	} catch (e) {
-		var err = normalizeZlibStreamError(e);
-		if (typeof callback === "function") {
-			setTimeout(function() {
-				callback(err);
-			}, 0);
-			return this;
-		}
-		throw err;
-	}
-	if (typeof callback === "function") setTimeout(function() {
-		callback();
-	}, 0);
+	var marker = Buffer.alloc(0);
+	setZlibControlMarker(marker, {
+		type: "params",
+		level,
+		strategy
+	});
+	Transform.prototype.write.call(this, marker, function(err) {
+		if (typeof callback === "function") callback(err);
+	});
 	return this;
 };
 ZlibTransform.prototype.close = function(callback) {

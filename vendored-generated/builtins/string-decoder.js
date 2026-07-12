@@ -239,9 +239,16 @@ StringDecoder.prototype.text = function text(buf, offset) {
 StringDecoder.prototype[Symbol.toPrimitive] = function() {
 	return "StringDecoder";
 };
-StringDecoder.prototype.toString = function() {
+var stringDecoderToString = function() {
 	return "[object StringDecoder]";
 };
+StringDecoder.prototype.toString = stringDecoderToString;
+Object.defineProperty(StringDecoder.prototype, "toString", {
+	value: stringDecoderToString,
+	writable: true,
+	configurable: true,
+	enumerable: true
+});
 module.exports = StringDecoder;
 module.exports.StringDecoder = StringDecoder;
 //#endregion

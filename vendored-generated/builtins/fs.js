@@ -5266,9 +5266,11 @@ function _asyncRm(path, options) {
 }
 function _resolveAsync(value) {
 	return function() {
-		return Promise.resolve().then(function() {
-			return value();
-		});
+		try {
+			return Promise.resolve(value());
+		} catch (err) {
+			return Promise.reject(err);
+		}
 	};
 }
 function _fileHandleErrorFromClosed() {

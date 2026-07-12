@@ -652,8 +652,12 @@ type PullIntoDescriptor = {
   pendingRequest: PullIntoRequest | null;
 };
 
-const countSizeTarget: () => number = (new Function("return (() => 1)"))();
-const byteLengthSizeTarget: (chunk: ArrayBufferView) => number = (new Function("return ((chunk) => chunk.byteLength)"))();
+// Arrow functions already have the required non-constructible shape. Creating
+// them through the ambient Function constructor made a late diagnostic bundle
+// load fail after structural lockdown had correctly tamed dynamic evaluators.
+// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+const countSizeTarget: () => number = () => 1;
+const byteLengthSizeTarget: (chunk: ArrayBufferView) => number = (chunk) => chunk.byteLength;
 
 Object.defineProperty(countSizeTarget, "name", { value: "size", configurable: true });
 Object.defineProperty(byteLengthSizeTarget, "name", { value: "size", configurable: true });

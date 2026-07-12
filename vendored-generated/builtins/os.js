@@ -27,7 +27,7 @@ function legacyNumberValue(getter) {
 	return fn;
 }
 function authorizeSystemInfo(kind) {
-	if (typeof __exactAuthorizeSystemInfo === "function") __exactAuthorizeSystemInfo(kind);
+	if (typeof __exactAuthorizeSystemInfo === "function") return __exactAuthorizeSystemInfo(kind);
 }
 function androidPlatformVersion() {
 	if (_platform !== "android" || typeof globalThis === "undefined") return null;
@@ -64,14 +64,13 @@ function release() {
 	return releaseValue();
 }
 function homedir() {
-	authorizeSystemInfo(13);
-	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) return globalThis.process.env.HOME || globalThis.process.env.USERPROFILE || "/";
-	return "/";
+	var storagePaths = authorizeSystemInfo(13);
+	return storagePaths && typeof storagePaths.home === "string" ? storagePaths.home : "/";
 }
 function tmpdir() {
-	authorizeSystemInfo(13);
-	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
-		var tempPath = globalThis.process.env.TMPDIR || globalThis.process.env.TMP || globalThis.process.env.TEMP || "/tmp";
+	var storagePaths = authorizeSystemInfo(13);
+	if (storagePaths && typeof storagePaths.temporary === "string") {
+		var tempPath = storagePaths.temporary;
 		if (typeof tempPath === "string" && tempPath.length > 1 && tempPath[tempPath.length - 1] === "/") {
 			var containsBackslash = false;
 			for (var i = 0; i < tempPath.length; i++) if (tempPath[i] === "\\") {

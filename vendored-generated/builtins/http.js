@@ -3350,7 +3350,7 @@ TcpIncomingMessage.prototype._resumeSocketAfterDrain = function() {
 	if (this._socketPausedForBackpressure !== true) return;
 	this._socketPausedForBackpressure = false;
 	var socket = this.socket;
-	if (socket && !socket.destroyed && socket._paused === true && typeof socket.resume === "function") socket.resume();
+	if (socket && !socket.destroyed && typeof socket.resume === "function") socket.resume();
 };
 TcpIncomingMessage.prototype._read = function() {
 	this._resumeSocketAfterDrain();

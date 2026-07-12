@@ -645,7 +645,12 @@ function AssertionError(opts) {
 	} catch (_) {}
 }
 AssertionError.prototype = Object.create(Error.prototype);
-AssertionError.prototype.constructor = AssertionError;
+Object.defineProperty(AssertionError.prototype, "constructor", {
+	value: AssertionError,
+	writable: true,
+	configurable: true,
+	enumerable: false
+});
 function _partialDeepStrictEqual(actual, expected, aSeen, bSeen) {
 	if (Object.is(actual, expected)) return true;
 	if (typeof actual === "number" && typeof expected === "number" && isNaN(actual) && isNaN(expected)) return true;
