@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -35,6 +35,15 @@ it does not restate the embedding ABI ([LLP 0002](./0002-host-embedding-abi.spec
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`
 (`src/engine/hermes_runtime.cc:1464`).
+
+Frame attribution is runtime-handle scoped, not merely thread scoped. A thread
+may drive multiple runtimes or re-enter `ex_hermes_eval()` for a nested runtime
+from an outer runtime's host call; `ex_hermes_create()`, `ex_hermes_eval()`, and
+`ex_hermes_poll()` select the handle's attribution VM for the duration of that
+entry and restore the prior selection on unwind `[observed]`
+(`src/engine/hermes_runtime_internal.h`; `src/engine/hermes_runtime.cc`). This
+keeps capability checks attached to the executing runtime without weakening LLP
+0013's fail-closed no-user-principal rule.
 
 The engine uses Hermes through **JSI** (`<jsi/jsi.h>`) `[observed]`
 (`src/engine/hermes_runtime.cc:14-15`). Native functions are registered with

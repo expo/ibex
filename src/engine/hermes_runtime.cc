@@ -2587,15 +2587,18 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // @ref LLP 0013#mechanism-3 — cache the vm::Runtime so host-boundary checks can
   // resolve the executing frame's package principal. getVMRuntimeUnsafe() is the
   // documented (unstable) accessor on IHermes, which HermesRuntime implements.
-  g_vm_runtime = handle->runtime->getVMRuntimeUnsafe();
+  handle->attribution_runtime = handle->runtime->getVMRuntimeUnsafe();
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      handle->attribution_runtime);
   // Mark everything compiled during bootstrap (the module loader, the shared
   // runtime bundle, the lockdown/compartment installers, and all the trusted
   // deputy wrappers they install) with the runtime principal, so frame
   // attribution sees through those deputies to the real caller. Reset to the
   // root principal after installGlobals so eval/Function-minted Domains and user
   // code are attributed to root, not the runtime. @ref LLP 0013 — Open-Q3
-  if (g_vm_runtime != nullptr) {
-    ex_hermes_vm_set_default_package_id(g_vm_runtime, kRuntimePrincipalId);
+  if (handle->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(
+        handle->attribution_runtime, kRuntimePrincipalId);
   }
 #endif
   TRACE_END(handle_alloc);
@@ -2650,15 +2653,15 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   // compiled with no explicit principal (eval/Function, or any stray script the
   // embedder evaluates) is attributed to the root principal rather than the
   // runtime. Package code is stamped explicitly by the loader. @ref LLP 0013 — Open-Q3
-  if (g_vm_runtime != nullptr) {
-    ex_hermes_vm_set_default_package_id(g_vm_runtime, 0);
+  if (handle->attribution_runtime != nullptr) {
+    ex_hermes_vm_set_default_package_id(handle->attribution_runtime, 0);
     // @ref LLP 0013#phase-5 — (Open-Q3) — arm schedule-time principal capture when
     // the patched engine is present. Deputy classes can be configured after
     // create_engine, and the host consumes the captured scheduler only on the
     // live deputy-stack path or when a native-resolved continuation would
     // otherwise report kNoUserPrincipal. A boot-time latch would fail open for
     // later policy/application setup and false-deny granted continuations.
-    ex_hermes_vm_set_job_scheduler_capture(g_vm_runtime, 1);
+    ex_hermes_vm_set_job_scheduler_capture(handle->attribution_runtime, 1);
   }
 #endif
 
@@ -2673,11 +2676,13 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   unregisterAndroidHostFunctions(runtime);
   ibex_zlib_streams::cleanupZlibStreams(runtime);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
-  // Clear this thread's cached vm::Runtime pointer before freeing the runtime so
-  // a later attribution walk on the same thread (e.g. a reused libtest worker or
-  // a thread that outlives its runtime) can't dereference freed memory. Now
-  // thread-local, so this only touches the owning thread's slot. (ENG-23011)
-  g_vm_runtime = nullptr;
+  // Destroy is normally called outside an engine entry point. If an embedder
+  // does destroy the currently selected handle, clear the cache rather than
+  // leaving a dangling VM pointer. Nested runtimes leave their outer selection
+  // untouched. (ENG-23011, ENG-24219)
+  if (g_vm_runtime == runtime->attribution_runtime) {
+    g_vm_runtime = nullptr;
+  }
 #endif
   // ENG-22925/ENG-23045: hold g_runtimeRegistryMutex across unregister,
   // debugger teardown, and delete. Any-thread resolvers and debugger callbacks
@@ -2722,6 +2727,11 @@ extern "C" int ex_hermes_eval(
     writeOutError("Hermes eval received invalid input");
     return 1;
   }
+
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
 
   std::string source = source_url ? source_url : (is_bytecode ? "<bytecode>" : "<eval>");
   bool traceEval = startup_trace_enabled();
@@ -3269,6 +3279,11 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   if (!runtime) {
     return 0;
   }
+
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  ScopedActiveAttributionRuntime activeAttributionRuntime(
+      runtime->attribution_runtime);
+#endif
 
   int executed = 0;
   cleanupFetchCallbacks(runtime);

@@ -82,6 +82,11 @@ struct HostCallAsyncEntry {
 
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  // The frame-attribution VM owned by this handle. The active pointer is
+  // selected at each engine entry point; a thread may drive nested runtimes.
+  void* attribution_runtime{nullptr};
+#endif
 #if EXACT_HAS_HERMES_ASYNC_DEBUGGER
   std::shared_ptr<facebook::hermes::debugger::AsyncDebuggerAPI> debugger;
 #endif
@@ -261,6 +266,28 @@ constexpr uint32_t kRuntimePrincipalId = 0xFFFFFFFFu;
 // with no grants that fails closed. Used as a fail-closed sentinel when the
 // deputy-stack collector may have truncated (see checkCapability). (ENG-22643)
 constexpr uint32_t kNoUserPrincipalId = 0xFFFFFFFEu;
+
+// A thread may drive more than one Hermes runtime, including re-entrantly when
+// an embedder host call evaluates a nested runtime. Capability attribution must
+// follow the runtime currently being driven, then restore the outer runtime on
+// unwind. @ref LLP 0013#mechanism-3
+class ScopedActiveAttributionRuntime {
+ public:
+  explicit ScopedActiveAttributionRuntime(void* runtime)
+      : previous_(g_vm_runtime) {
+    g_vm_runtime = runtime;
+  }
+
+  ScopedActiveAttributionRuntime(const ScopedActiveAttributionRuntime&) = delete;
+  ScopedActiveAttributionRuntime& operator=(const ScopedActiveAttributionRuntime&) = delete;
+
+  ~ScopedActiveAttributionRuntime() {
+    g_vm_runtime = previous_;
+  }
+
+ private:
+  void* previous_;
+};
 #endif
 
 // The capability principal for the code currently executing at the host

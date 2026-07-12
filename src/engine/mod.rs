@@ -137,6 +137,36 @@ mod tests {
         (status, value)
     }
 
+    /// Frame attribution must inspect the runtime being evaluated, not merely
+    /// the last runtime created on this thread. Snapback nests a mutation
+    /// runtime inside an action runtime; the stale thread-local used to make
+    /// the outer continuation look like it had no user principal and falsely
+    /// deny its explicitly granted fetch capability (ENG-24219).
+    #[test]
+    fn capability_attribution_tracks_the_eval_target_across_two_runtimes() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities().grant("*", "network:fetch", None);
+        crate::host::abi::install_host(host);
+
+        unsafe {
+            let outer = ex_hermes_create();
+            let nested = ex_hermes_create();
+            assert!(!outer.is_null());
+            assert!(!nested.is_null());
+
+            let (status, value) = eval(
+                outer,
+                "__exactCapabilityCheck('network:fetch:127.0.0.1') ? 'allowed' : 'denied'",
+            );
+            assert_eq!(status, 0, "outer eval failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("allowed"));
+
+            ex_hermes_destroy(nested);
+            ex_hermes_destroy(outer);
+        }
+    }
+
     /// A one-shot timer whose callback throws must be retired before the
     /// error propagates out of `ex_hermes_poll`; before the fix it stayed
     /// due and refired on every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
