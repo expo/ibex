@@ -1,8 +1,8 @@
-use std::io::{BufRead, BufReader, ErrorKind, Read};
+use std::io::{BufRead, BufReader, ErrorKind};
 use std::path::Path;
 use std::path::PathBuf;
 
-use sha2::{Digest, Sha256};
+use ibex_windows_dll_staging::stage_runtime_dlls;
 
 #[derive(Clone)]
 struct AppleFramework {
@@ -2072,88 +2072,26 @@ fn profile_dir_from_out_dir(out_dir: &Path) -> PathBuf {
 
 fn stage_windows_runtime_dlls(out_dir: &Path, hermes_bin_dir: &Path) {
     let profile_dir = profile_dir_from_out_dir(out_dir);
-    let destinations = [profile_dir.clone(), profile_dir.join("deps")];
-    for destination in &destinations {
-        std::fs::create_dir_all(destination).unwrap_or_else(|error| {
-            panic!(
-                "Failed to create Windows runtime DLL destination {}: {error}",
-                destination.display()
-            )
-        });
-    }
-
-    let mut copied = 0usize;
-    for path in read_dir_paths_or_panic(hermes_bin_dir, "Windows Hermes runtime DLL staging") {
-        if !path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("dll"))
-        {
-            continue;
-        }
-        println!("cargo:rerun-if-changed={}", path.display());
-        let file_name = path.file_name().unwrap_or_else(|| {
-            panic!(
-                "Windows runtime DLL path has no file name: {}",
-                path.display()
-            )
-        });
-        for destination in &destinations {
-            let staged_path = destination.join(file_name);
-            if staged_file_is_fresh(&path, &staged_path) {
-                continue;
-            }
-            // @ref LLP 0005#c-compilation — a successful build must execute
-            // the Hermes DLL selected for this build. A locked stale DLL is a
-            // hard failure, never a warning followed by reuse (ENG-24264).
-            std::fs::copy(&path, &staged_path).unwrap_or_else(|error| {
-                panic!(
-                    "Failed to stage Windows runtime DLL {} into {}: {error}. The destination may be locked by a running process; stop it and rebuild rather than executing a stale DLL.",
-                    path.display(),
-                    destination.display()
-                )
-            });
-            if !staged_file_is_fresh(&path, &staged_path) {
-                panic!(
-                    "Staged Windows runtime DLL {} does not match source {} after copy",
-                    staged_path.display(),
-                    path.display()
-                );
-            }
-        }
-        copied += 1;
-    }
-
-    if copied == 0 {
+    // @ref LLP 0005#c-compilation — bundle-wide interprocess serialization
+    // and atomic digest-checked publication prevent concurrent builds from
+    // mixing DLLs selected from different Hermes sources (ENG-24264).
+    let report = stage_runtime_dlls(&profile_dir, hermes_bin_dir).unwrap_or_else(|error| {
         panic!(
-            "No Windows runtime DLLs found in {}. Run scripts/install-windows-hermes.ps1 or set HERMES_BIN_DIR.",
+            "Failed to stage Windows Hermes runtime DLLs from {}: {error}. Stop any process locking a stale destination and rebuild; a successful build never reuses mismatched runtime code.",
             hermes_bin_dir.display()
-        );
+        )
+    });
+    for path in &report.source_paths {
+        println!("cargo:rerun-if-changed={}", path.display());
     }
     eprintln!(
-        "ibex build: staged {copied} Windows runtime DLLs from {}",
-        hermes_bin_dir.display()
+        "ibex build: staged {} Windows runtime DLLs from {} (bundle {}, {} published, {} reused)",
+        report.dll_count,
+        hermes_bin_dir.display(),
+        report.bundle_digest,
+        report.published_files,
+        report.reused_files,
     );
-}
-
-fn file_sha256(path: &Path) -> std::io::Result<[u8; 32]> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hasher.finalize().into())
-}
-
-fn staged_file_is_fresh(source: &Path, destination: &Path) -> bool {
-    matches!(
-        (file_sha256(source), file_sha256(destination)),
-        (Ok(source_digest), Ok(destination_digest)) if source_digest == destination_digest
-    )
 }
 
 fn generate_runtime_bundle_bytecode_header(

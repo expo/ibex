@@ -5,6 +5,7 @@ test("conformance prerequisite matrix covers every product test layer", () => {
   const byId = new Map(CONFORMANCE_COMMANDS.map((entry) => [entry[0], entry.slice(1)]));
   expect([...byId.keys()].sort()).toEqual([
     "all-generated-drift",
+    "android-websocket-behavioral",
     "capsec-contract-drift",
     "capsec-registry-drift",
     "devtools-js-full",
@@ -33,4 +34,8 @@ test("conformance prerequisite matrix covers every product test layer", () => {
   expect(compileOnly[1]).toContain("--all-targets");
   expect(byId.get("devtools-js-full")[1]).toContain("packages/ibex-devtools/src/scripts");
   expect(byId.get("runtime-js-full")[1]).toContain("packages/ibex-runtime-js/src");
+  expect(byId.get("android-websocket-behavioral")).toEqual([
+    "bun",
+    ["run", "test:android-java"],
+  ]);
 });

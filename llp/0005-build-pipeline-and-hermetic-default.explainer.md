@@ -5,7 +5,7 @@
 **Systems:** Build, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
+**Revised:** 2026-07-12 (ENG-24264: Windows Hermes DLL publication is content-digest checked, atomic per file, and bundle-serialized across build processes, with real Windows locked-file coverage); 2026-07-07 (run-time entry-bytecode cache fallback rule — ENG-23484); 2026-07-07 (run-time compile gate keys on the HBC bytecode version line — ENG-23495); 2026-07-11 (generated capsec registry bindings and drift gate — ENG-24145)
 **Related:** LLP 0000; LLP 0001 (platforms); LLP 0003 (engine bridge); LLP 0004 (module loading)
 
 ## Summary
@@ -298,7 +298,17 @@ from runtime DLLs under `bin/`. `build.rs` therefore resolves a Windows
 an additional native link-search path, and stages its DLLs into Cargo's profile
 directory plus `deps/` so `cargo test` and `cargo run` binaries can load
 `hermes.dll` and its companion DLLs at process start `[observed]`
-(`build.rs:199-260, 302-320, 1153-1199, 1796-1858`).
+(`build.rs`; `crates/windows-dll-staging`). Staging compares SHA-256 content,
+not length or timestamps. A bundle-wide interprocess lock prevents concurrent
+builds with different Hermes sources from interleaving the profile and `deps`
+sets; each changed file is copied to a verified unique sibling and atomically
+renamed into place. A mismatched loaded/locked destination is a build error,
+never a warning followed by stale reuse. The Hermes-independent staging crate
+behaviorally tests same-length tamper plus future clock skew and concurrent
+different-source publication on every host; Windows CI additionally holds the
+destination with an exclusive Windows handle and proves publication fails
+without changing it `[observed]` (`crates/windows-dll-staging/src/lib.rs`;
+`.github/workflows/ci.yml`).
 
 The `host-http-server` feature controls whether the real Rust
 `ex_host_http_*` implementation is linked. The `ibex` binary can compile

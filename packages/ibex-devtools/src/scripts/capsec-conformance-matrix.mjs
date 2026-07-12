@@ -28,6 +28,7 @@ export const CONFORMANCE_COMMANDS = Object.freeze([
   ],
   ["devtools-js-full", "bun", ["test", "packages/ibex-devtools/src/scripts"]],
   ["runtime-js-full", "bun", ["test", "packages/ibex-runtime-js/src"]],
+  ["android-websocket-behavioral", "bun", ["run", "test:android-java"]],
   ["hermes-transform-loader-corpora", "bun", ["run", "test:hermes-compat"]],
   ["capsec-registry-drift", "bun", ["run", "check:capsec-registry"]],
   ["capsec-contract-drift", "bun", ["run", "check:capsec-contract"]],

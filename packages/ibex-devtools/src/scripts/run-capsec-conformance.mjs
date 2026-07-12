@@ -37,19 +37,29 @@ const repoRoot = path.resolve(
   "../../../..",
 );
 const capsecRoot = path.join(repoRoot, "capsec");
-const args = process.argv.slice(2);
-const knownOptions = new Set([
+const args = process.argv.slice(2).filter((argument) => argument !== "--");
+const valueOptions = new Set([
   "--engine-artifact",
   "--fixture-evidence",
   "--public-surface-evidence",
   "--output",
   "--report",
 ]);
+const booleanOptions = new Set(["--expect-incomplete"]);
 const parsedOptions = new Map();
-for (let index = 0; index < args.length; index += 2) {
+const parsedFlags = new Set();
+for (let index = 0; index < args.length;) {
   const name = args[index];
+  if (booleanOptions.has(name)) {
+    if (parsedFlags.has(name)) {
+      throw new Error(`duplicate conformance runner option ${name}`);
+    }
+    parsedFlags.add(name);
+    index += 1;
+    continue;
+  }
   const value = args[index + 1];
-  if (!knownOptions.has(name)) {
+  if (!valueOptions.has(name)) {
     throw new Error(`unknown conformance runner option ${JSON.stringify(name)}`);
   }
   if (parsedOptions.has(name)) {
@@ -59,8 +69,10 @@ for (let index = 0; index < args.length; index += 2) {
     throw new Error(`conformance runner option ${name} requires a value`);
   }
   parsedOptions.set(name, value);
+  index += 2;
 }
 const option = (name) => parsedOptions.get(name);
+const expectIncomplete = parsedFlags.has("--expect-incomplete");
 const outputPath = path.resolve(
   repoRoot,
   option("--output") ?? "target/capsec-executions.json",
@@ -515,12 +527,79 @@ execFileSync(
 const report = readJsonStrict(reportPath);
 // Adapter-only evidence is diagnostic and can never become a fixture pass.
 // Fail with the exact residual inventory before considering target promotion.
-assertRecipeCatalogComplete(recipeCatalog);
-assertPublicSurfaceExecutionComplete(publicSurfaceEvidence, recipeCatalog, {
-  target,
-  sourceRevision: bindings.sourceRevision,
-  sourceTreeDigest: bindings.sourceTreeDigest,
-  engine: bindings.engine,
-  expectedFixtureIds: catalog.flatMap((cell) => cell.requiredFixtures),
+const promotionRefusals = [];
+const checkPromotion = (name, check) => {
+  try {
+    check();
+  } catch (error) {
+    promotionRefusals.push({
+      check: name,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+checkPromotion("executable-recipe-catalog", () => {
+  assertRecipeCatalogComplete(recipeCatalog);
 });
-assertReportMayAdvertise(report);
+checkPromotion("public-surface-execution", () => {
+  assertPublicSurfaceExecutionComplete(publicSurfaceEvidence, recipeCatalog, {
+    target,
+    sourceRevision: bindings.sourceRevision,
+    sourceTreeDigest: bindings.sourceTreeDigest,
+    engine: bindings.engine,
+    expectedFixtureIds: catalog.flatMap((cell) => cell.requiredFixtures),
+  });
+});
+checkPromotion("conformance-report", () => {
+  assertReportMayAdvertise(report);
+});
+
+if (!expectIncomplete) {
+  if (promotionRefusals.length > 0) {
+    throw new Error(
+      `CapSec target promotion refused: ${promotionRefusals
+        .map(({ check, message }) => `${check}: ${message}`)
+        .join("; ")}`,
+    );
+  }
+} else {
+  if (promotionRefusals.length === 0 || report.status !== "incomplete") {
+    throw new Error(
+      "--expect-incomplete requires an incomplete report that refuses target promotion",
+    );
+  }
+  const attestations = readJsonStrict(
+    path.join(capsecRoot, "conformance/target-attestations.json"),
+  );
+  const targetKey = canonicalJson(target);
+  if (
+    attestations.attestations.some(
+      (attestation) => canonicalJson(attestation.target) === targetKey,
+    )
+  ) {
+    throw new Error(
+      "the expected-incomplete target is already advertised by a committed attestation",
+    );
+  }
+  const ciStatusPath = path.join(realEvidenceRoot, "capsec-ci-status.json");
+  fs.writeFileSync(
+    ciStatusPath,
+    `${JSON.stringify({
+      statusSchema: "ibex/capsec-ci-evidence-status/1",
+      expectation: "incomplete-and-unadvertised",
+      sourceRevision: bindings.sourceRevision,
+      sourceTreeDigest: bindings.sourceTreeDigest,
+      target,
+      engine: bindings.engine,
+      reportStatus: report.status,
+      reportPath: path.relative(repoRoot, reportPath),
+      executionArtifactPath: path.relative(repoRoot, outputPath),
+      promotionRefusals,
+    }, null, 2)}\n`,
+  );
+  console.log(
+    `CapSec evidence complete; target remains intentionally unadvertised (${promotionRefusals
+      .map(({ check }) => check)
+      .join(", ")})`,
+  );
+}

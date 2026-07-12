@@ -88,14 +88,15 @@ failed result fatal. Inventory rows and a green sample suite never synthesize
 execution results.
 
 On the declared candidate target, run the prerequisite matrix and produce a
-bound (normally still incomplete) report from a clean committed tree with:
+bound report from a clean committed tree with:
 
 ```sh
 bun run verify:capsec-conformance
 ```
 
 The executor runs the complete Rust library/runtime suites, the full devtools
-and runtime-JS suites, Hermes transform/loader corpora, the CapSec contract and
+and runtime-JS suites, the production Android WebSocket flow-controller
+behavioral tests, Hermes transform/loader corpora, the CapSec contract and
 registry checks, both generated drift checks, `ref-check`, and an executable
 Hermes probe. The probe is prerequisite evidence only: its digest is recorded
 separately and can never substitute for the actual runtime engine artifact
@@ -105,6 +106,21 @@ outcomes. A separate executing harness must provide a
 fixture-specific command, result marker, exit status, and evidence digest for
 every obligation; the report rejects missing, unknown, duplicate, failed, or
 stale source/engine/target/registry/manifest/catalog evidence.
+
+CI runs that exact command matrix against the patched arm64 macOS engine and
+uploads the command, adapter, public-surface, execution, report, and promotion-
+refusal artifacts. While no target is advertised, CI uses:
+
+```sh
+bun run verify:capsec-conformance -- --expect-incomplete
+```
+
+This is not a weaker conformance mode: every prerequisite command and artifact
+binding still must succeed. The command returns success only if the generated
+report remains incomplete, the recipe/public/report promotion checks refuse,
+and no matching target attestation is committed. If the target becomes
+conformant, the expectation itself fails so CI must switch to the ordinary
+advertising gate deliberately.
 
 Regenerate the source-derived registry and bindings first, then the exact
 digest bundles, policy/armed self- and cross-digests, digest-vector
