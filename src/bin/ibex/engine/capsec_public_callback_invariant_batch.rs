@@ -2,6 +2,7 @@ use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 const CALLBACK_INVOCATION_SCHEMA: &str = "ibex/capsec-callback-invariant-invocation/1";

@@ -4,6 +4,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::ffi::OsString;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 const STARTUP_ENVIRONMENT_INVOCATION_SCHEMA: &str =

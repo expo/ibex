@@ -3,6 +3,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — each

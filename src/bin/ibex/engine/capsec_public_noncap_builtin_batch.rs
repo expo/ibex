@@ -2,6 +2,7 @@ use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 const EVENT_LOOP_COMPLETION_KIND: &str = "event-loop-quiescence";

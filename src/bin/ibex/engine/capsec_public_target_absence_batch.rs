@@ -3,6 +3,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::CString;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 #[derive(Debug, Deserialize)]

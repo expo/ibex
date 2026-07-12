@@ -4,6 +4,7 @@ use clap::{CommandFactory as _, Parser as _};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+#[cfg(not(feature = "host-http-server"))]
 use std::io::Write as _;
 
 #[derive(Debug, Deserialize)]
