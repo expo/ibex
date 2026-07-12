@@ -63,6 +63,7 @@ extern "C" {
     fn ex_hermes_create_armed(
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
+    fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
     fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
     fn ex_hermes_set_host_call(
         runtime: *mut HermesRuntimeOpaque,
@@ -730,7 +731,8 @@ struct SharedRuntime {
     // Hermes/JSI values have thread-affine destruction. Keep the creator here
     // as a Rust-side fail-safe so a legal `Arc<dyn Engine + Send + Sync>` last
     // drop on another thread leaks the native runtime instead of crossing the
-    // C ABI and terminating the process.
+    // C ABI and terminating the process. Full reclamation still requires an
+    // explicit owner-thread teardown handoff.
     // @ref LLP 0003#the-event-loop — Hermes is driven and destroyed on one owner thread.
     owner_thread: std::thread::ThreadId,
     // Serializes runtime-thread FFI (`ex_hermes_eval`/`ex_hermes_poll`) and
@@ -750,7 +752,7 @@ struct SharedRuntime {
 #[must_use = "runtime shutdown may be rejected when called off the owner thread"]
 enum RuntimeShutdown {
     Destroyed,
-    AlreadyShutdown,
+    NotLive,
     WrongThread,
 }
 
@@ -836,19 +838,13 @@ impl SharedRuntime {
     }
 
     /// Rejecting before swapping `raw` leaves an owner-held clone able to
-    /// reclaim it. A clean runtime may be observed from any thread without
-    /// touching thread-affine JSI state.
+    /// reclaim it. An off-owner final drop intentionally leaks rather than
+    /// running thread-affine JSI destruction or aborting the host process.
     fn shutdown(&self) -> RuntimeShutdown {
         if self.raw.load(Ordering::SeqCst).is_null() {
-            return RuntimeShutdown::AlreadyShutdown;
+            return RuntimeShutdown::NotLive;
         }
         if std::thread::current().id() != self.owner_thread {
-            let mut stderr = std::io::stderr().lock();
-            let _ = std::io::Write::write_all(
-                &mut stderr,
-                b"warning: refusing to destroy a Hermes runtime off its owner thread; \
-                  leaking it if no owner-thread handle remains\n",
-            );
             return RuntimeShutdown::WrongThread;
         }
         // Null the pointer under `ffi_lock` so no runtime-thread op is mid-call
@@ -869,11 +865,9 @@ impl SharedRuntime {
             std::thread::yield_now();
         }
         if raw.is_null() {
-            return RuntimeShutdown::AlreadyShutdown;
+            return RuntimeShutdown::NotLive;
         }
-        unsafe {
-            ex_hermes_destroy(raw);
-        }
+        unsafe { ex_hermes_destroy(raw) };
         RuntimeShutdown::Destroyed
     }
 }
@@ -898,7 +892,7 @@ impl Drop for RuntimeHandle {
     fn drop(&mut self) {
         match self.shared.shutdown() {
             RuntimeShutdown::Destroyed
-            | RuntimeShutdown::AlreadyShutdown
+            | RuntimeShutdown::NotLive
             | RuntimeShutdown::WrongThread => {}
         }
     }
@@ -3674,13 +3668,14 @@ cp \"$input\" \"$out\"\n";
         })
         .join()
         .unwrap();
+        let raw = shared.raw.load(Ordering::SeqCst);
         assert!(
-            !shared.raw.load(Ordering::SeqCst).is_null(),
-            "off-owner drop must leave the runtime intact for its owner"
+            !raw.is_null(),
+            "off-owner drop must retain the runtime pointer for its owner"
         );
 
         assert_eq!(shared.shutdown(), RuntimeShutdown::Destroyed);
-        assert_eq!(shared.shutdown(), RuntimeShutdown::AlreadyShutdown);
+        assert_eq!(shared.shutdown(), RuntimeShutdown::NotLive);
         assert!(shared.raw.load(Ordering::SeqCst).is_null());
     }
 
@@ -6283,9 +6278,17 @@ cp \"$input\" \"$out\"\n";
         let fifo_for_writer = fifo.clone();
         let shutdown_returned = Arc::new(AtomicBool::new(false));
         let shutdown_returned_for_writer = Arc::clone(&shutdown_returned);
-        let shared_for_writer = Arc::clone(&shared);
+        let raw_for_writer = shared.raw.load(Ordering::SeqCst) as usize;
+        let runtime_nonce =
+            unsafe { ex_hermes_runtime_nonce(raw_for_writer as *mut HermesRuntimeOpaque) };
+        assert_ne!(runtime_nonce, 0);
         let writer = std::thread::spawn(move || {
-            while !shared_for_writer.raw.load(Ordering::Acquire).is_null() {
+            // The nonce API returns zero once the native registry leaves
+            // Running, so this cannot be satisfied merely by Rust swapping its
+            // pointer before entering the C++ destructor.
+            while unsafe { ex_hermes_runtime_nonce(raw_for_writer as *mut HermesRuntimeOpaque) }
+                == runtime_nonce
+            {
                 std::thread::yield_now();
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
