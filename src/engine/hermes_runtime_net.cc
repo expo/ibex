@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -45,6 +46,9 @@ namespace {
 struct SocketEntry {
   int fd = -1;
   uint64_t identity = 0;
+  uint64_t fdDevice = 0;
+  uint64_t fdInode = 0;
+  bool fdIdentityKnown = false;
   uint64_t runtimeNonce = 0;
   uint64_t owner = 0;
   std::string capability;
@@ -75,20 +79,36 @@ static int g_next_socket_handle = 1;
 static uint64_t g_next_socket_identity = 1;
 static std::mutex g_socket_mutex;
 
+void captureSocketFdIdentity(SocketEntry& entry) {
+  struct stat status = {};
+  entry.fdIdentityKnown = entry.fd >= 0 && ::fstat(entry.fd, &status) == 0;
+  if (entry.fdIdentityKnown) {
+    entry.fdDevice = static_cast<uint64_t>(status.st_dev);
+    entry.fdInode = static_cast<uint64_t>(status.st_ino);
+  }
+}
+
+bool socketFdIdentityMatches(const SocketEntry& entry) {
+  struct stat status = {};
+  return entry.fdIdentityKnown && entry.fd >= 0 &&
+      ::fstat(entry.fd, &status) == 0 &&
+      entry.fdDevice == static_cast<uint64_t>(status.st_dev) &&
+      entry.fdInode == static_cast<uint64_t>(status.st_ino);
+}
+
 void cleanupRuntimeSockets(uint64_t runtimeNonce) {
-  std::vector<int> owned;
-  {
-    std::lock_guard<std::mutex> lock(g_socket_mutex);
-    for (auto it = g_socket_handles.begin(); it != g_socket_handles.end();) {
-      if (it->second.runtimeNonce == runtimeNonce) {
-        if (it->second.fd >= 0) owned.push_back(it->second.fd);
-        it = g_socket_handles.erase(it);
-      } else {
-        ++it;
-      }
+  std::lock_guard<std::mutex> lock(g_socket_mutex);
+  for (auto it = g_socket_handles.begin(); it != g_socket_handles.end();) {
+    if (it->second.runtimeNonce == runtimeNonce) {
+      // Keep the identity check and close under the registry lock. If an fd was
+      // closed/reused outside this registry, erase the stale handle without
+      // closing the unrelated replacement object.
+      if (socketFdIdentityMatches(it->second)) ::close(it->second.fd);
+      it = g_socket_handles.erase(it);
+    } else {
+      ++it;
     }
   }
-  for (int fd : owned) ::close(fd);
 }
 
 std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
@@ -137,6 +157,7 @@ int registerSocketHandle(int fd, const std::string& capability, uint64_t owner =
   SocketEntry entry;
   entry.fd = fd;
   entry.identity = g_next_socket_identity++;
+  captureSocketFdIdentity(entry);
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.capability = capability;
@@ -159,6 +180,7 @@ int registerTypedConnectHandle(
   SocketEntry entry;
   entry.fd = fd;
   entry.identity = identity;
+  captureSocketFdIdentity(entry);
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
@@ -184,6 +206,7 @@ int registerTypedPendingConnectHandle(
   SocketEntry entry;
   entry.fd = fd;
   entry.identity = g_next_socket_identity++;
+  captureSocketFdIdentity(entry);
   entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
@@ -286,6 +309,10 @@ LockedSocketIo requireSocketIo(
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
   }
   SocketEntry& entry = live->second;
+  if (!socketFdIdentityMatches(entry)) {
+    g_socket_handles.erase(live);
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": stale handle");
+  }
   if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
@@ -351,6 +378,7 @@ LockedSocketIo requireSocketIo(
         current->second.identity != identity || current->second.fd != fd ||
         current->second.owner != owner ||
         current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+        !socketFdIdentityMatches(current->second) ||
         current->second.typedPeer != *actualPeer ||
         current->second.typedConnectionId != typedConnectionId) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -382,6 +410,10 @@ LockedSocketIo requireTypedUdpSendIo(
     throw facebook::jsi::JSError(runtime, "__exactUdpSend: invalid handle");
   }
   SocketEntry& entry = live->second;
+  if (!socketFdIdentityMatches(entry)) {
+    g_socket_handles.erase(live);
+    throw facebook::jsi::JSError(runtime, "__exactUdpSend: stale handle");
+  }
   if (entry.runtimeNonce != exactCurrentRuntimeNonce() ||
       (!isAllowAll() && entry.owner != currentPrincipalId())) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -427,7 +459,8 @@ LockedSocketIo requireTypedUdpSendIo(
     if (current == g_socket_handles.end() ||
         current->second.identity != identity || current->second.fd != fd ||
         current->second.owner != owner ||
-        current->second.runtimeNonce != runtimeNonce) {
+        current->second.runtimeNonce != runtimeNonce ||
+        !socketFdIdentityMatches(current->second)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
     current->second.typedUdpAuthorizationGenerationsInitialized = true;
@@ -476,6 +509,7 @@ bool authorizeTypedTcpWithLease(
         live->second.identity != entry.identity ||
         live->second.fd != entry.fd ||
         live->second.owner != entry.owner ||
+        !socketFdIdentityMatches(live->second) ||
         live->second.typedConnectionId != entry.typedConnectionId) {
       return false;
     }
@@ -594,6 +628,10 @@ SocketEntry requireSocketHandle(
     if (it == g_socket_handles.end()) {
       throw facebook::jsi::JSError(runtime, std::string(syscall) + ": invalid handle");
     }
+    if (!socketFdIdentityMatches(it->second)) {
+      g_socket_handles.erase(it);
+      throw facebook::jsi::JSError(runtime, std::string(syscall) + ": stale handle");
+    }
     entry = it->second;
   }
   if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
@@ -658,6 +696,10 @@ int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscal
       (!isAllowAll() && it->second.owner != entry.owner)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
+  if (!socketFdIdentityMatches(it->second)) {
+    g_socket_handles.erase(it);
+    throw facebook::jsi::JSError(runtime, std::string(syscall) + ": stale handle");
+  }
   int fd = it->second.fd;
   g_socket_handles.erase(it);
   return fd;
@@ -684,7 +726,9 @@ void commitTypedPendingSocket(
       current->second.identity != pending.identity ||
       current->second.fd != pending.fd ||
       current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
-      current->second.owner != pending.owner || !current->second.typedPending) {
+      current->second.owner != pending.owner ||
+      !socketFdIdentityMatches(current->second) ||
+      !current->second.typedPending) {
     throw facebook::jsi::JSError(runtime, "TCP pending handle changed before commit");
   }
   current->second.typedPending = false;
