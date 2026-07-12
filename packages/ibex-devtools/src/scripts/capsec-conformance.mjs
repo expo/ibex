@@ -44,6 +44,9 @@ function fixturePlans(catalog) {
         edgeIds: new Set(),
         implementationBranchIds: new Set(),
         enforcementBranchIds: new Set(),
+        terminalObservedKeys: new Set(),
+        classifications: new Set(),
+        actionIds: new Set(),
       };
       entry.edgeIds.add(cell.edgeId);
       for (const branchId of binding.implementationBranchIds) {
@@ -51,6 +54,15 @@ function fixturePlans(catalog) {
       }
       for (const branchId of binding.enforcementBranchIds) {
         entry.enforcementBranchIds.add(branchId);
+      }
+      for (const observedKey of binding.terminalObservedKeys) {
+        entry.terminalObservedKeys.add(observedKey);
+      }
+      for (const classification of binding.classifications) {
+        entry.classifications.add(classification);
+      }
+      for (const actionId of binding.actionIds) {
+        entry.actionIds.add(actionId);
       }
       accumulated.set(fixtureId, entry);
     }
@@ -69,6 +81,14 @@ function fixturePlans(catalog) {
     const edgeIds = canonicalSet(entry.edgeIds);
     const implementationBranchIds = canonicalSet(entry.implementationBranchIds);
     const enforcementBranchIds = canonicalSet(entry.enforcementBranchIds);
+    const terminalObservedKeys = canonicalSet(entry.terminalObservedKeys);
+    const classifications = canonicalSet(entry.classifications);
+    const actionIds = canonicalSet(entry.actionIds);
+    if (terminalObservedKeys.length !== 1 || classifications.length !== 1) {
+      throw new Error(
+        `${fixtureId}: fixture plan does not identify exactly one terminal surface and classification`,
+      );
+    }
     let expectedObservation;
     if (enforcementBranchIds.length === 1) {
       expectedObservation = {
@@ -91,6 +111,9 @@ function fixturePlans(catalog) {
       edgeIds,
       implementationBranchIds,
       enforcementBranchIds,
+      terminalObservedKey: terminalObservedKeys[0],
+      classification: classifications[0],
+      actionIds,
       expectedObservation,
     });
   }
@@ -198,6 +221,13 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
           `${edge.id}: fixture ${fixtureId} has no selected implementation branch`,
         );
       }
+      const logicalBranch = edge.logicalBranches?.find((branch) =>
+        matchingRows.some((row) =>
+          fixtureId.startsWith(
+            `${row.enforcementBranchId}.logical.${branch.id}.`,
+          ),
+        ),
+      );
       return {
         fixtureId,
         implementationBranchIds: canonicalSet(
@@ -205,6 +235,20 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
         ),
         enforcementBranchIds: canonicalSet(
           matchingRows.map((row) => row.enforcementBranchId),
+        ),
+        terminalObservedKeys: canonicalSet(
+          matchingRows.length === 0
+            ? [`${edge.surface.kind}:${edge.surface.name}`]
+            : matchingRows.map(
+                (row) =>
+                  row.enforcementRoute?.terminalObservedKey ?? row.observedKey,
+              ),
+        ),
+        classifications: [edge.classification],
+        actionIds: canonicalSet(
+          (logicalBranch?.effects ?? edge.effects ?? []).map(
+            (effect) => effect.cap,
+          ),
         ),
       };
     });

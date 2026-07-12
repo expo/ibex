@@ -14,13 +14,23 @@ const target = {
   triple: "aarch64-apple-darwin",
   features: ["native-lockdown"],
 };
-const coverage = { edges: [{ id: "edge.one", classification: "closed" }] };
+const coverage = {
+  edges: [
+    {
+      id: "edge.one",
+      classification: "closed",
+      surface: { kind: "native-op", name: "testClosed" },
+    },
+  ],
+};
 const implementation = {
   surfaces: [
     {
       edgeId: "edge.one",
+      observedKey: "native-op:testClosed",
       branchId: "edge.one.main",
       enforcementBranchId: "edge.one.main",
+      enforcementRoute: { terminalObservedKey: "native-op:testClosed" },
       targetVariant: "all",
       targetApplicability: { kind: "all" },
       fixtureObligations: ["edge.one.main.closed"],
@@ -90,16 +100,20 @@ describe("capsec target conformance", () => {
       surfaces: [
         {
           edgeId: "edge.one",
+          observedKey: "native-op:testClosed",
           branchId: "edge.one.default",
           enforcementBranchId: "edge.one.default",
+          enforcementRoute: { terminalObservedKey: "native-op:testClosed" },
           targetVariant: "default",
           targetApplicability: { kind: "fallback" },
           fixtureObligations: ["edge.one.default.closed"],
         },
         {
           edgeId: "edge.one",
+          observedKey: "native-op:testClosed",
           branchId: "edge.one.binary",
           enforcementBranchId: "edge.one.binary",
+          enforcementRoute: { terminalObservedKey: "native-op:testClosed" },
           targetVariant: "binary",
           targetApplicability: { kind: "runtime-variant", value: "binary" },
           fixtureObligations: ["edge.one.binary.closed"],
@@ -124,6 +138,9 @@ describe("capsec target conformance", () => {
         kind: "enforcement-branch",
         branchId: "edge.one.binary",
       },
+      terminalObservedKey: "native-op:testClosed",
+      classification: "closed",
+      actionIds: [],
     });
     expect(
       fixtureExecutionPlan(catalog, "edge.one.default.closed"),
