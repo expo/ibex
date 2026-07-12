@@ -982,6 +982,14 @@ fn build_exec_argv(cli: &Cli) -> Vec<String> {
     exec_argv
 }
 
+/// Preserve the explicit foreground-audit entry when child-process shims
+/// reconstruct an Ibex invocation from `process.execArgv`.
+fn build_audit_exec_argv(cli: &Cli) -> Vec<String> {
+    let mut exec_argv = vec!["capsec".to_string(), "audit".to_string()];
+    exec_argv.extend(build_exec_argv(cli));
+    exec_argv
+}
+
 fn read_raw_argv0(exec_path: &str) -> String {
     env::var("EXACT_RAW_ARGV0")
         .ok()
@@ -1093,7 +1101,7 @@ impl Runtime {
             engine,
             _host: host,
             bundle_format,
-            exec_argv: build_exec_argv(cli),
+            exec_argv: build_audit_exec_argv(cli),
             compat_modes: Vec::new(),
         })
     }
@@ -2464,13 +2472,40 @@ fn materialize_protected_artifact(
     publish_result
 }
 
-fn validate_production_inputs(cli: &Cli) -> Result<()> {
+/// Ad-hoc evaluation and runtime-registry diagnostics are separate diagnostic
+/// workflows, not production entry surfaces. Reject them before arming
+/// artifacts, Hermes allocation, or project code can be observed.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+pub(crate) fn reject_closed_production_cli(cli: &Cli) -> Result<()> {
+    let closed_command = matches!(
+        cli.command.as_ref(),
+        Some(crate::cli::Commands::Eval { .. })
+            | Some(crate::cli::Commands::Repl)
+            | Some(crate::cli::Commands::Debug { .. })
+    );
+    let implicit_repl = cli.command.is_none()
+        && cli.file.is_none()
+        && cli.eval_code.is_none()
+        && cli.print_eval.is_none();
+    if cli.eval_code.is_some() || cli.print_eval.is_some() || closed_command || implicit_repl {
+        anyhow::bail!(
+            "production capability enforcement closes ad-hoc evaluation, REPL, and debug commands"
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_production_inputs(cli: &Cli) -> Result<()> {
+    reject_closed_production_cli(cli)?;
     if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
         anyhow::bail!("environment-selected policy paths are forbidden in production");
     }
     crate::host::reject_closed_startup_environment()?;
     if cli.allow_all
-        || cli.capsec == crate::cli::CapSecMode::Permissive
+        || matches!(
+            cli.capsec,
+            crate::cli::CapSecMode::Audit | crate::cli::CapSecMode::Permissive
+        )
         || !cli.allow.is_empty()
         || !cli.deny.is_empty()
         || cli.allow_env_endowments
@@ -2481,6 +2516,30 @@ fn validate_production_inputs(cli: &Cli) -> Result<()> {
             "production capability enforcement rejects legacy allow/deny, environment endowment widening, and advisory-attribution overrides"
         );
     }
+    let run_inspector = matches!(
+        cli.command.as_ref(),
+        Some(crate::cli::Commands::Run { inspect: true, .. })
+            | Some(crate::cli::Commands::Run {
+                inspect_wait: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_open: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_pause: true,
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_port: Some(_),
+                ..
+            })
+            | Some(crate::cli::Commands::Run {
+                inspect_host: Some(_),
+                ..
+            })
+    );
     if cli.compat.is_some()
         || cli.inspect
         || cli.inspect_wait
@@ -2491,6 +2550,7 @@ fn validate_production_inputs(cli: &Cli) -> Result<()> {
         || cli.expose_internals
         || cli.stack_size.is_some()
         || cli.max_http_header_size.is_some()
+        || run_inspector
     {
         anyhow::bail!(
             "production capability enforcement closes compatibility, inspector, and runtime-fidelity overrides"
@@ -5255,6 +5315,57 @@ mod tests {
             .expect("must reject unpaired artifacts")
             .to_string();
         assert!(error.contains("must be provided together"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn production_entry_closes_eval_repl_and_debug_before_artifact_io() {
+        let _env = ProductionEnvGuard::capture();
+        let vectors = [
+            vec!["--eval", "globalThis.__closedEval = true"],
+            vec!["--print", "globalThis.__closedPrint = true"],
+            vec!["eval", "globalThis.__closedCommandEval = true"],
+            vec!["repl"],
+            vec!["debug", "modules"],
+            vec![
+                "--eval",
+                "globalThis.__closedSmuggledEval = true",
+                "debug",
+                "modules",
+            ],
+            vec![],
+        ];
+        for vector in vectors {
+            let mut argv = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            argv.extend(vector);
+            let cli = Cli::parse_from(argv);
+            let error = crate::run(cli)
+                .await
+                .expect_err("production diagnostic entry must be closed");
+            let error = format!("{error:#}");
+            assert!(
+                error.contains("closes ad-hoc evaluation, REPL, and debug commands"),
+                "{error}"
+            );
+            assert!(
+                !error.contains("failed to read") && !error.contains("__closed"),
+                "diagnostic input reached artifact or evaluator I/O: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn foreground_audit_remains_open_and_propagates_its_entry_to_children() {
+        let cli = Cli::parse_from(["ibex", "capsec", "audit", "fixture.js"]);
+        reject_closed_production_cli(&cli).expect("explicit foreground audit remains open");
+        let exec_argv = build_audit_exec_argv(&cli);
+        assert_eq!(exec_argv.get(0).map(String::as_str), Some("capsec"));
+        assert_eq!(exec_argv.get(1).map(String::as_str), Some("audit"));
     }
 
     #[test]

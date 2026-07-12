@@ -28,6 +28,272 @@ const taggedDigest = (value) =>
     .update(canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
+const PROJECT_CODE_PLACEHOLDER = "{ibex-capsec-closed-project-code}";
+const EVALUATION_MARKER =
+  "globalThis.__IBEX_CAPSEC_CLOSED_CLI_EVALUATED__ = true";
+
+const CLI_OPTION_TEMPLATES = new Map([
+  ["ibex\0allow_all", { value: null, rejection: "legacy" }],
+  ["ibex\0allow_env_endowments", { value: null, rejection: "legacy" }],
+  ["ibex\0capsec", { value: null, rejection: "legacy" }],
+  ["ibex\0capsec_allow_advisory", { value: null, rejection: "legacy" }],
+  ["ibex\0eval_code", { value: EVALUATION_MARKER, rejection: "evaluation" }],
+  ["ibex\0expose_internals", { value: null, rejection: "inspector" }],
+  ["ibex\0inspect", { value: null, rejection: "inspector" }],
+  ["ibex\0inspect_host", { value: "127.0.0.1", rejection: "inspector" }],
+  ["ibex\0inspect_open", { value: null, rejection: "inspector" }],
+  ["ibex\0inspect_pause", { value: null, rejection: "inspector" }],
+  ["ibex\0inspect_port", { value: "9230", rejection: "inspector" }],
+  ["ibex\0inspect_wait", { value: null, rejection: "inspector" }],
+  ["ibex\0print_eval", { value: EVALUATION_MARKER, rejection: "evaluation" }],
+  ["ibex run\0inspect", { value: null, rejection: "inspector" }],
+  ["ibex run\0inspect_host", { value: "127.0.0.1", rejection: "inspector" }],
+  ["ibex run\0inspect_open", { value: null, rejection: "inspector" }],
+  ["ibex run\0inspect_pause", { value: null, rejection: "inspector" }],
+  ["ibex run\0inspect_port", { value: "9230", rejection: "inspector" }],
+  ["ibex run\0inspect_wait", { value: null, rejection: "inspector" }],
+]);
+
+const CLI_COMMAND_TEMPLATES = new Map([
+  ["ibex debug", { args: ["debug", "modules"], rejection: "evaluation" }],
+  ["ibex debug modules", { args: ["debug", "modules"], rejection: "evaluation" }],
+  ["ibex eval", { args: ["eval", EVALUATION_MARKER], rejection: "evaluation" }],
+  ["ibex repl", { args: ["repl"], rejection: "evaluation" }],
+]);
+
+const REJECTION_FRAGMENTS = Object.freeze({
+  evaluation: [
+    "closes ad-hoc evaluation, REPL, and debug commands",
+  ],
+  inspector: [
+    "closes compatibility, inspector",
+    "runtime-fidelity overrides",
+  ],
+  legacy: [
+    "rejects legacy allow/deny",
+    "environment endowment widening",
+  ],
+});
+
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalStrings(values) {
+  return [...new Set(values)].sort(compareText);
+}
+
+function liveRows(liveByObservedKey) {
+  return [...liveByObservedKey.values()];
+}
+
+function optionControlDescriptor(live, liveByObservedKey) {
+  const metadata = live.metadata ?? {};
+  let commandPath = metadata.commandPath;
+  let argumentId = metadata.argumentId;
+  const rows = liveRows(liveByObservedKey);
+  let route = null;
+  if (commandPath && argumentId) {
+    route = rows.find(
+      (row) =>
+        row.kind === "cli" &&
+        row.metadata?.evidenceType === "cli-option-route" &&
+        row.metadata.commandPath === commandPath &&
+        row.metadata.id === argumentId,
+    );
+  } else {
+    route = rows.find(
+      (row) =>
+        row.kind === "cli" &&
+        row.metadata?.evidenceType === "cli-option-route" &&
+        row.sourceRefs.some((sourceRef) => live.sourceRefs.includes(sourceRef)),
+    );
+    commandPath = route?.metadata?.commandPath;
+    argumentId = route?.metadata?.id;
+  }
+  if (!route || !commandPath || !argumentId) return null;
+  const template = CLI_OPTION_TEMPLATES.get(`${commandPath}\0${argumentId}`);
+  const evidenceType = metadata.evidenceType;
+  if (!template || evidenceType === "cli-default-value") return null;
+
+  let value = template.value;
+  if (evidenceType === "cli-enum-value") {
+    if (
+      commandPath !== "ibex" ||
+      argumentId !== "capsec" ||
+      !["audit", "permissive"].includes(metadata.value)
+    ) {
+      return null;
+    }
+    value = metadata.value;
+  }
+  if (argumentId === "capsec") {
+    if (evidenceType !== "cli-enum-value") return null;
+  }
+
+  const optionNameRows = rows.filter(
+    (row) =>
+      row.kind === "cli" &&
+      row.metadata?.evidenceType === "cli-option-name" &&
+      row.sourceRefs.some((sourceRef) => route.sourceRefs.includes(sourceRef)),
+  );
+  const optionSpellings = canonicalStrings(
+    optionNameRows.map((row) => row.metadata.name),
+  );
+  if (optionSpellings.length === 0) return null;
+  const selectedSpellings =
+    evidenceType === "cli-option-name" ? [metadata.name] : optionSpellings;
+  if (selectedSpellings.some((spelling) => !optionSpellings.includes(spelling))) {
+    return null;
+  }
+  const parser = rows.find(
+    (row) =>
+      row.kind === "cli" &&
+      row.metadata?.evidenceType === "cli-non-enumerated-parser" &&
+      row.metadata.commandPath === commandPath &&
+      row.metadata.argumentId === argumentId,
+  );
+  const argumentVectors = selectedSpellings.map((spelling) => {
+    const option = value === null ? [spelling] : [spelling, value];
+    const prefix = commandPath.split(" ").slice(1);
+    return {
+      spelling,
+      args:
+        commandPath === "ibex run"
+          ? [...prefix, ...option, PROJECT_CODE_PLACEHOLDER]
+          : [...option, PROJECT_CODE_PLACEHOLDER],
+    };
+  });
+  return {
+    controlDescriptor: {
+      kind: "clap-option",
+      commandPath,
+      argumentId,
+      optionSpellings,
+      valueShape: structuredClone(route.metadata.valueShape),
+      hidden: route.metadata.hidden === true,
+      parserKind: parser?.metadata?.parserKind ?? null,
+    },
+    argumentVectors,
+    rejection: template.rejection,
+  };
+}
+
+function commandControlDescriptor(live, liveByObservedKey) {
+  const rows = liveRows(liveByObservedKey);
+  const evidenceType = live.metadata?.evidenceType;
+  let commandPath = evidenceType === "cli-command-route"
+    ? live.metadata.path
+    : null;
+  if (!commandPath && live.variant === "visible") {
+    commandPath = `ibex ${live.name}`;
+  }
+  if (!commandPath && evidenceType === "cli-positional-route") {
+    commandPath = live.metadata.commandPath;
+  }
+  if (!commandPath) {
+    const route = rows.find(
+      (row) =>
+        row.kind === "cli" &&
+        row.metadata?.evidenceType === "cli-positional-route" &&
+        row.sourceRefs.some((sourceRef) => live.sourceRefs.includes(sourceRef)),
+    );
+    commandPath = route?.metadata?.commandPath;
+  }
+  const template = CLI_COMMAND_TEMPLATES.get(commandPath);
+  if (!template) return null;
+  const commandRoute = rows.find(
+    (row) =>
+      row.kind === "cli" &&
+      row.metadata?.evidenceType === "cli-command-route" &&
+      row.metadata.path === commandPath,
+  );
+  const positionalRoute = rows.find(
+    (row) =>
+      row.kind === "cli" &&
+      row.metadata?.evidenceType === "cli-positional-route" &&
+      row.metadata.commandPath === commandPath,
+  );
+  return {
+    controlDescriptor: {
+      kind: positionalRoute && live.sourceRefs.some((sourceRef) =>
+        positionalRoute.sourceRefs.includes(sourceRef))
+        ? "clap-positional"
+        : "clap-command",
+      commandPath,
+      commandMetadata: structuredClone(commandRoute?.metadata ?? null),
+      positionalMetadata: structuredClone(positionalRoute?.metadata ?? null),
+    },
+    argumentVectors: [{ spelling: commandPath, args: [...template.args] }],
+    rejection: template.rejection,
+  };
+}
+
+function cliControlProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("cli:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  if (
+    live?.kind !== "cli" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const selected =
+    optionControlDescriptor(live, liveByObservedKey) ??
+    commandControlDescriptor(live, liveByObservedKey);
+  if (!selected) return null;
+  const sourceDescriptor = {
+    kind: "closed-cli-control",
+    surfaceObservedKey,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata),
+    controlDescriptor: selected.controlDescriptor,
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "cli",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "cli-control",
+        argumentVectors: selected.argumentVectors,
+        expectedRejectionFragments: REJECTION_FRAGMENTS[selected.rejection],
+        projectCodePlaceholder: PROJECT_CODE_PLACEHOLDER,
+        evaluationMarker: EVALUATION_MARKER,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 function startupEnvironmentProbe({
   plan,
   route,
@@ -100,7 +366,7 @@ export function authoredClosedPublicProbe(options) {
   ) {
     return null;
   }
-  return startupEnvironmentProbe(options);
+  return startupEnvironmentProbe(options) ?? cliControlProbe(options);
 }
 
 export const closedBatchCommand = CLOSED_BATCH_COMMAND;

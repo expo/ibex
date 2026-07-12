@@ -326,6 +326,25 @@ async fn run(cli: Cli) -> Result<()> {
         return Ok(());
     }
 
+    // Validate production controls before dispatch can inspect a prospective
+    // project path, read arming artifacts, allocate Hermes, or evaluate input.
+    // Runtime construction checks again, while diagnostic/tooling subcommands
+    // retain their explicitly separate workflows.
+    // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    if cli.eval_code.is_some()
+        || cli.print_eval.is_some()
+        || matches!(
+            cli.command.as_ref(),
+            None | Some(Commands::Run { .. })
+                | Some(Commands::Eval { .. })
+                | Some(Commands::Repl)
+                | Some(Commands::Build { .. })
+                | Some(Commands::Debug { .. })
+        )
+    {
+        runtime::validate_production_inputs(&cli)?;
+    }
+
     if let Some(code) = &cli.eval_code {
         return eval_code(&cli, code, false).await;
     }

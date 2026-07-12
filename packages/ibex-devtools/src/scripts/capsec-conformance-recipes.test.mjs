@@ -475,6 +475,76 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(false);
   });
 
+  test("binds reviewed CLI controls and every spelling to production closure", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "cli-control",
+    );
+    expect(rows).toHaveLength(122);
+    expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
+    );
+    const advisory = rows.find(
+      (recipe) =>
+        recipe.terminalObservedKey ===
+        "cli:option:ibex:capsec_allow_advisory",
+    );
+    expect(advisory.publicSurfaceProbe.invocation).toMatchObject({
+      surfaceKind: "cli",
+      sourceDescriptor: {
+        kind: "closed-cli-control",
+        controlDescriptor: {
+          kind: "clap-option",
+          commandPath: "ibex",
+          argumentId: "capsec_allow_advisory",
+          optionSpellings: [
+            "--allow-advisory-attribution",
+            "--capsec-allow-advisory",
+          ],
+        },
+      },
+      operation: {
+        kind: "cli-control",
+        argumentVectors: [
+          expect.objectContaining({
+            spelling: "--allow-advisory-attribution",
+          }),
+          expect.objectContaining({ spelling: "--capsec-allow-advisory" }),
+        ],
+        expectedRejectionFragments: expect.arrayContaining([
+          "rejects legacy allow/deny",
+        ]),
+      },
+    });
+    const evalCommand = rows.find(
+      (recipe) => recipe.terminalObservedKey === "cli:command:ibex%20eval",
+    );
+    expect(evalCommand.publicSurfaceProbe.invocation.operation).toMatchObject({
+      kind: "cli-control",
+      argumentVectors: [
+        {
+          spelling: "ibex eval",
+          args: [
+            "eval",
+            "globalThis.__IBEX_CAPSEC_CLOSED_CLI_EVALUATED__ = true",
+          ],
+        },
+      ],
+      expectedRejectionFragments: [
+        "closes ad-hoc evaluation, REPL, and debug commands",
+      ],
+    });
+    expect(
+      recipes.recipes.filter(
+        (recipe) =>
+          recipe.scenario === "closed" &&
+          recipe.terminalObservedKey.startsWith("cli:") &&
+          recipe.status !== "fully-executable",
+      ),
+    ).toHaveLength(21);
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>

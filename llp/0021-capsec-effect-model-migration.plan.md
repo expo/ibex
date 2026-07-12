@@ -855,6 +855,9 @@ same boundary before its process-global environment marker can be installed.
 Hidden compatibility-fidelity controls that expose internals or alter
 process-wide stack/HTTP-parser configuration are rejected there as well,
 before armed artifact I/O.
+Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
+are likewise rejected at the production dispatcher/runtime boundary before
+arming artifact I/O, engine allocation, or evaluation of supplied code.
 At runtime the unmigrated environment and process-cwd surfaces are explicitly
 closed: individual environment reads return `undefined`, enumeration returns an
 empty object, cwd disclosure returns `undefined`, and cwd mutation is denied

@@ -420,6 +420,24 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed startup control reached engine execution or the wrong rejection`,
       );
     }
+    if (
+      authored.operation?.kind === "cli-control" &&
+      (invocation.result.engineExecuted !== false ||
+        !Array.isArray(authored.operation.expectedRejectionFragments) ||
+        authored.operation.expectedRejectionFragments.length === 0 ||
+        !authored.operation.expectedRejectionFragments.every(
+          (fragment) =>
+            typeof fragment === "string" &&
+            fragment.length > 0 &&
+            invocation.result.errorMessage.includes(fragment),
+        ) ||
+        !Array.isArray(authored.operation.argumentVectors) ||
+        authored.operation.argumentVectors.length === 0)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: closed CLI control reached execution or the wrong rejection`,
+      );
+    }
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported expected public result`);
   }

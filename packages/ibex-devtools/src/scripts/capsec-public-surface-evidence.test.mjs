@@ -422,8 +422,64 @@ function completeClosedCatalog() {
   return catalog;
 }
 
+function completeClosedCliCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-cli-control",
+    surfaceObservedKey: "cli:option-name:ibex:inspect:--inspect",
+    sourceRefs: [
+      "runtime-surface.json#clapSurface.command:ibex:option:inspect",
+    ],
+    sourceMetadata: {
+      evidenceType: "cli-option-name",
+      name: "--inspect",
+      routeKind: "primary",
+    },
+    controlDescriptor: {
+      kind: "clap-option",
+      commandPath: "ibex",
+      argumentId: "inspect",
+      optionSpellings: ["--inspect"],
+    },
+  };
+  recipe.fixtureId = "fixture.cli.closed";
+  recipe.terminalObservedKey = sourceDescriptor.surfaceObservedKey;
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey = recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "cli",
+    surfaceName: "option-name:ibex:inspect:--inspect",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "cli-control",
+      argumentVectors: [
+        {
+          spelling: "--inspect",
+          args: ["--inspect", "{ibex-capsec-closed-project-code}"],
+        },
+      ],
+      expectedRejectionFragments: [
+        "closes compatibility, inspector",
+        "runtime-fidelity overrides",
+      ],
+      projectCodePlaceholder: "{ibex-capsec-closed-project-code}",
+      evaluationMarker:
+        "globalThis.__IBEX_CAPSEC_CLOSED_CLI_EVALUATED__ = true",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
   const invocation = recipe.publicSurfaceProbe.invocation;
+  const errorMessage =
+    invocation.operation.kind === "cli-control"
+      ? invocation.operation.expectedRejectionFragments.join("; ")
+      : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
     invocation: {
@@ -439,8 +495,7 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         surfaceName: invocation.surfaceName,
         mechanism: invocation.operation.kind,
         errorName: "ClosedSurface",
-        errorMessage:
-          "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER",
+        errorMessage,
         engineExecuted: false,
         projectCodeExecuted,
       },
@@ -573,6 +628,29 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/did not fail closed/);
+  });
+
+  test("accepts CLI closure only with the authored production rejection", () => {
+    const catalog = completeClosedCliCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+    const wrong = closedRuntimeObservation(recipe);
+    wrong.invocation.result.errorMessage = "a parser rejected unrelated syntax";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrong,
+        coverage,
+      }),
+    ).toThrow(/wrong rejection/);
   });
 
   test("rejects adapter-only evidence explicitly", () => {
