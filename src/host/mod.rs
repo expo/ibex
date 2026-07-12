@@ -480,6 +480,102 @@ impl Host {
         self.evaluate_typed_decision(&set, &gates)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorize_typed_fetch_stage(
+        &self,
+        module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        scheme: capsec_semantics::model::FetchScheme,
+        host: capsec_semantics::model::ConcreteHost,
+        port: capsec_semantics::model::Port,
+        stage: capsec_semantics::model::Stage,
+        candidates: Vec<capsec_semantics::model::IpAddress>,
+        selected_candidate: Option<capsec_semantics::model::IpAddress>,
+        verified_peer: Option<capsec_semantics::model::VerifiedPeer>,
+        connection_id: Option<capsec_semantics::model::NonEmptyString>,
+        redirect_index: Option<capsec_semantics::model::SafeUint>,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            NetworkRequest, OccurrenceResource, PeerClass, Route, StableId,
+        };
+
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "fetch operation has no authenticated typed principal".into(),
+            )
+        })?;
+        if constrained_principals.is_empty()
+            || !constrained_principals.contains(&principal)
+            || constrained_principals
+                .windows(2)
+                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "fetch principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
+        for address in candidates
+            .iter()
+            .chain(selected_candidate.iter())
+            .chain(verified_peer.iter().map(|peer| &peer.address))
+        {
+            if matches!(
+                classify_network_peer(*address),
+                Some(PeerClass::Metadata | PeerClass::Unspecified) | None
+            ) {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "protected metadata or unspecified network peer is always denied".into(),
+                ));
+            }
+        }
+        let requested = NetworkRequest::FetchEndpoint { scheme, host, port };
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: capsec_semantics::model::NonEmptyString::new(format!(
+                "fetch:{module_id}:{operation_resource}"
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(
+                "surface.native.op.nativefetch.17pv6n3.decision".to_owned(),
+            )
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals,
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: ActionId::new("network:fetch")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                effect_owner: principal,
+                resource: OccurrenceResource::NetworkOccurrence {
+                    requested,
+                    route: Route::Direct,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    redirect_index,
+                    connection_id,
+                },
+            }],
+        };
+        self.evaluate_typed_decision(
+            &set,
+            &[EffectGate {
+                coverage_edge_id: StableId::new("surface.native.op.nativefetch.17pv6n3")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                target_cell: TargetCellDisposition::Complete,
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )
+    }
+
     /// Evaluate one complete typed effect set against the immutable authority
     /// context. Armed execution never falls back to the legacy string manager.
     pub fn evaluate_typed_decision(
@@ -1675,6 +1771,131 @@ mod tests {
         assert_eq!(
             evidence[5].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
+        );
+    }
+
+    #[test]
+    fn typed_fetch_stages_bind_candidates_and_always_reject_metadata_peers() {
+        use capsec_semantics::decision::DecisionOutcome;
+        use capsec_semantics::model::{
+            ConcreteHost, DnsName, FetchScheme, IpAddress, NonEmptyString, Port, Stage,
+            VerifiedPeer,
+        };
+
+        let host = example_armed_host_with(|value| {
+            value["principals"][0]["floor"] = serde_json::json!([{
+                "cap": "network:fetch",
+                "resource": {
+                    "kind": "fetch-endpoint",
+                    "schemes": ["https"],
+                    "host": {"kind": "dns-name", "name": "api.example.com"},
+                    "port": {"kind": "exact", "value": 443},
+                    "peerClasses": ["public"],
+                    "route": {"kind": "direct"}
+                }
+            }]);
+            value["principals"][0]["denials"] = serde_json::json!([]);
+        });
+        let principal = host.typed_principal_for_module("0").unwrap();
+        let requested_host = ConcreteHost::DnsName {
+            name: DnsName::new("api.example.com").unwrap(),
+        };
+        let port = Port::new(443).unwrap();
+
+        let requested = host
+            .authorize_typed_fetch_stage(
+                "0",
+                vec![principal.clone()],
+                FetchScheme::Https,
+                requested_host.clone(),
+                port,
+                Stage::Requested,
+                vec![],
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(requested.outcome, DecisionOutcome::Allow);
+
+        let public = IpAddress::new("93.184.216.34".parse().unwrap());
+        let candidate = host
+            .authorize_typed_fetch_stage(
+                "0",
+                vec![principal.clone()],
+                FetchScheme::Https,
+                requested_host.clone(),
+                port,
+                Stage::Candidate,
+                vec![public],
+                Some(public),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(candidate.outcome, DecisionOutcome::Allow);
+
+        let committed = host
+            .authorize_typed_fetch_stage(
+                "0",
+                vec![principal.clone()],
+                FetchScheme::Https,
+                requested_host.clone(),
+                port,
+                Stage::Commit,
+                vec![public],
+                Some(public),
+                Some(VerifiedPeer {
+                    address: public,
+                    port,
+                }),
+                Some(NonEmptyString::new("connection-1").unwrap()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(committed.outcome, DecisionOutcome::Allow);
+
+        for protected in ["169.254.169.254", "169.254.170.2", "100.100.100.200"] {
+            let protected = IpAddress::new(protected.parse().unwrap());
+            let error = host
+                .authorize_typed_fetch_stage(
+                    "0",
+                    vec![principal.clone()],
+                    FetchScheme::Https,
+                    requested_host.clone(),
+                    port,
+                    Stage::Candidate,
+                    vec![protected],
+                    Some(protected),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap_err();
+            assert!(error.to_string().contains("always denied"), "{error}");
+        }
+
+        let metadata = IpAddress::new("169.254.169.254".parse().unwrap());
+        let mixed_error = host
+            .authorize_typed_fetch_stage(
+                "0",
+                vec![principal],
+                FetchScheme::Https,
+                requested_host,
+                port,
+                Stage::Candidate,
+                vec![public, metadata],
+                Some(public),
+                None,
+                None,
+                None,
+            )
+            .unwrap_err();
+        assert!(
+            mixed_error.to_string().contains("always denied"),
+            "{mixed_error}"
         );
     }
 

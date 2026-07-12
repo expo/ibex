@@ -698,6 +698,16 @@ reconnects, routes/proxies, listeners, and final verified peers at their stages.
 Add an engine-level protected metadata-peer guard with only an exact loud
 exception if Ibex needs one.
 
+Implementation status (2026-07-11): the armed host now constructs typed
+`network:fetch` decision sets for requested and candidate stages using the
+authenticated principal stack, concrete scheme/host/port, resolved candidate
+set, selected candidate, and optional verified peer/connection facts. Candidate
+authorization applies selector peer classes, while an independent host guard
+unconditionally rejects metadata-service and unspecified selected or verified
+peers. Live fetch remains closed until the transport adapter can report and
+recheck the actual connected peer; requested-host authorization alone is not
+treated as sufficient enforcement.
+
 Acceptance:
 
 - DNS rebinding, mixed answers, numeric aliases, redirects, WebSocket/raw
