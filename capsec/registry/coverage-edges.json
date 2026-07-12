@@ -185824,6 +185824,26 @@
       }
     },
     {
+      "id": "surface.native.op.exacttypedhandlemint.1ey2r0l",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactTypedHandleMint"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.exacttypedhandlerevoke.1puhwsn",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__exactTypedHandleRevoke"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.native.op.exacttypedpermissionrequest.0itgp95",
       "classification": "non-capability",
       "surface": {
@@ -200575,6 +200595,36 @@
       "surface": {
         "kind": "native-op",
         "name": "global:Ibex"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.global.ibex.authority.1r4aoky",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:Ibex.authority"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.global.ibex.authority.minthandle.19hu8hm",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:Ibex.authority.mintHandle"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:Ibex.authority.revokeHandle"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

@@ -240,6 +240,10 @@ extern "C" int32_t ex_host_typed_dynamic_grant(const uint8_t* request,
                                                  size_t request_len);
 extern "C" int32_t ex_host_typed_dynamic_revoke(const uint8_t* request,
                                                   size_t request_len);
+extern "C" char* ex_host_typed_handle_mint(const uint8_t* request,
+                                            size_t request_len);
+extern "C" int32_t ex_host_typed_handle_revoke(const uint8_t* request,
+                                                 size_t request_len);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
 extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
@@ -1556,6 +1560,60 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   rt.global().setProperty(
       rt, "__exactTypedPermissionRevoke", std::move(typedPermRevokeFn));
 
+  auto typedHandleMintFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTypedHandleMint"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isObject()) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"error\":\"typed handle request must be an object\"}");
+        }
+        auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+        auto stringify = json.getPropertyAsFunction(runtime, "stringify");
+        auto serialized = stringify.call(runtime, args[0]);
+        if (!serialized.isString()) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"error\":\"typed handle request is not serializable\"}");
+        }
+        auto request = serialized.asString(runtime).utf8(runtime);
+        char* response = ex_host_typed_handle_mint(
+            reinterpret_cast<const uint8_t*>(request.data()), request.size());
+        if (!response) {
+          return facebook::jsi::String::createFromUtf8(
+              runtime, "{\"error\":\"typed handle host is unavailable\"}");
+        }
+        auto result = facebook::jsi::String::createFromUtf8(runtime, response);
+        ex_host_free_string(response);
+        return result;
+      });
+  rt.global().setProperty(rt, "__exactTypedHandleMint", std::move(typedHandleMintFn));
+
+  auto typedHandleRevokeFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTypedHandleRevoke"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          return facebook::jsi::Value(-1.0);
+        }
+        auto json = runtime.global().getPropertyAsObject(runtime, "JSON");
+        auto stringify = json.getPropertyAsFunction(runtime, "stringify");
+        auto serialized = stringify.call(runtime, args[0]);
+        auto request = serialized.asString(runtime).utf8(runtime);
+        return facebook::jsi::Value(static_cast<double>(
+            ex_host_typed_handle_revoke(
+                reinterpret_cast<const uint8_t*>(request.data()), request.size())));
+      });
+  rt.global().setProperty(
+      rt, "__exactTypedHandleRevoke", std::move(typedHandleRevokeFn));
+
   auto getCwdFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCwd"),
@@ -2119,6 +2177,26 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     var result = g.__exactTypedPermissionRevoke(grantId);
     if (result < 0) throw new Error('Typed permission revocation refused');
     if (result > 0) __notifyPerm(grantId);
+    return result > 0;
+  };
+  Ibex.authority = Ibex.authority || {};
+  Ibex.authority.mintHandle = function (request) {
+    if (!request || typeof request !== 'object') {
+      throw new TypeError('typed handle request must be an object');
+    }
+    var envelope = JSON.parse(g.__exactTypedHandleMint(request));
+    if (envelope.error) throw new Error(envelope.error);
+    if (typeof envelope.handleId !== 'string' || !envelope.handleId) {
+      throw new Error('Typed handle mint returned no handleId');
+    }
+    return envelope.handleId;
+  };
+  Ibex.authority.revokeHandle = function (handleId) {
+    if (typeof handleId !== 'string' || !handleId) {
+      throw new TypeError('typed handleId must be a non-empty string');
+    }
+    var result = g.__exactTypedHandleRevoke(handleId);
+    if (result < 0) throw new Error('Typed handle revocation refused');
     return result > 0;
   };
   // @ref LLP 0013 — §dynamic permissions — acquisition is async and lives in the

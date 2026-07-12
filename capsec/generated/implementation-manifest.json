@@ -86828,6 +86828,46 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.exacttypedhandlemint.1ey2r0l",
+      "observedKey": "native-op:__exactTypedHandleMint",
+      "branchId": "surface.native.op.exacttypedhandlemint.1ey2r0l.default.1ino8qk",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTypedHandleMint",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactTypedHandleMint"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exacttypedhandlemint.1ey2r0l.default.1ino8qk.cannot-widen-authority",
+        "surface.native.op.exacttypedhandlemint.1ey2r0l.default.1ino8qk.non-capability",
+        "surface.native.op.exacttypedhandlemint.1ey2r0l.default.1ino8qk.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exacttypedhandlerevoke.1puhwsn",
+      "observedKey": "native-op:__exactTypedHandleRevoke",
+      "branchId": "surface.native.op.exacttypedhandlerevoke.1puhwsn.default.0sed6oc",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__exactTypedHandleRevoke",
+        "src/engine/hermes_runtime.cc#jsi-global:__exactTypedHandleRevoke"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.exacttypedhandlerevoke.1puhwsn.default.0sed6oc.cannot-widen-authority",
+        "surface.native.op.exacttypedhandlerevoke.1puhwsn.default.0sed6oc.non-capability",
+        "surface.native.op.exacttypedhandlerevoke.1puhwsn.default.0sed6oc.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.exacttypedpermissionrequest.0itgp95",
       "observedKey": "native-op:__exactTypedPermissionRequest",
       "branchId": "surface.native.op.exacttypedpermissionrequest.0itgp95.default.1onyz5q",
@@ -104609,6 +104649,63 @@
         "surface.native.op.global.ibex.1tzov7h.default.1pk3yhq.cannot-widen-authority",
         "surface.native.op.global.ibex.1tzov7h.default.1pk3yhq.non-capability",
         "surface.native.op.global.ibex.1tzov7h.default.1pk3yhq.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.authority.1r4aoky",
+      "observedKey": "native-op:global:Ibex.authority",
+      "branchId": "surface.native.op.global.ibex.authority.1r4aoky.default.02xc8xx",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#embedded:kFsHandleJS:Ibex.authority"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.global.ibex.authority.1r4aoky.default.02xc8xx.cannot-widen-authority",
+        "surface.native.op.global.ibex.authority.1r4aoky.default.02xc8xx.non-capability",
+        "surface.native.op.global.ibex.authority.1r4aoky.default.02xc8xx.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.authority.minthandle.19hu8hm",
+      "observedKey": "native-op:global:Ibex.authority.mintHandle",
+      "branchId": "surface.native.op.global.ibex.authority.minthandle.19hu8hm.default.15mivaj",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#embedded:kFsHandleJS:Ibex.authority.mintHandle"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.global.ibex.authority.minthandle.19hu8hm.default.15mivaj.cannot-widen-authority",
+        "surface.native.op.global.ibex.authority.minthandle.19hu8hm.default.15mivaj.non-capability",
+        "surface.native.op.global.ibex.authority.minthandle.19hu8hm.default.15mivaj.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw",
+      "observedKey": "native-op:global:Ibex.authority.revokeHandle",
+      "branchId": "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw.default.0fgw0y9",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#embedded:kFsHandleJS:Ibex.authority.revokeHandle"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw.default.0fgw0y9.cannot-widen-authority",
+        "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw.default.0fgw0y9.non-capability",
+        "surface.native.op.global.ibex.authority.revokehandle.1sjy8lw.default.0fgw0y9.post-lockdown-invariant"
       ]
     },
     {
@@ -143606,53 +143703,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-ZW82d370JkmdmkPHDsafqCHwc5u8DwnhNVa33mmPZIw"
+      "rawContentDigest": "sha256-L3uLkXXEMQtGCpY9mnrTNSqGqbgnzlRTI6ynb-auN2Q"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-zS8tmRdlQc0JcKcrtYwMna-HvGoFo_LlMQCNADA2VZE"
+      "rawContentDigest": "sha256-5JHpWqlzpPYysoo7gQk8ceF35GmFWx6qo5EJOCn3nKQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-Mf-4Vai1GakRwJ6AUxxxyNL2vty2z3TML4G1w9w_KLI"
+      "rawContentDigest": "sha256-P_rRAh54WVQoT0-eh9QEzYm83AORK2EfqZPcX5E_2UY"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-WN1C_aBwD_DwuxoCzXKZuxnwJi3mVsmlf8HonJSKbrM"
+      "rawContentDigest": "sha256-9UfOogjihCxWtD-4J_nQFkDJzT9_cFYBGTftPQIaNZQ"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-49_Frrw6nAR5DP62wS_34nmhEzF49ePet8qIAuWgjeM"
+      "rawContentDigest": "sha256-PaMSLwT7xlbG7OegFh6222ISfIj9GRV8MD3IdBSk3j0"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-J5jsndkY6WMDC0mUboA3WuygZ2Uqmt3aQbh5dCNUY1E"
+      "rawContentDigest": "sha256-8AmDInBYIk53s1UoiqBZF4RKl-T64HHkfGuX4stcwus"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-n1AMfsSQOq20t33Hg6p54Dv5aCV9B3pHwPRT1hKz1vo"
+      "rawContentDigest": "sha256-8JNDD3TZ9yL9uXr9AaeBFST9fizSXPL5w4VuKY9KwP0"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-vgbt6JAM2vlrZuiAsZ52uhlNoQzEs9HL26aIywdV0Ug"
+      "rawContentDigest": "sha256-ojAMNlbjr2f1-jRnrtdEoMv-Xuv0OaIkS-9pBb7ZLcM"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-Popq4DIHx3dYUNlVySgAcHJf5R0yICSNdjGw_v9TPQE"
+      "rawContentDigest": "sha256-0R-7xVN6lYSbsvZpcmSYQTh9en5AJUGYEVXUGIhJaAg"
     }
   ],
   "counts": {
-    "observedReferences": 11105,
-    "logicalSurfaces": 6837,
-    "coverageEdges": 6837,
-    "targetCells": 6837
+    "observedReferences": 11112,
+    "logicalSurfaces": 6842,
+    "coverageEdges": 6842,
+    "targetCells": 6842
   }
 }

@@ -717,6 +717,10 @@ cross the native boundary as strict typed JSON and therefore use the same
 ceiling, lifecycle, digest, and generation validation as embedder calls;
 legacy colon strings are rejected by the typed method rather than reinterpreted.
 Both the private bridge and public methods are exact registry surfaces.
+Typed bearer mint and cascade revocation are likewise reachable as
+`Ibex.authority.mintHandle(request)` and `revokeHandle(handleId)`. Handle IDs
+remain opaque strings; the live bridge exposes no numeric conversion or legacy
+capability-string minting path.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

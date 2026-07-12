@@ -206,6 +206,8 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactPermissionRequest",
   "__exactPermissionRevoke",
   "__exactPermissionStatus",
+  "__exactTypedHandleMint",
+  "__exactTypedHandleRevoke",
   "__exactTypedPermissionRequest",
   "__exactTypedPermissionRevoke",
   "__exactPlatform",
@@ -3731,6 +3733,9 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   ],
   Ibex: [
     "",
+    "authority",
+    "authority.mintHandle",
+    "authority.revokeHandle",
     "fs",
     "fs.readHandle",
     "fs.readHandle.[[return]].readFileSync",

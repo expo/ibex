@@ -2221,11 +2221,14 @@ mod tests {
         engine.load_runtime().await.unwrap();
         let result = engine
             .eval_immediate(
-                "JSON.stringify([typeof Ibex.permissions.requestTyped, typeof Ibex.permissions.revokeTyped])",
+                "JSON.stringify([typeof Ibex.permissions.requestTyped, typeof Ibex.permissions.revokeTyped, typeof Ibex.authority.mintHandle, typeof Ibex.authority.revokeHandle])",
             )
             .await
             .unwrap();
-        assert_eq!(result.as_deref(), Some("[\"function\",\"function\"]"));
+        assert_eq!(
+            result.as_deref(),
+            Some("[\"function\",\"function\",\"function\",\"function\"]")
+        );
 
         let malformed = engine
             .eval_immediate(
@@ -2234,6 +2237,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(malformed.as_deref(), Some("TypeError"));
+
+        let malformed_handle = engine
+            .eval_immediate(
+                "try { Ibex.authority.mintHandle('fs:read:/tmp'); 'missed' } catch (e) { e.name }",
+            )
+            .await
+            .unwrap();
+        assert_eq!(malformed_handle.as_deref(), Some("TypeError"));
     }
 
     #[tokio::test(flavor = "current_thread")]
