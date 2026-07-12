@@ -1076,6 +1076,10 @@ descriptor, and accessor evidence actually invokes the getter. Retrieving a
 function, constructor, or prototype method is presence evidence rather than
 execution evidence, so those surfaces remain residual until a bounded
 call/setup recipe is authored.
+Every exact registry alias also has an import-only recipe: it proves that the
+selected manifest or bootstrap-internal module initializes on the bound engine
+without a legacy or typed decision. Alias evidence is kept distinct from export
+reads and calls, which still require their own source-derived value shape.
 Manifest-builtin initialization may resolve exact manifest-owned private
 builtin dependencies without creating package import edges, but that exemption
 is scoped to synchronous body evaluation and does not suppress capability

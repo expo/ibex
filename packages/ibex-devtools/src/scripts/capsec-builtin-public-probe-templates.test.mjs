@@ -56,6 +56,61 @@ function probeFor({
 }
 
 describe("source-bound builtin public probes", () => {
+  test("imports exact manifest and bootstrap module aliases", () => {
+    for (const [moduleSpecifier, importReachability, resolutionKind] of [
+      ["node:path", "public", "manifest"],
+      ["internal/fs/utils", "bootstrap-internal", "bootstrap-internal"],
+    ]) {
+      const observedKey = `builtin:${moduleSpecifier}`;
+      expect(
+        authoredNonCapabilityBuiltinProbe({
+          plan,
+          scenario: "non-capability",
+          route: {
+            surfaceObservedKeys: [observedKey],
+            alternatives: [
+              {
+                terminalObservedKey: observedKey,
+                proofPaths: [observedKey],
+              },
+            ],
+            ambiguousCallees: [],
+          },
+          liveByObservedKey: new Map([
+            [
+              observedKey,
+              {
+                kind: "builtin",
+                name: moduleSpecifier,
+                observedKey,
+                sourceRefs: ["modules.ts#specifiers:synthetic"],
+                metadata: {
+                  importReachability,
+                  sourceKey: "synthetic",
+                },
+              },
+            ],
+          ]),
+        }),
+      ).toMatchObject({
+        surfaceObservedKey: observedKey,
+        invocation: {
+          invocationSchema:
+            "ibex/capsec-builtin-module-import-invocation/1",
+          kind: "builtin-module-import",
+          moduleSpecifier,
+          sourceDescriptor: {
+            kind: "builtin-module-alias",
+            moduleSpecifier,
+            resolutionKind,
+            sourceKey: "synthetic",
+          },
+          expectedTypedDecisionCount: 0,
+        },
+      });
+    }
+  });
+
   test("reads an own export through the canonical public alias", () => {
     const probe = probeFor();
     expect(probe).toMatchObject({

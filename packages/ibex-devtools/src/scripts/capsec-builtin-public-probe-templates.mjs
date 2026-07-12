@@ -41,6 +41,8 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
 
 const READ_INVOCATION_SCHEMA = "ibex/capsec-builtin-export-invocation/1";
 const CALL_INVOCATION_SCHEMA = "ibex/capsec-builtin-call-invocation/1";
+const MODULE_IMPORT_INVOCATION_SCHEMA =
+  "ibex/capsec-builtin-module-import-invocation/1";
 
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
@@ -1351,6 +1353,36 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   return descriptor;
 }
 
+function moduleAliasDescriptor(surface) {
+  const metadata = surface?.metadata;
+  if (
+    surface?.kind !== "builtin" ||
+    metadata?.surfaceType !== undefined ||
+    !new Set(["bootstrap-internal", "public"]).has(
+      metadata?.importReachability,
+    ) ||
+    typeof surface.name !== "string" ||
+    surface.name.length === 0 ||
+    surface.observedKey !== `builtin:${surface.name}` ||
+    typeof metadata.sourceKey !== "string" ||
+    metadata.sourceKey.length === 0 ||
+    !Array.isArray(surface.sourceRefs) ||
+    surface.sourceRefs.length !== 1
+  ) {
+    return null;
+  }
+  return {
+    kind: "builtin-module-alias",
+    sourceKey: metadata.sourceKey,
+    moduleSpecifier: surface.name,
+    sourceRef: surface.sourceRefs[0],
+    resolutionKind:
+      metadata.importReachability === "bootstrap-internal"
+        ? "bootstrap-internal"
+        : "manifest",
+  };
+}
+
 export function authoredNonCapabilityBuiltinProbe({
   plan,
   scenario,
@@ -1369,7 +1401,6 @@ export function authoredNonCapabilityBuiltinProbe({
     return null;
   }
   const surfaceObservedKey = route.surfaceObservedKeys[0];
-  if (!surfaceObservedKey.startsWith("builtin:export:")) return null;
   const alternative = route.alternatives[0];
   if (
     alternative.terminalObservedKey !== surfaceObservedKey ||
@@ -1379,6 +1410,30 @@ export function authoredNonCapabilityBuiltinProbe({
     return null;
   }
   const surface = liveByObservedKey.get(surfaceObservedKey);
+  if (!surfaceObservedKey.startsWith("builtin:export:")) {
+    const descriptor = moduleAliasDescriptor(surface);
+    if (!descriptor) return null;
+    return {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [...BUILTIN_BATCH_COMMAND],
+      invocation: {
+        invocationSchema: MODULE_IMPORT_INVOCATION_SCHEMA,
+        kind: "builtin-module-import",
+        moduleSpecifier: descriptor.moduleSpecifier,
+        sourceDescriptor: descriptor,
+        sourceDescriptorDigest: taggedDigest(descriptor),
+        arguments: [],
+        setup: { kind: "none" },
+        requiredAuthority: [],
+        expectedResult: "return",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    };
+  }
   const readDescriptor = sourceDescriptor(
     surface,
     target,

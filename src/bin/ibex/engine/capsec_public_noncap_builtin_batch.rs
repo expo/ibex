@@ -55,7 +55,8 @@ struct BuiltinInvocation {
     invocation_schema: String,
     kind: String,
     module_specifier: String,
-    export_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    export_name: Option<String>,
     source_descriptor: serde_json::Value,
     source_descriptor_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +93,16 @@ struct BuiltinSourceDescriptor {
     #[serde(default)]
     platform_availability: Option<Vec<String>>,
     access: BuiltinAccess,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BuiltinModuleAliasDescriptor {
+    kind: String,
+    source_key: String,
+    module_specifier: String,
+    source_ref: String,
+    resolution_kind: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -510,11 +521,28 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
     }
 }
 
+fn validate_probe_binding(
+    recipe: &Recipe,
+    probe: &PublicSurfaceProbe,
+    invocation: &BuiltinInvocation,
+) {
+    assert_eq!(recipe.route.ambiguous_callees, Vec::<String>::new());
+    assert_eq!(recipe.route.alternatives.len(), 1);
+    assert_eq!(
+        recipe.route.alternatives[0].terminal_observed_key,
+        probe.surface_observed_key
+    );
+    assert!(!recipe.route.alternatives[0].proof_paths.is_empty());
+    assert_eq!(
+        tagged_jcs_digest(&invocation.source_descriptor),
+        invocation.source_descriptor_digest,
+        "{}: source descriptor digest drift",
+        recipe.fixture_id
+    );
+}
+
 fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     let invocation = &probe.invocation;
-    let descriptor: BuiltinSourceDescriptor =
-        serde_json::from_value(invocation.source_descriptor.clone())
-            .expect("non-capability builtin source descriptor must be typed");
     assert_eq!(recipe.classification, "non-capability");
     assert_eq!(recipe.scenario, "non-capability");
     assert!(recipe.action_ids.is_empty());
@@ -525,16 +553,55 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         && invocation.kind == "builtin-export-read";
     let is_call = invocation.invocation_schema == "ibex/capsec-builtin-call-invocation/1"
         && invocation.kind == "builtin-export-call";
-    assert!(is_read || is_call, "unsupported non-capability builtin probe");
+    let is_import = invocation.invocation_schema
+        == "ibex/capsec-builtin-module-import-invocation/1"
+        && invocation.kind == "builtin-module-import";
+    assert!(
+        is_read || is_call || is_import,
+        "unsupported non-capability builtin probe"
+    );
     assert_eq!(invocation.expected_typed_decision_count, 0);
     assert!(invocation.expected_typed_stages.is_empty());
     assert!(invocation.allowed_coverage_edge_ids.is_empty());
     assert!(invocation.expected_action_ids.is_empty());
     assert!(invocation.required_authority.is_empty());
+
+    if is_import {
+        let descriptor: BuiltinModuleAliasDescriptor =
+            serde_json::from_value(invocation.source_descriptor.clone())
+                .expect("non-capability builtin module descriptor must be typed");
+        assert_eq!(descriptor.kind, "builtin-module-alias");
+        assert!(!descriptor.source_key.is_empty());
+        assert_eq!(descriptor.module_specifier, invocation.module_specifier);
+        assert!(!descriptor.source_ref.is_empty());
+        assert!(matches!(
+            descriptor.resolution_kind.as_str(),
+            "bootstrap-internal" | "manifest"
+        ));
+        assert!(invocation.export_name.is_none());
+        assert_eq!(invocation.expected_result, "return");
+        assert!(invocation.template_id.is_none());
+        assert!(invocation.body_entry_proof.is_none());
+        assert!(invocation.arguments.is_empty());
+        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
+        assert_eq!(
+            probe.surface_observed_key,
+            format!("builtin:{}", descriptor.module_specifier)
+        );
+        validate_probe_binding(recipe, probe, invocation);
+        return;
+    }
+
+    let descriptor: BuiltinSourceDescriptor =
+        serde_json::from_value(invocation.source_descriptor.clone())
+            .expect("non-capability builtin source descriptor must be typed");
     assert_eq!(descriptor.kind, "builtin-export");
     assert!(!descriptor.source_key.is_empty());
     assert_ne!(descriptor.source_key, "node_os");
-    assert_eq!(descriptor.export_name, invocation.export_name);
+    assert_eq!(
+        invocation.export_name.as_deref(),
+        Some(descriptor.export_name.as_str())
+    );
     assert!(!descriptor.source_ref.is_empty());
     if let Some(platforms) = descriptor.platform_availability.as_deref() {
         assert!(!platforms.is_empty());
@@ -604,19 +671,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
             descriptor.source_key, descriptor.export_name
         )
     );
-    assert_eq!(recipe.route.ambiguous_callees, Vec::<String>::new());
-    assert_eq!(recipe.route.alternatives.len(), 1);
-    assert_eq!(
-        recipe.route.alternatives[0].terminal_observed_key,
-        probe.surface_observed_key
-    );
-    assert!(!recipe.route.alternatives[0].proof_paths.is_empty());
-    assert_eq!(
-        tagged_jcs_digest(&invocation.source_descriptor),
-        invocation.source_descriptor_digest,
-        "{}: source descriptor digest drift",
-        recipe.fixture_id
-    );
+    validate_probe_binding(recipe, probe, invocation);
 }
 
 fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
@@ -637,6 +692,9 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
                         ) | (
                             "ibex/capsec-builtin-call-invocation/1",
                             "builtin-export-call"
+                        ) | (
+                            "ibex/capsec-builtin-module-import-invocation/1",
+                            "builtin-module-import"
                         )
                     )
                 })
@@ -853,7 +911,7 @@ fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocati
         invocation_schema: "ibex/capsec-builtin-call-invocation/1".to_owned(),
         kind: "builtin-export-call".to_owned(),
         module_specifier: "node:path".to_owned(),
-        export_name: "basename".to_owned(),
+        export_name: Some("basename".to_owned()),
         source_descriptor: serde_json::json!({
             "kind": "builtin-export",
             "sourceKey": "node_path",

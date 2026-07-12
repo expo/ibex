@@ -516,6 +516,37 @@ describe("exact-target CapSec executable recipes", () => {
     expect(moduleLoader.residualReasons).toEqual([]);
   });
 
+  test("imports every exact non-capability builtin module alias", () => {
+    const imports = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.kind ===
+        "builtin-module-import",
+    );
+    expect(imports.length).toBeGreaterThan(30);
+    expect(
+      imports.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "non-capability" &&
+          recipe.publicSurfaceProbe.invocation.invocationSchema ===
+            "ibex/capsec-builtin-module-import-invocation/1" &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0 &&
+          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
+            "builtin-module-alias" &&
+          recipe.route.alternatives[0].terminalObservedKey ===
+            recipe.publicSurfaceProbe.surfaceObservedKey,
+      ),
+    ).toBe(true);
+    expect(
+      imports.find(
+        (recipe) =>
+          recipe.publicSurfaceProbe.surfaceObservedKey ===
+          "builtin:internal/fs/utils",
+      )?.publicSurfaceProbe.invocation.sourceDescriptor.resolutionKind,
+    ).toBe("bootstrap-internal");
+  });
+
   test("authors bounded normal-return calls for exact non-capability families", () => {
     const publicCalls = recipes.recipes.filter(
       (recipe) =>
