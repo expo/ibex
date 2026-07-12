@@ -19,6 +19,7 @@
 #pragma GCC diagnostic pop
 #endif
 
+#include <cmath>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -488,8 +489,10 @@ extern "C" void ex_hermes_set_kernel_handle(
         }
 
         double rawRootViewId = args[0].asNumber();
-        if (rawRootViewId < 0 ||
-            rawRootViewId > static_cast<double>(UINT32_MAX)) {
+        if (!std::isfinite(rawRootViewId) ||
+            std::floor(rawRootViewId) != rawRootViewId ||
+            rawRootViewId < 0 ||
+            rawRootViewId > static_cast<double>(INT32_MAX)) {
           return facebook::jsi::Value::null();
         }
 
