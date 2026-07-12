@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -249,8 +249,11 @@ pub fn drain_events(client_id: u64) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 fn monotonic_timestamp() -> f64 {
-    // CDP timestamps are "monotonically increasing" seconds.
-    // We use wall-clock for simplicity -- DevTools is tolerant.
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_secs_f64()
+}
+
+fn wall_timestamp() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -363,6 +366,7 @@ pub fn emit_request_will_be_sent(
     };
 
     let ts = monotonic_timestamp();
+    let wall_time = wall_timestamp();
     let header_map: HashMap<&str, &str> = headers
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
@@ -395,7 +399,7 @@ pub fn emit_request_will_be_sent(
             "documentURL": url,
             "request": request,
             "timestamp": ts,
-            "wallTime": ts,
+            "wallTime": wall_time,
             "initiator": { "type": "other" },
             "type": "Fetch",
         }
