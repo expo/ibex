@@ -1,0 +1,197 @@
+{
+  "schema": "ibex/capsec-legacy-suite-retirement/1",
+  "legacySuite": "tests/llp0013_compartments.rs@pre-rev2",
+  "coverageCatalog": {
+    "armed-callback-invariants": {
+      "path": "src/bin/ibex/engine/capsec_public_callback_invariant_batch.rs",
+      "anchor": "async fn capsec_callback_invariant_mechanisms_smoke"
+    },
+    "armed-environment-closure": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_environment_enumeration_closes_without_any_authorization_oracle"
+    },
+    "armed-fs-denial": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_fs_open_denial_cannot_truncate_or_create"
+    },
+    "armed-fs-list": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_fs_list_denial_prevents_metadata_and_directory_disclosure"
+    },
+    "armed-fs-positive": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_fs_open_authorizes_create_truncate_and_repeated_write"
+    },
+    "armed-fs-symlink": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_fs_open_rejects_parent_and_final_symlink_escape"
+    },
+    "armed-import-axis": {
+      "path": "src/host/mod.rs",
+      "anchor": "fn armed_import_axis_recognizes_every_exact_generated_builtin_alias"
+    },
+    "armed-network-closed": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_unported_network_surfaces_refuse_before_external_effects"
+    },
+    "armed-network-ownership": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_network_release_calls_require_only_ownership"
+    },
+    "armed-network-tcp": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer"
+    },
+    "armed-network-udp": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_udp_send_authorizes_each_literal_datagram_peer"
+    },
+    "armed-package-integrity": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_runtime_reauthenticates_exact_package_source_after_creation"
+    },
+    "armed-process-closure": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn armed_process_environment_and_signal_surfaces_stay_closed"
+    },
+    "armed-terminal-import-closure": {
+      "path": "src/host/mod.rs",
+      "anchor": "fn armed_terminal_builtins_stay_closed_even_if_snapshot_lists_them"
+    },
+    "cli-legacy-alias-parser": {
+      "path": "src/bin/ibex/cli.rs",
+      "anchor": "fn advisory_attribution_alias_parses"
+    },
+    "closed-evaluator-batch": {
+      "path": "src/bin/ibex/engine/capsec_public_closed_batch.rs",
+      "anchor": "async fn execute_closed_tamed_evaluator"
+    },
+    "foreground-audit-boundary": {
+      "path": "src/bin/ibex/runtime.rs",
+      "anchor": "fn foreground_audit_remains_open_and_propagates_its_entry_to_children"
+    },
+    "generated-policy-drift": {
+      "path": "packages/ibex-devtools/src/scripts/check-generated-policies.test.mjs",
+      "anchor": "generated policy drift covers the LLP example and every rev2 demo policy"
+    },
+    "import-authoring": {
+      "path": "packages/ibex-devtools/src/scripts/import-grants.test.mjs",
+      "anchor": "parses typed authorities as authored JSON and strips the authoring attribute"
+    },
+    "import-delegation-versioning": {
+      "path": "packages/ibex-devtools/src/scripts/import-grants.test.mjs",
+      "anchor": "a delegate is not honored along a coexisting version edge"
+    },
+    "legacy-controls-closed": {
+      "path": "src/bin/ibex/runtime.rs",
+      "anchor": "fn armed_startup_rejects_legacy_authority_overrides_before_io"
+    },
+    "migrated-byte-view": {
+      "path": "tests/llp0013_compartments.rs",
+      "anchor": "fn native_byte_extraction_rejects_forged_arraybuffer_view_bounds"
+    },
+    "migrated-dynamic-import": {
+      "path": "tests/llp0013_compartments.rs",
+      "anchor": "fn dynamic_relative_import_uses_the_calling_module_referrer"
+    },
+    "readiness-closure": {
+      "path": "src/bin/ibex/runtime.rs",
+      "anchor": "fn capsec_enforce_fails_closed_without_attribution_prerequisites"
+    },
+    "registry-deny-only": {
+      "path": "crates/capsec-semantics/tests/registry.rs",
+      "anchor": "fn escape_and_shared_process_surfaces_remain_deny_only_with_closed_channels"
+    },
+    "target-advertisement-refusal": {
+      "path": "src/host/mod.rs",
+      "anchor": "fn production_target_claim_requires_a_verified_report_advertisement"
+    },
+    "typed-deputy-intersection": {
+      "path": "crates/capsec-semantics/src/decision.rs",
+      "anchor": "fn mixed_principal_order_and_package_root_owner_preserve_deputy_intersection"
+    },
+    "typed-dynamic-bridge": {
+      "path": "src/bin/ibex/engine/hermes.rs",
+      "anchor": "async fn runtime_installs_typed_dynamic_permission_bridge"
+    },
+    "typed-handles": {
+      "path": "src/host/mod.rs",
+      "anchor": "fn typed_handles_attenuate_delegate_and_revoke_as_a_cascade"
+    },
+    "typed-policy-ingress": {
+      "path": "crates/capsec-semantics/tests/policy.rs",
+      "anchor": "fn canonical_policy_loads_as_a_complete_typed_artifact"
+    }
+  },
+  "cases": [
+    {"legacyTest":"advisory_attribution_flag_makes_downgrade_explicit","disposition":"replaced-by-closure","coverageIds":["legacy-controls-closed","readiness-closure"]},
+    {"legacyTest":"async_detached_deputy_control_permissive_leaks","disposition":"replaced-by-closure","coverageIds":["legacy-controls-closed","typed-deputy-intersection"]},
+    {"legacyTest":"async_detached_deputy_read_is_contained_but_granted_self_async_works","disposition":"superseded","coverageIds":["armed-callback-invariants","typed-deputy-intersection"]},
+    {"legacyTest":"attenuator_handle_delegation_scoping_and_revocation","disposition":"superseded","coverageIds":["typed-handles","armed-callback-invariants"]},
+    {"legacyTest":"audit_mode_reports_would_deny_but_proceeds","disposition":"replaced-by-closure","coverageIds":["foreground-audit-boundary","legacy-controls-closed"]},
+    {"legacyTest":"bun_which_requires_process_spawn_capability","disposition":"superseded","coverageIds":["armed-process-closure","registry-deny-only"]},
+    {"legacyTest":"capsec_aliases_parse","disposition":"replaced-by-closure","coverageIds":["cli-legacy-alias-parser","legacy-controls-closed"]},
+    {"legacyTest":"capsec_enforce_fails_closed_on_missing_attribution_prerequisites","disposition":"superseded","coverageIds":["readiness-closure"]},
+    {"legacyTest":"coexisting_versions_get_distinct_policy_treatment","disposition":"superseded","coverageIds":["armed-package-integrity","import-delegation-versioning"]},
+    {"legacyTest":"committed_grants_artifact_is_in_sync","disposition":"superseded","coverageIds":["generated-policy-drift","typed-policy-ingress"]},
+    {"legacyTest":"compartment_withholds_powerful_globals_and_honors_endowments","disposition":"superseded","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"compromised_dependency_cannot_read_env_under_lockdown","disposition":"superseded","coverageIds":["armed-callback-invariants","armed-package-integrity"]},
+    {"legacyTest":"compromised_dependency_succeeds_without_lockdown","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"detached_deputy_read_is_contained_but_app_wrapped_read_works","disposition":"superseded","coverageIds":["armed-callback-invariants","typed-deputy-intersection"]},
+    {"legacyTest":"dns_requires_network_resolve_capability","disposition":"superseded","coverageIds":["armed-network-closed","registry-deny-only"]},
+    {"legacyTest":"dropped_handle_is_auto_revoked_when_garbage_collected","disposition":"superseded","coverageIds":["typed-handles","armed-callback-invariants"]},
+    {"legacyTest":"dynamic_permissions_are_tri_state_and_bounded_by_the_ceiling","disposition":"superseded","coverageIds":["typed-dynamic-bridge","armed-callback-invariants"]},
+    {"legacyTest":"dynamic_relative_import_uses_the_calling_module_referrer","disposition":"migrated","coverageIds":["migrated-dynamic-import","armed-import-axis"]},
+    {"legacyTest":"enforce_closes_runtime_capability_escapes","disposition":"superseded","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"enforce_rejects_disabled_package_isolation_without_advisory_flag","disposition":"superseded","coverageIds":["readiness-closure","legacy-controls-closed"]},
+    {"legacyTest":"env_endowments_cannot_widen_policy_under_enforce","disposition":"superseded","coverageIds":["legacy-controls-closed","armed-callback-invariants"]},
+    {"legacyTest":"env_reads_are_gated_with_no_plain_snapshot_bypass","disposition":"superseded","coverageIds":["armed-callback-invariants","armed-environment-closure"]},
+    {"legacyTest":"eval_and_function_inherit_the_caller_compartment","disposition":"superseded","coverageIds":["armed-callback-invariants","closed-evaluator-batch"]},
+    {"legacyTest":"exact_fs_grant_cannot_mint_subtree_handle","disposition":"superseded","coverageIds":["typed-handles"]},
+    {"legacyTest":"fetch_endpoint_capabilities_are_host_scoped","disposition":"superseded","coverageIds":["armed-network-tcp","armed-network-closed"]},
+    {"legacyTest":"frame_attribution_control_permissive_leaks","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"frame_attribution_denies_deferred_dependency_but_allows_app","disposition":"superseded","coverageIds":["armed-callback-invariants","typed-deputy-intersection"]},
+    {"legacyTest":"fs_write_requires_fs_write_capability","disposition":"superseded","coverageIds":["armed-fs-positive","armed-fs-denial"]},
+    {"legacyTest":"gc_of_delegation_parent_does_not_over_revoke_live_child","disposition":"superseded","coverageIds":["typed-handles","armed-callback-invariants"]},
+    {"legacyTest":"generated_builtins_artifact_is_in_sync","disposition":"superseded","coverageIds":["generated-policy-drift","armed-import-axis"]},
+    {"legacyTest":"generated_policy_closes_builtins_axis","disposition":"superseded","coverageIds":["armed-import-axis","armed-terminal-import-closure"]},
+    {"legacyTest":"generated_policy_endows_granted_package_and_contains_the_rest","disposition":"superseded","coverageIds":["import-authoring","typed-policy-ingress","armed-callback-invariants"]},
+    {"legacyTest":"generated_policy_keeps_delegation_version_local","disposition":"superseded","coverageIds":["import-delegation-versioning","typed-policy-ingress"]},
+    {"legacyTest":"generated_policy_observed_builtins_are_version_scoped","disposition":"superseded","coverageIds":["import-delegation-versioning","armed-import-axis"]},
+    {"legacyTest":"generated_policy_observes_relative_cjs_bridge_dependencies","disposition":"superseded","coverageIds":["import-authoring","typed-policy-ingress"]},
+    {"legacyTest":"host_scheduled_detached_deputy_control_permissive_leaks","disposition":"replaced-by-closure","coverageIds":["legacy-controls-closed","typed-deputy-intersection"]},
+    {"legacyTest":"host_scheduled_detached_deputy_read_is_contained_across_timer_channels","disposition":"superseded","coverageIds":["armed-callback-invariants","typed-deputy-intersection"]},
+    {"legacyTest":"import_gate_denies_restricted_package_builtin","disposition":"superseded","coverageIds":["armed-import-axis","armed-terminal-import-closure"]},
+    {"legacyTest":"import_gate_is_inert_without_restriction","disposition":"replaced-by-closure","coverageIds":["armed-import-axis","legacy-controls-closed"]},
+    {"legacyTest":"lazy_installers_present_without_lockdown","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"link_own_metadata_gates_the_link_path_not_the_target","disposition":"superseded","coverageIds":["armed-fs-list","armed-fs-symlink"]},
+    {"legacyTest":"lockdown_conformance_keeps_runtime_usable","disposition":"superseded","coverageIds":["armed-callback-invariants"]},
+    {"legacyTest":"lockdown_is_off_by_default","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"lockdown_seals_lazy_installers_and_self_grant_channel","disposition":"superseded","coverageIds":["armed-callback-invariants","closed-evaluator-batch"]},
+    {"legacyTest":"mkdtemp_checks_the_created_directory_path_not_only_the_prefix","disposition":"superseded","coverageIds":["armed-fs-positive","armed-fs-denial"]},
+    {"legacyTest":"native_byte_extraction_rejects_forged_arraybuffer_view_bounds","disposition":"migrated","coverageIds":["migrated-byte-view"]},
+    {"legacyTest":"native_compartment_control_no_containment_without_compartments","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"native_compartment_withholds_globals_without_rewrite","disposition":"superseded","coverageIds":["armed-callback-invariants"]},
+    {"legacyTest":"native_deep_freeze_freezes_a_graph_without_invoking_getters","disposition":"superseded","coverageIds":["armed-callback-invariants"]},
+    {"legacyTest":"native_freeze_primitive_freezes_objects","disposition":"superseded","coverageIds":["armed-callback-invariants"]},
+    {"legacyTest":"native_lockdown_freezes_intrinsics_and_contains_redteam","disposition":"superseded","coverageIds":["armed-callback-invariants","closed-evaluator-batch"]},
+    {"legacyTest":"native_tcp_handles_cannot_be_stolen_by_guessing_ids","disposition":"superseded","coverageIds":["armed-network-ownership","armed-network-tcp"]},
+    {"legacyTest":"path_scoped_write_grant_cannot_escape_through_a_symlink","disposition":"superseded","coverageIds":["armed-fs-symlink","armed-fs-denial"]},
+    {"legacyTest":"per_package_chunks_give_bundled_apps_frame_attribution","disposition":"superseded","coverageIds":["armed-callback-invariants","armed-package-integrity"]},
+    {"legacyTest":"permission_acquisition_is_async_with_a_pluggable_broker","disposition":"superseded","coverageIds":["typed-dynamic-bridge","armed-callback-invariants"]},
+    {"legacyTest":"permission_onchange_signals_grants_and_revocations","disposition":"superseded","coverageIds":["typed-dynamic-bridge","armed-callback-invariants"]},
+    {"legacyTest":"policy_check_reports_builtin_expansion_on_drift","disposition":"superseded","coverageIds":["generated-policy-drift","armed-import-axis"]},
+    {"legacyTest":"policy_check_reports_capability_expansion_on_drift","disposition":"superseded","coverageIds":["generated-policy-drift","typed-policy-ingress"]},
+    {"legacyTest":"policy_declared_enforce_auto_enables_bundled_attribution","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"posix_access_w_ok_requires_fs_write_capability","disposition":"superseded","coverageIds":["armed-fs-positive","armed-fs-denial"]},
+    {"legacyTest":"raw_ipc_helpers_reject_unowned_file_descriptors","disposition":"superseded","coverageIds":["armed-process-closure","registry-deny-only"]},
+    {"legacyTest":"redteam_all_contained_under_lockdown","disposition":"superseded","coverageIds":["armed-callback-invariants","closed-evaluator-batch"]},
+    {"legacyTest":"redteam_ambient_attacks_succeed_without_lockdown","disposition":"replaced-by-closure","coverageIds":["armed-callback-invariants","legacy-controls-closed"]},
+    {"legacyTest":"server_and_socket_host_functions_require_network_capabilities","disposition":"superseded","coverageIds":["armed-network-closed","registry-deny-only"]},
+    {"legacyTest":"stack_intersection_denies_deputy_driven_by_ungranted_caller","disposition":"superseded","coverageIds":["typed-deputy-intersection","armed-callback-invariants"]},
+    {"legacyTest":"stack_intersection_is_off_by_default","disposition":"replaced-by-closure","coverageIds":["typed-deputy-intersection","legacy-controls-closed"]},
+    {"legacyTest":"timer_microtask_drain_does_not_launder_detached_deputy_into_owner","disposition":"superseded","coverageIds":["armed-callback-invariants","typed-deputy-intersection"]},
+    {"legacyTest":"udp_connect_only_socket_cannot_receive_or_expose_fd_without_listen","disposition":"superseded","coverageIds":["armed-network-udp","armed-network-closed"]},
+    {"legacyTest":"without_generated_policy_no_package_is_endowed","disposition":"superseded","coverageIds":["armed-callback-invariants","target-advertisement-refusal"]}
+  ]
+}

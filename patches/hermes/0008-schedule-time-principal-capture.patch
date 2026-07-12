@@ -45,7 +45,7 @@
 # scheduleRead itself does `queueMicrotask(() => this.read())`) is captured with the
 # deputy as scheduler, not the original caller — that is "deputy by design," which
 # the RFC scopes out of the default. The one-hop detach in the ticket is fully
-# closed. Red-team: tests/llp0013_compartments.rs
+# closed. Red-team: capsec_public_callback_invariant_batch::capsec_callback_invariant_mechanisms_smoke
 # async_detached_deputy_read_is_contained_but_granted_self_async_works.
 #
 diff --git a/include/hermes/VM/Runtime-inline.h b/include/hermes/VM/Runtime-inline.h

@@ -389,7 +389,8 @@ test('bareNameOf strips the version, preserving scoped names and bare names', ()
 
 // @ref LLP 0013 — (ENG-22818) — with an identity-keyed cascade a delegate declared
 // by one installed version must not flow along a DIFFERENT version's import edge.
-// Mirrors tests/fixtures/llp0013/versioned-delegation.
+// Retains the version-local delegation invariant from the retired LLP 0013
+// binary-policy corpus in the current authoring-layer suite.
 test('cascade: a delegate is not honored along a coexisting version edge', () => {
   const effective = resolveCascade({
     // The bare import-site grant is app-wide → seeded into both identities.

@@ -40,19 +40,16 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-fn run_app_in(dir: &Path, args: &[&str], timeout: Duration) -> AppRun {
-    let mut command = Command::new(IBEX);
-    command
-        .args(args)
+fn run_audit_app_in(dir: &Path, timeout: Duration) -> AppRun {
+    let mut child = Command::new(IBEX)
+        .args(["capsec", "audit", "app.js"])
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if !args.starts_with(&["capsec", "audit"]) {
-        command.env("IBEX_CAPSEC_ALLOW_ADVISORY", "1");
-    }
-    let mut child = command.spawn().expect("spawn ibex binary");
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn ibex capsec audit");
 
     let mut out = child.stdout.take().expect("stdout pipe");
     let mut err = child.stderr.take().expect("stderr pipe");
@@ -127,63 +124,6 @@ fn json_string(s: &str) -> String {
 }
 
 #[test]
-fn process_cwd_and_signal_require_capabilities_under_enforce() {
-    let dir = unique_dir("cap-gates");
-    write_text(
-        &dir.join("ibex-policy.json"),
-        r#"{ "mode":"enforce", "allow":["fs","env","os","crypto","time"], "ceiling":["network:fetch"] }"#,
-    );
-    write_text(
-        &dir.join("app.js"),
-        r#"
-function classify(label, fn) {
-  try {
-    fn();
-    return label + '=ALLOWED';
-  } catch (e) {
-    var message = String((e && e.message) || e);
-    if (message.indexOf('Permission denied') !== -1 ||
-        message.indexOf('process:cwd') !== -1 ||
-        message.indexOf('process:signal') !== -1 ||
-        e && e.code === 'EACCES') {
-      return label + '=DENIED';
-    }
-    return label + '=ERR:' + message;
-  }
-}
-var cwd = process.cwd();
-var results = [
-  classify('setcwd', function () { __exactSetCwd(cwd); }),
-  classify('chdir', function () { process.chdir(cwd); }),
-  classify('kill', function () { process.kill(process.pid, 0); })
-];
-console.log('RESULT|' + results.join('|'));
-"#,
-    );
-
-    let run = run_app_in(
-        &dir,
-        &[
-            "--capsec",
-            "enforce",
-            "--policy",
-            "ibex-policy.json",
-            "run",
-            "app.js",
-        ],
-        Duration::from_secs(20),
-    );
-    let line = result_line(&run);
-    assert!(
-        line.contains("setcwd=DENIED")
-            && line.contains("chdir=DENIED")
-            && line.contains("kill=DENIED"),
-        "process cwd/signal operations must be gated under enforce: {line}\nstderr:\n{}",
-        run.stderr
-    );
-}
-
-#[test]
 fn exact_exec_sync_cwd_is_child_chdir_not_shell_prefix() {
     let dir = unique_dir("execsync-cwd");
     let safe_cwd = dir.join("safe");
@@ -200,11 +140,7 @@ console.log('RESULT|status=' + result.status + '|stdout=' + result.stdout);
     );
     write_text(&dir.join("app.js"), &app);
 
-    let run = run_app_in(
-        &dir,
-        &["capsec", "audit", "app.js"],
-        Duration::from_secs(20),
-    );
+    let run = run_audit_app_in(&dir, Duration::from_secs(20));
     let _line = result_line(&run);
     assert!(
         !marker.exists(),

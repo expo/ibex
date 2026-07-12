@@ -431,12 +431,14 @@ between them (ENG-22644).
 
 #### Conformance
 
-`import-grants.test.mjs` (bun) covers parse/strip/union/intersect/cascade
-and the fail-closed cases; `tests/llp0013_compartments.rs` covers the
-end-to-end red-team properties: a grant attribute inside `node_modules`
-confers nothing; the generated artifact contains every reachable package;
-`--check` fails on drift; an enforce-mode run under the generated artifact
-contains the ungranted package while the granted one works.
+`import-grants.test.mjs` (bun) covers parse/strip/union/intersect/cascade and
+the fail-closed cases. LLP 0021 replaced this document's string-policy artifact
+and legacy end-to-end runner with strict typed policy ingress, authenticated
+package-graph arming, and loaded-engine callback/conformance tests. The checked
+case-by-case retirement join is
+`tests/fixtures/capsec-rev2/llp0013-retirement-map.json`; the surviving
+`tests/llp0013_compartments.rs` target guards stale-policy refusal and the two
+non-policy runtime regressions that still require the diagnostic executable.
 
 ## References
 

@@ -1293,6 +1293,12 @@ Audit constructor may receive an already parsed value for historical test
 coverage. LLP 0013, LLP 0014, and LLP 0016 now identify their old mode, flag,
 and string-policy passages as superseded. The canonical typed artifact, armed
 snapshot, and target-bound conformance report are the current contracts.
+ENG-24263 subsequently retired LLP 0013's executable string-policy corpus and
+its 127 legacy fixtures. A checked 69-case retirement join names the current
+typed, armed-engine, production-closure, or migrated diagnostic coverage for
+every former test; the live callback harness now also proves package-global
+withholding and native-freeze hatch removal, while process signaling is covered
+inside the authenticated armed process-closure test.
 
 Acceptance:
 

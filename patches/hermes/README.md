@@ -50,7 +50,9 @@ verified against the pinned checkout (`ac8c6e6c80ec…`, HEAD of
    `currentPrincipalId()` → `ex_hermes_vm_current_package_id` when
    `EXACT_HAVE_FRAME_ATTRIBUTION` is set (build.rs probes the framework for the
    symbol; unpatched engines fall back to the thread-local and still link).
-   Demonstrated by `tests/llp0013_compartments.rs::frame_attribution_*`.
+   Demonstrated on an armed runtime by
+   `capsec_public_callback_invariant_batch::capsec_callback_invariant_mechanisms_smoke`
+   (package callback attribution, generation recheck, and root restoration).
 
    *Deputy caveat (RFC Open-Q3).* Ibex's high-level host surfaces are JS modules
    layered over the native `__exact*` functions. Attribution reaches through them
@@ -64,7 +66,8 @@ verified against the pinned checkout (`ac8c6e6c80ec…`, HEAD of
 
 `collectStackPackageIds` feeds `ex_host_check_capability_stack`; `checkCapability`
 uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
-`tests/llp0013_compartments.rs::stack_intersection_*`.
+`capsec_semantics::decision::tests::mixed_principal_order_and_package_root_owner_preserve_deputy_intersection`
+and the armed callback invariant smoke test.
 
 ## Phase 3 — native compartments
 
@@ -73,9 +76,9 @@ uses it only when `ex_host_has_deputy_classes()` (policy `deputyClasses`). See
   `Domain::compartmentGlobal_` + accessors + metadata field land in the same
   patch, and the loader binds each package's Domain via the native
   `__exactSetCompartmentFor`. Demonstrated by
-  `tests/llp0013_compartments.rs::native_compartment_withholds_globals_without_rewrite`
-  (bare `process` and the sloppy-`this` UMD escape both withheld, unbundled, no
-  source rewrite). Perf note: the added branch is on the hottest opcode; the
+  `capsec_public_callback_invariant_batch::capsec_callback_invariant_mechanisms_smoke`
+  (bare `process`, authority globals, dynamic evaluators, and the sloppy-`this`
+  escape are withheld from an authenticated package callback). Perf note: the added branch is on the hottest opcode; the
   compartment-present fast-flag (`anyCompartmentActive_`, patch 0005) makes it a
   single predicted-not-taken branch when no compartment is bound. Measured with
   `benches/compartment_overhead.rs` (A/B on the guard, hot loop in root): the
@@ -95,9 +98,9 @@ the native `__exactNativeFreeze` freeze primitive.
   labelled explicitly, so the loader's own module compiles keep their principal;
   the loader `clearPendingPackageId()`s (rather than pinning 0) after each compile
   so the next eval is seen as unlabelled and inherits its caller. Demonstrated by
-  `tests/llp0013_compartments.rs::eval_and_function_inherit_the_caller_compartment`
-  (`eval` and `new Function` in a withholding compartment both see `undefined`
-  globals instead of escaping).
+  the armed callback invariant smoke test and the closed public evaluator batch;
+  package compartments withhold the constructors, while the root copies are
+  structurally tamed and cannot evaluate source.
 - **Native deep-freeze — DONE (patch 0006).** `__exactDeepFreeze(obj)` is a
   native SES-style transitive freeze: each object frozen via `JSObject::freeze`,
   walking property *descriptors* (data values + accessor getter/setter
@@ -108,12 +111,12 @@ the native `__exactNativeFreeze` freeze primitive.
   is no native-stack depth cap silently truncating deep graphs). Getter and
   setter are rooted in handles before either is enqueued, so the moving young-gen
   collector cannot leave the `PropertyAccessor` pointer dangling mid-walk
-  (ENG-22946). Under `IBEX_NATIVE_LOCKDOWN=1` the lockdown harness (`hermes_runtime.cc`)
+  (ENG-22946). The armed lockdown harness (`hermes_runtime.cc`)
   freezes each intrinsic root with `__exactDeepFreeze` instead of the userland
   `harden` graph walk. Demonstrated by
-  `native_deep_freeze_freezes_a_graph_without_invoking_getters` (getter-count
-  stays 0) and `native_lockdown_freezes_intrinsics_and_contains_redteam` (8/8
-  red-team escapes contained, runtime still usable).
+  the callback invariant smoke test: intrinsics are frozen without invoking
+  project code, mutation is blocked, and both native freeze primitives are
+  sealed before the package callback runs.
 
 ## Pin-bump runbook
 
@@ -123,8 +126,10 @@ the native `__exactNativeFreeze` freeze primitive.
 2. Build (the build scripts re-apply this series automatically). Class A/B
    resolve mechanically; for a Class C conflict, re-read the surrounding
    upstream change before resolving.
-3. Run the conformance suite (`cargo test --test llp0013_compartments`), the
-   runtime tests, and perf gates.
+3. Run the full CapSec conformance matrix, including the armed callback and
+   closed-evaluator batches, `cargo test --test llp0013_compartments` (the
+   checked legacy-retirement join plus migrated native regressions), the runtime
+   tests, and perf gates.
 4. Land the pin bump + any patch updates in one commit; note in LLP 0013's
    revision log if semantics moved.
 

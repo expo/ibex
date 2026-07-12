@@ -4350,7 +4350,7 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn armed_process_and_environment_unmigrated_surfaces_stay_closed() {
+    async fn armed_process_environment_and_signal_surfaces_stay_closed() {
         let _lock = hermes_engine_test_lock().lock().await;
         let original_cwd = std::env::current_dir().unwrap();
         let target = std::env::temp_dir();
@@ -4363,6 +4363,7 @@ cp \"$input\" \"$out\"\n";
                 var denied = 0;
                 if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
                 try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
+                try {{ process.kill(process.pid, 0); }} catch (_) {{ denied++; }}
                 try {{ __exactExecSync('touch ' + {marker:?}, '{{}}'); }} catch (_) {{ denied++; }}
                 try {{ __exactSpawnSync('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
                 try {{ __exactSpawn('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
@@ -4372,7 +4373,7 @@ cp \"$input\" \"$out\"\n";
             marker = marker.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("5"));
+        assert_eq!(outcome.as_deref(), Some("6"));
         assert_eq!(std::env::current_dir().unwrap(), original_cwd);
         assert!(!marker.exists());
     }

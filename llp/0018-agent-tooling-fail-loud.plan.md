@@ -461,10 +461,11 @@ silent-green paths in the tooling itself:
 - `scripts/build-hermes.sh` folds a `patches/hermes/*.patch` content digest
   into its cache key, so a patch-stack edit can no longer install a
   stale-patched framework via a cache hit keyed only on the upstream SHA.
-- The 18 frame-attribution tests in `tests/llp0013_compartments.rs` share a
-  guard that panics under `IBEX_REQUIRE_FRAME_ATTRIBUTION=1` (set by
-  compartment-conformance CI) instead of self-skipping as PASS on an
-  unpatched Hermes.
+- The former 18-test legacy-policy frame-attribution block was retired during
+  the LLP 0021 direct cutover. Its live guarantees now run against an
+  authenticated loaded engine in the callback invariant batch; the checked
+  one-to-one retirement join prevents a historical case from disappearing
+  without named replacement coverage.
 - `scripts/run-tests.sh` accepts `--features` (the RSA-PSS suite is reachable
   through the blessed entry point) and names per-target zero-test binaries so
   a partial vacuum inside a green run is visible.

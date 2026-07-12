@@ -13,9 +13,10 @@
 **Revised:** 2026-07-05 (ENG-22903..ENG-22909 native hardening: DNS resolution is a `network:resolve` capability, raw WebSocket ids and async callbacks carry owner/principal metadata, host allow-all is queried live after host replacement, child-process `fd:N` stdio redirects validate fd ownership before fork, native ArrayBuffer-view consumers share bounds checks, HTTP waits are worker-bounded, and fetch raw headers are validated at the C++ boundary.)
 **Revised:** 2026-07-07 (document drift cleanup: canonical SecurityMode is `Permissive | Audit | Enforce`; historical `Capability`/`Strict` aliases collapse to Enforce)
 **Revised:** 2026-07-10 (ENG-24144 factual drift repair: manifest count is 57 after `network:resolve`; package-selector precedence and enforced host fences recorded; typed successor contract is LLP 0021)
+**Revised:** 2026-07-12 (ENG-24263 retirement reconciliation: the legacy binary policy suite and its string-policy fixtures were removed; every former case is mapped to a live named revision-2 test, production closure, or an explicitly migrated compatibility regression in `tests/fixtures/capsec-rev2/llp0013-retirement-map.json`)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
-> **Current implementation (2026-07-11):** LLP 0021 supersedes this RFC's
+> **Current implementation (2026-07-12):** LLP 0021 supersedes this RFC's
 > legacy string-policy, mode-selection, and rollout mechanics. Ordinary
 > execution is typed, armed, enforce-only, and structurally locked down. The
 > old permissive/audit flags and `PolicyFile` passages below are retained only
@@ -23,6 +24,11 @@
 > is `ibex capsec audit`. No exact target is currently advertised complete, so
 > ordinary production execution refuses before project code; LLP 0021 §WP10
 > records `aarch64-apple-darwin` only as a candidate pending complete evidence.
+> Named `tests/llp0013_compartments.rs` cases and `tests/fixtures/llp0013/`
+> paths later in this document describe the retired implementation history.
+> The checked retirement map above is the authoritative join from every old
+> case to the current authenticated callback, typed semantic, armed-engine,
+> production-closure, or migrated diagnostic test that replaces it.
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
 > (`IBEX_HERMES_SOURCE_COMMIT` on the `260318099.0.0-stable` release branch
@@ -1411,10 +1417,11 @@ sealed.
 
 #### Phase 1
 
-Audit mode (`--capsec audit`) logs would-deny decisions and prints a would-deny
-report at shutdown while letting operations proceed; lockdown + compartments as
-above; the conformance/red-team suite (`tests/llp0013_compartments.rs` +
-`tests/fixtures/llp0013/`) is the durable asset. **Real-global inventory closed:**
+Historically, audit mode (`--capsec audit`) logged would-deny decisions while
+letting operations proceed, and the LLP 0013 binary/fixture corpus was the
+durable red-team asset. LLP 0021 retired that string-policy plane and corpus;
+the loaded-engine conformance batches plus the checked retirement map are now
+the durable assets. **Real-global inventory closed:**
 under lockdown/compartment mode the lazy `__exactEnsure*` installers are
 eager-run then deleted before the intrinsics freeze (so no host surface can
 appear on a frozen global mid-run), and the ambient self-grant channel

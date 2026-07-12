@@ -453,7 +453,17 @@ fn prepare_package_fixture() -> PackageFixture {
     std::fs::write(
         package_root.join("index.js"),
         r#"module.exports = function(sink, observer, env) {
-  var result = { context: observer() };
+  var sloppyThis = (function() { return this; })();
+  var result = {
+    context: observer(),
+    globals: {
+      processType: typeof process,
+      ibexType: typeof Ibex,
+      functionType: typeof Function,
+      evalType: typeof eval,
+      sloppyThisProcessType: sloppyThis == null ? 'nullish' : typeof sloppyThis.process
+    }
+  };
   try {
     result.value = typeof env.PATH === 'string';
   }
@@ -580,6 +590,20 @@ fn assert_context_principal(
     assert!(result["context"]["runtimeNonce"]
         .as_str()
         .is_some_and(|value| value.strip_prefix("u64:").is_some_and(|raw| raw.parse::<u64>().is_ok())));
+}
+
+fn assert_package_global_withholding(result: &serde_json::Value) {
+    assert_eq!(
+        result["globals"],
+        serde_json::json!({
+            "processType": "undefined",
+            "ibexType": "undefined",
+            "functionType": "undefined",
+            "evalType": "undefined",
+            "sloppyThisProcessType": "undefined",
+        }),
+        "package callback escaped its armed compartment globals: {result}"
+    );
 }
 
 fn typed_actor_reason(decision: &serde_json::Value) -> Option<&str> {
@@ -933,6 +957,7 @@ async fn execute_generation_recheck(
     let allow_session = format!("callback-generation-allow:{}", recipe.plan_digest);
     let allow = invoke_package_environment_read(&engine, &allow_session).await;
     assert_context_principal(&allow.result, &host, &package.principal);
+    assert_package_global_withholding(&allow.result);
     assert!(
         allow.result["threw"].is_null(),
         "authorized package environment read threw: {}",
@@ -1014,6 +1039,7 @@ async fn execute_principal_restore(recipe: &Recipe, package: &PackageFixture) ->
     schedule_package_environment_read(&engine).await;
     let package_invocation = take_scheduled_package_operation(&engine, &package_session).await;
     assert_context_principal(&package_invocation.result, &host, &package.principal);
+    assert_package_global_withholding(&package_invocation.result);
     assert!(package_invocation.result["threw"].is_null());
     assert_typed_decisions(
         &package_invocation.typed_decisions,
@@ -1222,7 +1248,7 @@ async fn execute_post_lockdown(recipe: &Recipe) -> ScenarioExecution {
     let script = format!(
         r#"JSON.stringify((function(request) {{
   var descriptor = Object.getOwnPropertyDescriptor(globalThis, '__ibexLockedDown');
-  var hatches = ['__exactSetActiveModuleId','__exactGrantCapability','__exactSetPendingPackageId','__exactRegisterPackage','__exactCheckImport','__exactSetCompartmentFor'];
+  var hatches = ['__exactSetActiveModuleId','__exactGrantCapability','__exactSetPendingPackageId','__exactRegisterPackage','__exactCheckImport','__exactSetCompartmentFor','__exactDeepFreeze','__exactNativeFreeze'];
   var hatchesAbsent = hatches.every(function(name) {{ return !(name in globalThis); }});
   var compartment = globalThis.__compartments['image-lib@2.4.1'];
   var compartmentWithholdsAuthority = compartment.Ibex === undefined && compartment.__exactTypedPermissionRequest === undefined;
