@@ -2385,6 +2385,9 @@ mod tests {
             r#"(function() {{
                 __exactEnsureNet();
                 var socket = __exactUdpSocket('udp4');
+                var bindDenied = false;
+                try {{ __exactUdpBind(socket, '127.0.0.1', 0); }} catch (_) {{ bindDenied = true; }}
+                if (!bindDenied) throw new Error('send authority yielded UDP listen authority');
                 if (__exactUdpSend(socket, 'u', {port}, '127.0.0.1') !== 1) throw new Error('send');
                 __exactUdpClose(socket);
                 var metadataDenied = false;
