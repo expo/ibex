@@ -872,6 +872,22 @@ impl Host {
         self.typed_decision_count.load(Ordering::Relaxed)
     }
 
+    /// Invalidation identity for retained resources still implemented by the
+    /// legacy capability adapter. Armed typed resources use the three semantic
+    /// generations instead.
+    pub fn legacy_authorization_generation(&self) -> u64 {
+        self.capability_manager.authorization_generation()
+    }
+
+    pub fn legacy_authorization_cacheable(&self) -> bool {
+        self.decision_context.is_none() && self.config.mode == SecurityMode::Enforce
+    }
+
+    #[doc(hidden)]
+    pub fn legacy_authorization_check_count(&self) -> usize {
+        self.capability_manager.authorization_check_count()
+    }
+
     pub fn typed_generations(&self) -> Option<capsec_semantics::cache::GenerationSet> {
         let context = self.decision_context.as_deref()?.read().ok()?;
         Some(context.authority().generations)

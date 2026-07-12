@@ -506,6 +506,11 @@ pub fn installed_typed_decision_count() -> usize {
     with_host(Host::typed_decision_count, 0)
 }
 
+#[doc(hidden)]
+pub fn installed_legacy_authorization_check_count() -> usize {
+    with_host(Host::legacy_authorization_check_count, 0)
+}
+
 /// Render the would-deny audit report for the installed host, but only when it
 /// is running in `Audit` mode and something was flagged.
 ///
@@ -2055,6 +2060,20 @@ pub extern "C" fn ex_host_armed_endowments() -> *mut c_char {
     CString::new(groups.join(";"))
         .map(CString::into_raw)
         .unwrap_or(ptr::null_mut())
+}
+
+/// Return the current legacy capability-decision generation. Zero means no
+/// host is installed and therefore cannot validate a retained-resource lease.
+#[no_mangle]
+pub extern "C" fn ex_host_legacy_authorization_generation() -> u64 {
+    with_host(Host::legacy_authorization_generation, 0)
+}
+
+/// Only enforce-mode allows may be memoized. Audit would-denies deliberately
+/// proceed but must still append evidence on every occurrence.
+#[no_mangle]
+pub extern "C" fn ex_host_legacy_authorization_cacheable() -> i32 {
+    with_host(|host| i32::from(host.legacy_authorization_cacheable()), 0)
 }
 
 /// Read an entire file into a heap-allocated buffer in a single call.

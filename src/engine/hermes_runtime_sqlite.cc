@@ -17,6 +17,8 @@ extern "C" char* ex_host_sqlite_get(uint64_t statement_handle, const char* bindi
 extern "C" char* ex_host_sqlite_run(uint64_t statement_handle, const char* bindings_json);
 extern "C" char* ex_host_sqlite_values(uint64_t statement_handle, const char* bindings_json);
 extern "C" char* ex_host_sqlite_exec(uint64_t handle, const char* sql, const char* bindings_json);
+extern "C" uint64_t ex_host_legacy_authorization_generation(void);
+extern "C" int32_t ex_host_legacy_authorization_cacheable(void);
 
 namespace {
 
@@ -28,6 +30,8 @@ struct SqliteHandleEntry {
   uint64_t runtimeNonce;
   uint64_t owner;
   std::vector<std::string> capabilities;
+  uint64_t authorizationGeneration = 0;
+  std::vector<uint64_t> authorizedPrincipalStack;
 };
 
 struct SqliteStatementEntry {
@@ -35,6 +39,8 @@ struct SqliteStatementEntry {
   uint64_t owner;
   uint64_t dbHandle;
   std::vector<std::string> capabilities;
+  uint64_t authorizationGeneration = 0;
+  std::vector<uint64_t> authorizedPrincipalStack;
 };
 
 static std::mutex g_sqlite_handle_mutex;
@@ -120,13 +126,56 @@ void requireSqliteCapabilities(
   }
 }
 
-void registerSqliteDb(uint64_t dbHandle, std::vector<std::string> capabilities) {
+template <typename Entry>
+void requireSqliteAuthorization(
+    facebook::jsi::Runtime& runtime,
+    Entry& entry,
+    const char* syscall) {
+  auto principals = exactCollectTypedPrincipalStack();
+  if (principals.empty() || principals.front() != entry.owner) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
+  }
+
+  if (ex_host_legacy_authorization_cacheable() != 1) {
+    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+    entry.authorizationGeneration = 0;
+    entry.authorizedPrincipalStack.clear();
+    return;
+  }
+
+  auto generation = ex_host_legacy_authorization_generation();
+  if (generation != 0 && generation == entry.authorizationGeneration &&
+      principals == entry.authorizedPrincipalStack) {
+    return;
+  }
+
+  // A retained SQLite handle fixes its path, capabilities, owner, and deputy
+  // stack. Re-run the full legacy checks only when one of those identities or
+  // the policy generation changed. A concurrent publication during the check
+  // cannot seed a lease: retry against a stable generation, then fail closed.
+  // @ref LLP 0021#handles-dynamic-authority-and-generations
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    auto before = ex_host_legacy_authorization_generation();
+    if (before == 0) break;
+    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+    auto after = ex_host_legacy_authorization_generation();
+    if (before == after) {
+      entry.authorizationGeneration = after;
+      entry.authorizedPrincipalStack = std::move(principals);
+      return;
+    }
+  }
+  throw facebook::jsi::JSError(
+      runtime, std::string(syscall) + ": capability authority changed during authorization");
+}
+
+void registerSqliteDb(uint64_t dbHandle, SqliteHandleEntry entry) {
   if (dbHandle == 0) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
-  g_sqlite_dbs[dbHandle] = SqliteHandleEntry{
-      exactCurrentRuntimeNonce(), currentPrincipalId(), std::move(capabilities)};
+  g_sqlite_dbs[dbHandle] = std::move(entry);
 }
 
 void unregisterSqliteDb(uint64_t dbHandle) {
@@ -163,6 +212,8 @@ void registerSqliteStatement(uint64_t statementHandle, uint64_t dbHandle) {
       db->second.owner,
       dbHandle,
       db->second.capabilities,
+      db->second.authorizationGeneration,
+      db->second.authorizedPrincipalStack,
   };
 }
 
@@ -198,7 +249,15 @@ SqliteHandleEntry requireSqliteDb(
         runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
   }
   if (!isAllowAll()) {
-    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+    requireSqliteAuthorization(runtime, entry, syscall);
+    std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
+    auto current = g_sqlite_dbs.find(dbHandle);
+    if (current != g_sqlite_dbs.end() &&
+        current->second.runtimeNonce == entry.runtimeNonce &&
+        current->second.owner == entry.owner) {
+      current->second.authorizationGeneration = entry.authorizationGeneration;
+      current->second.authorizedPrincipalStack = entry.authorizedPrincipalStack;
+    }
   }
   return entry;
 }
@@ -228,7 +287,15 @@ SqliteStatementEntry requireSqliteStatement(
         std::string(syscall) + ": sqlite statement belongs to a different principal");
   }
   if (!isAllowAll()) {
-    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+    requireSqliteAuthorization(runtime, entry, syscall);
+    std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
+    auto current = g_sqlite_statements.find(statementHandle);
+    if (current != g_sqlite_statements.end() &&
+        current->second.runtimeNonce == entry.runtimeNonce &&
+        current->second.owner == entry.owner) {
+      current->second.authorizationGeneration = entry.authorizationGeneration;
+      current->second.authorizedPrincipalStack = entry.authorizedPrincipalStack;
+    }
   }
   return entry;
 }
@@ -463,7 +530,10 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         auto capabilities = sqliteOpenCapabilities(path, needsWrite);
         // @ref LLP 0013#policy — SQLite is a native host boundary: opening a
         // database needs both sqlite:* authority and path-scoped fs:* grants.
-        requireSqliteCapabilities(runtime, capabilities, "__exactSqliteOpen");
+        SqliteHandleEntry authorization{
+            exactCurrentRuntimeNonce(), currentPrincipalId(),
+            std::move(capabilities), 0, {}};
+        requireSqliteAuthorization(runtime, authorization, "__exactSqliteOpen");
         std::string optionsJson;
         const char* options = nullptr;
         if (count > 1 && !args[1].isUndefined() && !args[1].isNull()) {
@@ -474,7 +544,7 @@ void installSqliteHostFunctions(ExactHermesRuntime* handle) {
         if (handle == 0) {
           throw facebook::jsi::JSError(runtime, "__exactSqliteOpen failed");
         }
-        registerSqliteDb(handle, std::move(capabilities));
+        registerSqliteDb(handle, std::move(authorization));
         return facebook::jsi::Value(static_cast<double>(handle));
       });
   rt.global().setProperty(rt, "__exactSqliteOpen", std::move(sqliteOpenFn));

@@ -8,6 +8,7 @@ use crate::host::policy::PolicyFile;
 use crate::module_loader::RUNTIME_GATED_NODE_BUILTINS;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::RwLock;
 
 const MAX_AUDIT_LOG_ENTRIES: usize = 1024;
@@ -69,6 +70,15 @@ pub struct ImportPolicy {
 /// Manages capability grants and checks
 pub struct CapabilityManager {
     mode: SecurityMode,
+    /// Monotonic identity of every input that can change a legacy capability
+    /// decision. Retained native resources use it only as an invalidation key:
+    /// a match permits reuse of an already successful decision for the exact
+    /// same principal stack and resource, while a mismatch forces the normal
+    /// policy path before the next external effect.
+    authorization_generation: AtomicU64,
+    /// Production-visible diagnostic counter used by hot-path regressions. It
+    /// counts full legacy decisions, not generation-only lease checks.
+    authorization_check_count: AtomicUsize,
     /// Grants by numeric module ID (and `*` for global grants).
     grants: RwLock<HashMap<String, Vec<CapabilityGrant>>>,
     /// Grants keyed by package **selector** (package name).
@@ -174,6 +184,8 @@ impl CapabilityManager {
     pub fn new(mode: SecurityMode) -> Self {
         Self {
             mode,
+            authorization_generation: AtomicU64::new(1),
+            authorization_check_count: AtomicUsize::new(0),
             grants: RwLock::new(HashMap::new()),
             package_grants: RwLock::new(HashMap::new()),
             module_to_package: RwLock::new(HashMap::new()),
@@ -259,6 +271,7 @@ impl CapabilityManager {
                     .iter()
                     .map(|s| normalize_capability(s))
                     .collect();
+                self.bump_authorization_generation();
             }
         }
         // The import policy just changed: every memoized allowed-import
@@ -308,7 +321,11 @@ impl CapabilityManager {
         let normalized = normalize_capability(capability);
         if let Ok(mut grants) = self.grants.write() {
             if let Some(list) = grants.get_mut("0") {
+                let previous_len = list.len();
                 list.retain(|g| g.denied || g.capability != normalized);
+                if list.len() != previous_len {
+                    self.bump_authorization_generation();
+                }
             }
         }
     }
@@ -344,6 +361,7 @@ impl CapabilityManager {
                     locator: locator.map(|s| s.to_string()),
                 },
             );
+            self.bump_authorization_generation();
         }
         // The principal's package resolution just changed (typically
         // unregistered→registered, which flips it from trusted to policied):
@@ -402,6 +420,7 @@ impl CapabilityManager {
                     constraint: None,
                     denied: false,
                 });
+            self.bump_authorization_generation();
         }
     }
 
@@ -418,6 +437,7 @@ impl CapabilityManager {
                     constraint: None,
                     denied: true,
                 });
+            self.bump_authorization_generation();
         }
     }
 
@@ -449,6 +469,8 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
+        self.authorization_check_count
+            .fetch_add(1, Ordering::Relaxed);
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         if self.fence_denies(module_id, &normalized) {
             return false;
@@ -767,6 +789,7 @@ impl CapabilityManager {
             for c in classes {
                 set.insert(normalize_capability(&c.into()));
             }
+            self.bump_authorization_generation();
         }
     }
 
@@ -816,6 +839,8 @@ impl CapabilityManager {
         capability_str: &str,
         fs_mode: FsNormalizationMode,
     ) -> bool {
+        self.authorization_check_count
+            .fetch_add(1, Ordering::Relaxed);
         let normalized = normalize_capability_value_with_fs_mode(capability_str, fs_mode);
         let top = stack.first().copied().unwrap_or("");
         if self.fence_denies(top, &normalized) {
@@ -862,6 +887,7 @@ impl CapabilityManager {
                 constraint,
                 denied: false,
             });
+            self.bump_authorization_generation();
         }
     }
 
@@ -876,7 +902,29 @@ impl CapabilityManager {
                 constraint,
                 denied: true,
             });
+            self.bump_authorization_generation();
         }
+    }
+
+    /// Current invalidation identity for retained legacy-resource leases.
+    pub fn authorization_generation(&self) -> u64 {
+        self.authorization_generation.load(Ordering::Acquire)
+    }
+
+    /// Number of full legacy capability decisions performed by this manager.
+    pub fn authorization_check_count(&self) -> usize {
+        self.authorization_check_count.load(Ordering::Relaxed)
+    }
+
+    fn bump_authorization_generation(&self) {
+        // Mutation APIs publish their locked data before this release update.
+        // Wrapping would permit an ancient lease to compare equal after 2^64
+        // mutations, so exhaust the process instead of silently reusing it.
+        self.authorization_generation
+            .fetch_update(Ordering::Release, Ordering::Relaxed, |current| {
+                current.checked_add(1)
+            })
+            .expect("legacy capability generation exhausted");
     }
 
     /// Get the audit log
@@ -1412,6 +1460,32 @@ fn path_prefix_match(pattern: &str, value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_resource_generation_tracks_every_authority_mutation() {
+        let manager = CapabilityManager::new(SecurityMode::Enforce);
+        manager.apply_policy(&PolicyFile {
+            ceiling: vec!["sqlite:write".into()],
+            ..Default::default()
+        });
+        let initial = manager.authorization_generation();
+        manager.grant("0", "sqlite:write", None);
+        let granted = manager.authorization_generation();
+        assert!(granted > initial);
+
+        let before_checks = manager.authorization_check_count();
+        assert!(manager.check("0", "sqlite:write"));
+        assert_eq!(manager.authorization_check_count(), before_checks + 1);
+
+        manager.runtime_revoke_root("sqlite:write");
+        let revoked = manager.authorization_generation();
+        assert!(revoked > granted);
+        assert!(!manager.check("0", "sqlite:write"));
+        assert_eq!(manager.authorization_check_count(), before_checks + 2);
+
+        manager.register_module_package("7", "sqlite-client", Some("sqlite-client@1"));
+        assert!(manager.authorization_generation() > revoked);
+    }
 
     // ENG-23876 — the host-boundary fence (`HostConfig.root_dir` /
     // `allowed_hosts`) must deny outside-the-fence operations in EVERY mode,

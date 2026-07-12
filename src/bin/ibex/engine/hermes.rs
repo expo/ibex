@@ -3401,6 +3401,40 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn retained_sqlite_statements_reuse_generation_checked_authorization() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&["sqlite:write"]);
+        let engine = HermesEngine::new().unwrap();
+        let before = crate::host::abi::installed_legacy_authorization_check_count();
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                    if (typeof __exactEnsureSqlite === 'function') __exactEnsureSqlite();
+                    var db = __exactSqliteOpen(':memory:', null);
+                    __exactSqliteExec(db, 'CREATE TABLE t (n INTEGER)', null);
+                    var prepared = __exactSqlitePrepare(db, 'INSERT INTO t VALUES (?)');
+                    for (var i = 0; i < 256; i++) {
+                      __exactSqliteRun(prepared.handle, [i]);
+                    }
+                    __exactSqliteFinalize(prepared.handle);
+                    var query = __exactSqlitePrepare(db, 'SELECT count(*) AS n FROM t');
+                    var result = __exactSqliteGet(query.handle, null);
+                    __exactSqliteFinalize(query.handle);
+                    __exactSqliteClose(db);
+                    return String(result.row.n);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("256"));
+        let checks = crate::host::abi::installed_legacy_authorization_check_count() - before;
+        assert!(
+            (1..=3).contains(&checks),
+            "259 retained SQLite operations performed {checks} full capability decisions"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn fresh_runtime_preinstalls_shared_runtime_bundle() {
         // The C Hermes host callbacks are process-global in the test binary.
         // Keep engine-owning tests serial so the Rust test harness cannot
