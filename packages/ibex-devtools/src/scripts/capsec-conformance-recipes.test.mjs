@@ -726,35 +726,32 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
-  test("imports every exact non-capability builtin module alias", () => {
+  test("leaves cache-order-dependent builtin alias initialization residual", () => {
     const imports = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.kind ===
         "builtin-module-import",
     );
-    expect(imports.length).toBeGreaterThan(30);
+    expect(imports).toHaveLength(0);
+    const aliases = recipes.recipes.filter(
+      (recipe) =>
+        recipe.classification === "non-capability" &&
+        recipe.scenario === "non-capability" &&
+        recipe.route.surfaceObservedKeys.length === 1 &&
+        recipe.route.surfaceObservedKeys[0].startsWith("builtin:") &&
+        !recipe.route.surfaceObservedKeys[0].startsWith("builtin:export:"),
+    );
+    expect(aliases).toHaveLength(33);
     expect(
-      imports.every(
+      aliases.every(
         (recipe) =>
-          recipe.status === "fully-executable" &&
-          recipe.classification === "non-capability" &&
-          recipe.publicSurfaceProbe.invocation.invocationSchema ===
-            "ibex/capsec-builtin-module-import-invocation/1" &&
-          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
-            0 &&
-          recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
-            "builtin-module-alias" &&
-          recipe.route.alternatives[0].terminalObservedKey ===
-            recipe.publicSurfaceProbe.surfaceObservedKey,
+          recipe.status === "unresolved" &&
+          recipe.publicSurfaceProbe === null &&
+          recipe.residualReasons.includes(
+            "non-capability-no-decision-probe-not-authored",
+          ),
       ),
     ).toBe(true);
-    expect(
-      imports.find(
-        (recipe) =>
-          recipe.publicSurfaceProbe.surfaceObservedKey ===
-          "builtin:internal/fs/utils",
-      )?.publicSurfaceProbe.invocation.sourceDescriptor.resolutionKind,
-    ).toBe("bootstrap-internal");
   });
 
   test("authors bounded normal-return calls for exact non-capability families", () => {
@@ -773,9 +770,12 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toEqual(
       new Set([
+        "exact_crypto",
         "node_assert",
         "node_buffer",
         "node_events",
+        "node_module",
+        "node_net",
         "node_perf_hooks",
         "node_path",
         "node_punycode",
@@ -784,9 +784,29 @@ describe("exact-target CapSec executable recipes", () => {
         "node_string_decoder",
         "node_url",
         "node_util",
+        "node_v8",
         "node_zlib",
       ]),
     );
+    expect(
+      Object.fromEntries(
+        ["exact_crypto", "node_module", "node_net", "node_v8"].map(
+          (sourceKey) => [
+            sourceKey,
+            publicCalls.filter(
+              (recipe) =>
+                recipe.publicSurfaceProbe.invocation.sourceDescriptor
+                  .sourceKey === sourceKey,
+            ).length,
+          ],
+        ),
+      ),
+    ).toEqual({
+      exact_crypto: 58,
+      node_module: 3,
+      node_net: 16,
+      node_v8: 1,
+    });
     expect(
       publicCalls.every(
         (recipe) =>

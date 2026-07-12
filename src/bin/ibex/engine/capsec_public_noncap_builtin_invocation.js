@@ -171,11 +171,6 @@
         return argument.value;
       };
     }
-    if (argument.kind === "first-argument-function") {
-      return function (value) {
-        return value;
-      };
-    }
     if (argument.kind === "stream-instance") {
       return createStreamInstance(
         moduleValue,
@@ -218,9 +213,6 @@
   try {
     var cleanupPerformed = false;
     var moduleValue = require(config.moduleSpecifier);
-    if (config.kind === "builtin-module-import") {
-      return failure("return", { valueType: valueType(moduleValue) });
-    }
     var resolved = resolveExport(moduleValue, config.sourceDescriptor);
     if (resolved.error) return resolved.error;
     var target = resolved.value;

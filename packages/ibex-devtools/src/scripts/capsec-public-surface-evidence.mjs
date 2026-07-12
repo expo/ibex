@@ -22,6 +22,29 @@ const taggedDigest = (value) =>
     .createHash("sha256")
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
+const BUILTIN_RUNTIME_INVOCATION_SCHEMAS = new Set([
+  "ibex/capsec-builtin-export-invocation/1",
+  "ibex/capsec-builtin-call-invocation/1",
+]);
+const NORMAL_RETURN_RESULT_TYPES = new Set([
+  "bigint",
+  "boolean",
+  "function",
+  "null",
+  "number",
+  "object",
+  "string",
+  "undefined",
+]);
+const NORMAL_RETURN_DISPATCH_KINDS = new Map([
+  ["root-call", "call"],
+  ["construct-target", "construct"],
+  ["constructed-owner", "prototype-call"],
+  ["buffer-owner", "prototype-call"],
+  ["call-tracker-owner", "prototype-call"],
+  ["stream-owner", "prototype-call"],
+  ["zlib-owner", "prototype-call"],
+]);
 
 // Independent verifier authority for the small curated startup family. Keep
 // this separate from recipe authorship so descriptor tampering cannot change
@@ -547,21 +570,29 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else if (
-    ["ibex/capsec-builtin-export-invocation/1"].includes(
-      invocation?.invocationSchema,
-    )
+    BUILTIN_RUNTIME_INVOCATION_SCHEMAS.has(invocation?.invocationSchema)
   ) {
     exactKeys(
       invocation,
       [...commonKeys, "moduleSpecifier", "exportName"],
       `${recipe.fixtureId}: builtin runtime invocation`,
     );
+    const expectedKind =
+      invocation.invocationSchema ===
+      "ibex/capsec-builtin-call-invocation/1"
+        ? "builtin-export-call"
+        : null;
     if (
-      !["builtin-export-call", "builtin-export-read"].includes(
-        invocation.kind,
-      ) ||
+      (expectedKind
+        ? invocation.kind !== expectedKind
+        : !["builtin-export-call", "builtin-export-read"].includes(
+            invocation.kind,
+          )) ||
+      (invocation.invocationSchema ===
+        "ibex/capsec-builtin-call-invocation/1" &&
+        authored.expectedResult !== "normal-return") ||
       invocation.moduleSpecifier !== authored.moduleSpecifier ||
-      invocation.exportName !== authored.exportName
+      invocation.exportName !== (authored.exportName ?? null)
     ) {
       throw new Error(
         `${recipe.fixtureId}: builtin runtime invocation descriptor drift`,
@@ -746,9 +777,75 @@ function validateRuntimeInvocation(observation, recipe) {
   if (!invocation.result || typeof invocation.result !== "object") {
     throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
   }
-  if (authored.expectedResult === "return") {
+  if (authored.expectedResult === "normal-return") {
+    if (
+      authored.invocationSchema !==
+        "ibex/capsec-builtin-call-invocation/1" ||
+      authored.kind !== "builtin-export-call" ||
+      !authored.bodyEntryProof ||
+      authored.bodyEntryProof.kind !== "normal-return-from-source-call" ||
+      !NORMAL_RETURN_RESULT_TYPES.has(authored.bodyEntryProof.resultType) ||
+      !authored.setup ||
+      typeof authored.setup.kind !== "string"
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored normal-return proof`,
+      );
+    }
+    if (!NORMAL_RETURN_DISPATCH_KINDS.has(authored.setup.kind)) {
+      throw new Error(
+        `${recipe.fixtureId}: malformed authored normal-return setup`,
+      );
+    }
+    const cleanupRequired = authored.setup.kind === "zlib-owner";
+    exactKeys(
+      invocation.result,
+      [
+        "kind",
+        "moduleSpecifier",
+        "exportName",
+        "valueType",
+        "dispatchKind",
+        "bodyEntryProof",
+        ...(cleanupRequired ? ["cleanupPerformed"] : []),
+      ],
+      `${recipe.fixtureId}: builtin normal-return result`,
+    );
+    const expectedDispatchKind = NORMAL_RETURN_DISPATCH_KINDS.get(
+      authored.setup.kind,
+    );
+    if (
+      invocation.result.kind !== "return" ||
+      invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+      invocation.result.exportName !== authored.exportName ||
+      invocation.result.valueType !== authored.bodyEntryProof.resultType ||
+      invocation.result.dispatchKind !== expectedDispatchKind ||
+      invocation.result.bodyEntryProof !== authored.bodyEntryProof.kind ||
+      (cleanupRequired && invocation.result.cleanupPerformed !== true)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: builtin call did not prove its exact normal return`,
+      );
+    }
+  } else if (authored.expectedResult === "return") {
     if (invocation.result.kind !== "return") {
       throw new Error(`${recipe.fixtureId}: public invocation did not return`);
+    }
+    if (authored.kind === "builtin-export-read") {
+      exactKeys(
+        invocation.result,
+        ["kind", "moduleSpecifier", "exportName", "valueType"],
+        `${recipe.fixtureId}: builtin read result`,
+      );
+      if (
+        invocation.result.moduleSpecifier !== authored.moduleSpecifier ||
+        invocation.result.exportName !== authored.exportName ||
+        typeof invocation.result.valueType !== "string"
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: builtin read returned the wrong export`,
+        );
+      }
     }
     if (
       authored.invocationSchema === "ibex/capsec-host-abi-invocation/1"

@@ -41,8 +41,6 @@ const BUILTIN_BATCH_COMMAND = Object.freeze([
 
 const READ_INVOCATION_SCHEMA = "ibex/capsec-builtin-export-invocation/1";
 const CALL_INVOCATION_SCHEMA = "ibex/capsec-builtin-call-invocation/1";
-const MODULE_IMPORT_INVOCATION_SCHEMA =
-  "ibex/capsec-builtin-module-import-invocation/1";
 
 const jsonArgument = (value) => ({ kind: "json", value });
 const noopArgument = () => ({ kind: "noop-function" });
@@ -64,7 +62,6 @@ const constantFunctionArgument = (value) => ({
   kind: "constant-function",
   value,
 });
-const firstArgumentFunction = () => ({ kind: "first-argument-function" });
 const streamInstanceArgument = (ownerExportName, ended = false) => ({
   kind: "stream-instance",
   ownerExportName,
@@ -184,6 +181,15 @@ const STREAM_READABLE_OWNER_SET = new Set([
   "Readable",
   "Transform",
 ]);
+const STREAM_DEFERRED_METHOD_SET = new Set([
+  "every",
+  "find",
+  "forEach",
+  "reduce",
+  "some",
+  "toArray",
+  "wrap",
+]);
 
 function streamRootCallSpecs() {
   const specs = Object.create(null);
@@ -228,23 +234,270 @@ function streamRootCallSpecs() {
       "boolean",
     );
   }
-  specs.pipeline = rootCall(
-    [
-      streamInstanceArgument("Readable", true),
-      streamInstanceArgument("PassThrough"),
-      noopArgument(),
-    ],
-    "object",
-  );
+  // pipeline() completes after the source call returns. That work can execute
+  // inside a later observation session, so a normal synchronous return is not
+  // bounded evidence for this surface.
   return Object.freeze(specs);
 }
 
 const STREAM_ROOT_CALL_SPECS = streamRootCallSpecs();
 
+const CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  jsonArgument("sha256"),
+]);
+const CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  jsonArgument("sha256"),
+  jsonArgument("ibex-key"),
+]);
+const CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  jsonArgument("sha256"),
+]);
+const CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  jsonArgument("modp14"),
+]);
+const CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS = Object.freeze([
+  jsonArgument("prime256v1"),
+]);
+
+function exactCryptoCallSpecs() {
+  const specs = {
+    Hash: constructTarget([...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS]),
+    Hmac: constructTarget([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS]),
+    KeyObject: constructTarget([
+      jsonArgument("secret"),
+      uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
+    ]),
+    createHash: rootCall([...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS], "object"),
+    createHmac: rootCall([...CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS], "object"),
+    createDiffieHellmanGroup: rootCall(
+      [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
+      "object",
+    ),
+    createECDH: rootCall([...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS], "object"),
+    createSign: rootCall([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS], "object"),
+    createSecretKey: rootCall(
+      [uint8ArrayArgument([0x69, 0x62, 0x65, 0x78])],
+      "object",
+    ),
+    createVerify: rootCall([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS], "object"),
+    DiffieHellmanGroup: constructTarget([
+      ...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS,
+    ]),
+    ECDH: constructTarget([...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS]),
+    generateKeySync: rootCall(
+      [jsonArgument("hmac"), jsonArgument({ length: 64 })],
+      "object",
+    ),
+    generatePrimeSync: rootCall(
+      [jsonArgument(16), jsonArgument({ bigint: true })],
+      "bigint",
+    ),
+    getCipherInfo: rootCall([jsonArgument("aes-128-gcm")], "object"),
+    getCiphers: rootCall([], "object"),
+    getCurves: rootCall([], "object"),
+    getFips: rootCall([], "number"),
+    getHashes: rootCall([], "object"),
+    getDiffieHellman: rootCall(
+      [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
+      "object",
+    ),
+    hash: rootCall(
+      [jsonArgument("sha256"), jsonArgument("ibex"), jsonArgument("hex")],
+      "string",
+    ),
+    hkdfSync: rootCall(
+      [
+        jsonArgument("sha256"),
+        jsonArgument("ibex-key"),
+        jsonArgument("ibex-salt"),
+        jsonArgument("ibex-info"),
+        jsonArgument(16),
+      ],
+      "object",
+    ),
+    pbkdf2Sync: rootCall(
+      [
+        jsonArgument("ibex-password"),
+        jsonArgument("ibex-salt"),
+        jsonArgument(2),
+        jsonArgument(16),
+        jsonArgument("sha256"),
+      ],
+      "object",
+    ),
+    randomBytes: rootCall([jsonArgument(8)], "object"),
+    randomFillSync: rootCall(
+      [uint8ArrayArgument([0, 0, 0, 0])],
+      "object",
+    ),
+    randomInt: rootCall([jsonArgument(0), jsonArgument(16)], "number"),
+    scryptSync: rootCall(
+      [
+        jsonArgument("ibex-password"),
+        jsonArgument("ibex-salt"),
+        jsonArgument(16),
+        jsonArgument({ N: 16, r: 1, p: 1, maxmem: 1024 * 1024 }),
+      ],
+      "object",
+    ),
+    timingSafeEqual: rootCall(
+      [
+        uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
+        uint8ArrayArgument([0x69, 0x62, 0x65, 0x78]),
+      ],
+      "boolean",
+    ),
+    checkPrimeSync: rootCall([bigintArgument(17)], "boolean"),
+    Sign: constructTarget([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS]),
+    Verify: constructTarget([...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS]),
+  };
+  for (const alias of ["prng", "pseudoRandomBytes", "rng"]) {
+    specs[alias] = rootCall([jsonArgument(8)], "object");
+  }
+  for (const [ownerExportName, constructorArguments] of [
+    ["Hash", CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS],
+    ["Hmac", CRYPTO_HMAC_CONSTRUCTOR_ARGUMENTS],
+  ]) {
+    specs[`${ownerExportName}.constructor`] = constructTarget([
+      ...constructorArguments,
+    ]);
+    // _flush() pushes into the Transform readable side and schedules later
+    // stream work. It and end() need a draining harness, not a synchronous
+    // normal-return claim.
+    specs[`${ownerExportName}._transform`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("ibex"), jsonArgument("utf8"), noopArgument()],
+      "undefined",
+      [...constructorArguments],
+    );
+    specs[`${ownerExportName}.digest`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("hex")],
+      "string",
+      [...constructorArguments],
+    );
+    specs[`${ownerExportName}.update`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("ibex")],
+      "object",
+      [...constructorArguments],
+    );
+  }
+  specs["Hash.copy"] = constructedOwner(
+    "Hash",
+    [],
+    "object",
+    [...CRYPTO_HASH_CONSTRUCTOR_ARGUMENTS],
+  );
+  specs["KeyObject.export"] = constructedOwner(
+    "KeyObject",
+    [],
+    "object",
+    [jsonArgument("secret"), uint8ArrayArgument([0x69, 0x62, 0x65, 0x78])],
+  );
+  for (const ownerExportName of ["Sign", "Verify"]) {
+    specs[`${ownerExportName}.constructor`] = constructTarget([
+      ...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS,
+    ]);
+    specs[`${ownerExportName}.end`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("ibex")],
+      "object",
+      [...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS],
+    );
+    specs[`${ownerExportName}.update`] = constructedOwner(
+      ownerExportName,
+      [jsonArgument("ibex")],
+      "object",
+      [...CRYPTO_SIGN_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  for (const methodName of [
+    "getGenerator",
+    "getPrime",
+    "getPrivateKey",
+    "getPublicKey",
+  ]) {
+    specs[`DiffieHellmanGroup.${methodName}`] = constructedOwner(
+      "DiffieHellmanGroup",
+      [],
+      "object",
+      [...CRYPTO_DH_GROUP_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  for (const methodName of ["getPrivateKey", "getPublicKey"]) {
+    specs[`ECDH.${methodName}`] = constructedOwner(
+      "ECDH",
+      [],
+      "object",
+      [...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  for (const methodName of ["setPrivateKey", "setPublicKey"]) {
+    specs[`ECDH.${methodName}`] = constructedOwner(
+      "ECDH",
+      [uint8ArrayArgument([1, 2, 3, 4])],
+      "undefined",
+      [...CRYPTO_ECDH_CONSTRUCTOR_ARGUMENTS],
+    );
+  }
+  return Object.freeze(specs);
+}
+
+const EXACT_CRYPTO_CALL_SPECS = exactCryptoCallSpecs();
+
+const NODE_NET_CALL_SPECS = Object.freeze({
+  BlockList: constructTarget([]),
+  "BlockList.addAddress": constructedOwner(
+    "BlockList",
+    [jsonArgument("127.0.0.1"), jsonArgument("ipv4")],
+    "undefined",
+  ),
+  "BlockList.addRange": constructedOwner(
+    "BlockList",
+    [
+      jsonArgument("127.0.0.1"),
+      jsonArgument("127.0.0.2"),
+      jsonArgument("ipv4"),
+    ],
+    "undefined",
+  ),
+  "BlockList.addSubnet": constructedOwner(
+    "BlockList",
+    [jsonArgument("127.0.0.0"), jsonArgument(8), jsonArgument("ipv4")],
+    "undefined",
+  ),
+  "BlockList.check": constructedOwner(
+    "BlockList",
+    [jsonArgument("127.0.0.1"), jsonArgument("ipv4")],
+    "boolean",
+  ),
+  Server: constructTarget([]),
+  "Server.ref": constructedOwner("Server", [], "object"),
+  "Server.unref": constructedOwner("Server", [], "object"),
+  SocketAddress: constructTarget([
+    jsonArgument({ address: "127.0.0.1", family: "ipv4", port: 0 }),
+  ]),
+  _normalizeArgs: rootCall([jsonArgument([8080, "127.0.0.1"])], "object"),
+  createServer: rootCall([], "object"),
+  getDefaultAutoSelectFamily: rootCall([], "boolean"),
+  getDefaultAutoSelectFamilyAttemptTimeout: rootCall([], "number"),
+  isIP: rootCall([jsonArgument("127.0.0.1")], "number"),
+  isIPv4: rootCall([jsonArgument("127.0.0.1")], "boolean"),
+  isIPv6: rootCall([jsonArgument("::1")], "boolean"),
+});
+
 // These tables are deliberately keyed by the scanner's sourceKey and exact
 // exportName. They are an allowlist derived from the corresponding builtin
 // source, not a generic "call every function" mechanism.
 const ROOT_CALL_SPECS = Object.freeze({
+  exact_crypto: EXACT_CRYPTO_CALL_SPECS,
+  node_module: Object.freeze({
+    _nodeModulePaths: rootCall([jsonArgument("/ibex/project/src")], "object"),
+    isBuiltin: rootCall([jsonArgument("node:path")], "boolean"),
+    wrap: rootCall([jsonArgument("return 'ibex';")], "string"),
+  }),
+  node_net: NODE_NET_CALL_SPECS,
   node_perf_hooks: Object.freeze({
     Performance: constructTarget([]),
     "Performance.clearMarks": constructedOwner(
@@ -412,6 +665,10 @@ const ROOT_CALL_SPECS = Object.freeze({
   }),
   node_stream: STREAM_ROOT_CALL_SPECS,
   node_url: Object.freeze({
+    canParse: rootCall(
+      [jsonArgument("https://example.test/ibex")],
+      "boolean",
+    ),
     fileURLToPath: rootCall(
       [jsonArgument("file:///tmp/ibex")],
       "string",
@@ -600,6 +857,9 @@ const ROOT_CALL_SPECS = Object.freeze({
     isUtf8: rootCall([uint8ArrayArgument([73, 98, 101, 120])], "boolean"),
   }),
   node_zlib: ZLIB_ROOT_CALL_SPECS,
+  node_v8: Object.freeze({
+    cachedDataVersionTag: rootCall([], "number"),
+  }),
 });
 
 const ASSERT_PROTOTYPE_SPECS = Object.freeze({
@@ -1072,9 +1332,6 @@ function streamPrototypeSpec(exportName) {
         "object",
       );
     }
-    if (methodName === "forEach") {
-      return streamOwnerCall(ownerExportName, [noopArgument()], "object", true);
-    }
     if (methodName === "isPaused") {
       return streamOwnerCall(ownerExportName, [], "boolean");
     }
@@ -1104,48 +1361,20 @@ function streamPrototypeSpec(exportName) {
     if (methodName === "read") {
       return streamOwnerCall(ownerExportName, [jsonArgument(0)], "null");
     }
-    if (methodName === "reduce") {
-      return streamOwnerCall(
-        ownerExportName,
-        [firstArgumentFunction(), jsonArgument(0)],
-        "object",
-        true,
-      );
-    }
     if (methodName === "resume") {
       return streamOwnerCall(ownerExportName, [], "object", true);
     }
     if (methodName === "setEncoding") {
       return streamOwnerCall(ownerExportName, [jsonArgument("utf8")], "object");
     }
-    if (methodName === "some" || methodName === "find") {
-      return streamOwnerCall(
-        ownerExportName,
-        [constantFunctionArgument(false)],
-        "object",
-        true,
-      );
-    }
-    if (methodName === "every") {
-      return streamOwnerCall(
-        ownerExportName,
-        [constantFunctionArgument(true)],
-        "object",
-        true,
-      );
-    }
     if (methodName === "take") {
       return streamOwnerCall(ownerExportName, [jsonArgument(1)], "object");
     }
-    if (methodName === "toArray") {
-      return streamOwnerCall(ownerExportName, [], "object", true);
-    }
-    if (methodName === "wrap") {
-      return streamOwnerCall(
-        ownerExportName,
-        [streamInstanceArgument("Readable", true)],
-        "object",
-      );
+    // Promise-returning consumers and wrap() retain source work after this
+    // synchronous harness returns. Leave them residual until an awaited,
+    // resource-draining recipe can prove completion inside one observation.
+    if (STREAM_DEFERRED_METHOD_SET.has(methodName)) {
+      return null;
     }
   }
   if (methodName === "_transform" && ownerExportName === "PassThrough") {
@@ -1190,9 +1419,12 @@ function streamPrototypeSpec(exportName) {
 }
 
 const CALL_TEMPLATE_IDS = Object.freeze({
+  exact_crypto: "exact-crypto-bounded-v1",
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
   node_events: "node-events-bounded-v1",
+  node_module: "node-module-pure-v1",
+  node_net: "node-net-bounded-v1",
   node_perf_hooks: "node-perf-hooks-bounded-v1",
   node_path: "node-path-pure-v1",
   node_punycode: "node-punycode-pure-v1",
@@ -1202,6 +1434,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_url: "node-url-pure-v1",
   node_util: "node-util-pure-v1",
   node_zlib: "node-zlib-bounded-v1",
+  node_v8: "node-v8-pure-v1",
 });
 
 function callTemplateFor(descriptor) {
@@ -1262,6 +1495,14 @@ const PROTOTYPE_IDIOMS = new Set([
   "exported-constructor-inherited-prototype",
 ]);
 const KNOWN_PLATFORMS = new Set(["android", "darwin", "linux"]);
+// These modules perform capability-bearing work while their body initializes
+// on the bound runtime. Their otherwise scalar exports cannot use a generic
+// zero-decision import-and-read recipe.
+const NONCAP_GENERIC_EXPORT_EXCLUSIONS = new Set([
+  "node_cluster",
+  "node_http",
+  "node_os",
+]);
 
 function platformForTarget(target) {
   const triple =
@@ -1343,7 +1584,7 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
     metadata.importReachability !== "public" ||
     typeof metadata.sourceKey !== "string" ||
     metadata.sourceKey.length === 0 ||
-    metadata.sourceKey === "node_os" ||
+    NONCAP_GENERIC_EXPORT_EXCLUSIONS.has(metadata.sourceKey) ||
     !allowedValueShapes.has(metadata.valueShape) ||
     typeof metadata.exportName !== "string" ||
     metadata.exportName.length === 0 ||
@@ -1389,36 +1630,6 @@ function sourceDescriptor(surface, target, allowedValueShapes) {
   return descriptor;
 }
 
-function moduleAliasDescriptor(surface) {
-  const metadata = surface?.metadata;
-  if (
-    surface?.kind !== "builtin" ||
-    metadata?.surfaceType !== undefined ||
-    !new Set(["bootstrap-internal", "public"]).has(
-      metadata?.importReachability,
-    ) ||
-    typeof surface.name !== "string" ||
-    surface.name.length === 0 ||
-    surface.observedKey !== `builtin:${surface.name}` ||
-    typeof metadata.sourceKey !== "string" ||
-    metadata.sourceKey.length === 0 ||
-    !Array.isArray(surface.sourceRefs) ||
-    surface.sourceRefs.length !== 1
-  ) {
-    return null;
-  }
-  return {
-    kind: "builtin-module-alias",
-    sourceKey: metadata.sourceKey,
-    moduleSpecifier: surface.name,
-    sourceRef: surface.sourceRefs[0],
-    resolutionKind:
-      metadata.importReachability === "bootstrap-internal"
-        ? "bootstrap-internal"
-        : "manifest",
-  };
-}
-
 export function authoredNonCapabilityBuiltinProbe({
   plan,
   scenario,
@@ -1447,28 +1658,7 @@ export function authoredNonCapabilityBuiltinProbe({
   }
   const surface = liveByObservedKey.get(surfaceObservedKey);
   if (!surfaceObservedKey.startsWith("builtin:export:")) {
-    const descriptor = moduleAliasDescriptor(surface);
-    if (!descriptor) return null;
-    return {
-      kind: "public-surface-invocation",
-      surfaceObservedKey,
-      command: [...BUILTIN_BATCH_COMMAND],
-      invocation: {
-        invocationSchema: MODULE_IMPORT_INVOCATION_SCHEMA,
-        kind: "builtin-module-import",
-        moduleSpecifier: descriptor.moduleSpecifier,
-        sourceDescriptor: descriptor,
-        sourceDescriptorDigest: taggedDigest(descriptor),
-        arguments: [],
-        setup: { kind: "none" },
-        requiredAuthority: [],
-        expectedResult: "return",
-        expectedTypedDecisionCount: 0,
-        expectedTypedStages: [],
-        allowedCoverageEdgeIds: [],
-        expectedActionIds: [],
-      },
-    };
+    return null;
   }
   const readDescriptor = sourceDescriptor(
     surface,

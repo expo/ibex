@@ -1130,14 +1130,20 @@ descriptor, and accessor evidence actually invokes the getter. Retrieving a
 function, constructor, or prototype method is presence evidence rather than
 execution evidence, so those surfaces remain residual until a bounded
 call/setup recipe is authored.
-Every exact registry alias also has an import-only recipe: it proves that the
-selected manifest or bootstrap-internal module initializes on the bound engine
-without a legacy or typed decision. Alias evidence is kept distinct from export
-reads and calls, which still require their own source-derived value shape.
-Manifest-builtin initialization may resolve exact manifest-owned private
-builtin dependencies without creating package import edges, but that exemption
-is scoped to synchronous body evaluation and does not suppress capability
-terminal checks or survive through an exported `require` closure.
+Import-only alias recipes remain residual. Loaded execution showed that the
+first selected alias performs a typed `env:read` of `NODE_DEBUG` during shared
+debug-log initialization, while later aliases only appeared decision-free
+because they reused the module cache. Cache order is not independent execution
+evidence, so no alias is promoted by that result. Export reads and calls remain
+separate obligations: their exact public module is loaded before the per-export
+observer opens, then the invocation still performs the authenticated public
+`require` and resolves the source-derived export from that cache. This isolates
+module initialization from the export body without claiming that initialization
+was zero-effect. Manifest-builtin initialization may resolve exact
+manifest-owned private builtin dependencies without creating package import
+edges, but that exemption is scoped to synchronous body evaluation and does not
+suppress capability terminal checks or survive through an exported `require`
+closure.
 
 Bounded non-capability callable recipes are grouped by exact source template,
 not inferred from `typeof value === "function"`. The first authored families
@@ -1161,10 +1167,15 @@ callback; constructor, query, mutation, and explicitly disconnected observer
 recipes have bounded lifetimes. Evidence requires a normal return from the
 selected dispatch; an
 argument/receiver binding error or any other throw fails the recipe and cannot
-stand in for body entry. On the macOS/aarch64 candidate this adds 697 callable
-executions (105 root calls, 47 constructions, and 545 prototype calls), 334
-data/accessor reads, and 33 exact module imports, all against the same mapped
-Hermes identity.
+stand in for body entry. A later tranche adds exact bounded templates for
+in-memory crypto hash/HMAC/sign/verify, KDF, random-buffer, prime, key, DH, and
+ECDH operations; pure module/path, IP/block-list, URL, and version helpers; and
+unbound server metadata operations. Promise-returning stream consumers,
+pipelines, `wrap`, and crypto stream finalization remain residual because
+synchronous return did not prove their asynchronous work completed inside the
+same observer session. All
+accepted calls and data/accessor reads execute against the same mapped Hermes
+identity; there are no promoted cache-dependent module imports.
 Loaded execution also exposed lazy builtin assignments that were swallowed by
 locked inherited primordial properties; those Buffer, AssertionError, and
 StringDecoder prototype members

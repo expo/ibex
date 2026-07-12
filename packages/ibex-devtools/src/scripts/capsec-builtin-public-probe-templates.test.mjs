@@ -56,10 +56,12 @@ function probeFor({
 }
 
 describe("source-bound builtin public probes", () => {
-  test("imports exact manifest and bootstrap module aliases", () => {
-    for (const [moduleSpecifier, importReachability, resolutionKind] of [
-      ["node:path", "public", "manifest"],
-      ["internal/fs/utils", "bootstrap-internal", "bootstrap-internal"],
+  test("leaves cache-order-dependent module aliases residual", () => {
+    for (const [moduleSpecifier, sourceKey, importReachability] of [
+      ["node:path", "node_path", "public"],
+      ["internal/fs/utils", "internal_fs_utils", "bootstrap-internal"],
+      ["buffer", "node_buffer", "public"],
+      ["bun:sqlite", "exact_sqlite", "public"],
     ]) {
       const observedKey = `builtin:${moduleSpecifier}`;
       expect(
@@ -69,10 +71,7 @@ describe("source-bound builtin public probes", () => {
           route: {
             surfaceObservedKeys: [observedKey],
             alternatives: [
-              {
-                terminalObservedKey: observedKey,
-                proofPaths: [observedKey],
-              },
+              { terminalObservedKey: observedKey, proofPaths: [observedKey] },
             ],
             ambiguousCallees: [],
           },
@@ -83,31 +82,13 @@ describe("source-bound builtin public probes", () => {
                 kind: "builtin",
                 name: moduleSpecifier,
                 observedKey,
-                sourceRefs: ["modules.ts#specifiers:synthetic"],
-                metadata: {
-                  importReachability,
-                  sourceKey: "synthetic",
-                },
+                sourceRefs: [`modules.ts#specifiers:${sourceKey}`],
+                metadata: { importReachability, sourceKey },
               },
             ],
           ]),
         }),
-      ).toMatchObject({
-        surfaceObservedKey: observedKey,
-        invocation: {
-          invocationSchema:
-            "ibex/capsec-builtin-module-import-invocation/1",
-          kind: "builtin-module-import",
-          moduleSpecifier,
-          sourceDescriptor: {
-            kind: "builtin-module-alias",
-            moduleSpecifier,
-            resolutionKind,
-            sourceKey: "synthetic",
-          },
-          expectedTypedDecisionCount: 0,
-        },
-      });
+      ).toBeNull();
     }
   });
 
@@ -310,6 +291,19 @@ describe("source-bound builtin public probes", () => {
         valueShape: "callable",
       }),
     ).toBeNull();
+    for (const exportName of ["pipeline", "Readable.every", "Readable.wrap"]) {
+      expect(
+        probeFor({
+          sourceKey: "node_stream",
+          exportName,
+          exportIdioms: exportName.includes(".")
+            ? ["exported-constructor-prototype"]
+            : ["member-assignment"],
+          moduleSpecifiers: ["node:stream", "stream"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
     expect(
       probeFor({
         sourceKey: "node_stream",
@@ -457,6 +451,138 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("authors bounded crypto operations and explicit in-memory receivers", () => {
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "Hash.digest",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "exact-crypto-bounded-v1",
+        arguments: [{ kind: "json", value: "hex" }],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "Hash",
+          constructorArguments: [{ kind: "json", value: "sha256" }],
+        },
+        bodyEntryProof: { resultType: "string" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "scryptSync",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation.arguments,
+    ).toEqual([
+      { kind: "json", value: "ibex-password" },
+      { kind: "json", value: "ibex-salt" },
+      { kind: "json", value: 16 },
+      { kind: "json", value: { N: 16, r: 1, p: 1, maxmem: 1024 * 1024 } },
+    ]);
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "Sign.update",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation.setup,
+    ).toEqual({
+      kind: "constructed-owner",
+      ownerExportName: "Sign",
+      constructorArguments: [{ kind: "json", value: "sha256" }],
+    });
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "DiffieHellmanGroup.getPrime",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation.setup.constructorArguments,
+    ).toEqual([{ kind: "json", value: "modp14" }]);
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "generatePrimeSync",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      })?.invocation.bodyEntryProof.resultType,
+    ).toBe("bigint");
+    expect(
+      probeFor({
+        sourceKey: "exact_crypto",
+        exportName: "privateDecrypt",
+        moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    for (const exportName of ["Hash._flush", "Hash.end", "randomUUID"]) {
+      expect(
+        probeFor({
+          sourceKey: "exact_crypto",
+          exportName,
+          exportIdioms: exportName.includes(".")
+            ? ["exported-constructor-prototype"]
+            : ["object-binding", "object-source"],
+          moduleSpecifiers: ["crypto", "exact:crypto", "node:crypto"],
+          valueShape: "callable",
+        }),
+      ).toBeNull();
+    }
+  });
+
+  test("authors pure IP, module, clock, URL, and version helpers", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_net",
+        exportName: "BlockList.addRange",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["net", "node:net"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-net-bounded-v1",
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "BlockList",
+          constructorArguments: [],
+        },
+        bodyEntryProof: { resultType: "undefined" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_net",
+        exportName: "Server.close",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["net", "node:net"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    for (const [sourceKey, exportName, moduleSpecifiers, templateId] of [
+      ["node_module", "isBuiltin", ["module", "node:module"], "node-module-pure-v1"],
+      ["node_url", "canParse", ["node:url", "url"], "node-url-pure-v1"],
+      ["node_v8", "cachedDataVersionTag", ["node:v8", "v8"], "node-v8-pure-v1"],
+    ]) {
+      expect(
+        probeFor({
+          sourceKey,
+          exportName,
+          moduleSpecifiers,
+          valueShape: "callable",
+        })?.invocation.templateId,
+      ).toBe(templateId);
+    }
+  });
+
   test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({
@@ -467,6 +593,16 @@ describe("source-bound builtin public probes", () => {
         valueShape: "data",
       }),
     ).toBeNull();
+    for (const sourceKey of ["node_cluster", "node_http"]) {
+      expect(
+        probeFor({
+          sourceKey,
+          exportName: "scalar",
+          moduleSpecifiers: [`node:${sourceKey.slice(5)}`],
+          valueShape: "data",
+        }),
+      ).toBeNull();
+    }
     expect(
       probeFor({
         sourceKey: "node_assert",

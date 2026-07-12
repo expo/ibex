@@ -95,16 +95,6 @@ struct BuiltinSourceDescriptor {
     access: BuiltinAccess,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct BuiltinModuleAliasDescriptor {
-    kind: String,
-    source_key: String,
-    module_specifier: String,
-    source_ref: String,
-    resolution_kind: String,
-}
-
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
 struct BuiltinAccess {
     kind: String,
@@ -318,7 +308,7 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
                 "constant function result is unbounded"
             );
         }
-        "first-argument-function" | "abort-signal" => {
+        "abort-signal" => {
             assert_object_keys(argument, &["kind"], "authored function/signal argument");
         }
         "stream-instance" => {
@@ -505,9 +495,12 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
 
 fn expected_template_id(source_key: &str) -> Option<&'static str> {
     match source_key {
+        "exact_crypto" => Some("exact-crypto-bounded-v1"),
         "node_assert" => Some("node-assert-bounded-v1"),
         "node_buffer" => Some("node-buffer-bounded-v1"),
         "node_events" => Some("node-events-bounded-v1"),
+        "node_module" => Some("node-module-pure-v1"),
+        "node_net" => Some("node-net-bounded-v1"),
         "node_perf_hooks" => Some("node-perf-hooks-bounded-v1"),
         "node_path" => Some("node-path-pure-v1"),
         "node_punycode" => Some("node-punycode-pure-v1"),
@@ -516,6 +509,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_string_decoder" => Some("node-string-decoder-bounded-v1"),
         "node_url" => Some("node-url-pure-v1"),
         "node_util" => Some("node-util-pure-v1"),
+        "node_v8" => Some("node-v8-pure-v1"),
         "node_zlib" => Some("node-zlib-bounded-v1"),
         _ => None,
     }
@@ -553,11 +547,8 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         && invocation.kind == "builtin-export-read";
     let is_call = invocation.invocation_schema == "ibex/capsec-builtin-call-invocation/1"
         && invocation.kind == "builtin-export-call";
-    let is_import = invocation.invocation_schema
-        == "ibex/capsec-builtin-module-import-invocation/1"
-        && invocation.kind == "builtin-module-import";
     assert!(
-        is_read || is_call || is_import,
+        is_read || is_call,
         "unsupported non-capability builtin probe"
     );
     assert_eq!(invocation.expected_typed_decision_count, 0);
@@ -565,32 +556,6 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     assert!(invocation.allowed_coverage_edge_ids.is_empty());
     assert!(invocation.expected_action_ids.is_empty());
     assert!(invocation.required_authority.is_empty());
-
-    if is_import {
-        let descriptor: BuiltinModuleAliasDescriptor =
-            serde_json::from_value(invocation.source_descriptor.clone())
-                .expect("non-capability builtin module descriptor must be typed");
-        assert_eq!(descriptor.kind, "builtin-module-alias");
-        assert!(!descriptor.source_key.is_empty());
-        assert_eq!(descriptor.module_specifier, invocation.module_specifier);
-        assert!(!descriptor.source_ref.is_empty());
-        assert!(matches!(
-            descriptor.resolution_kind.as_str(),
-            "bootstrap-internal" | "manifest"
-        ));
-        assert!(invocation.export_name.is_none());
-        assert_eq!(invocation.expected_result, "return");
-        assert!(invocation.template_id.is_none());
-        assert!(invocation.body_entry_proof.is_none());
-        assert!(invocation.arguments.is_empty());
-        assert_eq!(invocation.setup, serde_json::json!({"kind": "none"}));
-        assert_eq!(
-            probe.surface_observed_key,
-            format!("builtin:{}", descriptor.module_specifier)
-        );
-        validate_probe_binding(recipe, probe, invocation);
-        return;
-    }
 
     let descriptor: BuiltinSourceDescriptor =
         serde_json::from_value(invocation.source_descriptor.clone())
@@ -681,13 +646,12 @@ fn public_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
         schema,
         "ibex/capsec-builtin-export-invocation/1"
             | "ibex/capsec-builtin-call-invocation/1"
-            | "ibex/capsec-builtin-module-import-invocation/1"
     ) {
         return None;
     }
     Some(
         serde_json::from_value(value.clone())
-            .expect("selected non-capability import probe must match its typed schema"),
+            .expect("selected non-capability builtin probe must match its typed schema"),
     )
 }
 
@@ -709,9 +673,6 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
                         ) | (
                             "ibex/capsec-builtin-call-invocation/1",
                             "builtin-export-call"
-                        ) | (
-                            "ibex/capsec-builtin-module-import-invocation/1",
-                            "builtin-module-import"
                         )
                     )
                 })
@@ -729,6 +690,14 @@ fn invocation_script(invocation: &BuiltinInvocation) -> String {
     )
 }
 
+fn export_module_preload_script(invocation: &BuiltinInvocation) -> String {
+    format!(
+        "(function(){{require({});return 'ibex-capsec-builtin-preloaded';}})()",
+        serde_json::to_string(&invocation.module_specifier)
+            .expect("serialize authored builtin module specifier")
+    )
+}
+
 async fn execute_recipe(
     engine: &HermesEngine,
     recipe: &Recipe,
@@ -736,6 +705,32 @@ async fn execute_recipe(
 ) -> std::result::Result<serde_json::Value, String> {
     let probe = public_probe(recipe)
         .expect("builtin recipe has no public probe");
+    // Import-only and exported-operation obligations are distinct. Load the
+    // exact public module before opening an export observer so initialization
+    // decisions cannot be attributed to every later read/call; the invocation
+    // still performs a real authenticated public require against that cache.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    let preloaded = engine
+        .eval_immediate(&export_module_preload_script(&probe.invocation))
+        .await
+        .map_err(|error| {
+            format!(
+                "{}: preload public builtin module: {error:#}",
+                recipe.fixture_id
+            )
+        })?
+        .ok_or_else(|| {
+            format!(
+                "{}: public builtin module preload returned no result",
+                recipe.fixture_id
+            )
+        })?;
+    if preloaded != "ibex-capsec-builtin-preloaded" {
+        return Err(format!(
+            "{}: public builtin module preload returned {preloaded:?}",
+            recipe.fixture_id
+        ));
+    }
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -780,10 +775,12 @@ async fn execute_recipe(
     }
     if !legacy.is_empty() || !typed.is_empty() {
         return Err(format!(
-            "{}: non-capability builtin probe observed {} legacy and {} typed decisions",
+            "{}: non-capability builtin probe observed {} legacy and {} typed decisions: {}",
             recipe.fixture_id,
             legacy.len(),
-            typed.len()
+            typed.len(),
+            serde_json::to_string(&typed)
+                .expect("serialize unexpected non-capability builtin decisions")
         ));
     }
     let runtime_observation = serde_json::json!({
@@ -946,6 +943,49 @@ fn path_basename_call_invocation(argument: serde_json::Value) -> BuiltinInvocati
         allowed_coverage_edge_ids: Vec::new(),
         expected_action_ids: Vec::new(),
     }
+}
+
+#[test]
+fn mixed_public_catalog_selects_before_strict_builtin_decode() {
+    let residual_recipe = |fixture_id: &str, public_surface_probe: serde_json::Value| Recipe {
+        fixture_id: fixture_id.to_owned(),
+        plan_digest: "test-only".to_owned(),
+        classification: "non-capability".to_owned(),
+        scenario: "non-capability".to_owned(),
+        action_ids: Vec::new(),
+        expected_observation: serde_json::json!({}),
+        route: PublicRoute {
+            alternatives: Vec::new(),
+            ambiguous_callees: Vec::new(),
+        },
+        status: "fully-executable".to_owned(),
+        public_surface_probe: Some(public_surface_probe),
+    };
+    let catalog = RecipeCatalog {
+        recipe_catalog_schema: "ibex/capsec-executable-recipes/1".to_owned(),
+        recipe_catalog_digest: "test-only".to_owned(),
+        recipes: vec![
+            residual_recipe(
+                "fixture.retracted.builtin-import",
+                serde_json::json!({
+                    "invocation": {
+                        "invocationSchema": "ibex/capsec-builtin-module-import-invocation/1",
+                        "kind": "builtin-module-import"
+                    }
+                }),
+            ),
+            residual_recipe(
+                "fixture.unrelated.native",
+                serde_json::json!({
+                    "invocation": {
+                        "invocationSchema": "ibex/capsec-native-global-invocation/1",
+                        "kind": "native-global-function"
+                    }
+                }),
+            ),
+        ],
+    };
+    assert!(noncap_builtin_recipes(&catalog).is_empty());
 }
 
 #[tokio::test(flavor = "current_thread")]

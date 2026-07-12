@@ -207,6 +207,115 @@ function completeArtifact(catalog = completeCatalog()) {
   });
 }
 
+function completeNoncapBuiltinCallCatalog() {
+  const surfaceObservedKey = "builtin:export:node_path:basename";
+  const sourceDescriptor = {
+    kind: "builtin-export",
+    sourceKey: "node_path",
+    exportName: "basename",
+    exportIdioms: ["object-binding", "object-source"],
+    moduleSpecifiers: ["node:path", "path"],
+    sourceRef: "src/builtins/path.js#exports:basename",
+    valueShape: "callable",
+    access: { kind: "export-property", path: ["basename"] },
+  };
+  const recipe = {
+    fixtureId: "fixture.noncap-builtin.basename",
+    planDigest: "sha256-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN",
+    classification: "non-capability",
+    scenario: "non-capability",
+    edgeIds: ["edge.noncap-builtin"],
+    implementationBranchIds: ["edge.noncap-builtin.main"],
+    enforcementBranchIds: ["edge.noncap-builtin.main"],
+    actionIds: [],
+    terminalObservedKey: surfaceObservedKey,
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "edge.noncap-builtin.main",
+    },
+    route: {
+      surfaceObservedKeys: [surfaceObservedKey],
+      alternatives: [
+        {
+          terminalObservedKey: surfaceObservedKey,
+          proofPaths: [surfaceObservedKey],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: ["cargo", "test", "capsec_public_noncap_builtin_recipe_batch"],
+      invocation: {
+        invocationSchema: "ibex/capsec-builtin-call-invocation/1",
+        kind: "builtin-export-call",
+        moduleSpecifier: "node:path",
+        exportName: "basename",
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        templateId: "node-path-pure-v1",
+        arguments: [{ kind: "json", value: "/ibex/file.txt" }],
+        setup: { kind: "root-call" },
+        bodyEntryProof: {
+          kind: "normal-return-from-source-call",
+          resultType: "string",
+        },
+        requiredAuthority: [],
+        expectedResult: "normal-return",
+        expectedTypedDecisionCount: 0,
+        expectedTypedStages: [],
+        allowedCoverageEdgeIds: [],
+        expectedActionIds: [],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes: [recipe],
+    summary: {
+      requiredFixtures: 1,
+      fullyExecutableFixtures: 1,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { "non-capability": 1 },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function noncapBuiltinCallObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      moduleSpecifier: invocation.moduleSpecifier,
+      exportName: invocation.exportName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "return",
+        moduleSpecifier: invocation.moduleSpecifier,
+        exportName: invocation.exportName,
+        valueType: invocation.bodyEntryProof.resultType,
+        dispatchKind: "call",
+        bodyEntryProof: invocation.bodyEntryProof.kind,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 function completeAbsenceCatalog() {
   const sourceDescriptor = {
     kind: "target-absent-host-abi",
@@ -1067,6 +1176,113 @@ describe("CapSec public-surface promotion evidence", () => {
         expectedFixtureIds: ["fixture.public.allow"],
       }),
     ).not.toThrow();
+  });
+
+  test("accepts only the exact zero-decision builtin normal-return proof", () => {
+    const catalog = completeNoncapBuiltinCallCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = noncapBuiltinCallObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).not.toThrow();
+
+    for (const [label, mutate, expected] of [
+      [
+        "result type",
+        (value) => {
+          value.invocation.result.valueType = "object";
+        },
+        /exact normal return/,
+      ],
+      [
+        "dispatch",
+        (value) => {
+          value.invocation.result.dispatchKind = "construct";
+        },
+        /exact normal return/,
+      ],
+      [
+        "body-entry marker",
+        (value) => {
+          value.invocation.result.bodyEntryProof = "caller-asserted";
+        },
+        /exact normal return/,
+      ],
+      [
+        "extra result field",
+        (value) => {
+          value.invocation.result.synthetic = true;
+        },
+        /unknown or missing fields/,
+      ],
+      [
+        "unknown setup",
+        (_value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.setup.kind =
+            "caller-selected";
+        },
+        /malformed authored normal-return setup/,
+      ],
+      [
+        "downgraded expectation",
+        (_value, authoredRecipe) => {
+          authoredRecipe.publicSurfaceProbe.invocation.expectedResult =
+            "return";
+        },
+        /descriptor drift/,
+      ],
+      [
+        "legacy decision",
+        (value) => {
+          value.legacyObservationCount = 1;
+        },
+        /malformed runtime public observation/,
+      ],
+      [
+        "typed decision",
+        (value) => {
+          value.typedDecisions = [{}];
+        },
+        /malformed runtime public observation/,
+      ],
+    ]) {
+      const tampered = structuredClone(observed);
+      const tamperedRecipe = structuredClone(recipe);
+      mutate(tampered, tamperedRecipe);
+      expect(
+        () =>
+          buildPublicFixtureEvidence({
+            recipe: tamperedRecipe,
+            engineBinaryDigest: engine.binaryDigest,
+            runtimeObservation: tampered,
+            coverage,
+          }),
+        label,
+      ).toThrow(expected);
+    }
+
+    const aliasRecipe = structuredClone(recipe);
+    const aliasObservation = structuredClone(observed);
+    aliasRecipe.publicSurfaceProbe.invocation.invocationSchema =
+      "ibex/capsec-builtin-module-import-invocation/1";
+    aliasRecipe.publicSurfaceProbe.invocation.kind = "builtin-module-import";
+    aliasObservation.invocation.invocationSchema =
+      aliasRecipe.publicSurfaceProbe.invocation.invocationSchema;
+    aliasObservation.invocation.kind =
+      aliasRecipe.publicSurfaceProbe.invocation.kind;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: aliasRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: aliasObservation,
+        coverage,
+      }),
+    ).toThrow(/unsupported runtime invocation schema/);
   });
 
   test("accepts exact-target ABI absence only after a runtime symbol lookup", () => {
