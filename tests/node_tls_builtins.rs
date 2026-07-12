@@ -1193,6 +1193,100 @@ wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
     );
 }
 
+#[cfg(not(target_os = "ios"))]
+#[tokio::test]
+async fn node_tls_bridge_mutual_tls_accepts_password_protected_pfx() {
+    use base64::Engine as _;
+    use openssl::pkcs12::Pkcs12;
+    use openssl::pkey::PKey;
+    use openssl::symm::Cipher;
+    use openssl::x509::X509;
+
+    let key = PKey::private_key_from_pem(TEST_KEY.as_bytes()).expect("fixture key parses");
+    let cert = X509::from_pem(TEST_CERT.as_bytes()).expect("fixture certificate parses");
+    let mut builder = Pkcs12::builder();
+    builder.name("ibex-mtls").pkey(&key).cert(&cert);
+    let archive = builder
+        .build2("correct horse battery staple")
+        .expect("build password-protected PKCS#12 fixture")
+        .to_der()
+        .expect("encode PKCS#12 fixture");
+    let encoded = base64::engine::general_purpose::STANDARD.encode(archive);
+    let encrypted_key = String::from_utf8(
+        key.private_key_to_pem_pkcs8_passphrase(Cipher::aes_256_cbc(), b"encrypted key passphrase")
+            .expect("encrypt PKCS#8 client key"),
+    )
+    .expect("encrypted key PEM is UTF-8");
+    let encrypted_key = serde_json::to_string(&encrypted_key).unwrap();
+    let port = tls_bridge_support::spawn_mutual_tls_http_server();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var pending = 3;
+var pfx = Buffer.from({encoded:?}, 'base64');
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 12000);
+function done() {{
+  pending--;
+  if (pending !== 0) return;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}}
+
+var ok = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: pfx, passphrase: 'correct horse battery staple'
+}}, function () {{
+  var response = '';
+  ok.on('data', function (chunk) {{ response += chunk.toString(); }});
+  ok.on('end', function () {{ out.success = response.indexOf('mutual-tls-ok') !== -1; done(); }});
+  ok.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+ok.on('error', function (e) {{ out.successError = e.message; done(); }});
+
+var wrong = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  pfx: pfx, passphrase: 'wrong passphrase'
+}});
+wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
+
+var encrypted = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT],
+  cert: CERT, key: {encrypted_key}, passphrase: 'encrypted key passphrase'
+}}, function () {{
+  var response = '';
+  encrypted.on('data', function (chunk) {{ response += chunk.toString(); }});
+  encrypted.on('end', function () {{
+    out.encryptedKey = response.indexOf('mutual-tls-ok') !== -1;
+    done();
+  }});
+  encrypted.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+encrypted.on('error', function (e) {{ out.encryptedKeyError = e.message; done(); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(
+        v["success"], true,
+        "valid pfx client identity must work: {v}"
+    );
+    assert_eq!(
+        v["encryptedKey"], true,
+        "encrypted PEM client identity must work: {v}"
+    );
+    assert!(
+        v["wrong"]
+            .as_str()
+            .is_some_and(|message| message.contains("passphrase")),
+        "wrong pfx passphrase must fail before handshake: {v}"
+    );
+}
+
 #[tokio::test]
 async fn node_tls_bridge_end_with_data_during_handshake_flushes_before_close_notify() {
     let payload = "end-during-handshake";

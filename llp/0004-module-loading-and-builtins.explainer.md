@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Revised:** 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241; desktop TLS accepts password-protected PKCS#12 and encrypted PKCS#8 client identities — ENG-24272); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -239,11 +239,14 @@ native engine:
   the `TLSSocket` wrapper — the existing async-connect/DNS/timeout machinery
   is reused and the bridge spawns **zero threads**, so the by-value-static
   pool exit() deadlock class (ENG-23471/ENG-23498) cannot occur here.
-- **Hermetic dependency profile.** rustls uses the `ring` provider
-  (cc-compiled; no cmake, no system OpenSSL) and `webpki-roots` bundles the
-  Mozilla CA store, mirroring Node's bundled-roots philosophy and LLP 0005's
-  hermetic-default pipeline. Node's `ca` option **replaces** the root store,
-  as in Node.
+- **Hermetic dependency profile.** rustls uses the `ring` provider for every
+  wire operation and `webpki-roots` bundles the Mozilla CA store, mirroring
+  Node's bundled-roots philosophy. Desktop builds use vendored OpenSSL only as
+  a bounded decoder for the PKCS#12 and encrypted-PKCS#8 client-identity
+  containers required by Node's `pfx` / `passphrase` options; no system TLS
+  implementation or trust behavior enters the wire path. Node's `ca` option
+  **replaces** the root store, as in Node. The iOS reduced profile rejects
+  those two container formats explicitly until a hermetic iOS decoder lands.
 - **Trust-evaluation split.** Chain trust (signatures, validity window,
   issuer path) is evaluated **natively**: the JS `_validatePeerAuthorization`
   is a fingerprint-list comparator and cannot verify signatures. A recording
@@ -276,11 +279,12 @@ native engine:
 Rejected alternatives `[inferred: judgment call recorded at decision time]`:
 platform TLS C APIs (Security.framework / system OpenSSL — non-hermetic on
 Linux, deprecated SecureTransport on macOS, per-platform trust-evaluation
-semantics, two implementations to keep Node-shaped); the optional vendored
-`openssl-crypto` feature (off by default, so tls would work in only some
-builds, violating the hermetic-default invariant); a native-owned TCP+TLS
-thread pool like native fetch (duplicates net.js's async-connect machinery
-and reintroduces the exit-deadlock class).
+semantics, two implementations to keep Node-shaped); using the optional
+`openssl-crypto` feature as the TLS engine (off by default and behaviorally
+different from rustls); a native-owned TCP+TLS thread pool like native fetch
+(duplicates net.js's async-connect machinery and reintroduces the
+exit-deadlock class). The narrowly scoped vendored identity decoder above does
+not negotiate records or evaluate peer trust.
 
 Known divergences, accepted deliberately: `getPeerCertificate(true)`'s
 `issuerCertificate` chain reflects the chain **as presented on the wire**

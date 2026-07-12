@@ -558,6 +558,57 @@ function _pemSourceToString(source) {
   return String(source);
 }
 
+function _normalizePfxIdentity(source, fallbackPassphrase) {
+  if (source === undefined || source === null) return null;
+  var selected = source;
+  var passphrase = fallbackPassphrase;
+  if (Array.isArray(selected)) {
+    if (selected.length !== 1) {
+      throw _createError(
+        'ERR_TLS_PFX_UNSUPPORTED',
+        'This TLS transport accepts exactly one pfx client identity'
+      );
+    }
+    selected = selected[0];
+  }
+  if (selected && typeof selected === 'object' &&
+      !_isArrayBufferView(selected) &&
+      !(typeof ArrayBuffer !== 'undefined' && selected instanceof ArrayBuffer) &&
+      !(typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(selected))) {
+    if (!hasOwn.call(selected, 'buf')) {
+      throw _createError('ERR_INVALID_ARG_TYPE', 'The "pfx" identity object must contain a buf property');
+    }
+    if (selected.passphrase !== undefined && selected.passphrase !== null) {
+      passphrase = String(selected.passphrase);
+    }
+    selected = selected.buf;
+  }
+
+  var bytes;
+  if (typeof selected === 'string') {
+    bytes = typeof Uint8Array !== 'undefined' ? new Uint8Array(selected.length) : [];
+    for (var i = 0; i < selected.length; i++) bytes[i] = selected.charCodeAt(i) & 255;
+  } else if (
+    _isArrayBufferView(selected) ||
+    (typeof ArrayBuffer !== 'undefined' && selected instanceof ArrayBuffer)
+  ) {
+    bytes = selected;
+  } else {
+    throw _createError(
+      'ERR_INVALID_ARG_TYPE',
+      'The "pfx" option must be a string, Buffer, TypedArray, DataView, ArrayBuffer, or one identity object'
+    );
+  }
+  var buffer = _bufferFromBytes(bytes);
+  if (!buffer || typeof buffer.toString !== 'function') {
+    throw _createError('ERR_TLS_PFX_UNSUPPORTED', 'Unable to encode the pfx client identity');
+  }
+  return {
+    encoded: buffer.toString('base64'),
+    passphrase: passphrase === undefined || passphrase === null ? null : String(passphrase)
+  };
+}
+
 function _bufferFromBase64(value) {
   if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
     return Buffer.from(value, 'base64');
@@ -3041,6 +3092,7 @@ function _startTlsBridge(socket, netSocket, options, host, port) {
   _tlsReleaseHeldWrites(socket, 'bridge');
 
   var servername = options.servername || options.sni || null;
+  var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
   var config = {
     // Measured Node v25.9.0: SNI is only sent when servername was explicitly
     // provided (bare tls.connect({host}) sends none). ibex https.js always
@@ -3051,8 +3103,10 @@ function _startTlsBridge(socket, netSocket, options, host, port) {
     ca: options.ca !== undefined && options.ca !== null ? _pemSourceToString(options.ca) : null,
     cert: options.cert !== undefined && options.cert !== null ? _pemSourceToString(options.cert) : null,
     key: options.key !== undefined && options.key !== null ? _pemSourceToString(options.key) : null,
-    passphrase: options.passphrase !== undefined && options.passphrase !== null ? String(options.passphrase) : null,
-    hasPfx: options.pfx !== undefined && options.pfx !== null,
+    passphrase: pfxIdentity
+      ? pfxIdentity.passphrase
+      : (options.passphrase !== undefined && options.passphrase !== null ? String(options.passphrase) : null),
+    pfx: pfxIdentity ? pfxIdentity.encoded : null,
     hasSession: options.session !== undefined && options.session !== null,
     cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, 'client'),
     minVersion: options.minVersion || null,
@@ -3077,17 +3131,9 @@ function connect() {
   var cb = parsed.callback;
 
   var bridgeCipherSuites = _resolveCipherSuites(options, 'client');
-  if (options.pfx !== undefined && options.pfx !== null) {
-    throw _createError('ERR_TLS_PFX_UNSUPPORTED',
-      'pfx client identities are not supported; provide cert and key PEM options');
-  }
   if (options.session !== undefined && options.session !== null) {
     throw _createError('ERR_TLS_SESSION_UNSUPPORTED',
       'TLS session resumption input is not supported by this transport');
-  }
-  if (options.passphrase !== undefined && options.passphrase !== null) {
-    throw _createError('ERR_TLS_PASSPHRASE_UNSUPPORTED',
-      'encrypted client private keys are not supported by this transport');
   }
   if (options.maxVersion === 'TLSv1' || options.maxVersion === 'TLSv1.1') {
     throw _createError('ERR_TLS_INVALID_PROTOCOL_VERSION',

@@ -314,8 +314,10 @@ struct BridgeConfig {
     cert: Option<String>,
     key: Option<String>,
     passphrase: Option<String>,
-    #[serde(default, rename = "hasPfx")]
-    has_pfx: bool,
+    /// Base64-encoded DER PKCS#12 identity supplied through Node's `pfx`
+    /// option. Binary transport is explicit because this configuration
+    /// crosses a JSON-only JSI boundary.
+    pfx: Option<String>,
     #[serde(default, rename = "hasSession")]
     has_session: bool,
     #[serde(default, rename = "cipherSuites")]
@@ -326,18 +328,152 @@ struct BridgeConfig {
     max_version: Option<String>,
 }
 
+const MAX_CLIENT_IDENTITY_BYTES: usize = 16 * 1024 * 1024;
+
+#[cfg(not(target_os = "ios"))]
+fn client_identity_from_pfx(
+    encoded: &str,
+    passphrase: Option<&str>,
+) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), String> {
+    use base64::Engine as _;
+    use openssl::pkcs12::Pkcs12;
+
+    if encoded.len() > MAX_CLIENT_IDENTITY_BYTES.saturating_mul(4).div_ceil(3) + 4 {
+        return Err("pfx client identity exceeds the 16 MiB limit".into());
+    }
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "pfx client identity is not canonical base64".to_string())?;
+    if der.len() > MAX_CLIENT_IDENTITY_BYTES {
+        return Err("pfx client identity exceeds the 16 MiB limit".into());
+    }
+    let password = passphrase.unwrap_or("");
+    if password.as_bytes().contains(&0) {
+        return Err("pfx passphrase must not contain NUL".into());
+    }
+    let archive =
+        Pkcs12::from_der(&der).map_err(|error| format!("invalid pfx client identity: {error}"))?;
+    if archive
+        .to_der()
+        .map_err(|error| format!("invalid pfx client identity: {error}"))?
+        != der
+    {
+        return Err("pfx client identity contains trailing or noncanonical DER".into());
+    }
+    let parsed = archive
+        .parse2(password)
+        .map_err(|error| format!("invalid pfx client identity or passphrase: {error}"))?;
+    let key = parsed
+        .pkey
+        .ok_or_else(|| "pfx client identity contains no private key".to_string())?;
+    let leaf = parsed
+        .cert
+        .ok_or_else(|| "pfx client identity contains no certificate".to_string())?;
+    let mut certs =
+        vec![CertificateDer::from(leaf.to_der().map_err(|error| {
+            format!("invalid pfx client certificate: {error}")
+        })?)];
+    if let Some(chain) = parsed.ca {
+        for certificate in chain {
+            certs.push(CertificateDer::from(certificate.to_der().map_err(
+                |error| format!("invalid pfx client certificate chain: {error}"),
+            )?));
+        }
+    }
+    let key_pem = key
+        .private_key_to_pem_pkcs8()
+        .map_err(|error| format!("invalid pfx client private key: {error}"))?;
+    let key = PrivateKeyDer::from_pem_slice(&key_pem)
+        .map_err(|error| format!("invalid pfx client private key: {error}"))?;
+    Ok((certs, key))
+}
+
+#[cfg(not(target_os = "ios"))]
+fn encrypted_client_key(key_pem: &str, passphrase: &str) -> Result<PrivateKeyDer<'static>, String> {
+    use openssl::pkey::PKey;
+
+    if passphrase.as_bytes().contains(&0) {
+        return Err("client private-key passphrase must not contain NUL".into());
+    }
+    if key_pem.len() > MAX_CLIENT_IDENTITY_BYTES {
+        return Err("client private key exceeds the 16 MiB limit".into());
+    }
+    let key = PKey::private_key_from_pem_passphrase(key_pem.as_bytes(), passphrase.as_bytes())
+        .map_err(|error| format!("invalid encrypted client private key or passphrase: {error}"))?;
+    let decrypted_pem = key
+        .private_key_to_pem_pkcs8()
+        .map_err(|error| format!("invalid encrypted client private key: {error}"))?;
+    PrivateKeyDer::from_pem_slice(&decrypted_pem)
+        .map_err(|error| format!("invalid encrypted client private key: {error}"))
+}
+
+fn client_identity(
+    config: &BridgeConfig,
+) -> Result<Option<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)>, String> {
+    if let Some(encoded) = config.pfx.as_deref() {
+        if config.cert.is_some() || config.key.is_some() {
+            return Err("pfx cannot be combined with cert or key client identity options".into());
+        }
+        #[cfg(not(target_os = "ios"))]
+        {
+            return client_identity_from_pfx(encoded, config.passphrase.as_deref()).map(Some);
+        }
+        #[cfg(target_os = "ios")]
+        {
+            let _ = encoded;
+            return Err(
+                "pfx client identities are unavailable in the iOS reduced TLS profile".into(),
+            );
+        }
+    }
+
+    match (config.cert.as_deref(), config.key.as_deref()) {
+        (None, None) => {
+            if config.passphrase.is_some() {
+                return Err("passphrase requires a pfx or client private key".into());
+            }
+            Ok(None)
+        }
+        (Some(cert_pem), Some(key_pem)) => {
+            if cert_pem.len() > MAX_CLIENT_IDENTITY_BYTES {
+                return Err("client certificate chain exceeds the 16 MiB limit".into());
+            }
+            let certs: Vec<CertificateDer<'static>> =
+                CertificateDer::pem_slice_iter(cert_pem.as_bytes())
+                    .collect::<Result<_, _>>()
+                    .map_err(|error| format!("invalid client certificate: {error}"))?;
+            if certs.is_empty() {
+                return Err("cert option contained no certificates".into());
+            }
+            let key = if let Some(passphrase) = config.passphrase.as_deref() {
+                #[cfg(not(target_os = "ios"))]
+                {
+                    encrypted_client_key(key_pem, passphrase)?
+                }
+                #[cfg(target_os = "ios")]
+                {
+                    let _ = passphrase;
+                    return Err(
+                        "encrypted client private keys are unavailable in the iOS reduced TLS profile"
+                            .into(),
+                    );
+                }
+            } else {
+                PrivateKeyDer::from_pem_slice(key_pem.as_bytes())
+                    .map_err(|error| format!("invalid client private key: {error}"))?
+            };
+            Ok(Some((certs, key)))
+        }
+        _ => Err("both cert and key are required for mutual TLS".into()),
+    }
+}
+
 fn build_engine(config_json: &str) -> Result<Engine, String> {
     let config: BridgeConfig =
         serde_json::from_str(config_json).map_err(|e| format!("invalid tls bridge config: {e}"))?;
 
-    if config.has_pfx {
-        return Err("pfx client identities are not supported by the rustls bridge; provide cert and key PEM options".into());
-    }
     if config.has_session {
         return Err("TLS session resumption input is not supported by the rustls bridge".into());
-    }
-    if config.passphrase.is_some() {
-        return Err("encrypted client private keys are not supported by the rustls bridge".into());
     }
 
     let provider = if config.cipher_suites.is_empty() {
@@ -438,23 +574,11 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
         .map_err(|e| format!("failed to configure TLS versions: {e}"))?
         .dangerous()
         .with_custom_certificate_verifier(verifier);
-    let mut client_config = match (config.cert.as_deref(), config.key.as_deref()) {
-        (None, None) => client_builder.with_no_client_auth(),
-        (Some(cert_pem), Some(key_pem)) => {
-            let certs: Vec<CertificateDer<'static>> =
-                CertificateDer::pem_slice_iter(cert_pem.as_bytes())
-                    .collect::<Result<_, _>>()
-                    .map_err(|e| format!("invalid client certificate: {e}"))?;
-            if certs.is_empty() {
-                return Err("cert option contained no certificates".into());
-            }
-            let key = PrivateKeyDer::from_pem_slice(key_pem.as_bytes())
-                .map_err(|e| format!("invalid client private key: {e}"))?;
-            client_builder
-                .with_client_auth_cert(certs, key)
-                .map_err(|e| format!("client certificate/key mismatch: {e}"))?
-        }
-        _ => return Err("both cert and key are required for mutual TLS".into()),
+    let mut client_config = match client_identity(&config)? {
+        None => client_builder.with_no_client_auth(),
+        Some((certs, key)) => client_builder
+            .with_client_auth_cert(certs, key)
+            .map_err(|e| format!("client certificate/key mismatch: {e}"))?,
     };
 
     client_config.alpn_protocols = config

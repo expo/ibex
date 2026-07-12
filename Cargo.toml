@@ -125,6 +125,12 @@ cli-notify = []
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 openssl-sys = { version = "0.9", features = ["vendored"], optional = true }
+# rustls remains the wire TLS implementation. OpenSSL is used only to decode
+# the PKCS#12 and encrypted-PKCS#8 identity formats required by Node's `pfx`
+# and `passphrase` client options; vendoring keeps that parser hermetic across
+# desktop targets.
+# @ref LLP 0004#the-tls-builtin — scoped identity decoding, not wire TLS/trust.
+openssl = { version = "0.10.81", features = ["vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 # Windows does not ship a C zlib development package. Build zlib from source so
