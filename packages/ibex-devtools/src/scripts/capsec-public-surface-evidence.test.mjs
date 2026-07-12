@@ -572,6 +572,70 @@ function targetAbsenceCatalog() {
   return catalog;
 }
 
+function completeCallbackCatalog() {
+  const catalog = structuredClone(completeCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "callback-security-invariant",
+    scenario: "generation-recheck",
+    rationaleId: "callback-attribution-carrier",
+    surfaceObservedKey: "native-op:__exactCallbackCarrier",
+    edgeId: "edge.callback",
+    branchId: "edge.callback.main",
+    sourceRefs: ["src/engine/hermes_runtime.cc#callback-carrier"],
+    coverageEdge: { id: "edge.callback" },
+    implementationBranch: { branchId: "edge.callback.main" },
+    liveSurface: {
+      kind: "native-op",
+      name: "__exactCallbackCarrier",
+    },
+    executionMechanism: "scheduled-dynamic-revocation-recheck",
+    auxiliaryDecisionEdgeId: "edge.terminal",
+  };
+  Object.assign(recipe, {
+    fixtureId: "fixture.callback.generation-recheck",
+    classification: "non-capability",
+    scenario: "generation-recheck",
+    edgeIds: ["edge.callback"],
+    implementationBranchIds: ["edge.callback.main"],
+    enforcementBranchIds: ["edge.callback.main"],
+    actionIds: [],
+    terminalObservedKey: "native-op:__exactCallbackCarrier",
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "edge.callback.main",
+    },
+    route: {
+      surfaceObservedKeys: ["native-op:__exactCallbackCarrier"],
+      alternatives: [],
+      ambiguousCallees: [],
+    },
+  });
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey: recipe.terminalObservedKey,
+    command: ["cargo", "test", "capsec_public_callback_invariant_batch"],
+    invocation: {
+      invocationSchema: "ibex/capsec-callback-invariant-invocation/1",
+      kind: "callback-security-invariant",
+      scenario: recipe.scenario,
+      surfaceKind: "native-op",
+      surfaceName: "__exactCallbackCarrier",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      expectedResult: "invariant-passed",
+      expectedTypedDecisionCount: 2,
+      expectedTypedStages: ["requested", "requested"],
+      expectedTypedOutcomes: ["allow", "deny"],
+      expectedTypedReasons: ["dynamic-session", "missing-authority"],
+      allowedCoverageEdgeIds: ["edge.terminal"],
+      expectedActionIds: ["sys:read"],
+    },
+  });
+  catalog.summary.byScenario = { "generation-recheck": 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function targetAbsenceObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
   return {
@@ -686,6 +750,81 @@ function globalReadObservation(recipe) {
     },
     legacyObservationCount: 0,
     typedDecisions: [],
+  };
+}
+
+function callbackRuntimeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const packagePrincipal = {
+    kind: "package",
+    name: "image-lib",
+    integrity: `sha256-${"A".repeat(43)}`,
+    locator: "image-lib@2.4.1",
+  };
+  const generationsBefore = { negative: 0, dynamic: 1, handle: 0 };
+  const generationsAfter = { negative: 1, dynamic: 2, handle: 0 };
+  const decision = (outcome, reason, suffix, generations) => ({
+    decisionSet: {
+      decisionSetSchema: "ibex/capsec-decision-set/1",
+      operationId: `fixture-callback-${suffix}`,
+      atomicityGroup: "edge.terminal.decision",
+      combination: "conjunction",
+      context: {
+        stage: "requested",
+        actor: packagePrincipal,
+        constrainedPrincipals: [packagePrincipal],
+        presentedHandleIds: [],
+      },
+      effects: [
+        {
+          cap: "sys:read",
+          effectOwner: packagePrincipal,
+          resource: {
+            kind: "system-info-occurrence",
+            requested: { kind: "system-info", name: "platform" },
+          },
+        },
+      ],
+    },
+    gates: [
+      {
+        coverageEdgeId: "edge.terminal",
+        targetCell: "complete",
+        definitionAndEdgePredicatesSatisfied: true,
+      },
+    ],
+    evidence: { outcome, generations, evidence: [{ reason }] },
+  });
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      scenario: invocation.scenario,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "callback-security-invariant",
+        scenario: invocation.scenario,
+        outcome: "passed",
+        checks: {
+          callbackExecuted: true,
+          actualPrincipal: packagePrincipal,
+          generationsBefore,
+          generationsAfter,
+          generationAdvanced: true,
+          scheduledDecisionRechecked: true,
+          runtimeNonce: "u64:17",
+        },
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [
+      decision("allow", "dynamic-session", "before", generationsBefore),
+      decision("deny", "missing-authority", "after", generationsAfter),
+    ],
   };
 }
 
@@ -905,6 +1044,70 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);
+  });
+
+  test("accepts callback invariants only with exact typed outcomes and reasons", () => {
+    const catalog = completeCallbackCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = callbackRuntimeObservation(recipe);
+    const execution = buildPublicFixtureEvidence({
+      recipe,
+      engineBinaryDigest: engine.binaryDigest,
+      runtimeObservation: observed,
+      coverage,
+    });
+    expect(execution.evidence.terminalObservedKey).toBe(
+      recipe.publicSurfaceProbe.surfaceObservedKey,
+    );
+
+    const wrongReason = structuredClone(observed);
+    wrongReason.typedDecisions[1].evidence.evidence[0].reason =
+      "dynamic-session";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongReason,
+        coverage,
+      }),
+    ).toThrow(/typed reason disagrees/);
+
+    const wrongCheck = structuredClone(observed);
+    wrongCheck.invocation.result.checks.scheduledDecisionRechecked = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongCheck,
+        coverage,
+      }),
+    ).toThrow(/did not prove a post-revocation decision recheck/);
+
+    const legacy = structuredClone(observed);
+    legacy.legacyObservationCount = 1;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: legacy,
+        coverage,
+      }),
+    ).toThrow(/malformed runtime public observation/);
+  });
+
+  test("rejects hand-labeled callback terminals", () => {
+    const catalog = completeCallbackCatalog();
+    const recipe = catalog.recipes[0];
+    const observed = callbackRuntimeObservation(recipe);
+    observed.invocation.surfaceObservedKey = "native-op:__exactHandLabel";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      }),
+    ).toThrow(/not source-descriptor bound/);
   });
 
   test("rejects adapter-only evidence explicitly", () => {

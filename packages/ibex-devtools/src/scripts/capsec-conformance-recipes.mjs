@@ -21,6 +21,7 @@ import {
   nonCapabilityBuiltinProbeResidualReason,
 } from "./capsec-builtin-public-probe-templates.mjs";
 import { authoredBuiltinPublicProbe } from "./capsec-public-probe-templates.mjs";
+import { authoredCallbackInvariantProbe } from "./capsec-callback-invariant-probe-templates.mjs";
 import { authoredClosedPublicProbe } from "./capsec-closed-probe-templates.mjs";
 import { authoredTargetAbsenceProbe } from "./capsec-target-absence-probe-templates.mjs";
 
@@ -1112,6 +1113,9 @@ function residualReasons({
   route,
 }) {
   const reasons = [];
+  const callbackInvariantProbe =
+    publicSurfaceProbe?.invocation?.invocationSchema ===
+    "ibex/capsec-callback-invariant-invocation/1";
   if (plan.expectedObservation.kind === "target-absence") {
     if (!publicSurfaceProbe) {
       reasons.push("target-absence-probe-not-authored");
@@ -1154,14 +1158,15 @@ function residualReasons({
   }
   if (
     route.alternatives.length === 0 &&
-    plan.expectedObservation.kind !== "target-absence"
+    plan.expectedObservation.kind !== "target-absence" &&
+    !callbackInvariantProbe
   ) {
     reasons.push("no-static-enforcement-terminal");
   }
   if (route.alternatives.length > 1 && !publicSurfaceProbe) {
     reasons.push("argument-selected-terminal-alternatives-not-authored");
   }
-  if (route.ambiguousCallees.length > 0) {
+  if (route.ambiguousCallees.length > 0 && !callbackInvariantProbe) {
     reasons.push("ambiguous-static-enforcement-route");
   }
   return canonicalSet(reasons);
@@ -1254,6 +1259,15 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
       coverageByObservedKey,
     });
+    const callbackInvariantProbe = authoredCallbackInvariantProbe({
+      plan,
+      scenario,
+      rows,
+      route,
+      liveByObservedKey,
+      coverageByEdge,
+      coverageByObservedKey,
+    });
     const effectBuiltinPublicSurfaceProbe = authoredBuiltinPublicProbe({
       plan,
       scenario,
@@ -1275,13 +1289,15 @@ export function buildConformanceRecipeCatalog({
       route,
       liveByObservedKey,
     });
-    const authoredPublicSurfaceProbes = [
-      nativePublicSurface.probe ? null : targetAbsenceProbe,
-      closedPublicSurfaceProbe,
-      effectBuiltinPublicSurfaceProbe,
-      nonCapabilityBuiltinPublicSurfaceProbe,
-      nativePublicSurface.probe,
-    ].filter((probe) => probe !== null);
+    const authoredPublicSurfaceProbes = callbackInvariantProbe
+      ? [callbackInvariantProbe]
+      : [
+          nativePublicSurface.probe ? null : targetAbsenceProbe,
+          closedPublicSurfaceProbe,
+          effectBuiltinPublicSurfaceProbe,
+          nonCapabilityBuiltinPublicSurfaceProbe,
+          nativePublicSurface.probe,
+        ].filter((probe) => probe !== null);
     if (authoredPublicSurfaceProbes.length > 1) {
       throw new Error(
         `${plan.fixtureId}: multiple public probe authors claimed one fixture`,

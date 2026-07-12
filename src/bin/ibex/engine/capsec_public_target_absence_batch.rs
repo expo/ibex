@@ -518,6 +518,7 @@ async fn execute_target_absence_recipe(
     })
 }
 
+#[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_target_absence_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {

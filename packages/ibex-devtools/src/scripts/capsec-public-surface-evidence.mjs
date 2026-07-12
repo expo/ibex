@@ -193,6 +193,221 @@ function coverageTerminalMap(coverage) {
   return terminals;
 }
 
+const isTaggedDigest = (value) =>
+  typeof value === "string" && /^sha256-[A-Za-z0-9_-]{43}$/u.test(value);
+const isTaggedRuntimeNonce = (value) =>
+  typeof value === "string" && /^u64:[1-9][0-9]*$/u.test(value);
+
+function validateGenerationSet(value, label) {
+  exactKeys(value, ["negative", "dynamic", "handle"], label);
+  if (
+    ![value.negative, value.dynamic, value.handle].every(
+      (generation) => Number.isSafeInteger(generation) && generation >= 0,
+    )
+  ) {
+    throw new Error(`${label} is not a non-negative typed generation set`);
+  }
+}
+
+function validateRootPrincipal(value, label) {
+  exactKeys(value, ["kind", "identity"], label);
+  if (value.kind !== "root" || value.identity !== "project-root") {
+    throw new Error(`${label} is not the armed project root`);
+  }
+}
+
+function validateCallbackPackagePrincipal(value, label) {
+  exactKeys(value, ["kind", "name", "integrity", "locator"], label);
+  if (
+    value.kind !== "package" ||
+    value.name !== "image-lib" ||
+    value.locator !== "image-lib@2.4.1" ||
+    !isTaggedDigest(value.integrity)
+  ) {
+    throw new Error(`${label} is not the authenticated callback package`);
+  }
+}
+
+function validateCallbackInvariantResult(result, authored, fixtureId) {
+  exactKeys(
+    result,
+    ["kind", "scenario", "outcome", "checks"],
+    `${fixtureId}: callback invariant runtime result`,
+  );
+  if (
+    result.kind !== "callback-security-invariant" ||
+    result.scenario !== authored.scenario ||
+    result.outcome !== "passed"
+  ) {
+    throw new Error(`${fixtureId}: callback invariant did not pass its authored scenario`);
+  }
+  const checks = result.checks;
+  const label = `${fixtureId}: ${authored.scenario} checks`;
+  if (authored.scenario === "attribution-missing-deny") {
+    exactKeys(
+      checks,
+      [
+        "callbackExecuted",
+        "actualPrincipal",
+        "invalidAttributionDenied",
+        "runtimeNonce",
+      ],
+      label,
+    );
+    validateRootPrincipal(checks.actualPrincipal, `${label} actual principal`);
+    if (
+      checks.callbackExecuted !== true ||
+      checks.invalidAttributionDenied !== true ||
+      !isTaggedRuntimeNonce(checks.runtimeNonce)
+    ) {
+      throw new Error(`${label} did not prove fail-closed callback attribution`);
+    }
+    return;
+  }
+  if (authored.scenario === "generation-recheck") {
+    exactKeys(
+      checks,
+      [
+        "callbackExecuted",
+        "actualPrincipal",
+        "generationsBefore",
+        "generationsAfter",
+        "generationAdvanced",
+        "scheduledDecisionRechecked",
+        "runtimeNonce",
+      ],
+      label,
+    );
+    validateCallbackPackagePrincipal(
+      checks.actualPrincipal,
+      `${label} actual principal`,
+    );
+    validateGenerationSet(checks.generationsBefore, `${label} generations before`);
+    validateGenerationSet(checks.generationsAfter, `${label} generations after`);
+    if (
+      checks.callbackExecuted !== true ||
+      checks.generationAdvanced !== true ||
+      checks.scheduledDecisionRechecked !== true ||
+      checks.generationsAfter.negative <= checks.generationsBefore.negative ||
+      checks.generationsAfter.dynamic <= checks.generationsBefore.dynamic ||
+      checks.generationsAfter.handle !== checks.generationsBefore.handle ||
+      !isTaggedRuntimeNonce(checks.runtimeNonce)
+    ) {
+      throw new Error(`${label} did not prove a post-revocation decision recheck`);
+    }
+    return;
+  }
+  if (authored.scenario === "principal-restore") {
+    exactKeys(
+      checks,
+      [
+        "callbackExecuted",
+        "callbackPrincipal",
+        "restoredPrincipal",
+        "principalRestored",
+        "runtimeNonce",
+      ],
+      label,
+    );
+    validateCallbackPackagePrincipal(
+      checks.callbackPrincipal,
+      `${label} callback principal`,
+    );
+    validateRootPrincipal(checks.restoredPrincipal, `${label} restored principal`);
+    if (
+      checks.callbackExecuted !== true ||
+      checks.principalRestored !== true ||
+      !isTaggedRuntimeNonce(checks.runtimeNonce)
+    ) {
+      throw new Error(`${label} did not prove callback-principal restoration`);
+    }
+    return;
+  }
+  if (authored.scenario === "snapshot-mismatch-deny") {
+    exactKeys(
+      checks,
+      [
+        "callbackExecuted",
+        "actualPrincipal",
+        "sourceSnapshotDigest",
+        "targetSnapshotDigest",
+        "snapshotDigestsDiffer",
+        "foreignBearerDenied",
+        "sourceRuntimeNonce",
+        "targetRuntimeNonce",
+      ],
+      label,
+    );
+    validateRootPrincipal(checks.actualPrincipal, `${label} actual principal`);
+    if (
+      checks.callbackExecuted !== true ||
+      !isTaggedDigest(checks.sourceSnapshotDigest) ||
+      !isTaggedDigest(checks.targetSnapshotDigest) ||
+      checks.sourceSnapshotDigest === checks.targetSnapshotDigest ||
+      checks.snapshotDigestsDiffer !== true ||
+      checks.foreignBearerDenied !== true ||
+      !isTaggedRuntimeNonce(checks.sourceRuntimeNonce) ||
+      !isTaggedRuntimeNonce(checks.targetRuntimeNonce) ||
+      checks.sourceRuntimeNonce === checks.targetRuntimeNonce
+    ) {
+      throw new Error(`${label} did not prove cross-snapshot bearer rejection`);
+    }
+    return;
+  }
+  if (authored.scenario === "cannot-widen-authority") {
+    exactKeys(
+      checks,
+      [
+        "bridgeExecuted",
+        "requestRefused",
+        "generationsBefore",
+        "generationsAfter",
+        "generationsUnchanged",
+      ],
+      label,
+    );
+    validateGenerationSet(checks.generationsBefore, `${label} generations before`);
+    validateGenerationSet(checks.generationsAfter, `${label} generations after`);
+    if (
+      checks.bridgeExecuted !== true ||
+      checks.requestRefused !== true ||
+      checks.generationsUnchanged !== true ||
+      canonicalJson(checks.generationsBefore) !== canonicalJson(checks.generationsAfter)
+    ) {
+      throw new Error(`${label} did not prove that the bridge cannot widen authority`);
+    }
+    return;
+  }
+  if (authored.scenario === "post-lockdown-invariant") {
+    const booleanChecks = [
+      "bridgeExecuted",
+      "structuralLockdown",
+      "intrinsicsFrozen",
+      "evaluatorsTamed",
+      "hatchesAbsent",
+      "compartmentWithholdsAuthority",
+      "prototypeMutationBlocked",
+      "authorityRequestRefused",
+      "generationsUnchanged",
+    ];
+    exactKeys(
+      checks,
+      [...booleanChecks, "generationsBefore", "generationsAfter"],
+      label,
+    );
+    validateGenerationSet(checks.generationsBefore, `${label} generations before`);
+    validateGenerationSet(checks.generationsAfter, `${label} generations after`);
+    if (
+      !booleanChecks.every((name) => checks[name] === true) ||
+      canonicalJson(checks.generationsBefore) !== canonicalJson(checks.generationsAfter)
+    ) {
+      throw new Error(`${label} did not prove the post-lockdown invariant`);
+    }
+    return;
+  }
+  throw new Error(`${fixtureId}: unsupported callback invariant scenario`);
+}
+
 function validateRuntimeInvocation(observation, recipe) {
   const invocation = observation.invocation;
   const authored = recipe.publicSurfaceProbe?.invocation;
@@ -282,6 +497,25 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
       );
     }
+  } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-callback-invariant-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceKind", "surfaceName", "scenario"],
+      `${recipe.fixtureId}: callback invariant runtime invocation`,
+    );
+    if (
+      invocation.kind !== "callback-security-invariant" ||
+      invocation.surfaceKind !== authored.surfaceKind ||
+      invocation.surfaceName !== authored.surfaceName ||
+      invocation.scenario !== authored.scenario
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: callback invariant runtime invocation descriptor drift`,
+      );
+    }
   } else {
     throw new Error(
       `${recipe.fixtureId}: unsupported runtime invocation schema`,
@@ -324,6 +558,23 @@ function validateRuntimeInvocation(observation, recipe) {
     throw new Error(
       `${recipe.fixtureId}: malformed authored runtime expectations`,
     );
+  }
+  const callbackInvariant =
+    authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
+  if (
+    callbackInvariant &&
+    (!Array.isArray(authored.expectedTypedOutcomes) ||
+      authored.expectedTypedOutcomes.length !== authored.expectedTypedDecisionCount ||
+      !authored.expectedTypedOutcomes.every((outcome) =>
+        ["allow", "deny"].includes(outcome),
+      ) ||
+      !Array.isArray(authored.expectedTypedReasons) ||
+      authored.expectedTypedReasons.length !== authored.expectedTypedDecisionCount ||
+      !authored.expectedTypedReasons.every(
+        (reason) => typeof reason === "string" && reason.length > 0,
+      ))
+  ) {
+    throw new Error(`${recipe.fixtureId}: malformed callback invariant expectations`);
   }
   if (!invocation.result || typeof invocation.result !== "object") {
     throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
@@ -479,6 +730,11 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed CLI control reached execution or the wrong rejection`,
       );
     }
+  } else if (authored.expectedResult === "invariant-passed") {
+    if (!callbackInvariant) {
+      throw new Error(`${recipe.fixtureId}: non-callback probe claimed an invariant result`);
+    }
+    validateCallbackInvariantResult(invocation.result, authored, recipe.fixtureId);
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported expected public result`);
   }
@@ -544,7 +800,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     observation.typedDecisions.length === 0
       ? null
       : coverageTerminalMap(coverage);
-  for (const decision of observation.typedDecisions) {
+  const callbackInvariant =
+    authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
+  for (const [decisionIndex, decision] of observation.typedDecisions.entries()) {
     exactKeys(
       decision,
       ["decisionSet", "gates", "evidence"],
@@ -589,12 +847,71 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       }
       terminals.add(terminal);
     }
-    const expectedOutcome =
-      authored.expectedResult === "permission-denied" ? "deny" : "allow";
+    const expectedOutcome = callbackInvariant
+      ? authored.expectedTypedOutcomes[decisionIndex]
+      : authored.expectedResult === "permission-denied"
+        ? "deny"
+        : "allow";
     if (decision.evidence?.outcome !== expectedOutcome) {
       throw new Error(
         `${recipe.fixtureId}: observed typed outcome disagrees with invocation`,
       );
+    }
+    if (
+      callbackInvariant &&
+      (!Array.isArray(decision.evidence?.evidence) ||
+        decision.evidence.evidence.length === 0 ||
+        decision.evidence.evidence[0]?.reason !==
+          authored.expectedTypedReasons[decisionIndex])
+    ) {
+      throw new Error(`${recipe.fixtureId}: observed typed reason disagrees with invariant`);
+    }
+  }
+  if (callbackInvariant) {
+    const checks = observation.invocation.result.checks;
+    const actorAt = (index) =>
+      observation.typedDecisions[index]?.decisionSet?.context?.actor;
+    const same = (left, right) => canonicalJson(left) === canonicalJson(right);
+    if (
+      authored.scenario === "attribution-missing-deny" &&
+      !same(actorAt(0), checks.actualPrincipal)
+    ) {
+      throw new Error(`${recipe.fixtureId}: attribution evidence used the wrong actor`);
+    }
+    if (
+      authored.scenario === "generation-recheck" &&
+      (!observation.typedDecisions.every((decision) =>
+        same(decision.decisionSet.context.actor, checks.actualPrincipal),
+      ) ||
+        !same(
+          observation.typedDecisions[0]?.evidence?.generations,
+          checks.generationsBefore,
+        ) ||
+        !same(
+          observation.typedDecisions[1]?.evidence?.generations,
+          checks.generationsAfter,
+        ))
+    ) {
+      throw new Error(`${recipe.fixtureId}: generation evidence is not decision-bound`);
+    }
+    if (
+      authored.scenario === "principal-restore" &&
+      (!same(actorAt(0), checks.callbackPrincipal) ||
+        !same(actorAt(1), checks.restoredPrincipal))
+    ) {
+      throw new Error(`${recipe.fixtureId}: principal restoration is not decision-bound`);
+    }
+    if (
+      authored.scenario === "snapshot-mismatch-deny" &&
+      (!observation.typedDecisions.every((decision) =>
+        same(decision.decisionSet.context.actor, checks.actualPrincipal),
+      ) ||
+        observation.typedDecisions[0]?.evidence?.identity?.armedSnapshotDigest !==
+          checks.sourceSnapshotDigest ||
+        observation.typedDecisions[1]?.evidence?.identity?.armedSnapshotDigest !==
+          checks.targetSnapshotDigest)
+    ) {
+      throw new Error(`${recipe.fixtureId}: snapshot evidence is not decision-bound`);
     }
   }
   if (
@@ -615,7 +932,12 @@ function validateRuntimeObservation(observation, recipe, coverage) {
   }
 
   let terminalObservedKey;
-  if (observation.typedDecisions.length === 0) {
+  if (callbackInvariant) {
+    if (observation.typedDecisions.length > 0 && terminals.size !== 1) {
+      throw new Error(`${recipe.fixtureId}: callback evidence selected multiple auxiliaries`);
+    }
+    terminalObservedKey = observation.invocation.surfaceObservedKey;
+  } else if (observation.typedDecisions.length === 0) {
     const validZeroDecisionScenario =
       (recipe.classification === "non-capability" &&
         recipe.scenario === "non-capability") ||
@@ -656,14 +978,18 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     }
     terminalObservedKey = [...terminals][0];
   }
-  const allowed = recipe.route?.alternatives?.map(
-    (alternative) => alternative.terminalObservedKey,
-  );
+  const allowed = callbackInvariant
+    ? [recipe.publicSurfaceProbe.surfaceObservedKey]
+    : recipe.route?.alternatives?.map(
+        (alternative) => alternative.terminalObservedKey,
+      );
   const exactTargetAbsence =
     authored.expectedResult === "absent" &&
     recipe.expectedObservation?.kind === "target-absence";
   if (
-    exactTargetAbsence
+    callbackInvariant
+      ? !allowed.includes(terminalObservedKey)
+      : exactTargetAbsence
       ? allowed?.length !== 0 ||
         terminalObservedKey !== recipe.terminalObservedKey
       : !allowed?.includes(terminalObservedKey)

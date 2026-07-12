@@ -100,6 +100,10 @@ extern "C" {
     fn ex_hermes_now_ms() -> u64;
     fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
     fn ex_hermes_has_pending_tasks(runtime: *mut HermesRuntimeOpaque) -> i32;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ex_hermes_current_runtime_nonce() -> u64;
+    #[cfg(all(test, feature = "capsec-conformance-observer"))]
+    fn ex_hermes_current_principal_id() -> u64;
     fn ex_hermes_debugger_enable(runtime: *mut HermesRuntimeOpaque) -> i32;
     fn ex_hermes_debugger_get_scripts(
         runtime: *mut HermesRuntimeOpaque,
@@ -260,12 +264,24 @@ fn evaluate_capsec_conformance_adapter(args: &str) -> Result<String> {
     ibex_runtime::host::abi::ex_host_free_string(response);
     let (legacy_observations, typed_observations) =
         ibex_runtime::host::abi::take_installed_conformance_observations();
+    // Read these on the runtime thread while the host call's exact JS frame and
+    // any scoped native callback principal are still live. Callback-invariant
+    // public evidence uses them to bind the typed request to the actual engine
+    // execution context instead of trusting the actor encoded in JSON.
+    // @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    let execution_context = unsafe {
+        serde_json::json!({
+            "principalId": format!("u64:{}", ex_hermes_current_principal_id()),
+            "runtimeNonce": format!("u64:{}", ex_hermes_current_runtime_nonce()),
+        })
+    };
     let adapter = capsec_semantics::strict_json::parse_strict(&response_text)
         .map_err(|error| anyhow!("typed decision adapter returned invalid JSON: {error}"))?;
     serde_json::to_string(&serde_json::json!({
         "adapter": adapter,
         "legacyObservations": legacy_observations,
         "typedObservations": typed_observations,
+        "executionContext": execution_context,
     }))
     .context("conformance adapter response serialization failed")
 }
@@ -2661,6 +2677,11 @@ mod tests {
     #[cfg(feature = "capsec-conformance-observer")]
     mod capsec_public_closed_batch {
         include!("capsec_public_closed_batch.rs");
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_public_callback_invariant_batch {
+        include!("capsec_public_callback_invariant_batch.rs");
     }
 
     #[cfg(feature = "capsec-conformance-observer")]

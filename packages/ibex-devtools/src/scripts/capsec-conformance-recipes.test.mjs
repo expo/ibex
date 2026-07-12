@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(193);
+    expect(nativePublicFixtures).toHaveLength(163);
     expect(
       nativePublicFixtures
         .filter(
@@ -128,7 +128,7 @@ describe("exact-target CapSec executable recipes", () => {
         (recipe) =>
           recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
       ),
-    ).toHaveLength(56);
+    ).toHaveLength(26);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -201,6 +201,101 @@ describe("exact-target CapSec executable recipes", () => {
     expect(allow.publicSurfaceProbe.invocation).not.toHaveProperty(
       "terminalObservedKey",
     );
+  });
+
+  test("source-binds every callback and authority-control invariant", () => {
+    const callbackRecipes = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-callback-invariant-invocation/1",
+    );
+    expect(callbackRecipes).toHaveLength(2_822);
+    expect(
+      Object.fromEntries(
+        [
+          "attribution-missing-deny",
+          "generation-recheck",
+          "principal-restore",
+          "snapshot-mismatch-deny",
+          "cannot-widen-authority",
+          "post-lockdown-invariant",
+        ].map((scenario) => [
+          scenario,
+          callbackRecipes.filter((recipe) => recipe.scenario === scenario)
+            .length,
+        ]),
+      ),
+    ).toEqual({
+      "attribution-missing-deny": 556,
+      "generation-recheck": 556,
+      "principal-restore": 556,
+      "snapshot-mismatch-deny": 556,
+      "cannot-widen-authority": 299,
+      "post-lockdown-invariant": 299,
+    });
+    expect(
+      callbackRecipes.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.surfaceObservedKey ===
+            recipe.terminalObservedKey,
+      ),
+    ).toBe(true);
+    const snapshot = callbackRecipes.find(
+      (recipe) => recipe.scenario === "snapshot-mismatch-deny",
+    );
+    expect(snapshot.publicSurfaceProbe).toMatchObject({
+      kind: "public-surface-invocation",
+      command: [
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--features",
+        "capsec-conformance-observer",
+        "capsec_public_callback_invariant_batch",
+        "--",
+        "--test-threads=1",
+      ],
+      invocation: {
+        kind: "callback-security-invariant",
+        expectedResult: "invariant-passed",
+        expectedTypedDecisionCount: 2,
+        expectedTypedStages: ["commit", "commit"],
+        expectedTypedOutcomes: ["allow", "deny"],
+        expectedTypedReasons: ["bearer-handle", "invalid-attribution"],
+        allowedCoverageEdgeIds: [
+          "surface.host.abi.ex.host.fs.read.file.042wgnk",
+        ],
+        expectedActionIds: ["fs:read"],
+        sourceDescriptor: {
+          kind: "callback-security-invariant",
+          scenario: "snapshot-mismatch-deny",
+          rationaleId: "callback-attribution-carrier",
+          auxiliaryDecisionEdgeId:
+            "surface.host.abi.ex.host.fs.read.file.042wgnk",
+        },
+      },
+    });
+    expect(snapshot.publicSurfaceProbe.invocation.sourceDescriptorDigest).toMatch(
+      /^sha256-/u,
+    );
+    const control = callbackRecipes.find(
+      (recipe) => recipe.scenario === "post-lockdown-invariant",
+    );
+    expect(control.publicSurfaceProbe.invocation).toMatchObject({
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      expectedTypedOutcomes: [],
+      expectedTypedReasons: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+      sourceDescriptor: {
+        rationaleId: "authority-control-plane",
+        auxiliaryDecisionEdgeId: null,
+      },
+    });
   });
 
   test("binds native public probes to source-derived JSI descriptors", () => {

@@ -1248,6 +1248,7 @@ fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
             .eq(NATIVE_PUBLIC_BATCH_COMMAND)
 }
 
+#[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_native_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {

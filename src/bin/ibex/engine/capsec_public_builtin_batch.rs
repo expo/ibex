@@ -490,6 +490,7 @@ async fn execute_isolated_recipe(
     .await
 }
 
+#[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_builtin_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {

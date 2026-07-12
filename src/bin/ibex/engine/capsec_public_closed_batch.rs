@@ -203,8 +203,10 @@ fn closed_surface_probe(recipe: &Recipe) -> Option<ClosedSurfaceProbe> {
     )
 }
 
+#[cfg(test)]
 struct ClosedEnvironmentRestore(Vec<(String, Option<OsString>)>);
 
+#[cfg(test)]
 impl ClosedEnvironmentRestore {
     fn clear() -> Self {
         let mut names = ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES
@@ -223,6 +225,7 @@ impl ClosedEnvironmentRestore {
     }
 }
 
+#[cfg(test)]
 impl Drop for ClosedEnvironmentRestore {
     fn drop(&mut self) {
         for (name, value) in &self.0 {
@@ -255,6 +258,7 @@ async fn attest_exact_engine() {
     );
 }
 
+#[cfg(test)]
 async fn execute_closed_startup_environment(
     recipe: &Recipe,
     probe: &ClosedSurfaceProbe,
@@ -959,6 +963,7 @@ async fn execute_closed_cli_control(
     })
 }
 
+#[cfg(test)]
 #[tokio::test(flavor = "current_thread")]
 async fn capsec_public_closed_recipe_batch() {
     let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {

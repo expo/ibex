@@ -970,6 +970,17 @@ decision and its exact structured evidence from one evaluation; bounded
 history receives a clone of that same record and is no longer queried to build
 the response.
 
+Implementation update (2026-07-12): exact source-bound public conformance now
+executes six callback/control-plane invariants against the loaded armed Hermes
+engine: missing attribution denies, scheduled decisions recheck authority after
+generation changes, callback principals restore after delivery, bearer handles
+cannot cross snapshot identities, public grant requests cannot widen the static
+ceiling, and lockdown remains structurally immutable. The 2,822 applicable
+non-capability fixtures carry runtime-derived results, exact structured typed
+outcomes/reasons where an auxiliary decision is required, and zero legacy
+observations. This closes those recipe obligations without advertising a target;
+target promotion remains gated on the complete exact-target execution report.
+
 ### WP9 — Make complete enforcement the default and remove weakening paths
 
 Flip ordinary CLI execution and embedding defaults only after WP4–WP8 cover the
