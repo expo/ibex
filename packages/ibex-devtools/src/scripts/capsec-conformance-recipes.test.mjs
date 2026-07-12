@@ -695,6 +695,128 @@ describe("exact-target CapSec executable recipes", () => {
     ).toBe(true);
   });
 
+  test("promotes only exact absent reads for the three isolated startup environment sources", () => {
+    const startupEnvironmentRecipes = recipes.recipes.filter(
+      (recipe) =>
+        recipe.classification === "effects" &&
+        recipe.terminalObservedKey.startsWith("startup:env:"),
+    );
+    expect(startupEnvironmentRecipes).toHaveLength(668);
+    const authored = startupEnvironmentRecipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-startup-environment-invocation/1",
+    );
+    expect(authored).toHaveLength(9);
+    expect(
+      authored.map((recipe) => [
+        recipe.terminalObservedKey,
+        recipe.scenario,
+      ]),
+    ).toEqual([
+      ["startup:env:TZ", "allow"],
+      ["startup:env:TZ", "branch-selection"],
+      ["startup:env:TZ", "deny"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "allow"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "branch-selection"],
+      ["startup:env:EXACT_DEBUG_EMIT_LISTENER", "deny"],
+      ["startup:env:NODE_DEBUG", "allow"],
+      ["startup:env:NODE_DEBUG", "branch-selection"],
+      ["startup:env:NODE_DEBUG", "deny"],
+    ]);
+    const expectedSources = new Map([
+      [
+        "TZ",
+        {
+          sourceRef:
+            "packages/ibex-runtime-js/src/node/process.ts#process.env:TZ:read",
+          mechanism: "date-to-string",
+          moduleSpecifier: null,
+          preloads: [],
+        },
+      ],
+      [
+        "EXACT_DEBUG_EMIT_LISTENER",
+        {
+          sourceRef:
+            "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
+          mechanism: "event-emitter-emit",
+          moduleSpecifier: "node:events",
+          preloads: ["node:events"],
+        },
+      ],
+      [
+        "NODE_DEBUG",
+        {
+          sourceRef: "src/builtins/http.js#process.env:NODE_DEBUG:read",
+          mechanism: "builtin-module-load",
+          moduleSpecifier: "node:http",
+          preloads: ["node:util"],
+        },
+      ],
+    ]);
+    for (const recipe of authored) {
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      const name = invocation.operation.environment.name;
+      const expected = expectedSources.get(name);
+      expect(recipe).toMatchObject({
+        status: "fully-executable",
+        residualReasons: [],
+        actionIds: ["env:read"],
+      });
+      expect(invocation).toMatchObject({
+        kind: "startup-environment-source",
+        surfaceKind: "startup",
+        surfaceName: `env:${name}`,
+        expectedResult: "return",
+        allowedCoverageEdgeIds: ["surface.native.op.exactgetenv.0k6bv7a"],
+        expectedActionIds: ["env:read"],
+        expectedResourceNames: [name],
+        operation: {
+          kind: expected.mechanism,
+          moduleSpecifier: expected.moduleSpecifier,
+          preloadModuleSpecifiers: expected.preloads,
+          environment: { name, presence: "absent" },
+        },
+      });
+      expect(invocation.sourceDescriptor).toMatchObject({
+        environmentName: name,
+        sourceRef: expected.sourceRef,
+        executionMechanism: expected.mechanism,
+        selectedBranch: { id: "absent" },
+        auxiliaryDecisionEdgeId: "surface.native.op.exactgetenv.0k6bv7a",
+      });
+      const denial = recipe.scenario === "deny";
+      expect(invocation.expectedTypedStages).toEqual(
+        denial ? ["requested"] : ["requested", "commit"],
+      );
+      expect(invocation.expectedTypedOutcomes).toEqual(
+        denial ? ["deny"] : ["allow", "allow"],
+      );
+      expect(invocation.expectedTypedReasons).toEqual(
+        denial
+          ? ["principal-denial"]
+          : ["static-floor", "static-floor"],
+      );
+    }
+    expect(
+      startupEnvironmentRecipes.filter(
+        (recipe) => recipe.status === "unresolved",
+      ),
+    ).toHaveLength(659);
+    for (const environmentName of expectedSources.keys()) {
+      const residual = startupEnvironmentRecipes.filter(
+        (recipe) =>
+          recipe.terminalObservedKey === `startup:env:${environmentName}` &&
+          recipe.status === "unresolved",
+      );
+      expect(residual).toHaveLength(9);
+      expect(
+        residual.every((recipe) => recipe.publicSurfaceProbe === null),
+      ).toBe(true);
+    }
+  });
+
   test("binds executable loader kinds to real fail-closed file imports", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>

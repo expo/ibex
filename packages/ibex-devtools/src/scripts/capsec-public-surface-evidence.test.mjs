@@ -44,6 +44,40 @@ const coverage = {
       effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
     },
     {
+      id: "edge.startup-env-node-debug",
+      classification: "effects",
+      effectMode: "conditional",
+      surface: { kind: "startup", name: "env:NODE_DEBUG" },
+      logicalBranches: [
+        {
+          id: "absent",
+          when: [
+            {
+              fact: "environment.startup.node_debug",
+              equals: "absent",
+            },
+          ],
+          effects: [{ cap: "env:read", stages: ["requested", "commit"] }],
+        },
+        {
+          id: "present",
+          when: [
+            {
+              fact: "environment.startup.node_debug",
+              equals: "present",
+            },
+          ],
+          effects: [
+            { cap: "env:read", stages: ["requested", "commit"] },
+            {
+              cap: "stdio:write",
+              stages: ["requested", "commit", "repeat"],
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "edge.host-sqlite",
       classification: "effects",
       surface: { kind: "host-abi", name: "ex_host_sqlite_open" },
@@ -892,6 +926,185 @@ function completeCallbackCatalog() {
   return catalog;
 }
 
+function completeStartupEnvironmentCatalog(scenario = "allow") {
+  const catalog = structuredClone(completeCatalog());
+  const recipe = catalog.recipes[0];
+  const selectedBranch = structuredClone(
+    coverage.edges
+      .find((edge) => edge.id === "edge.startup-env-node-debug")
+      .logicalBranches.find((branch) => branch.id === "absent"),
+  );
+  const sourceDescriptor = {
+    kind: "startup-environment-source",
+    surfaceObservedKey: "startup:env:NODE_DEBUG",
+    environmentName: "NODE_DEBUG",
+    sourceRef: "src/builtins/http.js#process.env:NODE_DEBUG:read",
+    liveSourceRefs: [
+      "src/builtins/http.js#process.env:NODE_DEBUG:read",
+      "src/builtins/util.js#process.env:NODE_DEBUG:read",
+    ],
+    carrierEdgeId: "edge.startup-env-node-debug",
+    implementationBranchIds: ["edge.startup-env-node-debug.main"],
+    enforcementBranchIds: ["enforcement.startup-env-node-debug"],
+    selectedBranch,
+    executionMechanism: "builtin-module-load",
+    moduleSpecifier: "node:http",
+    preloadModuleSpecifiers: ["node:util"],
+    principalMode: scenario === "deny" ? "package-denied" : "root-authorized",
+    auxiliaryDecisionEdgeId: "edge.callback-terminal",
+  };
+  Object.assign(recipe, {
+    fixtureId: `fixture.startup.env.node-debug.absent.${scenario}`,
+    scenario,
+    edgeIds: ["edge.startup-env-node-debug"],
+    implementationBranchIds: ["edge.startup-env-node-debug.main"],
+    enforcementBranchIds: ["enforcement.startup-env-node-debug"],
+    actionIds: ["env:read"],
+    terminalObservedKey: "startup:env:NODE_DEBUG",
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "enforcement.startup-env-node-debug",
+    },
+    route: {
+      surfaceObservedKeys: ["startup:env:NODE_DEBUG"],
+      alternatives: [
+        {
+          terminalObservedKey: "startup:env:NODE_DEBUG",
+          proofPaths: ["startup:env:NODE_DEBUG"],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+  });
+  const denial = scenario === "deny";
+  Object.assign(recipe.publicSurfaceProbe, {
+    surfaceObservedKey: recipe.terminalObservedKey,
+    command: ["cargo", "test", "capsec_public_startup_environment_batch"],
+    invocation: {
+      invocationSchema: "ibex/capsec-startup-environment-invocation/1",
+      kind: "startup-environment-source",
+      scenario,
+      surfaceKind: "startup",
+      surfaceName: "env:NODE_DEBUG",
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "builtin-module-load",
+        moduleSpecifier: "node:http",
+        preloadModuleSpecifiers: ["node:util"],
+        environment: { name: "NODE_DEBUG", presence: "absent" },
+        principalMode: sourceDescriptor.principalMode,
+      },
+      expectedResult: "return",
+      expectedTypedDecisionCount: denial ? 1 : 2,
+      expectedTypedStages: denial
+        ? ["requested"]
+        : ["requested", "commit"],
+      expectedTypedOutcomes: denial ? ["deny"] : ["allow", "allow"],
+      expectedTypedReasons: denial
+        ? ["principal-denial"]
+        : ["static-floor", "static-floor"],
+      allowedCoverageEdgeIds: ["edge.callback-terminal"],
+      expectedActionIds: ["env:read"],
+      expectedResourceNames: ["NODE_DEBUG"],
+    },
+  });
+  catalog.summary.byScenario = { [scenario]: 1 };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function startupEnvironmentRuntimeObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  const denial = invocation.scenario === "deny";
+  const actor = denial
+    ? {
+        kind: "package",
+        name: "image-lib",
+        integrity: `sha256-${"A".repeat(43)}`,
+        locator: "image-lib@2.4.1",
+      }
+    : { kind: "root", identity: "project-root" };
+  const constrainedPrincipals = denial
+    ? [{ kind: "root", identity: "project-root" }, actor]
+    : [actor];
+  const decision = (stage, index) => ({
+    decisionSet: {
+      decisionSetSchema: "ibex/capsec-decision-set/1",
+      operationId: `fixture-startup-environment-${stage}`,
+      atomicityGroup: "edge.callback-terminal.decision",
+      combination: "conjunction",
+      context: {
+        stage,
+        actor,
+        constrainedPrincipals,
+        presentedHandleIds: [],
+      },
+      effects: [
+        {
+          cap: "env:read",
+          effectOwner: actor,
+          resource: {
+            kind: "environment-occurrence",
+            requested: {
+              kind: "environment-name",
+              target: "broker-base",
+              name: "NODE_DEBUG",
+            },
+            valueOrigin: "broker-base",
+          },
+        },
+      ],
+    },
+    gates: [
+      {
+        coverageEdgeId: "edge.callback-terminal",
+        targetCell: "complete",
+        definitionAndEdgePredicatesSatisfied: true,
+      },
+    ],
+    evidence: {
+      outcome: invocation.expectedTypedOutcomes[index],
+      evidence: [
+        {
+          effectIndex: 0,
+          principal: actor,
+          reason: invocation.expectedTypedReasons[index],
+        },
+      ],
+    },
+  });
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      surfaceKind: invocation.surfaceKind,
+      surfaceName: invocation.surfaceName,
+      scenario: invocation.scenario,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: {
+        kind: "return",
+        surfaceKind: "startup",
+        surfaceName: invocation.surfaceName,
+        mechanism: invocation.operation.kind,
+        moduleSpecifier: invocation.operation.moduleSpecifier,
+        environmentName: invocation.operation.environment.name,
+        environmentPresence: "absent",
+        principalMode: invocation.operation.principalMode,
+        engineExecuted: true,
+        projectCodeExecuted: true,
+        sourceOutcome: denial ? "denied-as-absent" : "source-observed",
+        errorName: null,
+        errorMessage: null,
+      },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: invocation.expectedTypedStages.map(decision),
+  };
+}
+
 function targetAbsenceObservation(recipe) {
   const invocation = recipe.publicSurfaceProbe.invocation;
   return {
@@ -1709,6 +1922,123 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage: driftedCoverage,
       }),
     ).toThrow(/auxiliary decision is not coverage-bound/);
+  });
+
+  test("accepts startup environment carriers only with exact source, resource, and principal evidence", () => {
+    for (const scenario of ["allow", "deny", "branch-selection"]) {
+      const catalog = completeStartupEnvironmentCatalog(scenario);
+      const recipe = catalog.recipes[0];
+      const observed = startupEnvironmentRuntimeObservation(recipe);
+      const execution = buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observed,
+        coverage,
+      });
+      expect(execution.evidence.terminalObservedKey).toBe(
+        "startup:env:NODE_DEBUG",
+      );
+    }
+
+    const catalog = completeStartupEnvironmentCatalog("allow");
+    const recipe = catalog.recipes[0];
+    const observed = startupEnvironmentRuntimeObservation(recipe);
+
+    const wrongResource = structuredClone(observed);
+    wrongResource.typedDecisions[0].decisionSet.effects[0].resource.requested.name =
+      "NODE_OPTIONS";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongResource,
+        coverage,
+      }),
+    ).toThrow(/lost its exact resource or principal binding/);
+
+    const wrongActor = structuredClone(observed);
+    wrongActor.typedDecisions[0].decisionSet.context.actor = {
+      kind: "package",
+      name: "image-lib",
+      integrity: `sha256-${"B".repeat(43)}`,
+      locator: "image-lib@2.4.1",
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongActor,
+        coverage,
+      }),
+    ).toThrow(/typed reason disagrees|exact resource or principal binding/);
+
+    const wrongGate = structuredClone(observed);
+    wrongGate.typedDecisions[0].decisionSet.atomicityGroup =
+      "edge.startup-env-node-debug.decision";
+    wrongGate.typedDecisions[0].gates[0].coverageEdgeId =
+      "edge.startup-env-node-debug";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongGate,
+        coverage,
+      }),
+    ).toThrow(/unbound or incomplete typed gate/);
+
+    const wrongResult = structuredClone(observed);
+    wrongResult.invocation.result.environmentPresence = "present";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongResult,
+        coverage,
+      }),
+    ).toThrow(/did not prove the startup environment source outcome/);
+
+    const driftedRecipe = structuredClone(recipe);
+    driftedRecipe.publicSurfaceProbe.invocation.sourceDescriptor.selectedBranch.when =
+      [
+        {
+          fact: "environment.startup.node_debug",
+          equals: "present",
+        },
+      ];
+    driftedRecipe.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        driftedRecipe.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const driftedObservation = structuredClone(observed);
+    driftedObservation.invocation.sourceDescriptorDigest =
+      driftedRecipe.publicSurfaceProbe.invocation.sourceDescriptorDigest;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: driftedRecipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: driftedObservation,
+        coverage,
+      }),
+    ).toThrow(/startup environment auxiliary decision is not coverage-bound/);
+
+    const wrongAuxiliary = structuredClone(recipe);
+    wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptor.auxiliaryDecisionEdgeId =
+      "edge.terminal";
+    wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptorDigest =
+      taggedDigest(
+        wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptor,
+      );
+    const wrongAuxiliaryObservation = structuredClone(observed);
+    wrongAuxiliaryObservation.invocation.sourceDescriptorDigest =
+      wrongAuxiliary.publicSurfaceProbe.invocation.sourceDescriptorDigest;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: wrongAuxiliary,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongAuxiliaryObservation,
+        coverage,
+      }),
+    ).toThrow(/startup environment auxiliary decision is not coverage-bound/);
   });
 
   test("rejects hand-labeled callback terminals", () => {

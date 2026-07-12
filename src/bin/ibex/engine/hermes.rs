@@ -2726,6 +2726,11 @@ mod tests {
         include!("capsec_public_startup_batch.rs");
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_public_startup_environment_batch {
+        include!("capsec_public_startup_environment_batch.test.rs");
+    }
+
     use std::fs;
     #[cfg(feature = "host-http-server")]
     use std::io::{Read, Write};

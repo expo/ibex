@@ -129,6 +129,51 @@ const STARTUP_EXPECTATIONS = new Map(
   ),
 );
 
+// Independent verifier authority for startup environment source carriers.
+// This intentionally does not import the recipe template: a template edit
+// must not be able to rewrite both the claim and the verifier in one place.
+const STARTUP_ENVIRONMENT_EXPECTATIONS = new Map([
+  [
+    "NODE_DEBUG",
+    {
+      sourceRef: "src/builtins/http.js#process.env:NODE_DEBUG:read",
+      liveSourceRefs: [
+        "src/builtins/http.js#process.env:NODE_DEBUG:read",
+        "src/builtins/util.js#process.env:NODE_DEBUG:read",
+      ],
+      mechanism: "builtin-module-load",
+      moduleSpecifier: "node:http",
+      preloadModuleSpecifiers: ["node:util"],
+    },
+  ],
+  [
+    "EXACT_DEBUG_EMIT_LISTENER",
+    {
+      sourceRef:
+        "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
+      liveSourceRefs: [
+        "src/builtins/events.js#process.env:EXACT_DEBUG_EMIT_LISTENER:read",
+      ],
+      mechanism: "event-emitter-emit",
+      moduleSpecifier: "node:events",
+      preloadModuleSpecifiers: ["node:events"],
+    },
+  ],
+  [
+    "TZ",
+    {
+      sourceRef:
+        "packages/ibex-runtime-js/src/node/process.ts#process.env:TZ:read",
+      liveSourceRefs: [
+        "packages/ibex-runtime-js/src/node/process.ts#process.env:TZ:read",
+      ],
+      mechanism: "date-to-string",
+      moduleSpecifier: null,
+      preloadModuleSpecifiers: [],
+    },
+  ],
+]);
+
 function exactKeys(value, keys, label) {
   if (
     !value ||
@@ -655,6 +700,94 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else if (
+    invocation?.invocationSchema ===
+    "ibex/capsec-startup-environment-invocation/1"
+  ) {
+    exactKeys(
+      invocation,
+      [...commonKeys, "surfaceKind", "surfaceName", "scenario"],
+      `${recipe.fixtureId}: startup environment runtime invocation`,
+    );
+    const descriptor = authored.sourceDescriptor;
+    const operation = authored.operation;
+    exactKeys(
+      descriptor,
+      [
+        "kind",
+        "surfaceObservedKey",
+        "environmentName",
+        "sourceRef",
+        "liveSourceRefs",
+        "carrierEdgeId",
+        "implementationBranchIds",
+        "enforcementBranchIds",
+        "selectedBranch",
+        "executionMechanism",
+        "moduleSpecifier",
+        "preloadModuleSpecifiers",
+        "principalMode",
+        "auxiliaryDecisionEdgeId",
+      ],
+      `${recipe.fixtureId}: startup environment source descriptor`,
+    );
+    exactKeys(
+      operation,
+      [
+        "kind",
+        "moduleSpecifier",
+        "preloadModuleSpecifiers",
+        "environment",
+        "principalMode",
+      ],
+      `${recipe.fixtureId}: startup environment operation`,
+    );
+    exactKeys(
+      operation.environment,
+      ["name", "presence"],
+      `${recipe.fixtureId}: startup environment setup`,
+    );
+    const environmentName = operation.environment.name;
+    const sourceExpectation =
+      STARTUP_ENVIRONMENT_EXPECTATIONS.get(environmentName);
+    const expectedPrincipalMode =
+      authored.scenario === "deny" ? "package-denied" : "root-authorized";
+    if (
+      invocation.kind !== "startup-environment-source" ||
+      invocation.surfaceKind !== "startup" ||
+      invocation.surfaceName !== `env:${environmentName}` ||
+      invocation.scenario !== authored.scenario ||
+      !["allow", "deny", "branch-selection"].includes(authored.scenario) ||
+      descriptor.kind !== "startup-environment-source" ||
+      descriptor.surfaceObservedKey !== `startup:env:${environmentName}` ||
+      descriptor.environmentName !== environmentName ||
+      sourceExpectation === undefined ||
+      descriptor.sourceRef !== sourceExpectation?.sourceRef ||
+      canonicalJson(descriptor.liveSourceRefs) !==
+        canonicalJson(sourceExpectation?.liveSourceRefs) ||
+      descriptor.carrierEdgeId !== recipe.edgeIds?.[0] ||
+      canonicalJson(descriptor.implementationBranchIds) !==
+        canonicalJson(recipe.implementationBranchIds) ||
+      canonicalJson(descriptor.enforcementBranchIds) !==
+        canonicalJson(recipe.enforcementBranchIds) ||
+      descriptor.selectedBranch?.id !== "absent" ||
+      descriptor.executionMechanism !== sourceExpectation?.mechanism ||
+      operation.kind !== sourceExpectation?.mechanism ||
+      descriptor.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
+      operation.moduleSpecifier !== sourceExpectation?.moduleSpecifier ||
+      canonicalJson(descriptor.preloadModuleSpecifiers) !==
+        canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
+      canonicalJson(operation.preloadModuleSpecifiers) !==
+        canonicalJson(sourceExpectation?.preloadModuleSpecifiers) ||
+      descriptor.principalMode !== expectedPrincipalMode ||
+      operation.principalMode !== expectedPrincipalMode ||
+      operation.environment.presence !== "absent" ||
+      !Array.isArray(operation.preloadModuleSpecifiers)
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: startup environment runtime invocation descriptor drift`,
+      );
+    }
+  } else if (
     invocation?.invocationSchema === "ibex/capsec-target-absence-invocation/1"
   ) {
     exactKeys(
@@ -727,6 +860,10 @@ function validateRuntimeInvocation(observation, recipe) {
   }
   const callbackInvariant =
     authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
+  const startupEnvironment =
+    authored.invocationSchema ===
+    "ibex/capsec-startup-environment-invocation/1";
+  const auxiliaryCarrier = callbackInvariant || startupEnvironment;
   if (
     !Number.isSafeInteger(authored.expectedTypedDecisionCount) ||
     authored.expectedTypedDecisionCount < 0 ||
@@ -744,7 +881,7 @@ function validateRuntimeInvocation(observation, recipe) {
     !authored.expectedActionIds.every(
       (actionId) => typeof actionId === "string" && actionId.length > 0,
     ) ||
-    (!callbackInvariant &&
+    (!auxiliaryCarrier &&
       authored.expectedActionIds.some(
         (actionId) => !recipe.actionIds.includes(actionId),
       )) ||
@@ -760,7 +897,7 @@ function validateRuntimeInvocation(observation, recipe) {
     );
   }
   if (
-    callbackInvariant &&
+    auxiliaryCarrier &&
     (!Array.isArray(authored.expectedTypedOutcomes) ||
       authored.expectedTypedOutcomes.length !== authored.expectedTypedDecisionCount ||
       !authored.expectedTypedOutcomes.every((outcome) =>
@@ -772,7 +909,17 @@ function validateRuntimeInvocation(observation, recipe) {
         (reason) => typeof reason === "string" && reason.length > 0,
       ))
   ) {
-    throw new Error(`${recipe.fixtureId}: malformed callback invariant expectations`);
+    throw new Error(`${recipe.fixtureId}: malformed auxiliary carrier expectations`);
+  }
+  if (
+    startupEnvironment &&
+    (!Array.isArray(authored.expectedResourceNames) ||
+      canonicalJson(authored.expectedResourceNames) !==
+        canonicalJson(canonicalSet(authored.expectedResourceNames)) ||
+      authored.expectedResourceNames.length !== 1 ||
+      authored.expectedResourceNames[0] !== authored.operation.environment.name)
+  ) {
+    throw new Error(`${recipe.fixtureId}: malformed startup environment resource binding`);
   }
   if (!invocation.result || typeof invocation.result !== "object") {
     throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
@@ -901,6 +1048,47 @@ function validateRuntimeInvocation(observation, recipe) {
       ) {
         throw new Error(
           `${recipe.fixtureId}: loaded engine did not prove the startup postcondition`,
+        );
+      }
+    } else if (startupEnvironment) {
+      exactKeys(
+        invocation.result,
+        [
+          "kind",
+          "surfaceKind",
+          "surfaceName",
+          "mechanism",
+          "moduleSpecifier",
+          "environmentName",
+          "environmentPresence",
+          "principalMode",
+          "engineExecuted",
+          "projectCodeExecuted",
+          "sourceOutcome",
+          "errorName",
+          "errorMessage",
+        ],
+        `${recipe.fixtureId}: startup environment runtime result`,
+      );
+      const operation = authored.operation;
+      const denial = authored.scenario === "deny";
+      if (
+        invocation.result.surfaceKind !== "startup" ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.mechanism !== operation.kind ||
+        invocation.result.moduleSpecifier !== operation.moduleSpecifier ||
+        invocation.result.environmentName !== operation.environment.name ||
+        invocation.result.environmentPresence !== "absent" ||
+        invocation.result.principalMode !== operation.principalMode ||
+        invocation.result.engineExecuted !== true ||
+        invocation.result.projectCodeExecuted !== true ||
+        invocation.result.sourceOutcome !==
+          (denial ? "denied-as-absent" : "source-observed") ||
+        invocation.result.errorName !== null ||
+        invocation.result.errorMessage !== null
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: loaded engine did not prove the startup environment source outcome`,
         );
       }
     }
@@ -1168,6 +1356,10 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       : coverageTerminalMap(coverage);
   const callbackInvariant =
     authored.invocationSchema === "ibex/capsec-callback-invariant-invocation/1";
+  const startupEnvironment =
+    authored.invocationSchema ===
+    "ibex/capsec-startup-environment-invocation/1";
+  const auxiliaryCarrier = callbackInvariant || startupEnvironment;
   if (callbackInvariant) {
     // Callback/control surfaces are non-capabilities, but their invariant can
     // exercise one separately reviewed effect edge. Bind that auxiliary
@@ -1205,6 +1397,55 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     ) {
       throw new Error(
         `${recipe.fixtureId}: callback auxiliary decision is not coverage-bound`,
+      );
+    }
+  }
+  if (startupEnvironment) {
+    const descriptor = authored.sourceDescriptor;
+    const auxiliaryEdgeId = descriptor?.auxiliaryDecisionEdgeId ?? null;
+    const auxiliaryEdge = coverage?.edges?.find(
+      (edge) => edge.id === auxiliaryEdgeId,
+    );
+    const carrierEdge = coverage?.edges?.find(
+      (edge) => edge.id === descriptor?.carrierEdgeId,
+    );
+    const selectedBranch = carrierEdge?.logicalBranches?.find(
+      (branch) => branch.id === descriptor?.selectedBranch?.id,
+    );
+    const environmentName = authored.operation?.environment?.name;
+    const expectedFact = `environment.startup.${environmentName?.toLowerCase()}`;
+    const auxiliaryActions = canonicalSet(
+      (auxiliaryEdge?.effects ?? []).map((effect) => effect.cap),
+    );
+    const auxiliaryStages = new Set(
+      (auxiliaryEdge?.effects ?? []).flatMap((effect) => effect.stages ?? []),
+    );
+    if (
+      auxiliaryEdge?.classification !== "effects" ||
+      canonicalJson(auxiliaryActions) !== canonicalJson(["env:read"]) ||
+      !authored.expectedTypedStages.every((stage) =>
+        auxiliaryStages.has(stage),
+      ) ||
+      canonicalJson(authored.allowedCoverageEdgeIds) !==
+        canonicalJson([auxiliaryEdgeId]) ||
+      canonicalJson(authored.expectedActionIds) !==
+        canonicalJson(["env:read"]) ||
+      carrierEdge?.classification !== "effects" ||
+      carrierEdge?.surface?.kind !== "startup" ||
+      carrierEdge?.surface?.name !== `env:${environmentName}` ||
+      carrierEdge?.id !== recipe.edgeIds?.[0] ||
+      canonicalJson(selectedBranch) !==
+        canonicalJson(descriptor.selectedBranch) ||
+      canonicalJson(selectedBranch?.when) !==
+        canonicalJson([{ fact: expectedFact, equals: "absent" }]) ||
+      canonicalJson(
+        canonicalSet((selectedBranch?.effects ?? []).map((effect) => effect.cap)),
+      ) !== canonicalJson(recipe.actionIds) ||
+      recipe.terminalObservedKey !== `startup:env:${environmentName}` ||
+      descriptor.surfaceObservedKey !== recipe.terminalObservedKey
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: startup environment auxiliary decision is not coverage-bound`,
       );
     }
   }
@@ -1253,7 +1494,7 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       }
       terminals.add(terminal);
     }
-    const expectedOutcome = callbackInvariant
+    const expectedOutcome = auxiliaryCarrier
       ? authored.expectedTypedOutcomes[decisionIndex]
       : authored.expectedResult === "permission-denied"
         ? "deny"
@@ -1264,7 +1505,7 @@ function validateRuntimeObservation(observation, recipe, coverage) {
       );
     }
     if (
-      callbackInvariant &&
+      auxiliaryCarrier &&
       (!Array.isArray(decision.evidence?.evidence) ||
         decision.evidence.evidence.length === 0 ||
         decision.evidence.evidence.find((entry) =>
@@ -1273,7 +1514,47 @@ function validateRuntimeObservation(observation, recipe, coverage) {
         )?.reason !==
           authored.expectedTypedReasons[decisionIndex])
     ) {
-      throw new Error(`${recipe.fixtureId}: observed typed reason disagrees with invariant`);
+      throw new Error(`${recipe.fixtureId}: observed typed reason disagrees with carrier`);
+    }
+    if (startupEnvironment) {
+      const environmentName = authored.operation.environment.name;
+      const actor = set.context.actor;
+      const packageMode = authored.operation.principalMode === "package-denied";
+      const expectedActor = packageMode
+        ? actor?.kind === "package" &&
+          actor.name === "image-lib" &&
+          actor.locator === "image-lib@2.4.1" &&
+          typeof actor.integrity === "string" &&
+          /^sha256-[A-Za-z0-9_-]{43}$/.test(actor.integrity)
+        : canonicalJson(actor) ===
+          canonicalJson({ kind: "root", identity: "project-root" });
+      const expectedConstrained = packageMode
+        ? [{ kind: "root", identity: "project-root" }, actor]
+        : [actor];
+      const effect = set.effects[0];
+      if (
+        set.effects.length !== 1 ||
+        decision.gates.length !== 1 ||
+        expectedActor !== true ||
+        canonicalJson(set.context.constrainedPrincipals) !==
+          canonicalJson(expectedConstrained) ||
+        canonicalJson(effect?.effectOwner) !== canonicalJson(actor) ||
+        effect?.cap !== "env:read" ||
+        canonicalJson(effect?.resource) !==
+          canonicalJson({
+            kind: "environment-occurrence",
+            requested: {
+              kind: "environment-name",
+              target: "broker-base",
+              name: environmentName,
+            },
+            valueOrigin: "broker-base",
+          })
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: startup environment decision lost its exact resource or principal binding`,
+        );
+      }
     }
   }
   if (callbackInvariant) {
@@ -1343,9 +1624,9 @@ function validateRuntimeObservation(observation, recipe, coverage) {
   }
 
   let terminalObservedKey;
-  if (callbackInvariant) {
+  if (auxiliaryCarrier) {
     if (observation.typedDecisions.length > 0 && terminals.size !== 1) {
-      throw new Error(`${recipe.fixtureId}: callback evidence selected multiple auxiliaries`);
+      throw new Error(`${recipe.fixtureId}: carrier evidence selected multiple auxiliaries`);
     }
     terminalObservedKey = observation.invocation.surfaceObservedKey;
   } else if (observation.typedDecisions.length === 0) {
@@ -1392,7 +1673,7 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     }
     terminalObservedKey = [...terminals][0];
   }
-  const allowed = callbackInvariant
+  const allowed = auxiliaryCarrier
     ? [recipe.publicSurfaceProbe.surfaceObservedKey]
     : recipe.route?.alternatives?.map(
         (alternative) => alternative.terminalObservedKey,
@@ -1401,7 +1682,7 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     authored.expectedResult === "absent" &&
     recipe.expectedObservation?.kind === "target-absence";
   if (
-    callbackInvariant
+    auxiliaryCarrier
       ? !allowed.includes(terminalObservedKey)
       : exactTargetAbsence
       ? allowed?.length !== 0 ||
