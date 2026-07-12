@@ -235,6 +235,15 @@ bool env_flag_enabled(const char* env_name) {
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
+extern "C" int32_t ex_host_is_armed(void);
+extern "C" int32_t ex_host_authorize_typed_fs_open(
+    uint64_t module_id,
+    const char* path,
+    uint32_t stage,
+    int32_t fd,
+    int32_t needs_read,
+    int32_t needs_write,
+    const char* presented_handle_id);
 extern "C" int32_t ex_host_matches_armed_snapshot_digest(const char* digest);
 extern "C" int32_t ex_host_typed_dynamic_grant(const uint8_t* request,
                                                  size_t request_len);

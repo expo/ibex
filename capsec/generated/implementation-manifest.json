@@ -65219,6 +65219,26 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2",
+      "observedKey": "host-abi:ex_host_authorize_typed_fs_open",
+      "branchId": "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2.default.1awtfe4",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_typed_fs_open"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2.default.1awtfe4.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2.default.1awtfe4.non-capability",
+        "surface.host.abi.ex.host.authorize.typed.fs.open.1t9cvl2.default.1awtfe4.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.check.capability.1h17wl4",
       "observedKey": "host-abi:ex_host_check_capability",
       "branchId": "surface.host.abi.ex.host.check.capability.1h17wl4.default.073jogi",
@@ -66679,6 +66699,26 @@
         "surface.host.abi.ex.host.is.allow.all.113ix11.default.1p3d7kb.cannot-widen-authority",
         "surface.host.abi.ex.host.is.allow.all.113ix11.default.1p3d7kb.non-capability",
         "surface.host.abi.ex.host.is.allow.all.113ix11.default.1p3d7kb.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.is.armed.180ae9j",
+      "observedKey": "host-abi:ex_host_is_armed",
+      "branchId": "surface.host.abi.ex.host.is.armed.180ae9j.default.16129z1",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_is_armed"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.is.armed.180ae9j.default.16129z1.cannot-widen-authority",
+        "surface.host.abi.ex.host.is.armed.180ae9j.default.16129z1.non-capability",
+        "surface.host.abi.ex.host.is.armed.180ae9j.default.16129z1.post-lockdown-invariant"
       ]
     },
     {
@@ -143764,53 +143804,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-HMpzGJwLnvzZhjlhNLjHoB5080oVd_YXOmKBDNwoO70"
+      "rawContentDigest": "sha256-gv-gcFAeCmXKpkja843Cp-IUo9hzzHY2lsd-jAvtvPQ"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-k6ahgncYFhF7xUU6keW6OE6P6z7g33VIRBiMFOWBhgc"
+      "rawContentDigest": "sha256-Am5s6uGe2aVN2mcqdjQT2VQP-aCqGQOTUfV4WbAUc7Y"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-tgJ8heYUWjlwki1TwlIwdxgBFw44XaRDmESxofP79uA"
+      "rawContentDigest": "sha256-wDPOxfjDFYmVrNKXLH5oKjMi7PMfwpG_fwuyAH1Cbjs"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-iMkTr-FXnj42ExG6e11Oskgr8V-n3Y45dAtf1AKG-4c"
+      "rawContentDigest": "sha256-nIdHuMajzH7E0TZxsluao9_dXU-clqiIRnl6AbuE84Y"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-wxNTFVkAdt0P85mkq-amFCdO0M1NhDbLWtvLzsu7SYU"
+      "rawContentDigest": "sha256-D7JQUv_ikjF-8jF9SlPxlD3pT-NG843g6r9oMe53EaQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-iiIBlTeU7HbiDKLaHR9KF6IuA3vGMRovvq9T7DYV_Lg"
+      "rawContentDigest": "sha256-AMpiKMCFiHDY6SFF7t7kAG9q63vAjGO45EpMjSgGMus"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-I13w4MNfcLo7jhRry8lHEiAUTKTqxuTmyKukN3w567M"
+      "rawContentDigest": "sha256-oSXKPeSTHiW2nO_Ujo_l82xTihKCB8GXolfzluW8kdc"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-JSDjFI6hJdztPeSVy63prfmZ6h2Y8tci0j1q2i6rneU"
+      "rawContentDigest": "sha256-yk7a0k2WS0CAaBNVUOOCCpne3Sw1qdwV47rheULuP-Y"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-OT9XGUQfV9ovdxR8uCNsVONBqT0HGm93VHuj7qH2YaM"
+      "rawContentDigest": "sha256-KypECb6G7kWnXmGvYcDqjUCo9xQSlscqFI1wI3qUaUg"
     }
   ],
   "counts": {
-    "observedReferences": 11116,
-    "logicalSurfaces": 6845,
-    "coverageEdges": 6845,
-    "targetCells": 6845
+    "observedReferences": 11118,
+    "logicalSurfaces": 6847,
+    "coverageEdges": 6847,
+    "targetCells": 6847
   }
 }

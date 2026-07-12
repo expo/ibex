@@ -58,6 +58,15 @@ extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
 extern "C" char* ex_host_fs_mkdtemp(const char* prefix, uint64_t module_id);
 extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint32_t len);
 extern "C" void ex_host_free_string(char* value);
+extern "C" int32_t ex_host_is_armed(void);
+extern "C" int32_t ex_host_authorize_typed_fs_open(
+    uint64_t module_id,
+    const char* path,
+    uint32_t stage,
+    int32_t fd,
+    int32_t needs_read,
+    int32_t needs_write,
+    const char* presented_handle_id);
 
 constexpr uint32_t EXACT_FS_WRITE = 1u << 1;
 constexpr uint32_t EXACT_FS_CREATE = 1u << 2;
@@ -456,9 +465,7 @@ static int parseOpenFlagsArg(
 // O_APPEND) requires fs:write, not merely fs:read. Runs on the JS thread
 // (capability checks must never move to a worker: the deputy stack that
 // checkCapability consults is thread-local to the JS thread). (ENG-22639)
-static void requireOpenCapability(
-    facebook::jsi::Runtime& runtime,
-    const std::string& path,
+static void classifyOpenAccess(
     int posixFlags,
     bool& needsRead,
     bool& needsWrite) {
@@ -473,6 +480,15 @@ static void requireOpenCapability(
   if (!needsWrite && !needsRead) {
     needsRead = true;
   }
+}
+
+static void requireOpenCapability(
+    facebook::jsi::Runtime& runtime,
+    const std::string& path,
+    int posixFlags,
+    bool& needsRead,
+    bool& needsWrite) {
+  classifyOpenAccess(posixFlags, needsRead, needsWrite);
   if (!isAllowAll()) {
     if (needsWrite && !checkCapability("fs:write:" + path)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -1916,7 +1932,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto fsOpenFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactFsOpen"),
-      3,
+      4,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1929,7 +1945,36 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;
         bool needsWrite = false;
-        requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        const bool armed = ex_host_is_armed() == 1;
+        std::string presentedHandle;
+        const char* presentedHandlePtr = nullptr;
+        if (count > 3 && !args[3].isUndefined() && !args[3].isNull()) {
+          if (!args[3].isString()) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactFsOpen: typed handleId must be a string");
+          }
+          presentedHandle = args[3].asString(runtime).utf8(runtime);
+          presentedHandlePtr = presentedHandle.c_str();
+        }
+        if (armed) {
+          classifyOpenAccess(posixFlags, needsRead, needsWrite);
+          if (ex_host_authorize_typed_fs_open(
+                  currentPrincipalId(), path.c_str(), 0, -1,
+                  needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                  presentedHandlePtr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          // Write/create/truncate cannot safely defer fs:write authorization
+          // until after ::open, because the syscall may already have mutated
+          // the filesystem. Keep the armed branch closed until the discovery
+          // phase walks a retained parent and commits with openat/openat2.
+          if (needsWrite) {
+            throw facebook::jsi::JSError(
+                runtime, "Permission denied: typed write open requires retained-parent discovery");
+          }
+        } else {
+          requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
+        }
 
         int mode = 0666;
         if (count > 2 && args[2].isNumber()) {
@@ -1939,6 +1984,13 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         int fd = ::open(path.c_str(), posixFlags, mode);
         if (fd < 0) {
           throwFsError(runtime, "open", path);
+        }
+        if (armed && ex_host_authorize_typed_fs_open(
+                         currentPrincipalId(), path.c_str(), 1, fd,
+                         needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                         presentedHandlePtr) != 1) {
+          ::close(fd);
+          throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         // @ref LLP 0013#policy — raw POSIX fds are forgeable integers, so the
         // host records the owner/path/access class at open and later fd ops

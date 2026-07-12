@@ -332,6 +332,102 @@ impl Host {
         snapshot.logical_path_for_host_components(principal, &components)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorize_typed_fs_open_stage(
+        &self,
+        module_id: &str,
+        path: &std::path::Path,
+        stage: capsec_semantics::model::Stage,
+        needs_read: bool,
+        needs_write: bool,
+        parent_object: Option<capsec_semantics::model::ObjectIdentity>,
+        final_object: Option<capsec_semantics::model::ObjectIdentity>,
+        retained_handle: Option<capsec_semantics::model::NonEmptyString>,
+        presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            FollowMode, ObjectState, OccurrenceResource, StableId,
+        };
+
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "filesystem operation has no authenticated typed principal".into(),
+            )
+        })?;
+        let requested = self.typed_logical_path(&principal, path)?;
+        let object_state = ObjectState::Existing;
+        let actions: Vec<&str> = match stage {
+            capsec_semantics::model::Stage::Requested
+            | capsec_semantics::model::Stage::Discovery => vec!["fs:list"],
+            _ => [
+                needs_read.then_some("fs:read"),
+                needs_write.then_some("fs:write"),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        };
+        if actions.is_empty() {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "filesystem open has no typed effect".into(),
+            ));
+        }
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let resource = OccurrenceResource::PathOccurrence {
+            requested,
+            follow_mode: FollowMode::FollowFinal,
+            object_state,
+            parent_object,
+            final_object,
+            retained_handle,
+        };
+        let effects = actions
+            .iter()
+            .map(|action| {
+                Ok(Effect {
+                    action: ActionId::new(*action)
+                        .map_err(capsec_semantics::Error::InvalidModel)?,
+                    effect_owner: principal.clone(),
+                    resource: resource.clone(),
+                })
+            })
+            .collect::<capsec_semantics::Result<Vec<_>>>()?;
+        let operation_id = capsec_semantics::model::NonEmptyString::new(format!(
+            "fs-open:{}:{}",
+            module_id, operation_resource
+        ))
+        .map_err(capsec_semantics::Error::InvalidModel)?;
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id,
+            atomicity_group: StableId::new("surface.native.op.exactfsopen.05ao6wa.decision")
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals: vec![principal],
+                presented_handle_ids,
+            },
+            effects,
+        };
+        let gates = actions
+            .iter()
+            .map(|_| {
+                Ok(EffectGate {
+                    coverage_edge_id: StableId::new("surface.native.op.exactfsopen.05ao6wa")
+                        .map_err(capsec_semantics::Error::InvalidModel)?,
+                    target_cell: TargetCellDisposition::Complete,
+                    definition_and_edge_predicates_satisfied: true,
+                })
+            })
+            .collect::<capsec_semantics::Result<Vec<_>>>()?;
+        self.evaluate_typed_decision(&set, &gates)
+    }
+
     /// Evaluate one complete typed effect set against the immutable authority
     /// context. Armed execution never falls back to the legacy string manager.
     pub fn evaluate_typed_decision(
@@ -1285,6 +1381,46 @@ mod tests {
         assert_eq!(mapped.root, capsec_semantics::model::LogicalRoot::Project);
         assert_eq!(mapped.components.len(), 2);
         assert!(host.typed_principal_for_module("999").is_none());
+        let open_path = std::path::Path::new("/Users/example/project/images/photo.jpg");
+        let requested_open = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                open_path,
+                capsec_semantics::model::Stage::Requested,
+                true,
+                false,
+                None,
+                None,
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            requested_open.outcome,
+            capsec_semantics::decision::DecisionOutcome::Allow
+        );
+        let object = |file: &str| capsec_semantics::model::ObjectIdentity {
+            platform: capsec_semantics::model::ObjectPlatform::Apple,
+            volume: capsec_semantics::model::NonEmptyString::new("dev:test").unwrap(),
+            file: capsec_semantics::model::NonEmptyString::new(file).unwrap(),
+        };
+        let committed_open = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                open_path,
+                capsec_semantics::model::Stage::Commit,
+                true,
+                false,
+                Some(object("parent")),
+                Some(object("photo")),
+                Some(capsec_semantics::model::NonEmptyString::new("fd:7").unwrap()),
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            committed_open.outcome,
+            capsec_semantics::decision::DecisionOutcome::Allow
+        );
         assert!(!host.check_capability("0", "fs:read:/anything"));
         assert!(!host.check_capability_stack(&["0"], "fs:read:/anything"));
         assert!(!host.check_import("0", "node:fs"));
@@ -1385,11 +1521,11 @@ mod tests {
         let denied = host.evaluate_typed_decision(&denied_set, &gates).unwrap();
         assert_eq!(denied.outcome, DecisionOutcome::Deny);
         let evidence = host.typed_evidence();
-        assert_eq!(evidence.len(), 2);
-        assert_eq!(evidence[0].outcome, DecisionOutcome::Allow);
-        assert_eq!(evidence[1].outcome, DecisionOutcome::Deny);
+        assert_eq!(evidence.len(), 4);
+        assert_eq!(evidence[2].outcome, DecisionOutcome::Allow);
+        assert_eq!(evidence[3].outcome, DecisionOutcome::Deny);
         assert_eq!(
-            evidence[0].identity.armed_snapshot_digest,
+            evidence[2].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
     }

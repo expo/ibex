@@ -963,6 +963,154 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
     }
 }
 
+/// Authorize one stage of the native `fs.open` branch against authenticated
+/// logical roots and, at commit, the actual retained descriptor identity.
+/// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
+///
+/// # Safety
+/// `path` and an optional `presented_handle_id` must be valid C strings.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
+    module_id: u64,
+    path: *const c_char,
+    stage: u32,
+    fd: i32,
+    needs_read: i32,
+    needs_write: i32,
+    presented_handle_id: *const c_char,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{NonEmptyString, Stage};
+
+    if path.is_null() || !matches!(stage, 0 | 1) {
+        return -1;
+    }
+    let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
+    #[cfg(unix)]
+    let path = {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(path_bytes))
+    };
+    #[cfg(not(unix))]
+    let path = match std::str::from_utf8(path_bytes) {
+        Ok(path) => std::path::PathBuf::from(path),
+        Err(_) => return -1,
+    };
+    let presented = if presented_handle_id.is_null() {
+        Vec::new()
+    } else {
+        let value = unsafe { CStr::from_ptr(presented_handle_id) }
+            .to_string_lossy()
+            .into_owned();
+        match NonEmptyString::new(value) {
+            Ok(value) => vec![value],
+            Err(_) => return -1,
+        }
+    };
+    let (stage, parent_object, final_object, retained_handle) = if stage == 0 {
+        (Stage::Requested, None, None, None)
+    } else {
+        if fd < 0 {
+            return -1;
+        }
+        #[cfg(unix)]
+        {
+            let Some(final_object) = object_identity_for_fd(fd) else {
+                return -1;
+            };
+            let Some(parent) = path.parent() else {
+                return -1;
+            };
+            let parent = if parent.as_os_str().is_empty() {
+                std::path::Path::new(".")
+            } else {
+                parent
+            };
+            let Some(parent_object) = object_identity_for_path(parent) else {
+                return -1;
+            };
+            let retained = match NonEmptyString::new(format!("fd:{fd}")) {
+                Ok(value) => value,
+                Err(_) => return -1,
+            };
+            (
+                Stage::Commit,
+                Some(parent_object),
+                Some(final_object),
+                Some(retained),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            return -1;
+        }
+    };
+    with_host(
+        |host| match host.authorize_typed_fs_open_stage(
+            &module_id.to_string(),
+            &path,
+            stage,
+            needs_read != 0,
+            needs_write != 0,
+            parent_object,
+            final_object,
+            retained_handle,
+            presented,
+        ) {
+            Ok(decision)
+                if matches!(
+                    decision.outcome,
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                ) =>
+            {
+                1
+            }
+            Ok(_) => 0,
+            Err(error) => {
+                eprintln!("error: typed fs.open authorization refused: {error}");
+                -1
+            }
+        },
+        -1,
+    )
+}
+
+#[cfg(unix)]
+fn object_identity_for_fd(fd: i32) -> Option<capsec_semantics::model::ObjectIdentity> {
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    object_identity_from_stat(unsafe { stat.assume_init() })
+}
+
+#[cfg(unix)]
+fn object_identity_for_path(
+    path: &std::path::Path,
+) -> Option<capsec_semantics::model::ObjectIdentity> {
+    let metadata = std::fs::metadata(path).ok()?;
+    object_identity(metadata.dev(), metadata.ino())
+}
+
+#[cfg(unix)]
+fn object_identity_from_stat(stat: libc::stat) -> Option<capsec_semantics::model::ObjectIdentity> {
+    object_identity(stat.st_dev as u64, stat.st_ino)
+}
+
+#[cfg(unix)]
+fn object_identity(dev: u64, ino: u64) -> Option<capsec_semantics::model::ObjectIdentity> {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    Some(ObjectIdentity {
+        platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+            ObjectPlatform::Apple
+        } else {
+            ObjectPlatform::Unix
+        },
+        volume: NonEmptyString::new(format!("dev:{dev}")).ok()?,
+        file: NonEmptyString::new(format!("ino:{ino}")).ok()?,
+    })
+}
+
 /// Publish a ceiling-bounded typed dynamic grant. Returns 1 when applied, 0
 /// for an idempotent duplicate, and -1 on malformed/forbidden input.
 ///
@@ -1126,6 +1274,11 @@ fn notify_runtime_authority_change() {
 #[no_mangle]
 pub extern "C" fn ex_host_is_allow_all() -> i32 {
     with_host(|host| if host.is_allow_all() { 1 } else { 0 }, 0)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_is_armed() -> i32 {
+    with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
 }
 
 /// Read an entire file into a heap-allocated buffer in a single call.

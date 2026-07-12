@@ -290,6 +290,7 @@ int ex_host_install_armed(const uint8_t* snapshot,
 
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);
+int ex_host_is_armed(void);
 
 /// Evaluate a strict typed decision-set JSON document and its effect-gate JSON
 /// array against the installed armed context. Returns a heap-owned JSON
@@ -298,6 +299,16 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
                                       size_t decision_set_len,
                                       const uint8_t* gates,
                                       size_t gates_len);
+
+/// Authorize requested (stage=0) or retained-fd commit (stage=1) facts for the
+/// native fs.open branch. `presented_handle_id` may be null.
+int ex_host_authorize_typed_fs_open(uint64_t module_id,
+                                    const char* path,
+                                    uint32_t stage,
+                                    int32_t fd,
+                                    int32_t needs_read,
+                                    int32_t needs_write,
+                                    const char* presented_handle_id);
 
 /// Publish or revoke ceiling-bounded typed dynamic authority. Grant input is a
 /// strict JSON request object; revoke input is a strict JSON string grant ID.
