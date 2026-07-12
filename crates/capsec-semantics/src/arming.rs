@@ -5,13 +5,23 @@
 //! returns an immutable value. No authored policy path or environment input is
 //! retained. @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::cache::GenerationSet;
+use crate::decision::{
+    ArmInputs, AuthorityCeiling, BoundAuthority, DecisionAuthorityState, PrincipalPolicy,
+    ProtectedObjectGuard, SemanticIdentity, TargetArmState, VerifiedDecisionContext,
+};
 use crate::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN};
-use crate::model::{Digest, Generation, SafeUint};
+use crate::model::{
+    ActionId, AuthoritySelector, Digest, Generation, NonEmptyString, ObjectIdentity, Principal,
+    SafeUint,
+};
+use crate::registry::DefinitionSet;
 use crate::strict_json::parse_strict;
 use crate::{Error, Result};
 
@@ -137,6 +147,193 @@ impl ArmedSnapshot {
     pub fn document(&self) -> &Value {
         &self.document
     }
+
+    /// Reconstruct the exact semantic identity authenticated by this snapshot.
+    pub fn semantic_identity(&self) -> Result<SemanticIdentity> {
+        Ok(SemanticIdentity {
+            profile: required_str(&self.document, "capsVocab")?,
+            semantic_core: required_str(&self.document, "semanticCore")?,
+            vocab_digest: digest_field(&self.document, "vocabDigest")?,
+            registry_digest: digest_field(&self.document, "registryDigest")?,
+            policy_digest: digest_field(&self.document, "policyDigest")?,
+            armed_snapshot_digest: self.armed_snapshot_digest.clone(),
+        })
+    }
+
+    /// Decode immutable authority rows for the typed decision engine. This is
+    /// deliberately one-way: no legacy capability strings or authored policy
+    /// fields are reconstructed after arming.
+    pub fn authority_state(&self) -> Result<DecisionAuthorityState> {
+        let principal_rows: Vec<SnapshotPrincipalRow> =
+            serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
+                .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
+        let mut principal_policies = BTreeMap::new();
+        for (principal_index, row) in principal_rows.into_iter().enumerate() {
+            let package_owner = row.principal.is_package().then(|| row.principal.clone());
+            let static_floor = bind_authorities(
+                row.floor,
+                principal_index,
+                "floor",
+                self.digest(),
+                package_owner.as_ref(),
+            )?;
+            let denials = bind_authorities(
+                row.denials,
+                principal_index,
+                "denial",
+                self.digest(),
+                package_owner.as_ref(),
+            )?;
+            let escalation_ceiling = AuthorityCeiling::Bounded(bind_authorities(
+                row.escalation_ceiling,
+                principal_index,
+                "ceiling",
+                self.digest(),
+                package_owner.as_ref(),
+            )?);
+            if principal_policies
+                .insert(
+                    row.principal,
+                    PrincipalPolicy {
+                        denials,
+                        static_floor,
+                        escalation_ceiling,
+                        implicit_package_self: Vec::new(),
+                    },
+                )
+                .is_some()
+            {
+                return refused("armed snapshot contains a duplicate principal");
+            }
+        }
+
+        let protected_rows: Vec<SnapshotProtectedObject> =
+            serde_json::from_value(value_at(&self.document, &["protectedObjects"])?.clone())
+                .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
+        let mut protected_objects = protected_rows
+            .into_iter()
+            .flat_map(|row| {
+                row.denied_actions
+                    .into_iter()
+                    .map(move |action| ProtectedObjectGuard {
+                        action,
+                        object: row.object.clone(),
+                    })
+            })
+            .collect::<Vec<_>>();
+        protected_objects.sort();
+        if protected_objects.windows(2).any(|pair| pair[0] == pair[1]) {
+            return refused("armed snapshot contains a duplicate protected-object guard");
+        }
+
+        let process_ceiling = match value_at(&self.document, &["processAuthorityCeiling"])?
+            .get("kind")
+            .and_then(Value::as_str)
+        {
+            Some("unbounded") => AuthorityCeiling::Unbounded,
+            Some("bounded") => {
+                let selectors: Vec<AuthoritySelector> = serde_json::from_value(
+                    value_at(&self.document, &["processAuthorityCeiling", "authorities"])?.clone(),
+                )
+                .map_err(|error| invalid(format!("invalid process ceiling: {error}")))?;
+                AuthorityCeiling::Bounded(bind_authorities(
+                    selectors,
+                    0,
+                    "process-ceiling",
+                    self.digest(),
+                    None,
+                )?)
+            }
+            _ => return Err(invalid("processAuthorityCeiling.kind is invalid")),
+        };
+
+        Ok(DecisionAuthorityState {
+            generations: GenerationSet {
+                negative: self.generations.negative,
+                dynamic: self.generations.dynamic,
+                handle: self.generations.handle,
+            },
+            process_ceiling,
+            protected_objects,
+            protected_resources: Vec::new(),
+            principal_policies,
+            revocations: Vec::new(),
+            handles: Vec::new(),
+            dynamic_grants: Vec::new(),
+        })
+    }
+
+    /// Arm the neutral decision evaluator directly from the authenticated
+    /// snapshot and a validated product definition set.
+    pub fn decision_context(&self, definitions: DefinitionSet) -> Result<VerifiedDecisionContext> {
+        let identity = self.semantic_identity()?;
+        VerifiedDecisionContext::arm(
+            ArmInputs {
+                expected_identity: identity.clone(),
+                loaded_identity: identity,
+                target: TargetArmState::CompleteAdvertised,
+                structure_valid: true,
+            },
+            definitions,
+            self.authority_state()?,
+        )
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SnapshotPrincipalRow {
+    principal: Principal,
+    floor: Vec<AuthoritySelector>,
+    denials: Vec<AuthoritySelector>,
+    escalation_ceiling: Vec<AuthoritySelector>,
+    #[allow(dead_code)]
+    imports: Value,
+    #[allow(dead_code)]
+    endowments: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SnapshotProtectedObject {
+    #[allow(dead_code)]
+    role: String,
+    object: ObjectIdentity,
+    denied_actions: Vec<ActionId>,
+}
+
+fn bind_authorities(
+    selectors: Vec<AuthoritySelector>,
+    principal_index: usize,
+    channel: &str,
+    snapshot_digest: &Digest,
+    package_owner: Option<&Principal>,
+) -> Result<Vec<BoundAuthority>> {
+    selectors
+        .into_iter()
+        .enumerate()
+        .map(|(authority_index, selector)| {
+            let source_id = NonEmptyString::new(format!(
+                "principal.{principal_index:06}.{channel}.{authority_index:06}"
+            ))
+            .map_err(Error::InvalidModel)?;
+            let package_root_owner = selector
+                .resource
+                .contains_package_logical_root()
+                .then(|| package_owner.cloned())
+                .flatten();
+            Ok(BoundAuthority {
+                source_id,
+                selector,
+                armed_snapshot_digest: snapshot_digest.clone(),
+                package_root_owner,
+            })
+        })
+        .collect()
+}
+
+fn digest_field(value: &Value, field: &str) -> Result<Digest> {
+    Digest::new(required_str(value, field)?).map_err(Error::InvalidModel)
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -237,6 +434,47 @@ mod tests {
         bytes.fill(b'x');
         assert_eq!(armed.digest(), &loaded_digest);
         assert_eq!(armed.document()["capsVocab"], expected.profile);
+    }
+
+    #[test]
+    fn decodes_typed_authority_without_reconstructing_legacy_strings() {
+        let (bytes, expected) = fixture();
+        let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
+        let identity = armed.semantic_identity().unwrap();
+        assert_eq!(identity.armed_snapshot_digest, armed.digest().clone());
+        assert_eq!(identity.policy_digest, expected.policy_digest);
+
+        let authority = armed.authority_state().unwrap();
+        assert_eq!(authority.principal_policies.len(), 2);
+        assert_eq!(authority.protected_objects.len(), 4);
+        assert_eq!(authority.generations.negative.get(), 0);
+        let package = authority
+            .principal_policies
+            .iter()
+            .find(|(principal, _)| principal.is_package())
+            .map(|(_, policy)| policy)
+            .unwrap();
+        assert_eq!(package.static_floor.len(), 1);
+        assert_eq!(package.static_floor[0].selector.action.as_str(), "fs:read");
+        assert!(package.static_floor[0].package_root_owner.is_none());
+        assert!(matches!(
+            authority.process_ceiling,
+            AuthorityCeiling::Unbounded
+        ));
+
+        let profile = crate::registry::ValidatedProfile::from_json(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../capsec/registry/capability-definitions.json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../capsec/registry/policy-rules.json"
+            )),
+        )
+        .unwrap();
+        let context = armed.decision_context(profile.definitions).unwrap();
+        assert_eq!(context.identity(), &identity);
     }
 
     #[test]

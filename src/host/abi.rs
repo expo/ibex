@@ -240,13 +240,15 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     let expected: ExpectedArmingIdentity = serde_json::from_value(expected_value)
         .map_err(|error| format!("invalid expected arming identity: {error}"))?;
     let armed = ArmedSnapshot::load(snapshot, &expected).map_err(|error| error.to_string())?;
-    install_host(Host::new_armed(
+    let host = Host::new_armed(
         super::HostConfig {
             mode: super::SecurityMode::Enforce,
             ..Default::default()
         },
         Arc::new(armed),
-    ));
+    )
+    .map_err(|error| error.to_string())?;
+    install_host(host);
     Ok(())
 }
 

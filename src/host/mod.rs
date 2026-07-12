@@ -119,6 +119,10 @@ pub struct Host {
     /// values are intentionally absent after this point.
     /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
     armed_snapshot: Option<Arc<capsec_semantics::arming::ArmedSnapshot>>,
+    /// Typed, validated authority state decoded from the immutable snapshot.
+    /// Legacy `PolicyFile` data never enters this context.
+    /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
+    decision_context: Option<Arc<capsec_semantics::decision::VerifiedDecisionContext>>,
 }
 
 impl Host {
@@ -193,6 +197,7 @@ impl Host {
             module_loader: loader,
             handles: Arc::new(handles::HandleRegistry::new()),
             armed_snapshot: None,
+            decision_context: None,
         }
     }
 
@@ -201,14 +206,46 @@ impl Host {
     pub fn new_armed(
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
-    ) -> Self {
+    ) -> capsec_semantics::Result<Self> {
+        if config.mode != SecurityMode::Enforce {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "an armed host requires enforce mode".into(),
+            ));
+        }
+        if config.policy.is_some()
+            || config.policy_path.is_some()
+            || !config.allow.is_empty()
+            || !config.deny.is_empty()
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "legacy policy and allow/deny overrides are forbidden on an armed host".into(),
+            ));
+        }
+        let profile = capsec_semantics::registry::ValidatedProfile::from_json(
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/capsec/registry/capability-definitions.json"
+            )),
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/capsec/registry/policy-rules.json"
+            )),
+        )?;
+        let decision_context = Arc::new(armed_snapshot.decision_context(profile.definitions)?);
         let mut host = Self::new(config);
         host.armed_snapshot = Some(armed_snapshot);
-        host
+        host.decision_context = Some(decision_context);
+        Ok(host)
     }
 
     pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
         self.armed_snapshot.as_ref()
+    }
+
+    pub fn decision_context(
+        &self,
+    ) -> Option<&Arc<capsec_semantics::decision::VerifiedDecisionContext>> {
+        self.decision_context.as_ref()
     }
 
     /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow
