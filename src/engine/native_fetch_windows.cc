@@ -33,6 +33,7 @@ namespace {
 
 struct RequestState {
   uint32_t request_id = 0;
+  uint64_t runtime_nonce = 0;
   // Written by the performFetch worker; exchanged to null (and then
   // closed) by closeHandles(), which native_fetch_cancel runs on the caller's
   // thread while the worker may be inside a WinHTTP call on these handles.
@@ -418,6 +419,7 @@ void performFetch(
 
 extern "C" void native_fetch_perform(
     uint32_t request_id,
+    uint64_t runtime_nonce,
     const char* method,
     const char* url,
     const char* headers,
@@ -432,6 +434,7 @@ extern "C" void native_fetch_perform(
 
   auto state = std::make_shared<RequestState>();
   state->request_id = request_id;
+  state->runtime_nonce = runtime_nonce;
   {
     std::lock_guard<std::mutex> lock(g_requests_mutex);
     g_requests[request_id] = state;
@@ -475,12 +478,13 @@ extern "C" void native_fetch_perform(
   }
 }
 
-extern "C" void native_fetch_cancel(uint32_t request_id) {
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce) {
   std::shared_ptr<RequestState> state;
   {
     std::lock_guard<std::mutex> lock(g_requests_mutex);
     auto it = g_requests.find(request_id);
-    if (it == g_requests.end()) {
+    if (it == g_requests.end() ||
+        it->second->runtime_nonce != runtime_nonce) {
       return;
     }
     state = it->second;

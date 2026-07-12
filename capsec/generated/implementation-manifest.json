@@ -56667,6 +56667,23 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi",
+      "observedKey": "cli:argument-parser:ibex:project_root:os-path",
+      "branchId": "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex:project_root:os-path"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.stack.size.utf8.string.0pulg05",
       "observedKey": "cli:argument-parser:ibex:stack_size:utf8-string",
       "branchId": "surface.cli.argument.parser.ibex.stack.size.utf8.string.0pulg05.main",
@@ -62270,6 +62287,74 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.ibex.project.root.0tu1xd4",
+      "observedKey": "cli:option:ibex:project_root",
+      "branchId": "surface.cli.option.ibex.project.root.0tu1xd4.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex:option:project_root"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.project.root.0tu1xd4.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.action.set.14phsv6",
+      "observedKey": "cli:option:ibex:project_root:action:Set",
+      "branchId": "surface.cli.option.ibex.project.root.action.set.14phsv6.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex:option:project_root"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.project.root.action.set.14phsv6.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb",
+      "observedKey": "cli:option:ibex:project_root:arity:1:1",
+      "branchId": "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex:option:project_root"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.value.name.dir.06bp61w",
+      "observedKey": "cli:option:ibex:project_root:value-name:DIR",
+      "branchId": "surface.cli.option.ibex.project.root.value.name.dir.06bp61w.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex:option:project_root"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.ibex.project.root.value.name.dir.06bp61w.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.ibex.stack.size.08o3c8i",
       "observedKey": "cli:option:ibex:stack_size",
       "branchId": "surface.cli.option.ibex.stack.size.08o3c8i.main",
@@ -63587,6 +63672,23 @@
       ]
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.project.root.project.root.0lbp50w",
+      "observedKey": "cli:option-name:ibex:project_root:--project-root",
+      "branchId": "surface.cli.option.name.ibex.project.root.project.root.0lbp50w.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex:option:project_root"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.option.name.ibex.project.root.project.root.0lbp50w.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.stack.size.stack.size.1lukp78",
       "observedKey": "cli:option-name:ibex:stack_size:--stack-size",
       "branchId": "surface.cli.option.name.ibex.stack.size.stack.size.1lukp78.main",
@@ -64584,6 +64686,24 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
+      "observedKey": "host-abi:ex_hermes_create_diagnostic",
+      "branchId": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff.default.0bm6br1",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_create_diagnostic"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.create.diagnostic.1t314ff.default.0bm6br1.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.debugger.enable.1uf2f9u",
       "observedKey": "host-abi:ex_hermes_debugger_enable",
       "branchId": "surface.host.abi.ex.hermes.debugger.enable.1uf2f9u.default.0124pjs",
@@ -64989,6 +65109,24 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.hermes.emit.module.view.event.1oibky8.ios.0mwizkg.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb",
+      "observedKey": "host-abi:ex_hermes_engine_binary_path",
+      "branchId": "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb.default.1hicxzh",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_engine_binary_path"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb.default.1hicxzh.non-capability"
       ]
     },
     {
@@ -65440,6 +65578,26 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.armed.endowments.19wlvvz",
+      "observedKey": "host-abi:ex_host_armed_endowments",
+      "branchId": "surface.host.abi.ex.host.armed.endowments.19wlvvz.default.1vftbgd",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_armed_endowments"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.armed.endowments.19wlvvz.default.1vftbgd.cannot-widen-authority",
+        "surface.host.abi.ex.host.armed.endowments.19wlvvz.default.1vftbgd.non-capability",
+        "surface.host.abi.ex.host.armed.endowments.19wlvvz.default.1vftbgd.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "observedKey": "host-abi:ex_host_authorize_typed_fs_stack",
       "branchId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna.default.0suo178",
@@ -65600,6 +65758,46 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.claim.armed.context.0lgp4i1",
+      "observedKey": "host-abi:ex_host_claim_armed_context",
+      "branchId": "surface.host.abi.ex.host.claim.armed.context.0lgp4i1.default.16doynn",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_claim_armed_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.claim.armed.context.0lgp4i1.default.16doynn.cannot-widen-authority",
+        "surface.host.abi.ex.host.claim.armed.context.0lgp4i1.default.16doynn.non-capability",
+        "surface.host.abi.ex.host.claim.armed.context.0lgp4i1.default.16doynn.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.claim.diagnostic.context.0dooych",
+      "observedKey": "host-abi:ex_host_claim_diagnostic_context",
+      "branchId": "surface.host.abi.ex.host.claim.diagnostic.context.0dooych.default.0g94qfj",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_claim_diagnostic_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.claim.diagnostic.context.0dooych.default.0g94qfj.cannot-widen-authority",
+        "surface.host.abi.ex.host.claim.diagnostic.context.0dooych.default.0g94qfj.non-capability",
+        "surface.host.abi.ex.host.claim.diagnostic.context.0dooych.default.0g94qfj.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.console.flush.1tisl1d",
       "observedKey": "host-abi:ex_host_console_flush",
       "branchId": "surface.host.abi.ex.host.console.flush.1tisl1d.default.0dxnqzz",
@@ -65641,6 +65839,26 @@
         "surface.host.abi.ex.host.console.log.1ymt6at.default.1s35g0r.malformed",
         "surface.host.abi.ex.host.console.log.1ymt6at.default.1s35g0r.missing-attribution",
         "surface.host.abi.ex.host.console.log.1ymt6at.default.1s35g0r.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.enter.context.15xwr1j",
+      "observedKey": "host-abi:ex_host_enter_context",
+      "branchId": "surface.host.abi.ex.host.enter.context.15xwr1j.default.0g2hbx1",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_enter_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.enter.context.15xwr1j.default.0g2hbx1.cannot-widen-authority",
+        "surface.host.abi.ex.host.enter.context.15xwr1j.default.0g2hbx1.non-capability",
+        "surface.host.abi.ex.host.enter.context.15xwr1j.default.0g2hbx1.post-lockdown-invariant"
       ]
     },
     {
@@ -65828,6 +66046,28 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
+      "observedKey": "host-abi:ex_host_fs_copy_exclusive",
+      "branchId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_fs_copy_exclusive"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd.allow",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd.deny",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd.malformed",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd.missing-attribution",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.fstat.1di7udv",
       "observedKey": "host-abi:ex_host_fs_fstat",
       "branchId": "surface.host.abi.ex.host.fs.fstat.1di7udv.default.1egc0yh",
@@ -65909,6 +66149,28 @@
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default.17kem0u.malformed",
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default.17kem0u.missing-attribution",
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default.17kem0u.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+      "observedKey": "host-abi:ex_host_fs_mkdir_recursive_result",
+      "branchId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_fs_mkdir_recursive_result"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n.allow",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n.deny",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n.malformed",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n.missing-attribution",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n.wrong-principal"
       ]
     },
     {
@@ -66187,6 +66449,28 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.statfs.19uv3yw",
+      "observedKey": "host-abi:ex_host_fs_statfs",
+      "branchId": "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_fs_statfs"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52.allow",
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52.deny",
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52.malformed",
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52.missing-attribution",
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.sync.011h89u",
       "observedKey": "host-abi:ex_host_fs_sync",
       "branchId": "surface.host.abi.ex.host.fs.sync.011h89u.default.0euq7ao",
@@ -66209,6 +66493,28 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
+      "observedKey": "host-abi:ex_host_fs_truncate",
+      "branchId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_fs_truncate"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x.allow",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x.deny",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x.malformed",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x.missing-attribution",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x.wrong-principal"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.unlink.05xgwei",
       "observedKey": "host-abi:ex_host_fs_unlink",
       "branchId": "surface.host.abi.ex.host.fs.unlink.05xgwei.default.0i7753c",
@@ -66228,6 +66534,28 @@
         "surface.host.abi.ex.host.fs.unlink.05xgwei.default.0i7753c.malformed",
         "surface.host.abi.ex.host.fs.unlink.05xgwei.default.0i7753c.missing-attribution",
         "surface.host.abi.ex.host.fs.unlink.05xgwei.default.0i7753c.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.fs.utimes.12bl9di",
+      "observedKey": "host-abi:ex_host_fs_utimes",
+      "branchId": "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_fs_utimes"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw.allow",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw.deny",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw.malformed",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw.missing-attribution",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw.wrong-principal"
       ]
     },
     {
@@ -67142,6 +67470,46 @@
         "surface.host.abi.ex.host.register.module.package.1ncq2is.default.1cc4mlu.cannot-widen-authority",
         "surface.host.abi.ex.host.register.module.package.1ncq2is.default.1cc4mlu.non-capability",
         "surface.host.abi.ex.host.register.module.package.1ncq2is.default.1cc4mlu.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.release.context.0ozp44g",
+      "observedKey": "host-abi:ex_host_release_context",
+      "branchId": "surface.host.abi.ex.host.release.context.0ozp44g.default.0zco7zy",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_release_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.release.context.0ozp44g.default.0zco7zy.cannot-widen-authority",
+        "surface.host.abi.ex.host.release.context.0ozp44g.default.0zco7zy.non-capability",
+        "surface.host.abi.ex.host.release.context.0ozp44g.default.0zco7zy.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.restore.context.1q77zqb",
+      "observedKey": "host-abi:ex_host_restore_context",
+      "branchId": "surface.host.abi.ex.host.restore.context.1q77zqb.default.03s16d5",
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_restore_context"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.restore.context.1q77zqb.default.03s16d5.cannot-widen-authority",
+        "surface.host.abi.ex.host.restore.context.1q77zqb.default.03s16d5.non-capability",
+        "surface.host.abi.ex.host.restore.context.1q77zqb.default.03s16d5.post-lockdown-invariant"
       ]
     },
     {
@@ -71017,6 +71385,43 @@
         "surface.loader.function.rust.load.source.1lpnc7u.main.logical.external-transform.malformed",
         "surface.loader.function.rust.load.source.1lpnc7u.main.logical.external-transform.missing-attribution",
         "surface.loader.function.rust.load.source.1lpnc7u.main.logical.external-transform.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.loader.function.rust.load.source.bytes.1l8dlka",
+      "observedKey": "loader:function:rust:load_source_bytes",
+      "branchId": "surface.loader.function.rust.load.source.bytes.1l8dlka.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/module_loader/mod.rs#load_source_bytes"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.builtin-or-memory.branch-selection",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.builtin-or-memory.malformed-branch-facts",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.builtin-or-memory.no-effect",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.allow",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.branch-selection",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.deny",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.malformed",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.missing-attribution",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.cached-transform.wrong-principal",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.allow",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.branch-selection",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.deny",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.malformed",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.missing-attribution",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.disk-source.wrong-principal",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.allow",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.branch-selection",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.deny",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.malformed",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.missing-attribution",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main.logical.external-transform.wrong-principal"
       ]
     },
     {
@@ -85957,7 +86362,7 @@
       "edgeId": "surface.native.op.exactstatfs.151kkzo",
       "observedKey": "native-op:__exactStatfs",
       "branchId": "surface.native.op.exactstatfs.151kkzo.default.1sltrj6",
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -85973,6 +86378,29 @@
         "surface.native.op.exactstatfs.151kkzo.default.1sltrj6.malformed",
         "surface.native.op.exactstatfs.151kkzo.default.1sltrj6.missing-attribution",
         "surface.native.op.exactstatfs.151kkzo.default.1sltrj6.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactstatfs.151kkzo",
+      "observedKey": "native-op:__exactStatfs",
+      "branchId": "surface.native.op.exactstatfs.151kkzo.windows.12cnk82",
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactStatfs",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactStatfs"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.native.op.exactstatfs.151kkzo.windows.12cnk82.allow",
+        "surface.native.op.exactstatfs.151kkzo.windows.12cnk82.deny",
+        "surface.native.op.exactstatfs.151kkzo.windows.12cnk82.malformed",
+        "surface.native.op.exactstatfs.151kkzo.windows.12cnk82.missing-attribution",
+        "surface.native.op.exactstatfs.151kkzo.windows.12cnk82.wrong-principal"
       ]
     },
     {
@@ -87140,7 +87568,7 @@
       "edgeId": "surface.native.op.exacttruncate.13gh223",
       "observedKey": "native-op:__exactTruncate",
       "branchId": "surface.native.op.exacttruncate.13gh223.default.1xgdizg",
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -87156,6 +87584,29 @@
         "surface.native.op.exacttruncate.13gh223.default.1xgdizg.malformed",
         "surface.native.op.exacttruncate.13gh223.default.1xgdizg.missing-attribution",
         "surface.native.op.exacttruncate.13gh223.default.1xgdizg.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exacttruncate.13gh223",
+      "observedKey": "native-op:__exactTruncate",
+      "branchId": "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw",
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactTruncate",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactTruncate"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw.allow",
+        "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw.deny",
+        "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw.malformed",
+        "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw.missing-attribution",
+        "surface.native.op.exacttruncate.13gh223.windows.0n9zmuw.wrong-principal"
       ]
     },
     {
@@ -87767,7 +88218,7 @@
       "edgeId": "surface.native.op.exactutimes.19tvh2i",
       "observedKey": "native-op:__exactUtimes",
       "branchId": "surface.native.op.exactutimes.19tvh2i.default.1hbg6ay",
-      "branchKind": "single",
+      "branchKind": "alternative",
       "targetVariant": "default",
       "targetApplicability": {
         "kind": "fallback"
@@ -87783,6 +88234,29 @@
         "surface.native.op.exactutimes.19tvh2i.default.1hbg6ay.malformed",
         "surface.native.op.exactutimes.19tvh2i.default.1hbg6ay.missing-attribution",
         "surface.native.op.exactutimes.19tvh2i.default.1hbg6ay.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactutimes.19tvh2i",
+      "observedKey": "native-op:__exactUtimes",
+      "branchId": "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m",
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs_windows.cc#__exactUtimes",
+        "src/engine/hermes_runtime_fs_windows.cc#jsi-global:__exactUtimes"
+      ],
+      "implementationOwner": "WP5",
+      "fixtureObligations": [
+        "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m.allow",
+        "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m.deny",
+        "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m.malformed",
+        "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m.missing-attribution",
+        "surface.native.op.exactutimes.19tvh2i.windows.1s9d69m.wrong-principal"
       ]
     },
     {
@@ -132668,6 +133142,25 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.ibextamed.1miuye7",
+      "observedKey": "native-op:__ibexTamed",
+      "branchId": "surface.native.op.ibextamed.1miuye7.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#__ibexTamed"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.ibextamed.1miuye7.main.cannot-widen-authority",
+        "surface.native.op.ibextamed.1miuye7.main.non-capability",
+        "surface.native.op.ibextamed.1miuye7.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.inspector.cdp.http.json.1umywno",
       "observedKey": "native-op:inspector.cdp-http:/json",
       "branchId": "surface.native.op.inspector.cdp.http.json.1umywno.main",
@@ -135301,7 +135794,8 @@
         "kind": "all"
       },
       "sourceRefs": [
-        "src/host/abi.rs#env::var_os:dynamic:read"
+        "src/host/abi.rs#env::var_os:dynamic:read",
+        "src/host/mod.rs#env::var_os:dynamic:read"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
@@ -137131,24 +137625,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.env.ibex.compartments.0h31phf",
-      "observedKey": "startup:env:IBEX_COMPARTMENTS",
-      "branchId": "surface.startup.env.ibex.compartments.0h31phf.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/bin/ibex/runtime.rs#env_flag_enabled:IBEX_COMPARTMENTS:read",
-        "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_COMPARTMENTS:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.compartments.0h31phf.main.closed"
-      ]
-    },
-    {
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "observedKey": "startup:env:IBEX_DNS_SERVER",
       "branchId": "surface.startup.env.ibex.dns.server.0ggdo6d.main",
@@ -137171,25 +137647,6 @@
         "surface.startup.env.ibex.dns.server.0ggdo6d.main.logical.unset.branch-selection",
         "surface.startup.env.ibex.dns.server.0ggdo6d.main.logical.unset.malformed-branch-facts",
         "surface.startup.env.ibex.dns.server.0ggdo6d.main.logical.unset.no-effect"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.endow.1cvgj9d",
-      "observedKey": "startup:env:IBEX_ENDOW",
-      "branchId": "surface.startup.env.ibex.endow.1cvgj9d.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/bin/ibex/runtime.rs#env::remove_var:IBEX_ENDOW:unset",
-        "src/bin/ibex/runtime.rs#env::set_var:IBEX_ENDOW:write",
-        "src/engine/hermes_runtime.cc#getenv:IBEX_ENDOW:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.endow.1cvgj9d.main.closed"
       ]
     },
     {
@@ -137235,26 +137692,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.env.ibex.lockdown.1o2femx",
-      "observedKey": "startup:env:IBEX_LOCKDOWN",
-      "branchId": "surface.startup.env.ibex.lockdown.1o2femx.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/bin/ibex/main.rs#env::set_var:IBEX_LOCKDOWN:write",
-        "src/bin/ibex/runtime.rs#env::set_var:IBEX_LOCKDOWN:write",
-        "src/bin/ibex/runtime.rs#env_flag_enabled:IBEX_LOCKDOWN:read",
-        "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_LOCKDOWN:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.lockdown.1o2femx.main.closed"
-      ]
-    },
-    {
       "edgeId": "surface.startup.env.ibex.loop.trace.0qn0o5e",
       "observedKey": "startup:env:IBEX_LOOP_TRACE",
       "branchId": "surface.startup.env.ibex.loop.trace.0qn0o5e.main",
@@ -137269,23 +137706,6 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.startup.env.ibex.loop.trace.0qn0o5e.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.native.lockdown.0xoo48t",
-      "observedKey": "startup:env:IBEX_NATIVE_LOCKDOWN",
-      "branchId": "surface.startup.env.ibex.native.lockdown.0xoo48t.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_NATIVE_LOCKDOWN:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.native.lockdown.0xoo48t.main.closed"
       ]
     },
     {
@@ -137320,27 +137740,6 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.startup.env.ibex.no.disk.runtime.fallback.1o8l7yz.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.per.package.chunks.0zpmgup",
-      "observedKey": "startup:env:IBEX_PER_PACKAGE_CHUNKS",
-      "branchId": "surface.startup.env.ibex.per.package.chunks.0zpmgup.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/bin/ibex/main.rs#env_flag_enabled:IBEX_PER_PACKAGE_CHUNKS:read",
-        "src/bin/ibex/runtime.rs#env::set_var:IBEX_PER_PACKAGE_CHUNKS:write",
-        "src/bin/ibex/runtime.rs#env::var:IBEX_PER_PACKAGE_CHUNKS:read",
-        "src/bin/ibex/runtime.rs#env::var_os:IBEX_PER_PACKAGE_CHUNKS:read",
-        "src/bin/ibex/runtime.rs#env_flag_enabled:IBEX_PER_PACKAGE_CHUNKS:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.per.package.chunks.0zpmgup.main.closed"
       ]
     },
     {
@@ -137454,24 +137853,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.env.ibex.seal.self.grant.0rx7yyj",
-      "observedKey": "startup:env:IBEX_SEAL_SELF_GRANT",
-      "branchId": "surface.startup.env.ibex.seal.self.grant.0rx7yyj.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/bin/ibex/runtime.rs#env::set_var:IBEX_SEAL_SELF_GRANT:write",
-        "src/engine/hermes_runtime.cc#env_flag_enabled:IBEX_SEAL_SELF_GRANT:read"
-      ],
-      "implementationOwner": "WP9",
-      "fixtureObligations": [
-        "surface.startup.env.ibex.seal.self.grant.0rx7yyj.main.closed"
-      ]
-    },
-    {
       "edgeId": "surface.startup.env.ibex.startup.trace.1t4init",
       "observedKey": "startup:env:IBEX_STARTUP_TRACE",
       "branchId": "surface.startup.env.ibex.startup.trace.1t4init.main",
@@ -137515,6 +137896,40 @@
         "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main.logical.present.malformed",
         "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main.logical.present.missing-attribution",
         "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main.logical.present.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n",
+      "observedKey": "startup:env:IBEX_TEST_ARMED_CREATE_PAUSE_MS",
+      "branchId": "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs.cc#getenv:IBEX_TEST_ARMED_CREATE_PAUSE_MS:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y",
+      "observedKey": "startup:env:IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
+      "branchId": "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_fs.cc#env_flag_enabled:IBEX_TEST_ARMED_DENY_OPEN_COMMIT:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y.main.non-capability"
       ]
     },
     {
@@ -138069,57 +138484,6 @@
       ]
     },
     {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh",
-      "observedKey": "startup:evaluation:env_flag_enabled:0x0uwpa:compartment-registry",
-      "branchId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#env_flag_enabled:0x0uwpa:evaluateJavaScript:<compartment-registry>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp",
-      "observedKey": "startup:evaluation:env_flag_enabled:0x0uwpa:eager-install-seal",
-      "branchId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#env_flag_enabled:0x0uwpa:evaluateJavaScript:<eager-install-seal>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp.main.non-capability"
-      ]
-    },
-    {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju",
-      "observedKey": "startup:evaluation:env_flag_enabled:0x0uwpa:lockdown",
-      "branchId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju.main",
-      "branchKind": "single",
-      "targetVariant": "all",
-      "targetApplicability": {
-        "kind": "all"
-      },
-      "sourceRefs": [
-        "src/engine/hermes_runtime.cc#env_flag_enabled:0x0uwpa:evaluateJavaScript:<lockdown>"
-      ],
-      "implementationOwner": "WP4",
-      "fixtureObligations": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju.main.non-capability"
-      ]
-    },
-    {
       "edgeId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "observedKey": "startup:evaluation:ex_hermes_debugger_eval:cdp",
       "branchId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2.main",
@@ -138258,6 +138622,44 @@
       ]
     },
     {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt",
+      "observedKey": "startup:evaluation:translation-unit-fallback:compartment-registry",
+      "branchId": "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#translation-unit-fallback:evaluateJavaScript:<compartment-registry>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt.main.cannot-widen-authority",
+        "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt.main.non-capability",
+        "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t",
+      "observedKey": "startup:evaluation:translation-unit-fallback:eager-install-seal",
+      "branchId": "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#translation-unit-fallback:evaluateJavaScript:<eager-install-seal>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t.main.cannot-widen-authority",
+        "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t.main.non-capability",
+        "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t.main.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.startup.evaluation.translation.unit.fallback.form.data.1xi28ci",
       "observedKey": "startup:evaluation:translation-unit-fallback:form-data",
       "branchId": "surface.startup.evaluation.translation.unit.fallback.form.data.1xi28ci.main",
@@ -138310,6 +138712,25 @@
         "surface.startup.evaluation.translation.unit.fallback.fs.handle.1jt8wbf.main.cannot-widen-authority",
         "surface.startup.evaluation.translation.unit.fallback.fs.handle.1jt8wbf.main.non-capability",
         "surface.startup.evaluation.translation.unit.fallback.fs.handle.1jt8wbf.main.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae",
+      "observedKey": "startup:evaluation:translation-unit-fallback:lockdown",
+      "branchId": "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#translation-unit-fallback:evaluateJavaScript:<lockdown>"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae.main.cannot-widen-authority",
+        "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae.main.non-capability",
+        "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae.main.post-lockdown-invariant"
       ]
     },
     {
@@ -138425,22 +138846,22 @@
       ]
     },
     {
-      "edgeId": "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp",
-      "observedKey": "startup:install-route:ex_hermes_create:installGlobals",
-      "branchId": "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp.main",
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8",
+      "observedKey": "startup:install-route:ex_hermes_create_impl:installGlobals",
+      "branchId": "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main",
       "branchKind": "single",
       "targetVariant": "all",
       "targetApplicability": {
         "kind": "all"
       },
       "sourceRefs": [
-        "src/engine/hermes_runtime.cc#ex_hermes_create:installGlobals"
+        "src/engine/hermes_runtime.cc#ex_hermes_create_impl:installGlobals"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
-        "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp.main.cannot-widen-authority",
-        "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp.main.non-capability",
-        "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp.main.post-lockdown-invariant"
+        "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.cannot-widen-authority",
+        "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.non-capability",
+        "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main.post-lockdown-invariant"
       ]
     },
     {
@@ -140315,6 +140736,7 @@
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
@@ -140459,7 +140881,7 @@
         "surface.startup.env.userprofile.1sxunkp",
         "surface.startup.env.wpt.server.url.1y5rfd8"
       ],
-      "rationale": "Covered by 177 observed effect edges."
+      "rationale": "Covered by 178 observed effect edges."
     },
     {
       "definitionId": "env:write",
@@ -140617,6 +141039,7 @@
         "surface.host.abi.ex.host.fs.fstat.1di7udv",
         "surface.host.abi.ex.host.fs.lstat.0wkeomh",
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
         "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
         "surface.host.abi.ex.host.fs.open.09qvr5d",
         "surface.host.abi.ex.host.fs.readdir.1jmcmt8",
@@ -140624,7 +141047,10 @@
         "surface.host.abi.ex.host.fs.rename.0xyp2mz",
         "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
         "surface.host.abi.ex.host.fs.stat.17ncwgv",
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
         "surface.host.abi.ex.host.fs.unlink.05xgwei",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di",
         "surface.host.abi.ex.host.module.resolve.0xdfuf4",
         "surface.host.abi.ex.host.module.resolve.meta.0wto1rk",
         "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
@@ -140648,6 +141074,7 @@
         "surface.loader.function.javascript.resolvemodulepath.00f9vog",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.normalize.import.target.08m8i21",
         "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm",
@@ -140825,7 +141252,7 @@
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 298 observed effect edges."
+      "rationale": "Covered by 303 observed effect edges."
     },
     {
       "definitionId": "fs:read",
@@ -140907,6 +141334,7 @@
         "surface.builtin.node.dns.0nx113j",
         "surface.builtin.node.dns.promises.0izp08e",
         "surface.host.abi.ex.host.fs.copy.0fqucdo",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
         "surface.host.abi.ex.host.fs.open.09qvr5d",
         "surface.host.abi.ex.host.fs.pread.1vjiqgb",
         "surface.host.abi.ex.host.fs.read.09hnxf1",
@@ -140939,6 +141367,7 @@
         "surface.loader.function.javascript.resolvemodulepath.00f9vog",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.package.name.and.root.in.node.modules.0b1g5jm",
         "surface.loader.function.rust.package.root.in.node.modules.16dl64q",
@@ -141038,7 +141467,7 @@
         "surface.startup.env.ibex.repo.root.0qhf2d7",
         "surface.startup.env.node.extra.ca.certs.0brff6f"
       ],
-      "rationale": "Covered by 206 observed effect edges."
+      "rationale": "Covered by 208 observed effect edges."
     },
     {
       "definitionId": "fs:watch",
@@ -141181,14 +141610,18 @@
         "surface.host.abi.ex.host.fs.append.1uj49nd",
         "surface.host.abi.ex.host.fs.chmod.1fztam2",
         "surface.host.abi.ex.host.fs.copy.0fqucdo",
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w",
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
         "surface.host.abi.ex.host.fs.mkdtemp.071q6nt",
         "surface.host.abi.ex.host.fs.open.09qvr5d",
         "surface.host.abi.ex.host.fs.pwrite.198hf1m",
         "surface.host.abi.ex.host.fs.rename.0xyp2mz",
         "surface.host.abi.ex.host.fs.rmdir.1tps5fb",
         "surface.host.abi.ex.host.fs.sync.011h89u",
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
         "surface.host.abi.ex.host.fs.unlink.05xgwei",
+        "surface.host.abi.ex.host.fs.utimes.12bl9di",
         "surface.host.abi.ex.host.fs.write.083p7no",
         "surface.host.abi.ex.host.sqlite.exec.059u1vx",
         "surface.host.abi.ex.host.sqlite.open.0fi2xr8",
@@ -141206,6 +141639,7 @@
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.module.cache.key.0uv0gjb",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.resolve.transpile.cache.dir.0aocxoq",
@@ -141307,7 +141741,7 @@
         "surface.startup.env.exact.android.cache.dir.1yr2vkb",
         "surface.startup.env.exact.android.files.dir.0c1x0ei"
       ],
-      "rationale": "Covered by 242 observed effect edges."
+      "rationale": "Covered by 247 observed effect edges."
     },
     {
       "definitionId": "inspector:activate",
@@ -142535,6 +142969,7 @@
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -142576,7 +143011,7 @@
         "surface.startup.env.exact.transpile.script.0rr4fr7",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 63 observed effect edges."
+      "rationale": "Covered by 64 observed effect edges."
     },
     {
       "definitionId": "process:umask",
@@ -143097,16 +143532,10 @@
         "surface.startup.env.exact.wpt.trust.loopback.tls.10fax01",
         "surface.startup.env.exactenvproxy.0nmjj9h",
         "surface.startup.env.ibex.capsec.allow.advisory.13zr97x",
-        "surface.startup.env.ibex.compartments.0h31phf",
-        "surface.startup.env.ibex.endow.1cvgj9d",
-        "surface.startup.env.ibex.lockdown.1o2femx",
-        "surface.startup.env.ibex.native.lockdown.0xoo48t",
-        "surface.startup.env.ibex.per.package.chunks.0zpmgup",
-        "surface.startup.env.ibex.seal.self.grant.0rx7yyj",
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 512 observed surface edges."
+      "rationale": "Closed by 506 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -143249,6 +143678,7 @@
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -143292,7 +143722,7 @@
         "surface.native.op.global.process.stdin.setencoding.0rna4tr",
         "surface.native.op.global.require.00nyxb6"
       ],
-      "rationale": "Covered by 124 observed effect edges."
+      "rationale": "Covered by 125 observed effect edges."
     },
     {
       "definitionId": "stdio:write",
@@ -143387,6 +143817,7 @@
         "surface.loader.function.javascript.moduledynamicimport.19ocrkj",
         "surface.loader.function.rust.load.module.source.05yf8kp",
         "surface.loader.function.rust.load.source.1lpnc7u",
+        "surface.loader.function.rust.load.source.bytes.1l8dlka",
         "surface.loader.function.rust.resolve.0im0f8i",
         "surface.loader.function.rust.transpile.module.0l4ibfl",
         "surface.loader.operation.load.status.0dy2h1b",
@@ -143452,7 +143883,7 @@
         "surface.startup.env.node.pending.deprecation.08gz4k2",
         "surface.startup.env.term.1uw6gat"
       ],
-      "rationale": "Covered by 153 observed effect edges."
+      "rationale": "Covered by 154 observed effect edges."
     },
     {
       "definitionId": "storage:persist",
@@ -143967,6 +144398,7 @@
         "surface.cli.positional.ibex.20eval.code.arity.1.1.1c791es",
         "surface.cli.positional.ibex.20eval.code.value.name.code.0j3wy53",
         "surface.cli.repl.13s1r60",
+        "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
         "surface.host.abi.ex.hermes.eval.1t7nlsx",
         "surface.native.op.exactallownativessyntax.08ves7l",
         "surface.native.op.exactcompateval.08n83kx",
@@ -143977,7 +144409,7 @@
         "surface.startup.script.bytecode.1d41kkw",
         "surface.startup.script.eval.19993vd"
       ],
-      "rationale": "Closed by 40 observed surface edges."
+      "rationale": "Closed by 41 observed surface edges."
     },
     {
       "definitionId": "wasi:instantiate",
@@ -144053,53 +144485,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-1hGxeV070238hfUDp0KR5Tu8u6tWGRB3kcmEH5xt_KI"
+      "rawContentDigest": "sha256-DOg4kgpAeihJI7Q8-hztpGQIFD7zTTmXTd7r9LOF2fY"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-9sr2LIPBYCxvzaO2ot0989UcQxOYFx0Eyx3YonEByqs"
+      "rawContentDigest": "sha256-mjVn8LO8HIhwn1ErAoj68COBakyCAxJWIYs3sD1BlRE"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256-D0KpAJr8tKYhaOy1PjEITt0yEb2XddraGUw_cnEZYBk"
+      "rawContentDigest": "sha256-XcckRkU1CuGaegAMuwpV_UJ0u1l8_qV4zvWqJyYXzA8"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-4q6nW6hNQGvqExKZHrXhewbGFDzMgm-3B8R1g7l3fsA"
+      "rawContentDigest": "sha256-Z4a8mDnloz7RqUEbLHTwlfkdRWWjMkvNWSnPRE2NTbc"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-4flW-xvdplJY5I2qSiowjxgHzqnXB1HLOqe-BvRH1ZQ"
+      "rawContentDigest": "sha256-8XQfZymbQz_K6Vm-bOZjhdY3aqdUu8RsUdYYOevj56Y"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-gvcJ_DScQ-tx8wXUcqWrOE37eUCSSLpV4rjaLodSURE"
+      "rawContentDigest": "sha256-jgGsWRlMYhv2t2E_qom9IX569_m8AQmfSxCspdWUgCQ"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-SiG-RaPSVWmo5P5JfL_SlHStAwqZexDnudOdSR1j-8U"
+      "rawContentDigest": "sha256-D2lGGnnp2RasfphVGy81_d4T8rFQo-6CPOmj_2SZDyQ"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-uAjK8FxnI4ejHEPHBN1ncWp-cS3YWkMut_KnmrsX3dU"
+      "rawContentDigest": "sha256-oM3r04DTrSHZ8VUXThh6EX3nARyw7ra7xSGsYowPWH0"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-N-Q-IM2HOj18hLlHSvtDC-6PYrSdogJfC8A0Vx97hSo"
+      "rawContentDigest": "sha256-AwQ5-ZeVkWCxuOD7ngncYVErt4MeDHFJTslssMgw1Q0"
     }
   ],
   "counts": {
-    "observedReferences": 11140,
-    "logicalSurfaces": 6861,
-    "coverageEdges": 6861,
-    "targetCells": 6861
+    "observedReferences": 11153,
+    "logicalSurfaces": 6878,
+    "coverageEdges": 6878,
+    "targetCells": 6878
   }
 }

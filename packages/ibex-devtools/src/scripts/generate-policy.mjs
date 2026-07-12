@@ -36,6 +36,33 @@ import {
   resolveTypedDelegations,
 } from './capsec-policy-authoring.mjs';
 
+async function packageTreeIntegrity(directory) {
+  const records = [];
+  async function walk(current, relative) {
+    const entries = await fs.readdir(current, { withFileTypes: true });
+    entries.sort((a, b) => Buffer.from(a.name).compare(Buffer.from(b.name)));
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      const absolute = path.join(current, entry.name);
+      const rel = relative ? `${relative}/${entry.name}` : entry.name;
+      const stat = await fs.lstat(absolute);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`package content contains an unauthenticated symlink: ${rel}`);
+      }
+      if (stat.isDirectory()) {
+        await walk(absolute, rel);
+      } else if (stat.isFile()) {
+        records.push([rel, packageIntegrity(await fs.readFile(absolute))]);
+      } else {
+        throw new Error(`package content contains an unsupported file type: ${rel}`);
+      }
+    }
+  }
+  await walk(directory, '');
+  records.sort((a, b) => Buffer.from(a[0]).compare(Buffer.from(b[0])));
+  return packageIntegrity(JSON.stringify(records));
+}
+
 const args = process.argv.slice(2);
 const opts = { mode: 'enforce' };
 for (let i = 0; i < args.length; i++) {
@@ -62,7 +89,16 @@ if (opts.mode !== 'enforce') {
 }
 
 const entry = path.resolve(process.cwd(), opts.entry);
-const root = path.dirname(entry);
+async function discoverProjectRoot(entryFile) {
+  let cursor = path.dirname(entryFile);
+  for (;;) {
+    if (existsSync(path.join(cursor, 'package.json'))) return cursor;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return path.dirname(entryFile);
+    cursor = parent;
+  }
+}
+const root = await discoverProjectRoot(entry);
 const out = path.resolve(process.cwd(), opts.out || path.join(root, 'ibex-policy.json'));
 
 let rolldown;
@@ -88,7 +124,6 @@ const edges = new Set(); // "fromPkg\0toPkg" ("" = root principal)
 const observedBuiltins = new Map(); // package identity -> Set<node:builtin>
 const packageMetadata = new Map(); // identity -> integrity-bound package principal
 const typedRequests = new Map(); // identity -> package requests/delegations (never grants)
-const packageSources = new Map(); // identity -> analyzed module content records
 
 // Resolve an import edge's target to its version-qualified identity by walking
 // the importer's node_modules chain, exactly as the bundler's resolver does.
@@ -173,14 +208,6 @@ const graphPlugin = {
     if (pkg) {
       const identity = packageIdentityOfModuleId(id) || pkg;
       packageIdentities.add(identity);
-      if (!packageSources.has(identity)) packageSources.set(identity, new Map());
-      const normalizedId = id.replace(/\\/g, '/');
-      const packageMarker = `node_modules/${pkg}/`;
-      const packageOffset = normalizedId.lastIndexOf(packageMarker);
-      const modulePath = packageOffset === -1
-        ? path.basename(normalizedId)
-        : normalizedId.slice(packageOffset + packageMarker.length);
-      packageSources.get(identity).set(modulePath, packageIntegrity(code));
       if (!packageDirs.has(pkg)) packageDirs.set(pkg, new Set());
       // Normalize backslashes to agree with packageOfModuleId (ENG-22619): on
       // Windows the raw id uses `\`, so an un-normalized scan misses the marker
@@ -267,14 +294,21 @@ for (const [pkg, dirs] of packageDirs) {
       continue;
     }
     const identity = packageIdentityOfModuleId(path.join(dir, 'index.js')) || pkg;
-    const contentRecord = JSON.stringify({
-      manifest: JSON.parse(manifestText),
-      modules: [...(packageSources.get(identity) || [])].sort(([a], [b]) => a.localeCompare(b)),
-    });
+    let integrity;
+    try {
+      integrity = await packageTreeIntegrity(dir);
+    } catch (error) {
+      generationErrors.push({
+        message: `cannot authenticate package content: ${error.message}`,
+        file: path.join(dir, 'package.json'),
+        line: 0,
+      });
+      continue;
+    }
     const metadata = {
       kind: 'package',
       name: manifest.name || pkg,
-      integrity: packageIntegrity(contentRecord),
+      integrity,
       locator: identity,
     };
     const priorMetadata = packageMetadata.get(identity);

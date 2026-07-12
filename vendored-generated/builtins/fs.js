@@ -861,8 +861,10 @@ function _asyncReaddirSimple(native, path, options) {
 	var p = _pathToString(path);
 	if (opts.withFileTypes || opts.recursive) return _asyncBuildDirEntries(native, p, opts).then(function(entries) {
 		if (opts.withFileTypes) return entries;
+		var traversalRoot = p.replace(/[\\/]+$/, "") || p;
 		return entries.map(function(entry) {
-			return (entry.path === p ? "" : entry.path.slice(p.length + 1) + "/") + entry.name;
+			var relativeParent = entry.path === traversalRoot ? "" : entry.path.slice(traversalRoot.length).replace(/^[\\/]+/, "");
+			return (relativeParent ? relativeParent + "/" : "") + entry.name;
 		});
 	});
 	return _asyncFsPathOp(native, "readdir", [p], "scandir", p).then(function(payload) {
@@ -2466,7 +2468,7 @@ function copyFileSync(src, dest, mode) {
 		if (err.code !== "ENOENT") throw err;
 	}
 	try {
-		g.__exactCopyFile(s, d);
+		g.__exactCopyFile(s, d, mode || 0);
 	} catch (e) {
 		throw _makeFsError(e, "copyfile", s, d);
 	}
@@ -2728,9 +2730,13 @@ function _routeAsyncWriteFileCallback(target, data, writeOptions, defaultFlag, c
 		return true;
 	}
 	writePromise.then(function() {
-		callback(null);
+		_deferFsCallback(function() {
+			callback(null);
+		});
 	}, function(err) {
-		callback(err);
+		_deferFsCallback(function() {
+			callback(err);
+		});
 	});
 	return true;
 }
@@ -2782,13 +2788,17 @@ function _routeAsyncStatCallback(path, opts, kind, callback) {
 		return true;
 	}
 	statPromise.then(function(stats) {
-		callback(null, stats);
+		_deferFsCallback(function() {
+			callback(null, stats);
+		});
 	}, function(err) {
-		if (statOptions.throwIfNoEntry === false && err && err.code === "ENOENT") {
-			callback(null);
-			return;
-		}
-		callback(err);
+		_deferFsCallback(function() {
+			if (statOptions.throwIfNoEntry === false && err && err.code === "ENOENT") {
+				callback(null);
+				return;
+			}
+			callback(err);
+		});
 	});
 	return true;
 }
@@ -4527,56 +4537,45 @@ function watchFilename(filename, encoding) {
 	}
 	return decodeBytes(toUint8Array(filename), encoding);
 }
-function buildWatchDirState(dirname, recursive, prefix) {
-	var entries = {};
-	try {
-		entries.__meta = { mtime: statSync(dirname).mtimeMs || 0 };
-	} catch (e) {
-		return null;
-	}
-	var files = [];
-	try {
-		files = readdirSync(dirname);
-	} catch (e) {
-		return null;
-	}
-	for (var i = 0; i < files.length; i++) {
-		var file = files[i];
-		var fullPath = pathJoin(dirname, file);
-		var stat;
-		try {
-			stat = lstatSync(fullPath);
-		} catch (e) {
-			continue;
-		}
-		var key = prefix ? prefix + "/" + file : file;
-		entries[key] = {
-			isDirectory: typeof stat.isDirectory === "function" && stat.isDirectory(),
-			mtime: stat.mtimeMs || 0,
-			size: stat.size || 0
-		};
-		if (recursive && entries[key].isDirectory) {
-			var childState = buildWatchDirState(fullPath, true, key);
-			if (childState) for (var k in childState) {
-				if (k === "__meta") continue;
-				entries[k] = childState[k];
-			}
-		}
-	}
-	return entries;
-}
-function buildWatchFileState(filename) {
-	try {
-		var stat = statSync(filename);
+function buildWatchFileStateAsync(filename) {
+	return promises.stat(filename).then(function(stat) {
 		return {
 			mtime: stat.mtimeMs || 0,
 			ctime: stat.ctimeMs || 0,
 			size: stat.size || 0,
 			ino: Number(stat.ino) || 0
 		};
-	} catch (e) {
+	}, function() {
 		return null;
-	}
+	});
+}
+function buildWatchDirStateAsync(dirname, recursive, prefix) {
+	return Promise.all([promises.stat(dirname), promises.readdir(dirname)]).then(function(values) {
+		var dirStat = values[0];
+		var files = values[1];
+		var entries = { __meta: { mtime: dirStat.mtimeMs || 0 } };
+		return _boundedAsyncMap(files, 32, function(file) {
+			var fullPath = pathJoin(dirname, file);
+			var key = prefix ? prefix + "/" + file : file;
+			return promises.lstat(fullPath).then(function(stat) {
+				var row = {
+					isDirectory: typeof stat.isDirectory === "function" && stat.isDirectory(),
+					mtime: stat.mtimeMs || 0,
+					size: stat.size || 0
+				};
+				entries[key] = row;
+				if (!recursive || !row.isDirectory) return;
+				return buildWatchDirStateAsync(fullPath, true, key).then(function(children) {
+					if (!children) return;
+					for (var child in children) if (child !== "__meta") entries[child] = children[child];
+				});
+			}, function() {});
+		}).then(function() {
+			return entries;
+		});
+	}, function() {
+		return null;
+	});
 }
 function emitWatchDirectoryChanges(watcher, encoding, prevState, nextState) {
 	var changed = false;
@@ -4671,18 +4670,24 @@ function watch(filename, options, listener) {
 	if (targetIsDirectory) {
 		watcher._isDirectory = true;
 		watcher._recursive = !!options.recursive;
-		watcher._prevState = buildWatchDirState(watcher._filename, watcher._recursive);
+		watcher._prevState = null;
+		watcher._polling = false;
 		var directoryInterval = options.interval || 25;
 		watcher._poll = function() {
-			if (watcher._closed || watcher._stopped) return;
-			var nextState = buildWatchDirState(watcher._filename, watcher._recursive);
-			if (!nextState) {
-				watcher.emit("change", "rename", watchFilename(pathBasename(watcher._filename), encoding));
-				watcher._prevState = {};
-				return;
-			}
-			if (!emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState) && watcher._prevState && nextState.__meta && watcher._prevState.__meta && nextState.__meta.mtime !== watcher._prevState.__meta.mtime) watcher.emit("change", "rename", null);
-			watcher._prevState = nextState;
+			if (watcher._closed || watcher._stopped || watcher._polling) return;
+			watcher._polling = true;
+			buildWatchDirStateAsync(watcher._filename, watcher._recursive).then(function(nextState) {
+				if (watcher._closed || watcher._stopped) return;
+				if (!nextState) {
+					watcher.emit("change", "rename", watchFilename(pathBasename(watcher._filename), encoding));
+					watcher._prevState = {};
+					return;
+				}
+				if (!emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState) && watcher._prevState && nextState.__meta && watcher._prevState.__meta && nextState.__meta.mtime !== watcher._prevState.__meta.mtime) watcher.emit("change", "rename", null);
+				watcher._prevState = nextState;
+			}).finally(function() {
+				watcher._polling = false;
+			});
 		};
 		watcher._pollInterval = directoryInterval;
 		watcher._start = function() {
@@ -4697,23 +4702,30 @@ function watch(filename, options, listener) {
 			}
 		};
 		watcher._start();
+		watcher._poll();
 	} else {
-		var lastFileState = buildWatchFileState(watcher._filename);
+		var lastFileState = null;
+		watcher._polling = false;
 		var fileInterval = options.interval || 25;
 		watcher._poll = function() {
-			if (watcher._closed) return;
-			var nextFileState = buildWatchFileState(watcher._filename);
-			if (!nextFileState) {
-				if (lastFileState) {
-					lastFileState = null;
-					watcher.emit("change", "rename", watchFilename(pathBasename(watcher._filename), encoding));
+			if (watcher._closed || watcher._polling) return;
+			watcher._polling = true;
+			buildWatchFileStateAsync(watcher._filename).then(function(nextFileState) {
+				if (watcher._closed) return;
+				if (!nextFileState) {
+					if (lastFileState) {
+						lastFileState = null;
+						watcher.emit("change", "rename", watchFilename(pathBasename(watcher._filename), encoding));
+					}
+					return;
 				}
-				return;
-			}
-			if (!lastFileState || nextFileState.mtime !== lastFileState.mtime || nextFileState.ctime !== lastFileState.ctime || nextFileState.size !== lastFileState.size || nextFileState.ino !== lastFileState.ino) {
-				lastFileState = nextFileState;
-				watcher.emit("change", "change", watchFilename(pathBasename(watcher._filename), encoding));
-			}
+				if (!lastFileState || nextFileState.mtime !== lastFileState.mtime || nextFileState.ctime !== lastFileState.ctime || nextFileState.size !== lastFileState.size || nextFileState.ino !== lastFileState.ino) {
+					if (lastFileState) watcher.emit("change", "change", watchFilename(pathBasename(watcher._filename), encoding));
+					lastFileState = nextFileState;
+				}
+			}).finally(function() {
+				watcher._polling = false;
+			});
 		};
 		watcher._pollInterval = fileInterval;
 		watcher._start = function() {
@@ -4728,6 +4740,7 @@ function watch(filename, options, listener) {
 			}
 		};
 		watcher._start();
+		watcher._poll();
 	}
 	if (options.persistent === false) watcher.unref();
 	return watcher;
@@ -5223,7 +5236,7 @@ function _asyncRm(path, options) {
 	function removeOne(target) {
 		return promises.lstat(target).then(function(st) {
 			if (!st.isDirectory() || st.isSymbolicLink()) return promises.unlink(target);
-			if (!recursive) return promises.rmdir(target);
+			if (!recursive) throw _makeRmDirError(target);
 			return promises.readdir(target).then(function(names) {
 				return names.reduce(function(chain, name) {
 					return chain.then(function() {
@@ -6312,9 +6325,13 @@ function fstat(fd, opts, callback) {
 			return;
 		}
 		statPromise.then(function(stats) {
-			callback(null, stats);
+			_deferFsCallback(function() {
+				callback(null, stats);
+			});
 		}, function(err) {
-			callback(err);
+			_deferFsCallback(function() {
+				callback(err);
+			});
 		});
 		return;
 	}

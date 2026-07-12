@@ -14,6 +14,262 @@ pub mod sourcemap;
 pub mod tls_bridge;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::OnceLock;
+
+extern "C" {
+    fn ex_hermes_engine_binary_path(out: *mut std::ffi::c_char, out_len: usize) -> i32;
+    fn ex_hermes_engine_mapped_object(out_device: *mut u64, out_inode: *mut u64) -> i32;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedEngineBinaryIdentity {
+    pub engine_artifact_path: std::path::PathBuf,
+    pub kind: String,
+    pub binary_digest: String,
+    pub object: capsec_semantics::model::ObjectIdentity,
+    pub target_architecture: String,
+    pub structural_features: Vec<String>,
+}
+
+fn loaded_engine_identity() -> &'static std::result::Result<LoadedEngineBinaryIdentity, String> {
+    static IDENTITY: OnceLock<std::result::Result<LoadedEngineBinaryIdentity, String>> =
+        OnceLock::new();
+    IDENTITY.get_or_init(|| {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine as _;
+        use sha2::{Digest as _, Sha256};
+        use std::io::Read as _;
+
+        let mut buffer = vec![0u8; 32 * 1024];
+        let length =
+            unsafe { ex_hermes_engine_binary_path(buffer.as_mut_ptr().cast(), buffer.len()) };
+        if length <= 0 {
+            return Err("failed to identify the loaded Hermes engine artifact".into());
+        }
+        buffer.truncate(length as usize);
+        let text = std::str::from_utf8(&buffer)
+            .map_err(|_| "loaded Hermes path is not UTF-8".to_owned())?;
+        let path = std::fs::canonicalize(text).map_err(|error| {
+            format!("failed to authenticate loaded Hermes artifact {text}: {error}")
+        })?;
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            options.custom_flags(0x0020_0000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let mut file = options.open(&path).map_err(|error| {
+            format!(
+                "failed to pin loaded Hermes artifact {}: {error}",
+                path.display()
+            )
+        })?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| format!("failed to inspect loaded Hermes artifact: {error}"))?;
+        if !metadata.is_file() {
+            return Err("loaded Hermes artifact is not a regular file".into());
+        }
+        verify_loaded_mapping_object(&metadata)?;
+        let object = engine_object_identity(&metadata)?;
+        let mut hash = Sha256::new();
+        let mut chunk = [0u8; 64 * 1024];
+        loop {
+            let read = file
+                .read(&mut chunk)
+                .map_err(|error| format!("failed to hash loaded Hermes artifact: {error}"))?;
+            if read == 0 {
+                break;
+            }
+            hash.update(&chunk[..read]);
+        }
+        let after = file
+            .metadata()
+            .map_err(|error| format!("failed to revalidate loaded Hermes artifact: {error}"))?;
+        if engine_object_identity(&after)? != object || after.len() != metadata.len() {
+            return Err("loaded Hermes artifact changed while it was authenticated".into());
+        }
+        let digest = format!("sha256-{}", URL_SAFE_NO_PAD.encode(hash.finalize()));
+        Ok(LoadedEngineBinaryIdentity {
+            engine_artifact_path: path,
+            kind: "hermes".into(),
+            binary_digest: digest,
+            object,
+            target_architecture: std::env::consts::ARCH.to_owned(),
+            structural_features: loaded_engine_structural_features(),
+        })
+    })
+}
+
+pub fn loaded_engine_structural_features() -> Vec<String> {
+    if cfg!(exact_frame_attribution) {
+        vec![
+            "hermes-frame-attribution".into(),
+            "native-compartments".into(),
+            "native-lockdown".into(),
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
+fn engine_object_identity(
+    metadata: &std::fs::Metadata,
+) -> Result<capsec_semantics::model::ObjectIdentity, String> {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+                ObjectPlatform::Apple
+            } else if cfg!(target_os = "android") {
+                ObjectPlatform::Android
+            } else {
+                ObjectPlatform::Unix
+            },
+            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))?,
+            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))?,
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: ObjectPlatform::Windows,
+            volume: NonEmptyString::new(format!(
+                "volume:{}",
+                metadata.volume_serial_number().unwrap_or(0)
+            ))?,
+            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))?,
+        })
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let address = ex_hermes_engine_binary_path as usize;
+    let maps = std::fs::read_to_string("/proc/self/maps")
+        .map_err(|error| format!("failed to inspect loaded Hermes mapping: {error}"))?;
+    for line in maps.lines() {
+        let mut fields = line.split_whitespace();
+        let Some(range) = fields.next() else { continue };
+        let _permissions = fields.next();
+        let _offset = fields.next();
+        let Some(device) = fields.next() else {
+            continue;
+        };
+        let Some(inode) = fields.next() else { continue };
+        let Some((start, end)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(start), Ok(end)) = (
+            usize::from_str_radix(start, 16),
+            usize::from_str_radix(end, 16),
+        ) else {
+            continue;
+        };
+        if !(start..end).contains(&address) {
+            continue;
+        }
+        let mapped_inode = inode
+            .parse::<u64>()
+            .map_err(|_| "loaded Hermes mapping has an invalid inode".to_owned())?;
+        let Some((major, minor)) = device.split_once(':') else {
+            return Err("loaded Hermes mapping has an invalid device".into());
+        };
+        let major = u64::from_str_radix(major, 16)
+            .map_err(|_| "loaded Hermes mapping has an invalid device major".to_owned())?;
+        let minor = u64::from_str_radix(minor, 16)
+            .map_err(|_| "loaded Hermes mapping has an invalid device minor".to_owned())?;
+        let mapped_device = libc::makedev(major as _, minor as _) as u64;
+        if mapped_inode != metadata.ino() || mapped_device != metadata.dev() {
+            return Err(
+                "loaded Hermes path names a different object than the executable mapping".into(),
+            );
+        }
+        return Ok(());
+    }
+    Err("could not locate the loaded Hermes executable mapping".into())
+}
+
+#[cfg(target_os = "macos")]
+fn verify_loaded_mapping_object(metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut device = 0u64;
+    let mut inode = 0u64;
+    if unsafe { ex_hermes_engine_mapped_object(&mut device, &mut inode) } != 1 {
+        return Err("failed to identify the mapped Hermes vnode".into());
+    }
+    if device != metadata.dev() || inode != metadata.ino() {
+        return Err(
+            "loaded Hermes path names a different object than the mapped Mach-O image".into(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+    Err(
+        "Windows cannot attest the loaded Hermes section's file identity on this build; refusing pathname-only identity"
+            .into(),
+    )
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    windows
+)))]
+fn verify_loaded_mapping_object(_metadata: &std::fs::Metadata) -> Result<(), String> {
+    Err("this target cannot attest the loaded Hermes image object".into())
+}
+
+/// Identity of the artifact that supplied the linked Hermes runtime factory.
+/// The multi-megabyte digest is cached because the loaded artifact cannot
+/// change within the process execution it identifies.
+pub fn loaded_engine_binary_path() -> Result<std::path::PathBuf, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .map(|identity| identity.engine_artifact_path.clone())
+        .map_err(Clone::clone)
+}
+
+pub fn loaded_engine_binary_digest() -> Result<String, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .map(|identity| identity.binary_digest.clone())
+        .map_err(Clone::clone)
+}
+
+pub fn loaded_engine_binary_identity() -> Result<LoadedEngineBinaryIdentity, String> {
+    loaded_engine_identity()
+        .as_ref()
+        .cloned()
+        .map_err(Clone::clone)
+}
+
+pub fn verify_loaded_engine_binary_identity(
+    expected: &LoadedEngineBinaryIdentity,
+) -> Result<LoadedEngineBinaryIdentity, String> {
+    let actual = loaded_engine_binary_identity()?;
+    if &actual != expected {
+        return Err("loaded Hermes identity differs from the expected artifact".into());
+    }
+    Ok(actual)
+}
 
 /// Flag set when a background callback is pushed.
 /// iOS polls this to know when to wake up the event loop.
@@ -89,6 +345,19 @@ pub fn take_callback_pending() -> bool {
 mod tests {
     use std::os::raw::c_char;
 
+    #[test]
+    fn loaded_engine_identity_attests_the_mapped_artifact() {
+        let identity = super::loaded_engine_binary_identity().unwrap();
+        assert_eq!(identity.kind, "hermes");
+        assert!(identity.engine_artifact_path.is_absolute());
+        assert!(identity.binary_digest.starts_with("sha256-"));
+        assert_eq!(identity.target_architecture, std::env::consts::ARCH);
+        assert_eq!(
+            super::verify_loaded_engine_binary_identity(&identity).unwrap(),
+            identity
+        );
+    }
+
     #[repr(C)]
     struct HermesRuntimeOpaque {
         _private: [u8; 0],
@@ -96,6 +365,7 @@ mod tests {
 
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
+        fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
         fn ex_hermes_destroy(runtime: *mut HermesRuntimeOpaque);
         fn ex_hermes_eval(
             runtime: *mut HermesRuntimeOpaque,
@@ -138,6 +408,13 @@ mod tests {
         (status, value)
     }
 
+    #[test]
+    fn legacy_unarmed_constructor_is_non_executable() {
+        unsafe {
+            assert!(ex_hermes_create().is_null());
+        }
+    }
+
     /// Frame attribution must inspect the runtime being evaluated, not merely
     /// the last runtime created on this thread. Snapback nests a mutation
     /// runtime inside an action runtime; the stale thread-local used to make
@@ -151,8 +428,8 @@ mod tests {
         crate::host::abi::install_host(host);
 
         unsafe {
-            let outer = ex_hermes_create();
-            let nested = ex_hermes_create();
+            let outer = ex_hermes_create_diagnostic();
+            let nested = ex_hermes_create_diagnostic();
             assert!(!outer.is_null());
             assert!(!nested.is_null());
 
@@ -168,6 +445,36 @@ mod tests {
         }
     }
 
+    #[test]
+    fn host_policy_is_pinned_to_each_runtime_context() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let allow = crate::host::Host::strict();
+        allow.capabilities().grant("*", "network:fetch", None);
+        crate::host::abi::install_host(allow);
+        let first = unsafe { ex_hermes_create_diagnostic() };
+        assert!(!first.is_null());
+
+        let deny = crate::host::Host::strict();
+        deny.capabilities().deny("*", "network:fetch", None);
+        crate::host::abi::install_host(deny);
+        let second = unsafe { ex_hermes_create_diagnostic() };
+        assert!(!second.is_null());
+
+        let source = "__exactCapabilityCheck('network:fetch:example.com') ? 'allowed' : 'denied'";
+        let (first_status, first_value) = eval(first, source);
+        let (second_status, second_value) = eval(second, source);
+        assert_eq!((first_status, first_value.as_deref()), (0, Some("allowed")));
+        assert_eq!(
+            (second_status, second_value.as_deref()),
+            (0, Some("denied"))
+        );
+
+        unsafe {
+            ex_hermes_destroy(second);
+            ex_hermes_destroy(first);
+        }
+    }
+
     /// A one-shot timer whose callback throws must be retired before the
     /// error propagates out of `ex_hermes_poll`; before the fix it stayed
     /// due and refired on every subsequent poll. @ref LLP 0006#degrade-diagnostics-never-the-caller
@@ -175,7 +482,7 @@ mod tests {
     fn throwing_one_shot_timer_does_not_refire() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             let (status, value) = eval(
@@ -205,6 +512,47 @@ mod tests {
         }
     }
 
+    #[test]
+    fn self_clearing_interval_keeps_captured_principals_alive_through_callback() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        let host = crate::host::Host::strict();
+        host.capabilities()
+            .grant("*", "network:fetch:self-clear.invalid", None);
+        assert_ne!(crate::host::abi::install_host(host), 0);
+
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__selfClearCount = 0;\n\
+                 globalThis.__selfClearAllowed = false;\n\
+                 var interval = setInterval(function () {\n\
+                   clearInterval(interval);\n\
+                   globalThis.__selfClearCount++;\n\
+                   globalThis.__selfClearAllowed =\n\
+                     __exactCapabilityCheck('network:fetch:self-clear.invalid');\n\
+                 }, 0);\n\
+                 'armed';",
+            );
+            assert_eq!(status, 0, "interval setup failed: {value:?}");
+
+            assert_eq!(
+                ex_hermes_poll(runtime, u64::MAX / 2),
+                1,
+                "self-clearing callback should complete after erasing its timer record"
+            );
+            assert_eq!(ex_hermes_poll(runtime, u64::MAX / 2 + 1), 0);
+            let (status, value) = eval(
+                runtime,
+                "String(globalThis.__selfClearCount) + ':' + \
+                 String(globalThis.__selfClearAllowed)",
+            );
+            assert_eq!((status, value.as_deref()), (0, Some("1:true")));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
     /// setTimeout/setInterval store `due_ms = nowMs() + delay` on a MONOTONIC
     /// clock, and the Rust event loop reads that same clock via
     /// `ex_hermes_now_ms()` for the `now` it feeds to `ex_hermes_poll`. A large
@@ -215,7 +563,7 @@ mod tests {
     fn timer_due_time_shares_monotonic_clock_domain() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             let t0 = ex_hermes_now_ms();
@@ -257,7 +605,7 @@ mod tests {
     fn timer_delay_is_coerced_and_clamped() {
         unsafe {
             std::env::set_var("IBEX_SUPPRESS_CONSOLE_MIRROR", "1");
-            let runtime = ex_hermes_create();
+            let runtime = ex_hermes_create_diagnostic();
             assert!(!runtime.is_null());
 
             // (a) A string delay is coerced via ToNumber, so a '100000' timer is
@@ -342,7 +690,7 @@ mod tests {
             fn new() -> Self {
                 unsafe {
                     ex_host_install();
-                    let runtime = ex_hermes_create();
+                    let runtime = ex_hermes_create_diagnostic();
                     assert!(!runtime.is_null());
                     Self(runtime)
                 }

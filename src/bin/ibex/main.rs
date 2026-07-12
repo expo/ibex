@@ -317,14 +317,6 @@ async fn main() {
 }
 
 async fn run(cli: Cli) -> Result<()> {
-    // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
-    // the environment (std::getenv). Setting it here, before any runtime is
-    // created, lets `--lockdown` reach the in-process Hermes runtime.
-    // Complete enforcement and the foreground audit workflow both require
-    // structural lockdown. This is no longer an opt-in production property.
-    // @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths
-    std::env::set_var("IBEX_LOCKDOWN", "1");
-
     if cli.version {
         println!("v{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -1399,16 +1391,14 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     // artifact's own directory (`__exactChunkDir`), so ship them alongside the
     // `.hbc` — otherwise the built artifact silently loses per-package
     // attribution (a flat single-Domain run). @ref LLP 0013#mechanism-3 — (ENG-22760)
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        if let Some(dest_dir) = output_path.parent() {
-            let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
-            if copied > 0 {
-                println!(
-                    "Shipped {} per-package chunk file(s) alongside {}",
-                    copied,
-                    output_path.display()
-                );
-            }
+    if let Some(dest_dir) = output_path.parent() {
+        let copied = runtime::ship_chunk_siblings(&bundled, dest_dir)?;
+        if copied > 0 {
+            println!(
+                "Shipped {} per-package chunk file(s) alongside {}",
+                copied,
+                output_path.display()
+            );
         }
     }
 

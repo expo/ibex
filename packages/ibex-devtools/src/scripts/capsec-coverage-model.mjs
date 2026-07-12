@@ -328,6 +328,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__ibexEndowRaw",
   "__ibexLockedDown",
   "__ibexNativeLockdown",
+  "__ibexTamed",
   "__nativeFetch",
   "__nativeFetchSync",
   "__svGet",
@@ -5048,6 +5049,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_callback_backlog",
     "ex_hermes_create",
     "ex_hermes_create_armed",
+    "ex_hermes_create_diagnostic",
     "ex_hermes_debugger_enable",
     "ex_hermes_debugger_eval",
     "ex_hermes_debugger_get_script_source",
@@ -5061,6 +5063,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_dispatch_event",
     "ex_hermes_emit_module_event",
     "ex_hermes_emit_module_view_event",
+    "ex_hermes_engine_binary_path",
     "ex_hermes_eval",
     "ex_hermes_free_string",
     "ex_hermes_gc",
@@ -5082,6 +5085,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_kernel_handle",
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
+    "ex_host_armed_endowments",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
     "ex_host_check_capability",
@@ -5090,8 +5094,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_check_capability_stack_no_follow_final",
     "ex_host_check_handle_mint",
     "ex_host_check_import",
+    "ex_host_claim_armed_context",
+    "ex_host_claim_diagnostic_context",
     "ex_host_console_flush",
     "ex_host_console_log",
+    "ex_host_enter_context",
     "ex_host_env_get",
     "ex_host_evaluate_typed_decision",
     "ex_host_free_buffer",
@@ -5101,10 +5108,12 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_fs_chmod",
     "ex_host_fs_close",
     "ex_host_fs_copy",
+    "ex_host_fs_copy_exclusive",
     "ex_host_fs_fstat",
     "ex_host_fs_last_error",
     "ex_host_fs_lstat",
     "ex_host_fs_mkdir",
+    "ex_host_fs_mkdir_recursive_result",
     "ex_host_fs_mkdtemp",
     "ex_host_fs_open",
     "ex_host_fs_pread",
@@ -5117,8 +5126,11 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_fs_rmdir",
     "ex_host_fs_seek",
     "ex_host_fs_stat",
+    "ex_host_fs_statfs",
     "ex_host_fs_sync",
+    "ex_host_fs_truncate",
     "ex_host_fs_unlink",
+    "ex_host_fs_utimes",
     "ex_host_fs_write",
     "ex_host_grant_capability",
     "ex_host_handle_check",
@@ -5162,6 +5174,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_permission_status",
     "ex_host_random_fill",
     "ex_host_register_module_package",
+    "ex_host_release_context",
+    "ex_host_restore_context",
     "ex_host_sqlite_all",
     "ex_host_sqlite_close",
     "ex_host_sqlite_exec",
@@ -5315,6 +5329,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "argument-parser:ibex:max_http_header_size:unsigned-integer-usize",
     "argument-parser:ibex:policy:os-path",
     "argument-parser:ibex:print_eval:utf8-string",
+    "argument-parser:ibex:project_root:os-path",
     "argument-parser:ibex:stack_size:utf8-string",
     "bench",
     "build",
@@ -5410,6 +5425,7 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option-name:ibex:policy:--policy",
     "option-name:ibex:print_eval:--print",
     "option-name:ibex:print_eval:-p",
+    "option-name:ibex:project_root:--project-root",
     "option-name:ibex:stack_size:--stack-size",
     "option-name:ibex:version:--version",
     "option-name:ibex:version:-V",
@@ -5708,6 +5724,10 @@ const REVIEWED_CLI_NAMES = reviewedNameSet(
     "option:ibex:print_eval:action:Set",
     "option:ibex:print_eval:arity:1:1",
     "option:ibex:print_eval:value-name:CODE",
+    "option:ibex:project_root",
+    "option:ibex:project_root:action:Set",
+    "option:ibex:project_root:arity:1:1",
+    "option:ibex:project_root:value-name:DIR",
     "option:ibex:stack_size",
     "option:ibex:stack_size:action:Set",
     "option:ibex:stack_size:arity:1:1",
@@ -5837,6 +5857,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:builtin_module_debug_entries",
     "function:rust:load_module_source",
     "function:rust:load_source",
+    "function:rust:load_source_bytes",
     "function:rust:module_cache_key",
     "function:rust:module_kind_from_path",
     "function:rust:normalize_import_target",
@@ -6272,6 +6293,8 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_SEAL_SELF_GRANT",
     "env:IBEX_STARTUP_TRACE",
     "env:IBEX_SUPPRESS_CONSOLE_MIRROR",
+    "env:IBEX_TEST_ARMED_CREATE_PAUSE_MS",
+    "env:IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
     "env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
     "env:LINES",
@@ -6306,16 +6329,19 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
     "evaluation:translation-unit-fallback:capability-hardening",
     "evaluation:translation-unit-fallback:cdp",
+    "evaluation:translation-unit-fallback:compartment-registry",
+    "evaluation:translation-unit-fallback:eager-install-seal",
     "evaluation:translation-unit-fallback:form-data",
     "evaluation:translation-unit-fallback:freeze-seal",
     "evaluation:translation-unit-fallback:fs-handle",
+    "evaluation:translation-unit-fallback:lockdown",
     "evaluation:translation-unit-fallback:web-crypto",
     "evaluation:translation-unit-fallback:web-storage",
     "freeze-seal",
     "globals-install",
     "install-route:defined:13e9rgh:installFsHostFunctions",
     "install-route:env_flag_enabled:0jb9qqi:installWebStreamsPolyfill",
-    "install-route:ex_hermes_create:installGlobals",
+    "install-route:ex_hermes_create_impl:installGlobals",
     "install-route:ex_worklet_create:installWorkletGlobals",
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
     "install-route:installAndroidHostFunctions:installAndroidEnvironmentGlobals",
@@ -8981,7 +9007,7 @@ function loaderClassification(surface) {
       return loaderExecutableRouteEffectSpec(loaderOptions);
     }
     if (
-      /^(?:load_module_source|load_source|resolve|run_transpile_command|run_transpile_subprocess|transpile_module)$/u.test(
+      /^(?:load_module_source|load_source|load_source_bytes|resolve|run_transpile_command|run_transpile_subprocess|transpile_module)$/u.test(
         functionName,
       )
     ) {
@@ -9007,6 +9033,7 @@ function loaderClassification(surface) {
         "function:javascript:moduledynamicimport",
         "function:rust:load_module_source",
         "function:rust:load_source",
+        "function:rust:load_source_bytes",
         "function:rust:resolve",
       ]).has(name)
     ) {
@@ -9215,6 +9242,8 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_TEST_MODULE",
   "EXACT_TEST_SECTION",
   "EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
+  "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
+  "IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
   "IBEX_TEST_FS_WORKER_MAX_QUEUE",
 ]);
 
@@ -9559,7 +9588,7 @@ function startupClassification(surface) {
 
   if (surface.metadata?.evidenceType === "startup-evaluation-route") {
     const fallbackMatch =
-      /^evaluation:translation-unit-fallback:(capability-hardening|cdp|form-data|freeze-seal|fs-handle|web-crypto|web-storage)$/u.exec(
+      /^evaluation:translation-unit-fallback:(capability-hardening|cdp|compartment-registry|eager-install-seal|form-data|freeze-seal|fs-handle|lockdown|web-crypto|web-storage)$/u.exec(
         name,
       );
     if (fallbackMatch) {
@@ -11103,6 +11132,13 @@ function androidHostAbiClassification(name) {
 
 function abiEscapeClassification(name) {
   const abiName = name.toLowerCase();
+  if (abiName === "ex_hermes_create_diagnostic") {
+    return closedSpec(
+      "vm:evaluate",
+      "WP7",
+      "The explicitly diagnostic unarmed runtime constructor is outside every production profile.",
+    );
+  }
   if (/^ex_hermes_debugger_/u.test(abiName)) {
     return closedSpec(
       /_(?:eval|get_script_source|get_scripts|next_event)$/u.test(abiName)
@@ -11185,7 +11221,13 @@ function embedderAbiClassification(name) {
     if (new Set(["exhermesdestroy", "exhermesfreestring"]).has(name)) {
       return nonCapabilitySpec("authority-release", "WP8");
     }
-    if (new Set(["exhermescreate", "exhermescreatearmed"]).has(name)) {
+    if (
+      new Set([
+        "exhermescreate",
+        "exhermescreatearmed",
+        "exhermesenginebinarypath",
+      ]).has(name)
+    ) {
       return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
     }
     if (
@@ -11253,16 +11295,18 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP8");
   }
   if (
-    new Set(["exhostinstallarmed", "exhostmatchesarmedsnapshotdigest"]).has(
-      name,
-    )
+    new Set([
+      "exhostarmedendowments",
+      "exhostinstallarmed",
+      "exhostmatchesarmedsnapshotdigest",
+    ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
@@ -11310,17 +11354,17 @@ function hostAbiClassification(name) {
     if (/^exhostfsopen$/u.test(name)) {
       return filesystemOpenEffectSpec();
     }
-    if (/^exhostfscopy$/u.test(name)) {
+    if (/^exhostfscopy(?:exclusive)?$/u.test(name)) {
       return effectSpec(["fs:read", "fs:write"], "filesystem", "WP5");
     }
-    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat)$/u.test(name)) {
+    if (/^exhostfs(?:access|fstat|lstat|readdir|realpath|stat|statfs)$/u.test(name)) {
       return effectSpec(["fs:list"], "filesystem", "WP5", descriptorOptions);
     }
     if (/^exhostfs(?:pread|read)$/u.test(name)) {
       return effectSpec(["fs:read"], "filesystem", "WP5", descriptorOptions);
     }
     if (
-      /^exhostfs(?:append|chmod|mkdir|mkdtemp|pwrite|rename|rmdir|sync|unlink|write)$/u.test(
+      /^exhostfs(?:append|chmod|mkdir|mkdirrecursiveresult|mkdtemp|pwrite|rename|rmdir|sync|truncate|unlink|utimes|write)$/u.test(
         name,
       )
     ) {
@@ -11605,7 +11649,7 @@ function classifyConcreteSurface(surface) {
   }
 
   if (
-    /deepfreeze|nativefreeze|nativelockdown|lockeddown|setcompartment|endowraw/u.test(
+    /deepfreeze|nativefreeze|nativelockdown|lockeddown|tamed|setcompartment|endowraw/u.test(
       name,
     )
   ) {

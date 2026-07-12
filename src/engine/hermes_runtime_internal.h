@@ -84,6 +84,13 @@ struct HostCallAsyncEntry {
 
 struct ExactHermesRuntime {
   std::unique_ptr<facebook::hermes::HermesRuntime> runtime;
+  uint64_t host_context_id{0};
+  uint64_t runtime_nonce{0};
+  // Immutable constructor-selected posture. Bootstrap must never consult
+  // process-global environment toggles that other threads can observe/race.
+  bool armed{false};
+  bool structural_lockdown{false};
+  std::string snapshot_endowments;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // The frame-attribution VM owned by this handle. The active pointer is
   // selected at each engine entry point; a thread may drive nested runtimes.
@@ -116,8 +123,13 @@ struct ExactHermesRuntime {
   // counts as referenced work so the loop survives until the worker delivers
   // its completion via pushRuntimeCallback. (ENG-23497)
   std::atomic<int> pending_fs_ops{0};
+  // Pins held by native workers that may dereference this handle outside the
+  // runtime thread. Destroy unregisters first, then waits for this count to
+  // reach zero before cleanup/delete.
+  std::atomic<uint32_t> native_worker_pins{0};
+  std::mutex native_worker_mutex;
+  std::condition_variable native_worker_cv;
   std::mutex fetchMutex;
-  uint32_t nextFetchId{1};
   std::unordered_map<uint32_t, FetchCallbackEntry> fetchCallbacks;
   std::mutex hostCallAsyncMutex;
   uint64_t nextHostCallAsyncId{1};
@@ -213,10 +225,40 @@ extern "C" void ex_host_log_event(const char* event_type,
 extern thread_local uint64_t g_active_module_id;
 constexpr uint64_t kNoNativePrincipalOverride = std::numeric_limits<uint64_t>::max();
 extern thread_local uint64_t g_native_callback_principal_id;
+extern thread_local uint64_t g_active_runtime_nonce;
+
+extern "C" uint64_t ex_host_enter_context(uint64_t context_id);
+extern "C" void ex_host_restore_context(uint64_t previous);
+
+inline uint64_t exactCurrentRuntimeNonce() {
+  return g_active_runtime_nonce;
+}
+
+class ScopedRuntimeSecurityContext {
+ public:
+  explicit ScopedRuntimeSecurityContext(const ExactHermesRuntime* runtime)
+      : previousRuntime_(g_active_runtime_nonce), previousHost_(UINT64_MAX) {
+    if (runtime != nullptr) {
+      g_active_runtime_nonce = runtime->runtime_nonce;
+      previousHost_ = ex_host_enter_context(runtime->host_context_id);
+    }
+  }
+  ~ScopedRuntimeSecurityContext() {
+    if (previousHost_ != UINT64_MAX) ex_host_restore_context(previousHost_);
+    g_active_runtime_nonce = previousRuntime_;
+  }
+  ScopedRuntimeSecurityContext(const ScopedRuntimeSecurityContext&) = delete;
+  ScopedRuntimeSecurityContext& operator=(const ScopedRuntimeSecurityContext&) = delete;
+
+ private:
+  uint64_t previousRuntime_;
+  uint64_t previousHost_;
+};
 
 extern "C" void ex_host_register_module_package(uint64_t module_id,
                                                 const char* package,
-                                                const char* locator);
+                                                const char* locator,
+                                                const char* integrity);
 extern "C" int32_t ex_host_check_capability_stack(const uint64_t* module_ids,
                                                   size_t len,
                                                   const char* capability);
@@ -474,15 +516,25 @@ void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
 std::vector<uint64_t> exactCollectTypedPrincipalStack();
+void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce);
+void exactCleanupRuntimeSockets(uint64_t runtimeNonce);
+void exactCleanupRuntimeSqlite(uint64_t runtimeNonce);
+void exactCleanupRuntimeHttpServers(uint64_t runtimeNonce);
+bool disposeAsyncCallbackError(
+    ExactHermesRuntime* runtime,
+    const facebook::jsi::JSError& err);
+bool exactPinRuntimeNativeWorker(ExactHermesRuntime* runtime);
+void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime);
 
 class ScopedTypedPrincipalStack {
  public:
   explicit ScopedTypedPrincipalStack(const std::vector<uint64_t>& principals);
   ~ScopedTypedPrincipalStack();
   ScopedTypedPrincipalStack(const ScopedTypedPrincipalStack&) = delete;
-  ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
+ ScopedTypedPrincipalStack& operator=(const ScopedTypedPrincipalStack&) = delete;
 
  private:
+  std::vector<uint64_t> principals_;
   const std::vector<uint64_t>* previous_;
 };
 void exactRequireOwnedIpcFd(facebook::jsi::Runtime& runtime, int fd, const char* syscall);

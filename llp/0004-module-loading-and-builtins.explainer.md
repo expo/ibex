@@ -5,7 +5,7 @@
 **Systems:** Runtime, Module Loader, Build
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
+**Revised:** 2026-07-12 (armed resolution authenticates exact requester/target locator, package root, and whole-tree integrity before import or `require.resolve` disclosure — ENG-24234, ENG-24235, ENG-24241); 2026-07-08 (ENG-23505: incremental native zlib stream codec; ENG-23492: native TLS bridge for out-of-process endpoints; ENG-23526: Windows native TLS bridge enablement; ENG-23448: documented the loopback-only tls emulation); 2026-07-11 (ENG-23505: stream lifecycle and concatenated-member boundaries; LLP 0021 generated builtin-export security inventory — ENG-24145)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -38,14 +38,24 @@ specifier in this order `[observed]`:
 4. **On-disk resolution** via oxc_resolver (`resolve_with_oxc`,
    `src/module_loader/mod.rs:143`).
 
-`resolve_module` on `Host` additionally enforces an `fs:read:<path>` capability
-before loading a resolved file path (`src/host/mod.rs:161-174`) `[observed]`.
-`Host::resolve_module_meta` runs the same resolution + `fs:read:<path>` gate but
-stops before `load_source`, returning only the metadata (path + package fields,
-no `source`); `resolve_module` is now `resolve_module_meta` + `load_source`. This
-backs `require.resolve`, which needs only the path and previously paid a full
-read + transpile + JSON-escape of the whole body just to discard it (ENG-23007)
-`[observed]`.
+In an armed runtime the C ABI carries the numeric requester module ID into both
+full and metadata-only resolution. The Host resolves first, derives the target
+principal from the most-specific authenticated root binding, and requires the
+exact graph edge including locator and integrity. Package-relative imports must
+remain inside that package's authenticated root; package-to-project-root and
+absolute escapes are refused rather than reclassified as principal 0. The
+resolver returns exact package name, locator, root, and whole-tree integrity,
+and module registration accepts the mapping only when all fields match the
+armed graph. Installed content is recomputed before project code, so replacing
+a package body without changing its self-reported manifest cannot inherit its
+reviewed authority.
+
+`Host::resolve_module_meta` applies the same requester, import-edge, logical
+`fs:list`/`fs:read`, root-object, and integrity checks but stops before
+`load_source`, returning only path and authenticated package metadata.
+`resolve_module` is `resolve_module_meta` plus source loading. This backs every
+`require.resolve` route without turning metadata-only lookup into an import or
+filesystem-disclosure bypass.
 
 ### The oxc_resolver configuration
 

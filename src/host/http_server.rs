@@ -28,7 +28,7 @@ use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::TokioIo;
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
 use hyper_util::server::graceful::GracefulShutdown;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Error as IoError;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicU32, AtomicU8, Ordering};
@@ -40,6 +40,10 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::cdp::network as cdp_network;
+
+extern "C" {
+    fn ex_hermes_current_runtime_nonce() -> u64;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,6 +188,9 @@ fn max_request_body_bytes() -> usize {
 }
 
 struct ServerState {
+    /// Unforgeable owner namespace of the Hermes runtime that created this
+    /// server. Numeric server/request ids are never ambient process authority.
+    runtime_nonce: u64,
     /// Identifier for map removal and lifecycle operations.
     id: u32,
     /// Receiver for pending requests (polled by JS).
@@ -219,26 +226,46 @@ struct ServerState {
 static NEXT_SERVER_ID: AtomicU32 = AtomicU32::new(1);
 static NEXT_REQUEST_ID: AtomicU32 = AtomicU32::new(1);
 
+fn allocate_nonwrapping_id(next: &AtomicU32) -> Option<u32> {
+    next.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        (current != 0).then(|| current.checked_add(1)).flatten()
+    })
+    .ok()
+}
+
 fn servers() -> &'static Mutex<HashMap<u32, Arc<ServerState>>> {
     static SERVERS: OnceLock<Mutex<HashMap<u32, Arc<ServerState>>>> = OnceLock::new();
     SERVERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn closed_servers() -> &'static Mutex<HashSet<u32>> {
-    static CLOSED: OnceLock<Mutex<HashSet<u32>>> = OnceLock::new();
-    CLOSED.get_or_init(|| Mutex::new(HashSet::new()))
+fn current_runtime_nonce() -> u64 {
+    unsafe { ex_hermes_current_runtime_nonce() }
+}
+
+fn server_for_current_runtime(server_id: u32) -> Option<Arc<ServerState>> {
+    server_for_runtime(server_id, current_runtime_nonce())
+}
+
+fn server_for_runtime(server_id: u32, runtime_nonce: u64) -> Option<Arc<ServerState>> {
+    let state = lock_or_recover(servers()).get(&server_id).cloned()?;
+    (state.runtime_nonce == runtime_nonce).then_some(state)
+}
+
+fn closed_servers() -> &'static Mutex<HashMap<u32, u64>> {
+    static CLOSED: OnceLock<Mutex<HashMap<u32, u64>>> = OnceLock::new();
+    CLOSED.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// Close all active HTTP servers and return the number of servers addressed.
 pub fn close_all_http_servers(force: i32) -> usize {
-    let ids = {
+    let states = {
         let all = lock_or_recover(servers());
-        all.keys().copied().collect::<Vec<u32>>()
+        all.values().cloned().collect::<Vec<_>>()
     };
 
     let mut closed = 0usize;
-    for server_id in ids {
-        if ex_host_http_close(server_id, force) != -1 {
+    for state in states {
+        if close_server_state(state, force) != -1 {
             closed += 1;
         }
     }
@@ -297,11 +324,13 @@ pub fn start_server(port: u16, hostname: &str) -> Result<(u32, u16)> {
     let bound_addr = std_listener.local_addr()?;
     let bound_port = bound_addr.port();
 
-    let server_id = NEXT_SERVER_ID.fetch_add(1, Ordering::Relaxed);
+    let server_id = allocate_nonwrapping_id(&NEXT_SERVER_ID)
+        .ok_or_else(|| anyhow!("HTTP server id space exhausted"))?;
     let (tx, rx) = mpsc::channel::<PendingRequest>(4096);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
     let state = Arc::new(ServerState {
+        runtime_nonce: current_runtime_nonce(),
         id: server_id,
         rx: Mutex::new(rx),
         responders: Mutex::new(HashMap::new()),
@@ -502,7 +531,7 @@ fn notify_if_draining_complete(state: &Arc<ServerState>) {
     // Drop any pending response body streams.
     lock_or_recover(&state.response_bodies).clear();
 
-    lock_or_recover(closed_servers()).insert(state.id);
+    lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
     // Remove from global registry.
     lock_or_recover(servers()).remove(&state.id);
 }
@@ -536,7 +565,7 @@ fn fail_startup(state: &Arc<ServerState>, message: String) {
     lock_or_recover(&state.responders).clear();
     lock_or_recover(&state.request_bodies).clear();
     lock_or_recover(&state.response_bodies).clear();
-    lock_or_recover(closed_servers()).insert(state.id);
+    lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
     lock_or_recover(servers()).remove(&state.id);
 }
 
@@ -569,7 +598,7 @@ fn schedule_forced_close(state: Arc<ServerState>) {
                 lock_or_recover(&state.responders).clear();
                 lock_or_recover(&state.request_bodies).clear();
                 lock_or_recover(&state.response_bodies).clear();
-                lock_or_recover(closed_servers()).insert(state.id);
+                lock_or_recover(closed_servers()).insert(state.id, state.runtime_nonce);
                 lock_or_recover(servers()).remove(&state.id);
                 return;
             }
@@ -1112,7 +1141,12 @@ async fn handle_request(
     remote_addr: String,
     state: Arc<ServerState>,
 ) -> Result<Response<BoxBody<Bytes, IoError>>, hyper::Error> {
-    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    let Some(request_id) = allocate_nonwrapping_id(&NEXT_REQUEST_ID) else {
+        return Ok(simple_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            b"Request id space exhausted",
+        ));
+    };
 
     // Extract request parts.
     let method = req.method().to_string();
@@ -1368,12 +1402,8 @@ pub extern "C" fn ex_host_http_serve(
 /// JSON: {"id": N, "method": "GET", "url": "/path", "headers": [[k,v],...], "hasBody": true, "remoteAddr": "..."}
 #[no_mangle]
 pub extern "C" fn ex_host_http_poll(server_id: u32) -> *mut std::ffi::c_char {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return std::ptr::null_mut(),
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return std::ptr::null_mut();
     };
 
     let json = pop_request_json(&state);
@@ -1392,12 +1422,8 @@ pub extern "C" fn ex_host_http_poll(server_id: u32) -> *mut std::ffi::c_char {
 /// JSON: [{"id":N,...}, {"id":N,...}, ...]
 #[no_mangle]
 pub extern "C" fn ex_host_http_drain(server_id: u32, max_count: u32) -> *mut std::ffi::c_char {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return std::ptr::null_mut(),
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return std::ptr::null_mut();
     };
 
     let max = if max_count == 0 {
@@ -1420,12 +1446,25 @@ pub extern "C" fn ex_host_http_drain(server_id: u32, max_count: u32) -> *mut std
 /// `timeout_ms = 0` means no timeout.
 #[no_mangle]
 pub extern "C" fn ex_host_http_wait(server_id: u32, timeout_ms: u32) -> *mut std::ffi::c_char {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return std::ptr::null_mut(),
-        }
+    http_wait_for_runtime(server_id, timeout_ms, current_runtime_nonce())
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_http_wait_owned(
+    server_id: u32,
+    timeout_ms: u32,
+    runtime_nonce: u64,
+) -> *mut std::ffi::c_char {
+    http_wait_for_runtime(server_id, timeout_ms, runtime_nonce)
+}
+
+fn http_wait_for_runtime(
+    server_id: u32,
+    timeout_ms: u32,
+    runtime_nonce: u64,
+) -> *mut std::ffi::c_char {
+    let Some(state) = server_for_runtime(server_id, runtime_nonce) else {
+        return std::ptr::null_mut();
     };
 
     let timeout = if timeout_ms == 0 {
@@ -1496,12 +1535,8 @@ pub extern "C" fn ex_host_http_wait(server_id: u32, timeout_ms: u32) -> *mut std
 /// - {} while no data is currently available
 #[no_mangle]
 pub extern "C" fn ex_host_http_read_body(server_id: u32, request_id: u32) -> *mut std::ffi::c_char {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return std::ptr::null_mut(),
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return std::ptr::null_mut();
     };
 
     let mut bodies = lock_or_recover(&state.request_bodies);
@@ -1564,12 +1599,8 @@ pub extern "C" fn ex_host_http_respond(
     body: *const u8,
     body_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let mut response_status = status;
@@ -1588,12 +1619,8 @@ pub extern "C" fn ex_host_http_respond_text(
     body: *const u8,
     body_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let headers = vec![
@@ -1614,12 +1641,8 @@ pub extern "C" fn ex_host_http_respond_json(
     body: *const u8,
     body_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let headers = vec![
@@ -1642,12 +1665,8 @@ pub extern "C" fn ex_host_http_respond_string(
     body: *const u8,
     body_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let mut response_status = status;
@@ -1666,12 +1685,8 @@ pub extern "C" fn ex_host_http_respond_stream(
     status: u16,
     headers_json: *const std::ffi::c_char,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let responder = {
@@ -1724,12 +1739,8 @@ pub extern "C" fn ex_host_http_respond_chunk(
     chunk: *const u8,
     chunk_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     if chunk.is_null() {
@@ -1756,12 +1767,8 @@ pub extern "C" fn ex_host_http_respond_chunk_try(
     chunk: *const u8,
     chunk_len: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     if chunk.is_null() {
@@ -1780,12 +1787,8 @@ pub extern "C" fn ex_host_http_respond_chunk_try(
 /// Returns -1 if the request is already gone.
 #[no_mangle]
 pub extern "C" fn ex_host_http_respond_end(server_id: u32, request_id: u32) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     match end_response_stream(&state, request_id) {
@@ -1800,12 +1803,8 @@ pub extern "C" fn ex_host_http_respond_end(server_id: u32, request_id: u32) -> i
 /// @ref https://linear.app/expo/issue/ENG-23027
 #[no_mangle]
 pub extern "C" fn ex_host_http_respond_end_try(server_id: u32, request_id: u32) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     match try_end_response_stream(&state, request_id) {
@@ -1828,12 +1827,8 @@ pub extern "C" fn ex_host_http_respond_end_try(server_id: u32, request_id: u32) 
 /// bridge destroy path should adopt it too. @ref https://linear.app/expo/issue/ENG-23114
 #[no_mangle]
 pub extern "C" fn ex_host_http_respond_abort(server_id: u32, request_id: u32) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return -1;
     };
 
     let had_responder = lock_or_recover(&state.responders)
@@ -1861,12 +1856,27 @@ pub extern "C" fn ex_host_http_await_writable(
     request_id: u32,
     timeout_ms: u32,
 ) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return -1,
-        }
+    http_await_writable_for_runtime(server_id, request_id, timeout_ms, current_runtime_nonce())
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_http_await_writable_owned(
+    server_id: u32,
+    request_id: u32,
+    timeout_ms: u32,
+    runtime_nonce: u64,
+) -> i32 {
+    http_await_writable_for_runtime(server_id, request_id, timeout_ms, runtime_nonce)
+}
+
+fn http_await_writable_for_runtime(
+    server_id: u32,
+    request_id: u32,
+    timeout_ms: u32,
+    runtime_nonce: u64,
+) -> i32 {
+    let Some(state) = server_for_runtime(server_id, runtime_nonce) else {
+        return -1;
     };
 
     let (sender, drain) = {
@@ -1928,12 +1938,8 @@ pub extern "C" fn ex_host_http_await_writable(
 /// Get server address as JSON. Returns null if server not found.
 #[no_mangle]
 pub extern "C" fn ex_host_http_address(server_id: u32) -> *mut std::ffi::c_char {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => return std::ptr::null_mut(),
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return std::ptr::null_mut();
     };
 
     let addr = lock_or_recover(&state.address);
@@ -1955,19 +1961,17 @@ pub extern "C" fn ex_host_http_address(server_id: u32) -> *mut std::ffi::c_char 
 /// Close a server.
 #[no_mangle]
 pub extern "C" fn ex_host_http_close(server_id: u32, force: i32) -> i32 {
-    let state = {
-        let servers = lock_or_recover(servers());
-        match servers.get(&server_id) {
-            Some(s) => s.clone(),
-            None => {
-                if lock_or_recover(closed_servers()).contains(&server_id) {
-                    return 0;
-                }
-                return -1;
-            }
-        }
+    let Some(state) = server_for_current_runtime(server_id) else {
+        return match lock_or_recover(closed_servers()).get(&server_id) {
+            Some(runtime_nonce) if *runtime_nonce == current_runtime_nonce() => 0,
+            _ => -1,
+        };
     };
+    close_server_state(state, force)
+}
 
+fn close_server_state(state: Arc<ServerState>, force: i32) -> i32 {
+    let server_id = state.id;
     let previous = state.lifecycle.swap(HTTP_SERVER_CLOSING, Ordering::SeqCst);
     if previous == HTTP_SERVER_CLOSED {
         notify_request_available(&state);
@@ -1990,7 +1994,7 @@ pub extern "C" fn ex_host_http_close(server_id: u32, force: i32) -> i32 {
         lock_or_recover(&state.responders).clear();
         lock_or_recover(&state.request_bodies).clear();
         lock_or_recover(&state.response_bodies).clear();
-        lock_or_recover(closed_servers()).insert(server_id);
+        lock_or_recover(closed_servers()).insert(server_id, state.runtime_nonce);
         lock_or_recover(servers()).remove(&server_id);
         notify_request_available(&state);
         return 0;
@@ -2015,8 +2019,7 @@ pub extern "C" fn ex_host_http_close(server_id: u32, force: i32) -> i32 {
 /// Check if a server is referenced (keeps process alive).
 #[no_mangle]
 pub extern "C" fn ex_host_http_is_referenced(server_id: u32) -> i32 {
-    let servers = lock_or_recover(servers());
-    match servers.get(&server_id) {
+    match server_for_current_runtime(server_id) {
         Some(s) => {
             if s.lifecycle.load(Ordering::SeqCst) == HTTP_SERVER_CLOSED {
                 0
@@ -2034,7 +2037,11 @@ pub extern "C" fn ex_host_http_is_referenced(server_id: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn ex_host_http_has_referenced() -> i32 {
     let servers = lock_or_recover(servers());
+    let runtime_nonce = current_runtime_nonce();
     for state in servers.values() {
+        if runtime_nonce != 0 && state.runtime_nonce != runtime_nonce {
+            continue;
+        }
         if state.lifecycle.load(Ordering::SeqCst) != HTTP_SERVER_CLOSED
             && state.ref_count.load(Ordering::SeqCst) > 0
         {
@@ -2051,7 +2058,11 @@ pub extern "C" fn ex_host_http_has_referenced() -> i32 {
 #[no_mangle]
 pub extern "C" fn ex_host_http_has_pending_requests() -> i32 {
     let servers = lock_or_recover(servers());
+    let runtime_nonce = current_runtime_nonce();
     for state in servers.values() {
+        if runtime_nonce != 0 && state.runtime_nonce != runtime_nonce {
+            continue;
+        }
         if has_outstanding_work(state) {
             return 1;
         }
@@ -2073,8 +2084,7 @@ pub fn is_server_listening(server_id: u32) -> bool {
 /// Set ref/unref on a server.
 #[no_mangle]
 pub extern "C" fn ex_host_http_set_ref(server_id: u32, referenced: i32) {
-    let servers = lock_or_recover(servers());
-    if let Some(s) = servers.get(&server_id) {
+    if let Some(s) = server_for_current_runtime(server_id) {
         if referenced != 0 {
             s.ref_count.fetch_add(1, Ordering::SeqCst);
             return;
@@ -2085,6 +2095,27 @@ pub extern "C" fn ex_host_http_set_ref(server_id: u32, referenced: i32) {
                 count.checked_sub(1)
             });
     }
+}
+
+/// Revoke and close every HTTP server owned by one runtime. Runtime teardown
+/// invokes this even for diagnostic allow-all runtimes; policy posture never
+/// controls ownership cleanup.
+#[no_mangle]
+pub extern "C" fn ex_host_http_cleanup_runtime(runtime_nonce: u64, force: i32) -> usize {
+    if runtime_nonce == 0 {
+        return 0;
+    }
+    let states = lock_or_recover(servers())
+        .values()
+        .filter(|state| state.runtime_nonce == runtime_nonce)
+        .cloned()
+        .collect::<Vec<_>>();
+    let count = states.len();
+    for state in states {
+        let _ = close_server_state(state, force);
+    }
+    lock_or_recover(closed_servers()).retain(|_, owner| *owner != runtime_nonce);
+    count
 }
 
 #[cfg(test)]
@@ -2101,6 +2132,7 @@ mod tests {
                 .expect("valid test address"),
         );
         let state = Arc::new(ServerState {
+            runtime_nonce: current_runtime_nonce(),
             id: server_id,
             rx: Mutex::new(rx),
             responders: Mutex::new(HashMap::new()),

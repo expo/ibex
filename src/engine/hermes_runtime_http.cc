@@ -9,6 +9,10 @@
 
 extern "C" char* ex_host_http_serve(uint16_t port, const char* hostname);
 extern "C" char* ex_host_http_wait(uint32_t server_id, uint32_t timeout_ms);
+extern "C" char* ex_host_http_wait_owned(
+    uint32_t server_id,
+    uint32_t timeout_ms,
+    uint64_t runtime_nonce);
 extern "C" char* ex_host_http_read_body(uint32_t server_id, uint32_t request_id);
 extern "C" int32_t ex_host_http_respond(
     uint32_t server_id,
@@ -51,6 +55,11 @@ extern "C" int32_t ex_host_http_await_writable(
     uint32_t server_id,
     uint32_t request_id,
     uint32_t timeout_ms);
+extern "C" int32_t ex_host_http_await_writable_owned(
+    uint32_t server_id,
+    uint32_t request_id,
+    uint32_t timeout_ms,
+    uint64_t runtime_nonce);
 extern "C" int32_t ex_host_http_respond_string(
     uint32_t server_id,
     uint32_t request_id,
@@ -68,6 +77,7 @@ extern "C" void ex_host_free_string(char* value);
 namespace {
 
 struct HttpServerEntry {
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::string capability;
 };
@@ -103,16 +113,14 @@ void registerHttpServer(uint32_t server_id, const std::string& capability) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_http_server_mutex);
-  g_http_servers[server_id] = HttpServerEntry{currentPrincipalId(), capability};
+  g_http_servers[server_id] = HttpServerEntry{
+      exactCurrentRuntimeNonce(), currentPrincipalId(), capability};
 }
 
 bool requireHttpServerOwner(
     facebook::jsi::Runtime& runtime,
     uint32_t server_id,
     const char* syscall) {
-  if (isAllowAll()) {
-    return true;
-  }
   HttpServerEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_http_server_mutex);
@@ -122,11 +130,15 @@ bool requireHttpServerOwner(
     }
     entry = it->second;
   }
-  if (entry.owner != currentPrincipalId()) {
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": server belongs to a different runtime");
+  }
+  if (!isAllowAll() && entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": server belongs to a different principal");
   }
-  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+  if (!isAllowAll() && !entry.capability.empty() && !checkCapability(entry.capability)) {
     throw facebook::jsi::JSError(
         runtime, std::string("Permission denied: ") + syscall);
   }
@@ -135,7 +147,11 @@ bool requireHttpServerOwner(
 
 void unregisterHttpServer(uint32_t server_id) {
   std::lock_guard<std::mutex> lock(g_http_server_mutex);
-  g_http_servers.erase(server_id);
+  auto server = g_http_servers.find(server_id);
+  if (server != g_http_servers.end() &&
+      server->second.runtimeNonce == exactCurrentRuntimeNonce()) {
+    g_http_servers.erase(server);
+  }
 }
 
 uint32_t extractOptionalHttpBody(
@@ -162,6 +178,17 @@ uint32_t extractOptionalHttpBody(
 }
 
 } // namespace
+
+void exactCleanupRuntimeHttpServers(uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(g_http_server_mutex);
+  for (auto it = g_http_servers.begin(); it != g_http_servers.end();) {
+    if (it->second.runtimeNonce == runtimeNonce) {
+      it = g_http_servers.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 void installHttpHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
@@ -325,6 +352,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 ExactHermesRuntime* handle;
                 uint32_t server_id;
                 uint32_t timeout_ms;
+                uint64_t runtime_nonce;
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
@@ -361,7 +389,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         queue.pop_front();
                       }
 
-                      char* json = ex_host_http_wait(t.server_id, t.timeout_ms);
+                      char* json = ex_host_http_wait_owned(
+                          t.server_id, t.timeout_ms, t.runtime_nonce);
                       std::string payload;
                       bool has_payload = false;
                       if (json) {
@@ -430,7 +459,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               // pool lets exit() proceed normally.
               static WaitWorkerPool* workerPool = new WaitWorkerPool();
 
-              auto task = WaitTask{handle, server_id, timeout_ms, waitPrincipal, resolve, reject};
+              auto task = WaitTask{
+                  handle, server_id, timeout_ms, handle->runtime_nonce,
+                  waitPrincipal, resolve, reject};
               std::string enqueueError;
               if (!workerPool->enqueue(std::move(task), enqueueError)) {
                 reject->call(
@@ -825,6 +856,7 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                 uint32_t server_id;
                 uint32_t request_id;
                 uint32_t timeout_ms;
+                uint64_t runtime_nonce;
                 uint64_t principal;
                 std::shared_ptr<facebook::jsi::Function> resolve;
                 std::shared_ptr<facebook::jsi::Function> reject;
@@ -861,8 +893,9 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
                         queue.pop_front();
                       }
 
-                      int32_t code = ex_host_http_await_writable(
-                          t.server_id, t.request_id, t.timeout_ms);
+                      int32_t code = ex_host_http_await_writable_owned(
+                          t.server_id, t.request_id, t.timeout_ms,
+                          t.runtime_nonce);
 
                       auto resolve = std::move(t.resolve);
                       auto reject = std::move(t.reject);
@@ -921,7 +954,8 @@ void installHttpHostFunctions(ExactHermesRuntime* handle) {
               static WritableWorkerPool* writablePool = new WritableWorkerPool();
 
               auto task = WritableTask{
-                  handle, server_id, request_id, timeout_ms, waitPrincipal, resolve, reject};
+                  handle, server_id, request_id, timeout_ms,
+                  handle->runtime_nonce, waitPrincipal, resolve, reject};
               std::string enqueueError;
               if (!writablePool->enqueue(std::move(task), enqueueError)) {
                 reject->call(

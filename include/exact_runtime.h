@@ -31,15 +31,23 @@ typedef struct ExactHermesRuntime ExactHermesRuntime;
 // Runtime Lifecycle
 // =============================================================================
 
-/// Create a new Hermes runtime with all host functions installed.
-/// This includes: timers, console, crypto, compression, fetch, WebSocket,
-/// module loader, and all Node.js-compatible builtins.
-/// @return Pointer to runtime, or NULL on failure
+/// Legacy lifecycle symbol retained for ABI compatibility. It is deliberately
+/// non-executable and always returns NULL. Production callers must use
+/// ex_hermes_create_armed; isolated tests and foreground diagnostics may use
+/// ex_hermes_create_diagnostic explicitly.
 ExactHermesRuntime* ex_hermes_create(void);
+
+/// Explicit non-production constructor for isolated tests and foreground
+/// diagnostic audit. Never use this for project execution.
+ExactHermesRuntime* ex_hermes_create_diagnostic(void);
 
 /// Create a runtime only when the installed host carries this exact immutable
 /// armed-snapshot identity. Returns NULL on absence or mismatch.
 ExactHermesRuntime* ex_hermes_create_armed(const char* armed_snapshot_digest);
+
+/// Copy the filesystem path of the loaded artifact that contains Hermes'
+/// runtime factory. Returns the byte length, or -1 on failure.
+int32_t ex_hermes_engine_binary_path(char* out, size_t out_len);
 
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);

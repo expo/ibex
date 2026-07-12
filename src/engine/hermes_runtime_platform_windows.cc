@@ -123,6 +123,7 @@ bool setSocketNonBlocking(SOCKET socket) {
 
 struct WindowsSocketEntry {
   SOCKET socket;
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::string capability;
 };
@@ -137,7 +138,8 @@ int registerWindowsSocket(
     uint64_t owner = currentPrincipalId()) {
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   int handle = g_windows_next_socket_handle++;
-  g_windows_sockets[handle] = WindowsSocketEntry{socket, owner, capability};
+  g_windows_sockets[handle] = WindowsSocketEntry{
+      socket, exactCurrentRuntimeNonce(), owner, capability};
   return handle;
 }
 
@@ -154,6 +156,10 @@ WindowsSocketEntry requireWindowsSocket(
           runtime, std::string(operation) + ": invalid handle");
     }
     entry = it->second;
+  }
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different runtime");
   }
   if (!isAllowAll()) {
     if (entry.owner != currentPrincipalId()) {
@@ -1231,6 +1237,18 @@ std::string spawnAsyncWindowsJson(
 }
 
 } // namespace
+
+void exactCleanupRuntimeSockets(uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+  for (auto it = g_windows_sockets.begin(); it != g_windows_sockets.end();) {
+    if (it->second.runtimeNonce == runtimeNonce) {
+      closesocket(it->second.socket);
+      it = g_windows_sockets.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
 
 void installOsInfoGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;

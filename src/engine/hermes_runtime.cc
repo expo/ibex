@@ -29,6 +29,11 @@
 #include <cstring>
 #if defined(__APPLE__)
 #include <crt_externs.h>
+#include <TargetConditionals.h>
+#if TARGET_OS_OSX
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
 #endif
 #include <chrono>
 #include <deque>
@@ -62,6 +67,7 @@
 #include <malloc.h>
 #include <windows.h>
 #else
+#include <dlfcn.h>
 #include <sys/poll.h>
 #include <unistd.h>
 #include <sys/resource.h>
@@ -92,7 +98,7 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 #endif
-#if defined(__APPLE__)
+#if defined(__APPLE__) && TARGET_OS_OSX
 #include <mach/mach.h>
 #include <mach/mach_host.h>
 #include <mach-o/dyld.h>
@@ -181,6 +187,11 @@ extern "C" char **environ;
 
 thread_local uint64_t g_active_module_id = 0;
 thread_local uint64_t g_native_callback_principal_id = kNoNativePrincipalOverride;
+thread_local uint64_t g_active_runtime_nonce = 0;
+
+extern "C" uint64_t ex_hermes_current_runtime_nonce() {
+  return exactCurrentRuntimeNonce();
+}
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
 // @ref LLP 0013#mechanism-3 — the vm::Runtime pointer used by the exported
@@ -236,6 +247,7 @@ extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void ex_host_console_flush(uint32_t timeout_ms);
 extern "C" int32_t ex_host_is_allow_all(void);
 extern "C" int32_t ex_host_is_armed(void);
+extern "C" char* ex_host_armed_endowments(void);
 extern "C" int32_t ex_host_authorize_typed_fs_stack(
     uint64_t module_id,
     const uint64_t* module_ids,
@@ -298,10 +310,14 @@ extern "C" int32_t ex_host_fs_append(const char* path, const uint8_t* data, uint
 // the variable is unset. See getEnvValue below (ENG-22955).
 extern "C" int64_t ex_host_env_get(const char* key, char* out_buf, uint32_t len);
 extern "C" int32_t ex_host_random_fill(uint8_t* buf, uint32_t len);
-extern "C" char* ex_host_module_resolve(const char* specifier, const char* referrer);
+extern "C" char* ex_host_module_resolve(uint64_t requester_module_id,
+                                         const char* specifier,
+                                         const char* referrer);
 // Metadata-only resolve for require.resolve: resolved path + package fields, no
 // module body read/transpile. (ENG-23007)
-extern "C" char* ex_host_module_resolve_meta(const char* specifier, const char* referrer);
+extern "C" char* ex_host_module_resolve_meta(uint64_t requester_module_id,
+                                              const char* specifier,
+                                              const char* referrer);
 extern "C" void ex_host_free_string(char* value);
 extern "C" int32_t exact_get_state_mirror_buffer(
     void* handle,
@@ -372,6 +388,7 @@ extern "C" char* ex_host_http_address(uint32_t server_id);
 extern "C" char* ex_host_http_poll(uint32_t server_id);
 extern "C" char* ex_host_http_drain(uint32_t server_id, uint32_t max_count);
 extern "C" int32_t ex_host_http_close(uint32_t server_id, int32_t force);
+extern "C" size_t ex_host_http_cleanup_runtime(uint64_t runtime_nonce, int32_t force);
 extern "C" int32_t ex_host_http_is_referenced(uint32_t server_id);
 extern "C" int32_t ex_host_http_has_referenced(void);
 extern "C" int32_t ex_host_http_has_pending_requests(void);
@@ -426,6 +443,7 @@ typedef void (*NativeFetchResponseCallback)(
 );
 extern "C" void native_fetch_perform(
     uint32_t request_id,
+    uint64_t runtime_nonce,
     const char* method,
     const char* url,
     const char* headers,
@@ -434,7 +452,7 @@ extern "C" void native_fetch_perform(
     size_t body_length,
     NativeFetchResponseCallback response_callback,
     void* context);
-extern "C" void native_fetch_cancel(uint32_t request_id);
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce);
 
 class MemoryBuffer : public facebook::jsi::Buffer {
  public:
@@ -720,6 +738,7 @@ void drainMicrotasksGuarded(ExactHermesRuntime* runtime) {
 }
 
 void cleanupFetchCallbacks(ExactHermesRuntime* runtime);
+void cancelAllFetchCallbacks(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms);
 extern "C" int64_t ex_hermes_next_timer(ExactHermesRuntime* runtime);
 extern "C" int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
@@ -771,6 +790,37 @@ bool withRuntimePinned(ExactHermesRuntime* runtime,
   return true;
 }
 
+bool exactPinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
+  if (!runtime) return false;
+  std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+  if (!runtimeIsRegisteredLocked(runtime)) return false;
+  runtime->native_worker_pins.fetch_add(1, std::memory_order_acq_rel);
+  return true;
+}
+
+void exactUnpinRuntimeNativeWorker(ExactHermesRuntime* runtime) {
+  if (!runtime) return;
+  auto previous = runtime->native_worker_pins.fetch_sub(1, std::memory_order_acq_rel);
+  if (previous == 1) {
+    std::lock_guard<std::mutex> lock(runtime->native_worker_mutex);
+    runtime->native_worker_cv.notify_all();
+  }
+}
+
+void unregisterRuntimeAndWaitForNativeWorkers(ExactHermesRuntime* runtime) {
+  {
+    // Registry membership is the admission gate for new pins. Taking this
+    // mutex also waits out any callback body already running under
+    // withRuntimePinned before teardown proceeds.
+    std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
+    g_activeRuntimes.erase(runtime);
+  }
+  std::unique_lock<std::mutex> lock(runtime->native_worker_mutex);
+  runtime->native_worker_cv.wait(lock, [runtime] {
+    return runtime->native_worker_pins.load(std::memory_order_acquire) == 0;
+  });
+}
+
 bool hasPendingFetchCallbacks(ExactHermesRuntime* runtime) {
   if (!runtime) {
     return false;
@@ -811,7 +861,7 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
     auto& url = std::get<2>(entry);
     // Expiry must also cancel the in-flight native task (NSURLSession et al.),
     // not just reject the JS promise. @ref LLP 0008#linux-networking
-    native_fetch_cancel(request_id);
+    native_fetch_cancel(request_id, runtime->runtime_nonce);
     if (!reject) {
       continue;
     }
@@ -822,6 +872,22 @@ void cleanupFetchCallbacks(ExactHermesRuntime* runtime) {
                        .value());
     } catch (...) {
     }
+  }
+}
+
+void cancelAllFetchCallbacks(ExactHermesRuntime* runtime) {
+  if (!runtime) return;
+  std::vector<uint32_t> requestIds;
+  {
+    std::lock_guard<std::mutex> lock(runtime->fetchMutex);
+    requestIds.reserve(runtime->fetchCallbacks.size());
+    for (const auto& entry : runtime->fetchCallbacks) {
+      requestIds.push_back(entry.first);
+    }
+    runtime->fetchCallbacks.clear();
+  }
+  for (auto requestId : requestIds) {
+    native_fetch_cancel(requestId, runtime->runtime_nonce);
   }
 }
 
@@ -1317,7 +1383,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   auto registerPackageFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactRegisterPackage"),
-      3,
+      4,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1332,8 +1398,16 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (haveLocator) {
           locator = args[2].asString(runtime).utf8(runtime);
         }
+        std::string integrity;
+        bool haveIntegrity = count > 3 && args[3].isString();
+        if (haveIntegrity) {
+          integrity = args[3].asString(runtime).utf8(runtime);
+        }
         ex_host_register_module_package(
-            id, name.c_str(), haveLocator ? locator.c_str() : nullptr);
+            id,
+            name.c_str(),
+            haveLocator ? locator.c_str() : nullptr,
+            haveIntegrity ? integrity.c_str() : nullptr);
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(
@@ -1850,7 +1924,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
         char* json = ex_host_module_resolve(
-            spec.c_str(),
+            currentPrincipalId(), spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();
@@ -1892,7 +1966,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
           referrer = args[1].toString(runtime).utf8(runtime);
         }
         char* json = ex_host_module_resolve_meta(
-            spec.c_str(),
+            currentPrincipalId(), spec.c_str(),
             referrer.empty() ? nullptr : referrer.c_str());
         if (!json) {
           return facebook::jsi::Value::null();
@@ -2173,8 +2247,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   };
   function __notifyPerm(cap) {
     var status = Ibex.permissions.status(cap);
-    for (var i = 0; i < __permListeners.length; i++) {
-      try { __permListeners[i](cap, status); } catch (e) {}
+    var listeners = __permListeners.slice();
+    for (var i = 0; i < listeners.length; i++) {
+      try { listeners[i](cap, status); } catch (e) {}
     }
   }
   Ibex.permissions.request = function (cap) {
@@ -2242,8 +2317,9 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   };
   g.__exactNotifyTypedAuthorityChange = function (negative, dynamic, handle) {
     var event = Object.freeze({ negative: negative, dynamic: dynamic, handle: handle });
-    for (var i = 0; i < __authorityListeners.length; i++) {
-      try { __authorityListeners[i](event); } catch (e) {}
+    var listeners = __authorityListeners.slice();
+    for (var i = 0; i < listeners.length; i++) {
+      try { listeners[i](event); } catch (e) {}
     }
   };
   // @ref LLP 0013 — §dynamic permissions — acquisition is async and lives in the
@@ -2298,11 +2374,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     std::string capabilityHardeningJS = std::string(R"JS((function () {
   var g = globalThis;
   var sealSelfGrant = )JS") +
-        (env_flag_enabled("IBEX_SEAL_SELF_GRANT") ? "true" : "false") +
+        (handle->armed ? "true" : "false") +
         R"JS(;
   var keepBareNameHelper = )JS" +
-        ((env_flag_enabled("IBEX_LOCKDOWN") ||
-          env_flag_enabled("IBEX_COMPARTMENTS"))
+        (handle->structural_lockdown
              ? std::string("true")
              : std::string("false")) +
         R"JS(;
@@ -2353,8 +2428,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // installer once (they are idempotent) so the true global is closed before any
   // package runs, then delete the installer globals themselves. Off the
   // lockdown/compartment path the installers stay lazy for startup cost.
-  if (env_flag_enabled("IBEX_LOCKDOWN") ||
-      env_flag_enabled("IBEX_COMPARTMENTS")) {
+  if (handle->structural_lockdown) {
     static const char* kEagerInstallSealJS = R"JS((function () {
   var g = globalThis;
   var ensures = ['__exactEnsureFs', '__exactEnsureHttp', '__exactEnsureSqlite',
@@ -2401,11 +2475,11 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // walk (`({}).constructor.constructor`). Opt-in (IBEX_LOCKDOWN=1 / the
   // `--lockdown` CLI flag) because freezing intrinsics can break packages that
   // mutate them — the top risk in the RFC. Composes with any --capsec mode.
-  if (env_flag_enabled("IBEX_LOCKDOWN")) {
+  if (handle->structural_lockdown) {
     // @ref LLP 0013#mechanism-1 — (Phase 3) — opt into the native transitive
     // freeze (__exactDeepFreeze) for the intrinsics graph instead of the JS
     // walk. Same result; native is faster at boot.
-    if (env_flag_enabled("IBEX_NATIVE_LOCKDOWN")) {
+    if (handle->structural_lockdown) {
       try {
         rt.global().setProperty(rt, "__ibexNativeLockdown", true);
       } catch (...) {
@@ -2573,8 +2647,7 @@ void installGlobals(struct ExactHermesRuntime* handle) {
   // globals (process, fetch, Buffer, ...) unless the package is endowed by
   // policy (globalThis.__ibexEndowments). Ships with lockdown (which closes the
   // prototype-walk channel) so the two mechanisms compose.
-  if (env_flag_enabled("IBEX_LOCKDOWN") ||
-      env_flag_enabled("IBEX_COMPARTMENTS")) {
+  if (handle->structural_lockdown) {
     static const char* kCompartmentRegistryJS = R"JS((function () {
   var g = globalThis;
   if (g.__compartments) return;
@@ -2674,16 +2747,17 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 })();
 )JS";
     try {
-      // Inject the raw endowment config (IBEX_ENDOW) directly from the host, so
+      // Inject authenticated snapshot endowments directly from the active Host, so
       // the registry does not read it through the capability-gated `process.env`
       // (which fails closed under enforce, and would expose the config to any
       // package holding env:read). @ref LLP 0013#mechanism-3
       auto& rt = *handle->runtime;
-      if (const char* endow = ::getenv("IBEX_ENDOW")) {
+      if (!handle->snapshot_endowments.empty()) {
         rt.global().setProperty(
             rt,
             "__ibexEndowRaw",
-            facebook::jsi::String::createFromUtf8(rt, endow));
+            facebook::jsi::String::createFromUtf8(
+                rt, handle->snapshot_endowments));
       }
       auto buffer =
           std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
@@ -2765,20 +2839,134 @@ void emitNewScripts(ExactHermesRuntime* runtime,
             #name, (long long)_elapsed, _elapsed / 1000.0); \
   }
 
-extern "C" ExactHermesRuntime* ex_hermes_create();
+extern "C" int32_t ex_hermes_engine_binary_path(char* out, size_t out_len) {
+  if (out == nullptr || out_len == 0) return -1;
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+#if defined(_WIN32)
+  HMODULE module = nullptr;
+  if (!GetModuleHandleExA(
+          GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+          reinterpret_cast<LPCSTR>(factory),
+          &module)) {
+    return -1;
+  }
+  DWORD written = GetModuleFileNameA(module, out, static_cast<DWORD>(out_len));
+  return written > 0 && written < out_len ? static_cast<int32_t>(written) : -1;
+#else
+  Dl_info info = {};
+  if (dladdr(reinterpret_cast<void*>(factory), &info) == 0 || info.dli_fname == nullptr) {
+    return -1;
+  }
+  size_t length = std::strlen(info.dli_fname);
+  if (length + 1 > out_len) return -1;
+  std::memcpy(out, info.dli_fname, length + 1);
+  return static_cast<int32_t>(length);
+#endif
+}
+
+extern "C" int32_t ex_hermes_engine_mapped_object(
+    uint64_t* out_device, uint64_t* out_inode) {
+  if (out_device == nullptr || out_inode == nullptr) return -1;
+#if defined(__APPLE__)
+  using Factory = std::unique_ptr<facebook::hermes::HermesRuntime> (*)(
+      const ::hermes::vm::RuntimeConfig&);
+  auto factory = static_cast<Factory>(&facebook::hermes::makeHermesRuntime);
+  proc_regionwithpathinfo region = {};
+  int bytes = proc_pidinfo(
+      getpid(), PROC_PIDREGIONPATHINFO,
+      reinterpret_cast<uint64_t>(reinterpret_cast<void*>(factory)),
+      &region, sizeof(region));
+  if (bytes != sizeof(region)) return -1;
+  *out_device = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_dev);
+  *out_inode = static_cast<uint64_t>(region.prp_vip.vip_vi.vi_stat.vst_ino);
+  return *out_inode != 0 ? 1 : -1;
+#else
+  return -1;
+#endif
+}
+
+extern "C" uint64_t ex_host_claim_armed_context(const char* digest);
+extern "C" uint64_t ex_host_claim_diagnostic_context();
+extern "C" void ex_host_release_context(uint64_t context_id);
+
+static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed);
+
+static uint64_t allocateRuntimeNonce() {
+  // Zero is the unscoped sentinel. Refuse before the monotonic namespace can
+  // wrap and make an old runtime's fd/socket authority addressable again.
+  static std::atomic<uint64_t> next{1};
+  uint64_t current = next.load(std::memory_order_relaxed);
+  for (;;) {
+    if (current == 0 || current == std::numeric_limits<uint64_t>::max()) {
+      return 0;
+    }
+    if (next.compare_exchange_weak(
+            current, current + 1, std::memory_order_relaxed,
+            std::memory_order_relaxed)) {
+      return current;
+    }
+  }
+}
+
+static bool verifyArmedRuntimePosture(ExactHermesRuntime* handle) {
+  if (handle == nullptr || !handle->runtime) return false;
+#ifndef EXACT_HAVE_FRAME_ATTRIBUTION
+  return false;
+#else
+  if (handle->attribution_runtime == nullptr) return false;
+#endif
+  try {
+    auto& rt = *handle->runtime;
+    auto locked = rt.global().getProperty(rt, "__ibexLockedDown");
+    auto compartments = rt.global().getProperty(rt, "__compartments");
+    auto require = rt.global().getProperty(rt, "require");
+    auto function = rt.global().getProperty(rt, "Function");
+    bool tamed = false;
+    if (function.isObject()) {
+      auto marker = function.asObject(rt).getProperty(rt, "__ibexTamed");
+      tamed = marker.isBool() && marker.getBool();
+    }
+    return locked.isBool() && locked.getBool() && compartments.isObject() &&
+        require.isObject() && require.asObject(rt).isFunction(rt) && tamed &&
+        !rt.global().hasProperty(rt, "__exactRegisterPackage") &&
+        !rt.global().hasProperty(rt, "__exactSetPendingPackageId");
+  } catch (...) {
+    return false;
+  }
+}
+
 extern "C" ExactHermesRuntime* ex_hermes_create_armed(
     const char* armed_snapshot_digest) {
   // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
   // Refuse before allocating Hermes when the host did not authenticate the
   // exact snapshot selected by the embedder.
-  if (armed_snapshot_digest == nullptr ||
-      ex_host_matches_armed_snapshot_digest(armed_snapshot_digest) != 1) {
-    return nullptr;
-  }
-  return ex_hermes_create();
+  if (armed_snapshot_digest == nullptr) return nullptr;
+  uint64_t context = ex_host_claim_armed_context(armed_snapshot_digest);
+  if (context == 0) return nullptr;
+  auto* runtime = ex_hermes_create_impl(context, true);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
 }
 
 extern "C" ExactHermesRuntime* ex_hermes_create() {
+  // The historical constructor is deliberately non-executable. Production
+  // embedders must present an authenticated snapshot; tests/foreground audit
+  // use the explicitly named diagnostic constructor below.
+  return nullptr;
+}
+
+extern "C" ExactHermesRuntime* ex_hermes_create_diagnostic() {
+  uint64_t context = ex_host_claim_diagnostic_context();
+  if (context == 0) return nullptr;
+  auto* runtime = ex_hermes_create_impl(context, false);
+  if (runtime == nullptr) ex_host_release_context(context);
+  return runtime;
+}
+
+static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool armed) {
   TRACE_START(total);
   TRACE_START(hermes_config);
   auto gcConfig = ::hermes::vm::GCConfig::Builder()
@@ -2802,6 +2990,24 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+  handle->host_context_id = host_context_id;
+  handle->armed = armed;
+  // Both production and the explicitly named foreground diagnostic constructor
+  // use structural isolation. Only production seals dynamic self-grant and
+  // consumes authenticated endowments.
+  handle->structural_lockdown = true;
+  handle->runtime_nonce = allocateRuntimeNonce();
+  if (handle->runtime_nonce == 0) {
+    delete handle;
+    return nullptr;
+  }
+  ScopedRuntimeSecurityContext securityContext(handle);
+  if (armed) {
+    if (char* endowments = ex_host_armed_endowments()) {
+      handle->snapshot_endowments = endowments;
+      ex_host_free_string(endowments);
+    }
+  }
   handle->typed_authority_generations_initialized =
       ex_host_typed_generations(
           &handle->typed_negative_generation,
@@ -2860,6 +3066,28 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   }
   TRACE_END(install_globals);
 
+  if (armed && !verifyArmedRuntimePosture(handle)) {
+    // installGlobals may already have registered runtime-scoped descriptors,
+    // sockets, Android callbacks, zlib streams, and debugger state. A posture
+    // refusal must unwind those just like normal destruction; deleting only
+    // the Hermes handle leaves stale authority keyed by its nonce.
+    unregisterAndroidHostFunctions(handle);
+    ibex_zlib_streams::cleanupZlibStreams(handle);
+    exactCleanupRuntimeFileDescriptors(handle->runtime_nonce);
+    exactCleanupRuntimeSockets(handle->runtime_nonce);
+    exactCleanupRuntimeSqlite(handle->runtime_nonce);
+    ex_host_http_cleanup_runtime(handle->runtime_nonce, 1);
+    exactCleanupRuntimeHttpServers(handle->runtime_nonce);
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+    if (g_vm_runtime == handle->attribution_runtime) {
+      g_vm_runtime = nullptr;
+    }
+#endif
+    disableDebugger(handle);
+    delete handle;
+    return nullptr;
+  }
+
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream).
   // Run after all global bootstrap scripts so ReadableStream can be wrapped
   // on the final runtime surface that user code observes.
@@ -2897,8 +3125,17 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   if (runtime == nullptr) {
     return;
   }
+  uint64_t hostContext = runtime->host_context_id;
+  ScopedRuntimeSecurityContext securityContext(runtime);
+  unregisterRuntimeAndWaitForNativeWorkers(runtime);
   unregisterAndroidHostFunctions(runtime);
+  cancelAllFetchCallbacks(runtime);
   ibex_zlib_streams::cleanupZlibStreams(runtime);
+  exactCleanupRuntimeFileDescriptors(runtime->runtime_nonce);
+  exactCleanupRuntimeSockets(runtime->runtime_nonce);
+  exactCleanupRuntimeSqlite(runtime->runtime_nonce);
+  ex_host_http_cleanup_runtime(runtime->runtime_nonce, 1);
+  exactCleanupRuntimeHttpServers(runtime->runtime_nonce);
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // Destroy is normally called outside an engine entry point. If an embedder
   // does destroy the currently selected handle, clear the cache rather than
@@ -2908,17 +3145,13 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
     g_vm_runtime = nullptr;
   }
 #endif
-  // ENG-22925/ENG-23045: hold g_runtimeRegistryMutex across unregister,
-  // debugger teardown, and delete. Any-thread resolvers and debugger callbacks
-  // take the same mutex across their liveness check + derefs, so destroy is
-  // mutually exclusive with in-flight pinned bodies. Debugger clearing now also
-  // follows registry -> debug_mutex lock order; taking debug_mutex before the
-  // registry would deadlock against a pinned callback that is about to enqueue a
-  // debug event while destroy is waiting to unregister.
-  std::lock_guard<std::mutex> reg(g_runtimeRegistryMutex);
-  g_activeRuntimes.erase(runtime);
+  // Registry removal above prevented new callback/worker pins and waited out
+  // existing ones before subsystem cleanup. The handle is now unreachable to
+  // background work and can be destroyed without holding the process-global
+  // registry mutex across arbitrary JSI/debugger destructors.
   disableDebugger(runtime);
   delete runtime;
+  ex_host_release_context(hostContext);
 }
 
 extern "C" int ex_hermes_eval(
@@ -2951,6 +3184,8 @@ extern "C" int ex_hermes_eval(
     writeOutError("Hermes eval received invalid input");
     return 1;
   }
+
+  ScopedRuntimeSecurityContext securityContext(runtime);
 
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   ScopedActiveAttributionRuntime activeAttributionRuntime(
@@ -3543,6 +3778,8 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
     return 0;
   }
 
+  ScopedRuntimeSecurityContext securityContext(runtime);
+
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   ScopedActiveAttributionRuntime activeAttributionRuntime(
       runtime->attribution_runtime);
@@ -3857,6 +4094,7 @@ extern "C" char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime) {
 
 extern "C" WEAK_STUB char* ex_host_http_serve(uint16_t, const char*) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_wait(uint32_t, uint32_t) { return nullptr; }
+extern "C" WEAK_STUB char* ex_host_http_wait_owned(uint32_t, uint32_t, uint64_t) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_read_body(uint32_t, uint32_t) { return nullptr; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_text(uint32_t, uint32_t, uint16_t, const uint8_t*, uint32_t) { return -1; }
@@ -3868,11 +4106,13 @@ extern "C" WEAK_STUB int32_t ex_host_http_respond_end(uint32_t, uint32_t) { retu
 extern "C" WEAK_STUB int32_t ex_host_http_respond_end_try(uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_abort(uint32_t, uint32_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_await_writable(uint32_t, uint32_t, uint32_t) { return -1; }
+extern "C" WEAK_STUB int32_t ex_host_http_await_writable_owned(uint32_t, uint32_t, uint32_t, uint64_t) { return -1; }
 extern "C" WEAK_STUB int32_t ex_host_http_respond_string(uint32_t, uint32_t, uint16_t, const char*, const uint8_t*, uint32_t) { return -1; }
 extern "C" WEAK_STUB char* ex_host_http_address(uint32_t) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_poll(uint32_t) { return nullptr; }
 extern "C" WEAK_STUB char* ex_host_http_drain(uint32_t, uint32_t) { return nullptr; }
 extern "C" WEAK_STUB int32_t ex_host_http_close(uint32_t, int32_t) { return -1; }
+extern "C" WEAK_STUB size_t ex_host_http_cleanup_runtime(uint64_t, int32_t) { return 0; }
 extern "C" WEAK_STUB int32_t ex_host_http_is_referenced(uint32_t) { return 0; }
 extern "C" WEAK_STUB int32_t ex_host_http_has_referenced(void) { return 0; }
 extern "C" WEAK_STUB int32_t ex_host_http_has_pending_requests(void) { return 0; }

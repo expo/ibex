@@ -6,6 +6,7 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use std::sync::OnceLock;
 
 pub const VOCABULARY_DOMAIN: &str = "ibex:capsec:vocab:1";
 pub const REGISTRY_DOMAIN: &str = "ibex:capsec:registry:1";
@@ -20,6 +21,36 @@ pub enum DigestKind {
     Policy,
     ArmedSnapshot,
     Conformance,
+}
+
+/// Compute a production profile digest with the checked WP0 contract. The
+/// contract is parsed and validated once per process so arming does not turn
+/// the registry JSON into repeated startup work.
+pub fn compute_checked_contract_digest(kind: DigestKind, payload: &Value) -> Result<String> {
+    static CONTRACT: OnceLock<std::result::Result<DigestContract, String>> = OnceLock::new();
+    let contract = CONTRACT.get_or_init(|| {
+        let rules = crate::strict_json::parse_strict(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../capsec/registry/policy-rules.json"
+        )))
+        .map_err(|error| error.to_string())?;
+        let contract: DigestContract = serde_json::from_value(
+            rules
+                .get("digestContract")
+                .cloned()
+                .ok_or_else(|| "checked policy rules omit digestContract".to_owned())?,
+        )
+        .map_err(|error| format!("invalid checked digest contract: {error}"))?;
+        contract.validate().map_err(|error| error.to_string())?;
+        Ok(contract)
+    });
+    match contract {
+        Ok(contract) => compute_contract_digest(kind, payload, contract),
+        Err(message) => Err(Error::InvalidCanonicalData {
+            path: "digestContract".into(),
+            message: message.clone(),
+        }),
+    }
 }
 
 /// Compute `SHA-256(UTF8(domain) || NUL || JCS(projected payload))`.

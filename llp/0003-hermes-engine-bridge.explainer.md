@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -19,18 +19,21 @@ it does not restate the embedding ABI ([LLP 0002](./0002-host-embedding-abi.spec
 
 ## How Hermes is driven
 
-`ex_hermes_create()` (`src/engine/hermes_runtime.cc:1388-1453`) `[observed]`:
+Production uses `ex_hermes_create_armed(snapshot_digest)`; the historical
+`ex_hermes_create()` symbol is intentionally non-executable, and the separately
+named diagnostic constructor is not a project-execution API. Armed creation:
 
 1. Builds a `hermes::vm::RuntimeConfig` with a microtask queue and `eval`
    enabled, then `facebook::hermes::makeHermesRuntime(config)`
    (`src/engine/hermes_runtime.cc:1391-1403`).
-2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread
-   (`src/engine/hermes_runtime.cc:1409-1411`).
+2. Wraps it in an `ExactHermesRuntime` handle, records the owning thread, a
+   fresh runtime nonce, and the exact claimed immutable Host context.
 3. Optionally constructs the async debugger if the Hermes build supports it
    (`src/engine/hermes_runtime.cc:1415-1432`).
-4. Calls `installGlobals(handle)` — which installs the native host functions and
-   runs the bootstrap scripts — then registers the runtime
-   (`src/engine/hermes_runtime.cc:1436, 1449`).
+4. Calls `installGlobals(handle)`, then verifies lockdown, compartments,
+   bootstrap seals, and frame attribution structurally before registering or
+   returning the runtime. Any mismatch destroys the partial runtime and
+   refuses construction.
 
 `ex_hermes_eval()` evaluates UTF-8 source or Hermes bytecode (`is_bytecode`
 flag) and returns a result string `[observed]`
@@ -38,7 +41,7 @@ flag) and returns a result string `[observed]`
 
 Frame attribution is runtime-handle scoped, not merely thread scoped. A thread
 may drive multiple runtimes or re-enter `ex_hermes_eval()` for a nested runtime
-from an outer runtime's host call; `ex_hermes_create()`, `ex_hermes_eval()`, and
+from an outer runtime's host call; runtime creation, `ex_hermes_eval()`, and
 `ex_hermes_poll()` select the handle's attribution VM for the duration of that
 entry and restore the prior selection on unwind `[observed]`
 (`src/engine/hermes_runtime_internal.h`; `src/engine/hermes_runtime.cc`). This

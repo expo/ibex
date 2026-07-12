@@ -49286,6 +49286,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.stack.size.utf8.string.0pulg05",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -54845,6 +54862,74 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.cli.option.ibex.project.root.0tu1xd4",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.project.root.0tu1xd4.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.action.set.14phsv6",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.project.root.action.set.14phsv6.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.cli.option.ibex.project.root.value.name.dir.06bp61w",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.ibex.project.root.value.name.dir.06bp61w.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.cli.option.ibex.stack.size.08o3c8i",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -56154,6 +56239,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.cli.option.name.ibex.project.root.project.root.0lbp50w",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.cli.option.name.ibex.project.root.project.root.0lbp50w.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.cli.option.name.ibex.stack.size.stack.size.1lukp78",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -57138,6 +57240,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.create.diagnostic.1t314ff.default.0bm6br1"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.debugger.enable.1uf2f9u",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -57349,6 +57468,23 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb.default.1hicxzh"
+      ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
@@ -57701,6 +57837,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.armed.endowments.19wlvvz",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.armed.endowments.19wlvvz.default.1vftbgd"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -57837,6 +57990,40 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.claim.armed.context.0lgp4i1",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.claim.armed.context.0lgp4i1.default.16doynn"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.claim.diagnostic.context.0dooych",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.claim.diagnostic.context.0dooych.default.0g94qfj"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.console.flush.1tisl1d",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -57866,6 +58053,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.console.log.1ymt6at.default.1s35g0r"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.enter.context.15xwr1j",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.enter.context.15xwr1j.default.0g2hbx1"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -58024,6 +58228,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.default.034g4fd"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.fstat.1di7udv",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -58087,6 +58308,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.default.17kem0u"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.default.0g9fi4n"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -58296,6 +58534,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.statfs.19uv3yw",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.fs.statfs.19uv3yw.default.1cz6t52"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.sync.011h89u",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -58313,6 +58568,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.fs.truncate.1k6o7v3.default.1yonv3x"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.fs.unlink.05xgwei",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -58325,6 +58597,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.fs.unlink.05xgwei.default.0i7753c"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.fs.utimes.12bl9di",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.fs.utimes.12bl9di.default.0ovt1tw"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -59056,6 +59345,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.host.abi.ex.host.register.module.package.1ncq2is.default.1cc4mlu"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.release.context.0ozp44g",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.release.context.0ozp44g.default.0zco7zy"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.restore.context.1q77zqb",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.host.abi.ex.host.restore.context.1q77zqb.default.03s16d5"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -61223,6 +61546,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.loader.function.rust.load.source.1lpnc7u.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.loader.function.rust.load.source.bytes.1l8dlka",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.loader.function.rust.load.source.bytes.1l8dlka.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -111072,6 +111412,23 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.native.op.ibextamed.1miuye7",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.native.op.ibextamed.1miuye7.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.native.op.inspector.cdp.http.json.1umywno",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -113758,23 +114115,6 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.startup.env.ibex.compartments.0h31phf",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.compartments.0h31phf.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
       "edgeId": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -113787,23 +114127,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.env.ibex.dns.server.0ggdo6d.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.endow.1cvgj9d",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.endow.1cvgj9d.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -113843,23 +114166,6 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.startup.env.ibex.lockdown.1o2femx",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.lockdown.1o2femx.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
       "edgeId": "surface.startup.env.ibex.loop.trace.0qn0o5e",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -113872,23 +114178,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.env.ibex.loop.trace.0qn0o5e.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.native.lockdown.0xoo48t",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.native.lockdown.0xoo48t.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -113923,23 +114212,6 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.env.ibex.no.disk.runtime.fallback.1o8l7yz.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
-      "edgeId": "surface.startup.env.ibex.per.package.chunks.0zpmgup",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.per.package.chunks.0zpmgup.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -114030,23 +114302,6 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.startup.env.ibex.seal.self.grant.0rx7yyj",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.env.ibex.seal.self.grant.0rx7yyj.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
       "edgeId": "surface.startup.env.ibex.startup.trace.1t4init",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -114076,6 +114331,40 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.env.ibex.suppress.console.mirror.0vlv453.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -114455,57 +114744,6 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
-      "edgeId": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju",
-      "target": {
-        "triple": "aarch64-apple-darwin",
-        "features": [
-          "hermes-frame-attribution",
-          "native-compartments",
-          "native-lockdown"
-        ]
-      },
-      "disposition": "unsupported",
-      "implementationBranchIds": [
-        "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju.main"
-      ],
-      "fixtures": [],
-      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
-    },
-    {
       "edgeId": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -114642,6 +114880,40 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
       "edgeId": "surface.startup.evaluation.translation.unit.fallback.form.data.1xi28ci",
       "target": {
         "triple": "aarch64-apple-darwin",
@@ -114688,6 +114960,23 @@
       "disposition": "unsupported",
       "implementationBranchIds": [
         "surface.startup.evaluation.translation.unit.fallback.fs.handle.1jt8wbf.main"
+      ],
+      "fixtures": [],
+      "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
+    },
+    {
+      "edgeId": "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae",
+      "target": {
+        "triple": "aarch64-apple-darwin",
+        "features": [
+          "hermes-frame-attribution",
+          "native-compartments",
+          "native-lockdown"
+        ]
+      },
+      "disposition": "unsupported",
+      "implementationBranchIds": [
+        "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
@@ -114795,7 +115084,7 @@
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."
     },
     {
-      "edgeId": "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp",
+      "edgeId": "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8",
       "target": {
         "triple": "aarch64-apple-darwin",
         "features": [
@@ -114806,7 +115095,7 @@
       },
       "disposition": "unsupported",
       "implementationBranchIds": [
-        "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp.main"
+        "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8.main"
       ],
       "fixtures": [],
       "rationale": "WP1 records this exact cell but makes no conformance claim; a later work package must promote it with executed fixture evidence."

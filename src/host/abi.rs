@@ -41,10 +41,30 @@ thread_local! {
 
 fn normalized_io_error_code(err: &std::io::Error) -> i32 {
     use std::io::ErrorKind;
+    #[cfg(windows)]
+    if let Some(code) = err.raw_os_error() {
+        // Preserve Win32 conditions that Node callers branch on. Mapping all
+        // unrecognized Windows errors to EIO made rename fallbacks and rimraf
+        // retries unreachable even though the C++ bridge understands these
+        // POSIX spellings.
+        match code {
+            4 => return libc::EMFILE,        // ERROR_TOO_MANY_OPEN_FILES
+            17 => return libc::EXDEV,        // ERROR_NOT_SAME_DEVICE
+            39 | 112 => return libc::ENOSPC, // ERROR_HANDLE_DISK_FULL / ERROR_DISK_FULL
+            145 => return libc::ENOTEMPTY,   // ERROR_DIR_NOT_EMPTY
+            267 => return libc::ENOTDIR,     // ERROR_DIRECTORY
+            _ => {}
+        }
+    }
     match err.kind() {
         ErrorKind::NotFound => libc::ENOENT,
         ErrorKind::PermissionDenied => libc::EACCES,
         ErrorKind::AlreadyExists => libc::EEXIST,
+        ErrorKind::NotADirectory => libc::ENOTDIR,
+        ErrorKind::IsADirectory => libc::EISDIR,
+        ErrorKind::DirectoryNotEmpty => libc::ENOTEMPTY,
+        ErrorKind::StorageFull | ErrorKind::QuotaExceeded => libc::ENOSPC,
+        ErrorKind::CrossesDevices => libc::EXDEV,
         ErrorKind::InvalidInput | ErrorKind::InvalidData => libc::EINVAL,
         ErrorKind::UnexpectedEof => libc::EIO,
         ErrorKind::WriteZero => libc::ENOSPC,
@@ -128,6 +148,31 @@ use std::os::unix::fs::MetadataExt;
 pub const EXACT_HOST_ABI_VERSION: u32 = 1;
 
 static HOST: OnceLock<RwLock<Host>> = OnceLock::new();
+struct HostContextRecord {
+    host: Arc<Host>,
+    claimed: bool,
+}
+
+static HOST_CONTEXTS: OnceLock<RwLock<HashMap<u64, HostContextRecord>>> = OnceLock::new();
+
+struct PendingHostContext(Cell<u64>);
+
+impl Drop for PendingHostContext {
+    fn drop(&mut self) {
+        let context_id = self.0.replace(0);
+        if context_id != 0 {
+            release_unclaimed_host_context(context_id);
+        }
+    }
+}
+
+thread_local! {
+    static ACTIVE_HOST_CONTEXT: Cell<u64> = const { Cell::new(0) };
+    /// Exact install-to-create handoff. A runtime can claim only the Host that
+    /// its own creating thread most recently installed; equal snapshot digests
+    /// in concurrent creators are therefore not interchangeable credentials.
+    static PENDING_HOST_CONTEXT: PendingHostContext = const { PendingHostContext(Cell::new(0)) };
+}
 static SECURITY_LOG_ENABLED: OnceLock<bool> = OnceLock::new();
 static CONSOLE_MIRROR_ENABLED: OnceLock<bool> = OnceLock::new();
 
@@ -170,6 +215,24 @@ impl SqliteState {
             statements: HashMap::new(),
         }
     }
+
+    fn allocate_db_handle(&mut self) -> Option<u64> {
+        let handle = self.next_db_handle;
+        if handle == 0 || self.dbs.contains_key(&handle) {
+            return None;
+        }
+        self.next_db_handle = handle.checked_add(1)?;
+        Some(handle)
+    }
+
+    fn allocate_statement_handle(&mut self) -> Option<u64> {
+        let handle = self.next_statement_handle;
+        if handle == 0 || self.statements.contains_key(&handle) {
+            return None;
+        }
+        self.next_statement_handle = handle.checked_add(1)?;
+        Some(handle)
+    }
 }
 
 static SQLITE_STATE: OnceLock<Mutex<SqliteState>> = OnceLock::new();
@@ -211,7 +274,68 @@ fn lock_connection(connection: &Mutex<Connection>) -> MutexGuard<'_, Connection>
     }
 }
 
-pub fn install_host(host: Host) {
+fn insert_host_context(host: Arc<Host>, claimed: bool) -> u64 {
+    // Random, non-zero context tokens are capabilities, not enumerable IDs.
+    // Entropy failure or repeated collisions fail closed instead of falling
+    // back to a wrapping process-global counter.
+    for _ in 0..32 {
+        let mut bytes = [0u8; std::mem::size_of::<u64>()];
+        if getrandom(&mut bytes).is_err() {
+            return 0;
+        }
+        let context_id = u64::from_ne_bytes(bytes);
+        if context_id == 0 {
+            continue;
+        }
+        let contexts = HOST_CONTEXTS.get_or_init(|| RwLock::new(HashMap::new()));
+        let mut contexts = match contexts.write() {
+            Ok(contexts) => contexts,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if contexts.contains_key(&context_id) {
+            continue;
+        }
+        contexts.insert(
+            context_id,
+            HostContextRecord {
+                host: Arc::clone(&host),
+                claimed,
+            },
+        );
+        return context_id;
+    }
+    0
+}
+
+fn release_unclaimed_host_context(context_id: u64) {
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return;
+    };
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if contexts
+        .get(&context_id)
+        .is_some_and(|context| !context.claimed)
+    {
+        contexts.remove(&context_id);
+    }
+}
+
+/// Publish a Host and retain an exact, thread-bound creation token for the
+/// next Hermes constructor on this thread. Replacing an unclaimed install
+/// retires it immediately; thread teardown retires any remaining token.
+pub fn install_host(host: Host) -> u64 {
+    let previous = PENDING_HOST_CONTEXT.with(|pending| pending.0.replace(0));
+    if previous != 0 {
+        release_unclaimed_host_context(previous);
+    }
+
+    let context_id = insert_host_context(Arc::new(host.clone()), false);
+    if context_id != 0 {
+        PENDING_HOST_CONTEXT.with(|pending| pending.0.set(context_id));
+    }
     if let Some(slot) = HOST.get() {
         match slot.write() {
             Ok(mut current) => {
@@ -221,10 +345,11 @@ pub fn install_host(host: Host) {
                 *poisoned.into_inner() = host;
             }
         }
-        return;
+        return context_id;
     }
 
     let _ = HOST.set(RwLock::new(host));
+    context_id
 }
 
 /// Install an immutable armed host from caller-owned bytes. The bytes are
@@ -233,6 +358,7 @@ pub fn install_host(host: Host) {
 /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), String> {
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
+    super::reject_closed_startup_environment().map_err(|error| error.to_string())?;
     let expected_text = std::str::from_utf8(expected_json)
         .map_err(|error| format!("expected arming identity is not UTF-8: {error}"))?;
     let expected_value = capsec_semantics::strict_json::parse_strict(expected_text)
@@ -248,11 +374,27 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
         Arc::new(armed),
     )
     .map_err(|error| error.to_string())?;
-    install_host(host);
+    if install_host(host) == 0 {
+        return Err("failed to allocate an armed Host context token".into());
+    }
     Ok(())
 }
 
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
+    let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
+    if active != 0 {
+        let selected = HOST_CONTEXTS.get().and_then(|contexts| {
+            contexts
+                .read()
+                .ok()?
+                .get(&active)
+                .map(|row| row.host.clone())
+        });
+        if let Some(host) = selected {
+            return f(&host);
+        }
+        return default;
+    }
     let Some(host) = HOST.get() else {
         return default;
     };
@@ -260,6 +402,102 @@ fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     match host.read() {
         Ok(current) => f(&current),
         Err(poisoned) => f(&poisoned.into_inner()),
+    }
+}
+
+fn claim_pending_host_context(require_armed_digest: Option<&str>) -> u64 {
+    let context_id = PENDING_HOST_CONTEXT.with(|pending| pending.0.get());
+    if context_id == 0 {
+        // Diagnostic construction is explicit and may be used without an
+        // embedder-installed Host. Its fallback is a fresh audit context;
+        // armed construction never has a fallback.
+        return if require_armed_digest.is_none() {
+            insert_host_context(
+                Arc::new(Host::new(super::HostConfig {
+                    mode: super::SecurityMode::Audit,
+                    ..Default::default()
+                })),
+                true,
+            )
+        } else {
+            0
+        };
+    }
+    let Some(contexts) = HOST_CONTEXTS.get() else {
+        return 0;
+    };
+    let mut contexts = match contexts.write() {
+        Ok(contexts) => contexts,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    let Some(context) = contexts.get_mut(&context_id) else {
+        return 0;
+    };
+    if context.claimed {
+        return 0;
+    }
+    let kind_matches = match require_armed_digest {
+        Some(digest) => context
+            .host
+            .armed_snapshot()
+            .is_some_and(|snapshot| snapshot.digest().as_str() == digest),
+        None => context.host.armed_snapshot().is_none(),
+    };
+    if !kind_matches {
+        return 0;
+    }
+    context.claimed = true;
+    PENDING_HOST_CONTEXT.with(|pending| pending.0.set(0));
+    context_id
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_claim_armed_context(digest: *const c_char) -> u64 {
+    if digest.is_null() {
+        return 0;
+    }
+    let digest = unsafe { CStr::from_ptr(digest) }.to_string_lossy();
+    claim_pending_host_context(Some(&digest))
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_claim_diagnostic_context() -> u64 {
+    claim_pending_host_context(None)
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_enter_context(context_id: u64) -> u64 {
+    let exists = HOST_CONTEXTS
+        .get()
+        .and_then(|contexts| {
+            contexts
+                .read()
+                .ok()
+                .map(|rows| rows.get(&context_id).is_some_and(|row| row.claimed))
+        })
+        .unwrap_or(false);
+    if !exists {
+        return u64::MAX;
+    }
+    ACTIVE_HOST_CONTEXT.with(|active| active.replace(context_id))
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_restore_context(previous: u64) {
+    ACTIVE_HOST_CONTEXT.with(|active| active.set(previous));
+}
+
+#[no_mangle]
+pub extern "C" fn ex_host_release_context(context_id: u64) {
+    if let Some(contexts) = HOST_CONTEXTS.get() {
+        match contexts.write() {
+            Ok(mut contexts) => {
+                contexts.remove(&context_id);
+            }
+            Err(poisoned) => {
+                poisoned.into_inner().remove(&context_id);
+            }
+        }
     }
 }
 
@@ -863,7 +1101,7 @@ pub extern "C" fn ex_host_init() {}
 /// before calling the armed Hermes constructor.
 #[no_mangle]
 pub extern "C" fn ex_host_install() {
-    install_host(Host::new(crate::host::HostConfig::default()));
+    install_host(Host::closed_unarmed());
 }
 
 /// Explicit fail-closed embedder arming entry point. Returns 0 only after the
@@ -1143,7 +1381,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     };
     with_host(
         |host| {
-            let mut constrained_principals = match module_ids
+            let constrained_principals = match module_ids
                 .iter()
                 .map(|id| host.typed_principal_for_module(&id.to_string()))
                 .collect::<Option<Vec<_>>>()
@@ -1151,9 +1389,26 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
                 Some(principals) => principals,
                 None => return -1,
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            #[cfg(unix)]
+            if matches!(stage, Stage::Discovery | Stage::Commit) {
+                let Some(principal) = host.typed_principal_for_module(&module_id.to_string())
+                else {
+                    return -1;
+                };
+                match host.validate_typed_parent_fd_ancestry(&principal, &path, parent_fd) {
+                    Ok(true) => {}
+                    Ok(false) => return 0,
+                    Err(error) => {
+                        eprintln!("error: retained filesystem parent ancestry refused: {error}");
+                        return -1;
+                    }
+                }
+            }
             match host.authorize_typed_fs_open_stage(
                 &module_id.to_string(),
                 operation_key,
@@ -1308,7 +1563,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
     let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
     with_host(
         |host| {
-            let mut constrained_principals = match module_ids
+            let constrained_principals = match module_ids
                 .iter()
                 .map(|id| host.typed_principal_for_module(&id.to_string()))
                 .collect::<Option<Vec<_>>>()
@@ -1316,9 +1571,11 @@ pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
                 Some(principals) => principals,
                 None => return -1,
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
             let result = match network_kind {
                 0 | 1 => host.authorize_typed_fetch_stage(
                     &module_id.to_string(),
@@ -1424,7 +1681,9 @@ fn object_identity_at(
     follow_final: bool,
 ) -> Result<Option<capsec_semantics::model::ObjectIdentity>, ()> {
     use std::os::unix::ffi::OsStrExt;
-    let name = path.file_name().ok_or(())?;
+    let name = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("."));
     let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| ())?;
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     let flags = if follow_final {
@@ -1565,7 +1824,7 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
             let Some(actor) = host.typed_principal_for_module(&module_id.to_string()) else {
                 return as_json_cstring(&json!({"error": "authenticated handle actor is unknown"}));
             };
-            let mut constrained_principals = match module_ids
+            let constrained_principals = match module_ids
                 .iter()
                 .map(|id| host.typed_principal_for_module(&id.to_string()))
                 .collect::<Option<Vec<_>>>()
@@ -1577,9 +1836,13 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
                     )
                 }
             };
-            constrained_principals
-                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
-            constrained_principals.dedup();
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(error) => {
+                        return as_json_cstring(&json!({"error": error.to_string()}));
+                    }
+                };
             match host.mint_typed_handle_json_for_actor(actor, constrained_principals, request) {
                 Ok(handle_id) => {
                     notify_runtime_authority_change();
@@ -1676,6 +1939,26 @@ pub extern "C" fn ex_host_is_allow_all() -> i32 {
 #[no_mangle]
 pub extern "C" fn ex_host_is_armed() -> i32 {
     with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
+}
+
+/// Return the authenticated snapshot endowments for the active Host context.
+/// Bootstrap consumes and frees this copy; no process-global environment
+/// channel participates in production authority.
+#[no_mangle]
+pub extern "C" fn ex_host_armed_endowments() -> *mut c_char {
+    let groups = with_host(
+        |host| {
+            host.armed_snapshot()
+                .map_or(Ok(None), |snapshot| snapshot.endowment_groups().map(Some))
+        },
+        Ok(None),
+    );
+    let Ok(Some(groups)) = groups else {
+        return ptr::null_mut();
+    };
+    CString::new(groups.join(";"))
+        .map(CString::into_raw)
+        .unwrap_or(ptr::null_mut())
 }
 
 /// Read an entire file into a heap-allocated buffer in a single call.
@@ -2060,6 +2343,7 @@ pub extern "C" fn ex_host_register_module_package(
     module_id: u64,
     package: *const c_char,
     locator: *const c_char,
+    integrity: *const c_char,
 ) {
     if package.is_null() {
         return;
@@ -2076,9 +2360,25 @@ pub extern "C" fn ex_host_register_module_package(
                 .to_string(),
         )
     };
+    let integrity = if integrity.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { CStr::from_ptr(integrity) }
+                .to_string_lossy()
+                .to_string(),
+        )
+    };
     let module = module_id.to_string();
     with_host(
-        |host| host.register_module_package(&module, &package, locator.as_deref()),
+        |host| {
+            host.register_module_package(
+                &module,
+                &package,
+                locator.as_deref(),
+                integrity.as_deref(),
+            )
+        },
         (),
     );
 }
@@ -2184,6 +2484,7 @@ fn module_meta_json(module: &crate::module_loader::ResolvedModule) -> serde_json
         // so the loader can form the `name@version` runtime identity for
         // version-distinguished principals/compartments. (ENG-22621)
         "pkgVersion": module.package_version,
+        "pkgIntegrity": module.package_integrity,
     })
 }
 
@@ -2196,6 +2497,7 @@ fn module_resolve_cstring(payload: &serde_json::Value) -> *mut c_char {
 
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve(
+    requester_module_id: u64,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -2206,7 +2508,11 @@ pub extern "C" fn ex_host_module_resolve(
     let resolved = with_host(
         |host| {
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module(&spec, path.as_deref())
+            host.resolve_module_for_principal(
+                &spec,
+                path.as_deref(),
+                Some(&requester_module_id.to_string()),
+            )
         },
         Err(anyhow::anyhow!("Host not initialized")),
     );
@@ -2233,6 +2539,7 @@ pub extern "C" fn ex_host_module_resolve(
 /// Caller must free the returned string with `ex_host_free_string`.
 #[no_mangle]
 pub extern "C" fn ex_host_module_resolve_meta(
+    requester_module_id: u64,
     specifier: *const c_char,
     referrer: *const c_char,
 ) -> *mut c_char {
@@ -2243,7 +2550,11 @@ pub extern "C" fn ex_host_module_resolve_meta(
     let resolved = with_host(
         |host| {
             let path = referrer.as_ref().map(std::path::PathBuf::from);
-            host.resolve_module_meta(&spec, path.as_deref())
+            host.resolve_module_meta_for_principal(
+                &spec,
+                path.as_deref(),
+                Some(&requester_module_id.to_string()),
+            )
         },
         Err(anyhow::anyhow!("Host not initialized")),
     );
@@ -2432,7 +2743,14 @@ pub extern "C" fn ex_host_fs_pwrite(
     let restore_result = std::io::Seek::seek(&mut handle.file, std::io::SeekFrom::Start(saved));
     match (write_result, restore_result) {
         (Ok(bytes), Ok(_)) => bytes as i32,
-        (Err(err), _) | (Ok(_), Err(err)) => {
+        // The write is irreversible. Reporting failure here invites callers
+        // to retry and duplicate the write; retain the restore diagnostic for
+        // observability but report the committed byte count.
+        (Ok(bytes), Err(err)) => {
+            set_errno_from_io_error(&err);
+            bytes as i32
+        }
+        (Err(err), _) => {
             set_errno_from_io_error(&err);
             -1
         }
@@ -2597,6 +2915,40 @@ pub extern "C" fn ex_host_fs_mkdir(path: *const c_char, recursive: i32) -> i32 {
     }
 }
 
+/// Recursively create a directory and return the highest missing path that
+/// this call created (Node's recursive-mkdir result), or an empty string when
+/// the full path already existed. Caller frees the result with
+/// `ex_host_free_string`.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_mkdir_recursive_result(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let path = std::path::PathBuf::from(
+        unsafe { CStr::from_ptr(path) }
+            .to_string_lossy()
+            .into_owned(),
+    );
+    let mut cursor = path.clone();
+    let mut first_created = None;
+    while !cursor.exists() {
+        first_created = Some(cursor.clone());
+        if !cursor.pop() {
+            break;
+        }
+    }
+    if let Err(err) = std::fs::create_dir_all(&path) {
+        set_errno_from_io_error(&err);
+        return ptr::null_mut();
+    }
+    let value = first_created
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    CString::new(value)
+        .map(CString::into_raw)
+        .unwrap_or(ptr::null_mut())
+}
+
 /// Remove an empty directory.
 #[no_mangle]
 pub extern "C" fn ex_host_fs_rmdir(path: *const c_char) -> i32 {
@@ -2669,6 +3021,205 @@ pub extern "C" fn ex_host_fs_copy(from: *const c_char, to: *const c_char) -> i32
             -1
         }
     }
+}
+
+/// Copy a file while atomically refusing an existing destination.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_copy_exclusive(from: *const c_char, to: *const c_char) -> i32 {
+    if from.is_null() || to.is_null() {
+        return -1;
+    }
+    let from = unsafe { CStr::from_ptr(from) }
+        .to_string_lossy()
+        .into_owned();
+    let to = unsafe { CStr::from_ptr(to) }.to_string_lossy().into_owned();
+    let result = (|| -> std::io::Result<()> {
+        let mut source = std::fs::File::open(&from)?;
+        let mut destination = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&to)?;
+        std::io::copy(&mut source, &mut destination)?;
+        if let Ok(metadata) = source.metadata() {
+            destination.set_permissions(metadata.permissions())?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Resize a file by path.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_truncate(path: *const c_char, len: u64) -> i32 {
+    if path.is_null() {
+        return -1;
+    }
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_len(len))
+    {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+fn system_time_from_unix_seconds(value: f64) -> Option<SystemTime> {
+    if !value.is_finite() {
+        return None;
+    }
+    let duration = std::time::Duration::try_from_secs_f64(value.abs()).ok()?;
+    if value.is_sign_negative() {
+        UNIX_EPOCH.checked_sub(duration)
+    } else {
+        UNIX_EPOCH.checked_add(duration)
+    }
+}
+
+/// Set path access and modification timestamps from Unix seconds.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_utimes(path: *const c_char, atime: f64, mtime: f64) -> i32 {
+    if path.is_null() {
+        return -1;
+    }
+    let Some(atime) = system_time_from_unix_seconds(atime) else {
+        record_fs_error(libc::EINVAL);
+        return -1;
+    };
+    let Some(mtime) = system_time_from_unix_seconds(mtime) else {
+        record_fs_error(libc::EINVAL);
+        return -1;
+    };
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    let times = std::fs::FileTimes::new()
+        .set_accessed(atime)
+        .set_modified(mtime);
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_times(times))
+    {
+        Ok(()) => 0,
+        Err(err) => {
+            set_errno_from_io_error(&err);
+            -1
+        }
+    }
+}
+
+/// Return Node-shaped filesystem capacity metadata as JSON.
+#[no_mangle]
+pub extern "C" fn ex_host_fs_statfs(path: *const c_char) -> *mut c_char {
+    if path.is_null() {
+        return ptr::null_mut();
+    }
+    let path = unsafe { CStr::from_ptr(path) }
+        .to_string_lossy()
+        .into_owned();
+    #[cfg(windows)]
+    let payload = {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "Kernel32")]
+        extern "system" {
+            fn GetDiskFreeSpaceW(
+                root: *const u16,
+                sectors_per_cluster: *mut u32,
+                bytes_per_sector: *mut u32,
+                free_clusters: *mut u32,
+                total_clusters: *mut u32,
+            ) -> i32;
+        }
+        let canonical = match std::fs::canonicalize(&path) {
+            Ok(path) => path,
+            Err(err) => {
+                set_errno_from_io_error(&err);
+                return ptr::null_mut();
+            }
+        };
+        let mut root = std::path::PathBuf::new();
+        for component in canonical.components() {
+            root.push(component.as_os_str());
+            if matches!(component, std::path::Component::RootDir) {
+                break;
+            }
+        }
+        let mut wide = root.as_os_str().encode_wide().collect::<Vec<_>>();
+        wide.push(0);
+        let mut sectors = 0u32;
+        let mut bytes_per_sector = 0u32;
+        let mut free_clusters = 0u32;
+        let mut total_clusters = 0u32;
+        if unsafe {
+            GetDiskFreeSpaceW(
+                wide.as_ptr(),
+                &mut sectors,
+                &mut bytes_per_sector,
+                &mut free_clusters,
+                &mut total_clusters,
+            )
+        } == 0
+        {
+            let err = std::io::Error::last_os_error();
+            set_errno_from_io_error(&err);
+            return ptr::null_mut();
+        }
+        let block_size = u64::from(sectors) * u64::from(bytes_per_sector);
+        json!({
+            "type": 0,
+            "bsize": block_size,
+            "blocks": total_clusters,
+            "bfree": free_clusters,
+            "bavail": free_clusters,
+            "files": 0,
+            "ffree": 0,
+        })
+    };
+    #[cfg(unix)]
+    let payload = {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(path) = CString::new(std::ffi::OsStr::new(&path).as_bytes()) else {
+            record_fs_error(libc::EINVAL);
+            return ptr::null_mut();
+        };
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+            record_fs_error(
+                std::io::Error::last_os_error()
+                    .raw_os_error()
+                    .unwrap_or(libc::EIO),
+            );
+            return ptr::null_mut();
+        }
+        json!({
+            "type": 0,
+            "bsize": stat.f_bsize,
+            "blocks": stat.f_blocks,
+            "bfree": stat.f_bfree,
+            "bavail": stat.f_bavail,
+            "files": stat.f_files,
+            "ffree": stat.f_ffree,
+        })
+    };
+    #[cfg(not(any(unix, windows)))]
+    let payload = {
+        record_fs_error(libc::ENOSYS);
+        return ptr::null_mut();
+    };
+    as_json_cstring(&payload)
 }
 
 /// Return the canonical absolute path. Caller must free with `ex_host_free_string`.
@@ -2901,8 +3452,9 @@ pub extern "C" fn ex_host_sqlite_open(path: *const c_char, options: *const c_cha
     install_sqlite_authorizer(&db);
 
     with_sqlite_state(|state| {
-        let handle = state.next_db_handle;
-        state.next_db_handle = state.next_db_handle.saturating_add(1);
+        let Some(handle) = state.allocate_db_handle() else {
+            return 0;
+        };
         state.dbs.insert(handle, Arc::new(Mutex::new(db)));
         handle
     })
@@ -2970,8 +3522,7 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
     };
 
     let statement_handle = with_sqlite_state(|state| {
-        let statement_handle = state.next_statement_handle;
-        state.next_statement_handle = state.next_statement_handle.saturating_add(1);
+        let statement_handle = state.allocate_statement_handle()?;
         state.statements.insert(
             statement_handle,
             SqliteStatementRecord {
@@ -2980,8 +3531,11 @@ pub extern "C" fn ex_host_sqlite_prepare(db_handle: u64, sql: *const c_char) -> 
                 read_only,
             },
         );
-        statement_handle
+        Some(statement_handle)
     });
+    let Some(statement_handle) = statement_handle else {
+        return as_json_cstring(&json!({"error": "sqlite statement handle space exhausted"}));
+    };
 
     as_json_cstring(&json!({
         "handle": statement_handle,
@@ -3653,6 +4207,21 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_handle_allocators_refuse_before_wrap_or_reuse() {
+        let mut state = SqliteState::new();
+        state.next_db_handle = u64::MAX - 1;
+        state.next_statement_handle = u64::MAX - 1;
+
+        assert_eq!(state.allocate_db_handle(), Some(u64::MAX - 1));
+        assert_eq!(state.allocate_db_handle(), None);
+        assert_eq!(state.next_db_handle, u64::MAX);
+
+        assert_eq!(state.allocate_statement_handle(), Some(u64::MAX - 1));
+        assert_eq!(state.allocate_statement_handle(), None);
+        assert_eq!(state.next_statement_handle, u64::MAX);
+    }
+
+    #[test]
     fn install_host_replaces_existing_host() {
         let _guard = host_test_lock();
 
@@ -3753,6 +4322,64 @@ mod tests {
         // The positional write landed at offset 0, leaving the rest intact.
         let contents = std::fs::read(file.path()).unwrap();
         assert_eq!(&contents, b"xyCDEFGHIJ");
+    }
+
+    #[test]
+    fn portable_path_abi_preserves_node_creation_and_metadata_semantics() {
+        let root = tempfile::tempdir().unwrap();
+        let nested = root.path().join("first/second");
+        let nested_c = CString::new(nested.to_string_lossy().as_bytes()).unwrap();
+        let created = ex_host_fs_mkdir_recursive_result(nested_c.as_ptr());
+        assert!(!created.is_null());
+        let created_path = unsafe { CStr::from_ptr(created) }
+            .to_string_lossy()
+            .into_owned();
+        ex_host_free_string(created);
+        assert_eq!(created_path, root.path().join("first").to_string_lossy());
+        let created_again = ex_host_fs_mkdir_recursive_result(nested_c.as_ptr());
+        assert_eq!(unsafe { CStr::from_ptr(created_again) }.to_bytes(), b"");
+        ex_host_free_string(created_again);
+
+        let source = root.path().join("source");
+        let destination = root.path().join("destination");
+        std::fs::write(&source, b"abcdef").unwrap();
+        let source_c = CString::new(source.to_string_lossy().as_bytes()).unwrap();
+        let destination_c = CString::new(destination.to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(
+            ex_host_fs_copy_exclusive(source_c.as_ptr(), destination_c.as_ptr()),
+            0
+        );
+        std::fs::write(&source, b"replacement").unwrap();
+        assert_eq!(
+            ex_host_fs_copy_exclusive(source_c.as_ptr(), destination_c.as_ptr()),
+            -1
+        );
+        assert_eq!(std::fs::read(&destination).unwrap(), b"abcdef");
+
+        assert_eq!(ex_host_fs_truncate(destination_c.as_ptr(), 3), 0);
+        assert_eq!(std::fs::read(&destination).unwrap(), b"abc");
+        let timestamp = 1_700_000_000.0;
+        assert_eq!(
+            ex_host_fs_utimes(destination_c.as_ptr(), timestamp, timestamp),
+            0
+        );
+        let modified = std::fs::metadata(&destination)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(modified, timestamp as u64);
+
+        let root_c = CString::new(root.path().to_string_lossy().as_bytes()).unwrap();
+        let statfs = ex_host_fs_statfs(root_c.as_ptr());
+        assert!(!statfs.is_null());
+        let payload: serde_json::Value =
+            serde_json::from_slice(unsafe { CStr::from_ptr(statfs) }.to_bytes()).unwrap();
+        ex_host_free_string(statfs);
+        assert!(payload["bsize"].as_u64().is_some_and(|size| size > 0));
+        assert!(payload["blocks"].as_u64().is_some_and(|blocks| blocks > 0));
     }
 
     /// Run `sql` through the exec ABI, asserting it did not fault, and free the

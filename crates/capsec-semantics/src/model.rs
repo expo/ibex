@@ -13,6 +13,8 @@ use std::fmt;
 use std::net::IpAddr;
 use std::num::NonZeroU16;
 
+use crate::{Error, Result as CapsecResult};
+
 const MAX_IJSON_UINT: u64 = 9_007_199_254_740_991;
 
 fn deserialize_checked_string<'de, D>(
@@ -1432,27 +1434,7 @@ pub struct EffectOccurrence {
 
 impl EffectOccurrence {
     pub fn principal_context_is_valid(&self) -> bool {
-        if self.constrained_principals.is_empty() {
-            return false;
-        }
-        let encodings: Option<Vec<Vec<u8>>> = self
-            .constrained_principals
-            .iter()
-            .map(|principal| {
-                serde_json::to_value(principal)
-                    .ok()
-                    .and_then(|value| crate::canonical::to_jcs_bytes(&value).ok())
-            })
-            .collect();
-        let Some(encodings) = encodings else {
-            return false;
-        };
-        if encodings.windows(2).any(|pair| pair[0] >= pair[1])
-            || self
-                .constrained_principals
-                .iter()
-                .any(Principal::is_transparent_runtime_frame)
-        {
+        if !principal_set_is_canonical(&self.constrained_principals) {
             return false;
         }
         [&self.actor, &self.effect_owner]
@@ -1461,6 +1443,73 @@ impl EffectOccurrence {
                 principal.is_transparent_runtime_frame()
                     || self.constrained_principals.contains(principal)
             })
+    }
+}
+
+/// Return the one canonical representation of an authenticated principal set.
+///
+/// Principal-set order is RFC 8785 JCS byte order, not Rust's derived `Ord`
+/// and not serde_json's insertion order.  Keeping this helper in the neutral
+/// semantic crate prevents ABI adapters from subtly disagreeing with the
+/// evaluator about mixed root/package sets.
+/// @ref LLP 0021#decision-staging-and-principal-semantics
+pub fn canonicalize_principal_set(
+    principals: impl IntoIterator<Item = Principal>,
+) -> CapsecResult<Vec<Principal>> {
+    let mut keyed = principals
+        .into_iter()
+        .map(|principal| {
+            if principal.is_transparent_runtime_frame() {
+                return Err(Error::InvalidModel(
+                    "transparent runtime principal cannot constrain a decision".into(),
+                ));
+            }
+            let value = serde_json::to_value(&principal)
+                .map_err(|error| Error::InvalidModel(error.to_string()))?;
+            let key = crate::canonical::to_jcs_bytes(&value)?;
+            Ok((key, principal))
+        })
+        .collect::<CapsecResult<Vec<_>>>()?;
+    keyed.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed.dedup_by(|left, right| left.0 == right.0);
+    if keyed.is_empty() {
+        return Err(Error::InvalidModel(
+            "constrained principal set cannot be empty".into(),
+        ));
+    }
+    Ok(keyed.into_iter().map(|(_, principal)| principal).collect())
+}
+
+/// Validate that a principal set already uses the canonical wire order.
+pub fn principal_set_is_canonical(principals: &[Principal]) -> bool {
+    canonicalize_principal_set(principals.iter().cloned())
+        .is_ok_and(|canonical| canonical == principals)
+}
+
+#[cfg(test)]
+mod principal_set_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_principal_set_uses_jcs_and_deduplicates() {
+        let root: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "root", "identity": "project-root"
+        }))
+        .unwrap();
+        let package: Principal = serde_json::from_value(serde_json::json!({
+            "kind": "package",
+            "name": "pkg",
+            "integrity": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "locator": "pkg@1.0.0"
+        }))
+        .unwrap();
+        let canonical =
+            canonicalize_principal_set([root.clone(), package.clone(), root.clone()]).unwrap();
+        assert_eq!(canonical.len(), 2);
+        assert!(principal_set_is_canonical(&canonical));
+        let mut reversed = canonical;
+        reversed.reverse();
+        assert!(!principal_set_is_canonical(&reversed));
     }
 }
 

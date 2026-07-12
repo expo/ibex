@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -29,10 +29,13 @@ The root document (LLP 0000 §Key invariants) names five C functions as the
 stable contract. All five are declared in
 `include/exact_runtime.h` and defined in `src/engine/hermes_runtime.cc`:
 
-- `ExactHermesRuntime* ex_hermes_create(void)` `[observed]`
-  (`include/exact_runtime.h:38`; defined `src/engine/hermes_runtime.cc:1388`) —
-  creates a Hermes runtime with all globals/bootstrap installed; returns an
-  opaque handle or NULL.
+- `ExactHermesRuntime* ex_hermes_create(void)` is retained as the historical
+  symbol but deliberately always returns NULL. Production construction is
+  `ex_hermes_create_armed(snapshot_digest)`, which atomically claims the exact
+  authenticated Host context and verifies structural lockdown, compartments,
+  bootstrap seals, and frame attribution before returning a handle.
+  `ex_hermes_create_diagnostic()` is an explicitly non-production constructor
+  for isolated tests and foreground audit.
 - `void ex_hermes_destroy(ExactHermesRuntime*)` `[observed]`
   (`include/exact_runtime.h:41`; `src/engine/hermes_runtime.cc:1455`).
 - `int ex_hermes_eval(runtime, data, len, source_url, is_bytecode, out_value)`
@@ -100,17 +103,18 @@ throws if it is not installed `[observed]`
 ## The Rust host surface
 
 The engine declares the `ex_host_*` callbacks as `extern "C"` functions on the
-C++ side `[observed]` (`src/engine/hermes_runtime.cc:203-235`). They are
-implemented in Rust in `src/host/abi.rs` and resolve their behavior through a
-process-global `Host` singleton.
+C++ side `[observed]` (`src/engine/hermes_runtime.cc`). They are implemented in
+Rust in `src/host/abi.rs`. A compatibility Host remains process-visible for
+unscoped diagnostic calls, but each live Hermes runtime owns a claimed immutable
+Host-context ID. Engine entries and worker callbacks select that context for
+their dynamic scope, so installing runtime B cannot replace runtime A's policy.
 
 ### Installing the host
 
-- `host::install_host(host: Host)` stores (or replaces) the singleton in a
-  `OnceLock<RwLock<Host>>` `[observed]` (`src/host/abi.rs:64, 107-121`). A second
-  call replaces the current host rather than failing `[observed]`
-  (`src/host/abi.rs:108-118`, test `install_host_replaces_existing_host` at
-  `src/host/abi.rs:1857`).
+- `host::install_host(host: Host)` updates the compatibility default and adds
+  an immutable context row. Runtime construction claims one row; engine entry,
+  asynchronous completion, and native-resource checks use that runtime's
+  context rather than whatever was installed most recently.
 - `ex_host_install()` installs only a closed, unarmed compatibility host. A
   production embedder must replace it with `ex_host_install_armed(...)` and
   create Hermes with the authenticated digest; absence or mismatch refuses.

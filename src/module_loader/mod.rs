@@ -7,15 +7,20 @@
 pub mod transpile;
 
 use anyhow::{anyhow, Context, Result};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use oxc_resolver::{ModuleType, ResolveOptions, Resolver};
 use serde_json::Value;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::hash::{Hash, Hasher};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
+
+use sha2::{Digest as _, Sha256};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleKind {
@@ -48,6 +53,10 @@ pub struct ResolvedModule {
     /// would need lockfile/integrity input. @ref LLP 0013#resolved-questions
     /// (ENG-22621/ENG-22768)
     pub package_version: Option<String>,
+    /// Integrity authenticated by the armed package graph. The generic
+    /// resolver leaves this unset; `Host::resolve_module_meta` fills it only
+    /// after matching the exact verified package-root binding.
+    pub package_integrity: Option<String>,
 }
 
 pub struct ModuleLoader {
@@ -186,6 +195,7 @@ impl ModuleLoader {
                 package_name: None,
                 package_root: None,
                 package_version: None,
+                package_integrity: None,
             });
         }
 
@@ -221,6 +231,7 @@ impl ModuleLoader {
             package_name,
             package_root: package_root_for_record,
             package_version,
+            package_integrity: None,
         })
     }
 
@@ -235,6 +246,33 @@ impl ModuleLoader {
         let source = self
             .load_module_source(path)
             .with_context(|| format!("Failed to read module {}", path.display()))?;
+        module.source = Some(source);
+        Ok(module)
+    }
+
+    /// Compile source bytes that were captured while authenticating the
+    /// package tree. Armed package loads must not reopen the pathname after
+    /// integrity validation: a replacement in that gap would execute bytes
+    /// that never contributed to the authenticated principal digest.
+    pub(crate) fn load_source_bytes(
+        &self,
+        mut module: ResolvedModule,
+        bytes: Vec<u8>,
+    ) -> Result<ResolvedModule> {
+        let path = module
+            .path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Module path missing"))?;
+        let source = String::from_utf8(bytes)
+            .with_context(|| format!("Module source is not valid UTF-8: {}", path.display()))?;
+        let source = if Self::needs_transpile(path) || Self::needs_js_downlevel(path, &source) {
+            let target = Self::transpile_target_for_source(&source);
+            self.transpile_module(path, target, &source)?
+        } else {
+            source
+        };
+        // Discard any resolver prefetch: only the bytes captured by the
+        // integrity traversal are eligible for execution.
         module.source = Some(source);
         Ok(module)
     }
@@ -810,6 +848,7 @@ impl ModuleLoader {
             package_name,
             package_root,
             package_version,
+            package_integrity: None,
         })
     }
 }
@@ -820,6 +859,211 @@ fn read_package_manifest(path: &Path) -> Result<Value> {
     let manifest: Value = serde_json::from_str(&contents)
         .with_context(|| format!("Invalid package manifest {}", path.display()))?;
     Ok(manifest)
+}
+
+/// Hash the complete installed package content tree using the same record
+/// format as the policy generator. Nested `node_modules` and VCS metadata are
+/// separate graph/store state; symlinks and special files are rejected rather
+/// than allowing content identity to escape the authenticated root.
+/// @ref LLP 0021#decision-staging-and-principal-semantics
+pub fn package_tree_integrity(root: &Path) -> Result<String> {
+    package_tree_integrity_and_source(root, None).map(|(integrity, _)| integrity)
+}
+
+#[cfg(test)]
+static PACKAGE_SOURCE_OPEN_HOOK: std::sync::OnceLock<
+    std::sync::Mutex<Option<(PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn pause_before_authenticated_source_open(path: &Path) {
+    let hook = PACKAGE_SOURCE_OPEN_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|hook| hook.as_ref().cloned());
+    if let Some((target, barrier)) = hook {
+        if target == path {
+            barrier.wait();
+            barrier.wait();
+        }
+    }
+}
+
+/// Authenticate the complete package tree and optionally retain the exact
+/// bytes of one source file from the same pinned file handle that contributed
+/// its digest record.
+fn package_tree_integrity_and_source(
+    root: &Path,
+    source_path: Option<&Path>,
+) -> Result<(String, Option<Vec<u8>>)> {
+    fn digest_file(path: &Path, capture: bool) -> Result<(String, Option<Vec<u8>>)> {
+        #[cfg(test)]
+        if capture {
+            pause_before_authenticated_source_open(path);
+        }
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            // FILE_FLAG_OPEN_REPARSE_POINT: inspect the named object rather
+            // than following a late replacement to an unauthenticated target.
+            options.custom_flags(0x0020_0000);
+        }
+        let mut file = options
+            .open(path)
+            .with_context(|| format!("Failed to open package file {}", path.display()))?;
+        if !file.metadata()?.is_file() {
+            return Err(anyhow!(
+                "Package content changed to a non-file while authenticating {}",
+                path.display()
+            ));
+        }
+        let mut digest = Sha256::new();
+        let mut buffer = [0u8; 64 * 1024];
+        let mut captured = capture.then(Vec::new);
+        loop {
+            let read = file
+                .read(&mut buffer)
+                .with_context(|| format!("Failed to read package file {}", path.display()))?;
+            if read == 0 {
+                break;
+            }
+            digest.update(&buffer[..read]);
+            if let Some(bytes) = captured.as_mut() {
+                bytes.extend_from_slice(&buffer[..read]);
+            }
+        }
+        Ok((
+            format!("sha256-{}", URL_SAFE_NO_PAD.encode(digest.finalize())),
+            captured,
+        ))
+    }
+
+    fn walk(
+        root: &Path,
+        current: &Path,
+        source_relative: Option<&Path>,
+        records: &mut Vec<(String, String)>,
+        captured_source: &mut Option<Vec<u8>>,
+    ) -> Result<()> {
+        let mut entries = std::fs::read_dir(current)
+            .with_context(|| {
+                format!(
+                    "Failed to enumerate package directory {}",
+                    current.display()
+                )
+            })?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        for entry in entries {
+            let name = entry.file_name();
+            if name == OsStr::new("node_modules") || name == OsStr::new(".git") {
+                continue;
+            }
+            let path = entry.path();
+            let metadata = std::fs::symlink_metadata(&path)?;
+            let relative_path = path
+                .strip_prefix(root)
+                .expect("walk stays below package root");
+            let relative = relative_path
+                .to_str()
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Package path is not valid UTF-8: {}",
+                        relative_path.display()
+                    )
+                })?
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            if metadata.file_type().is_symlink() {
+                return Err(anyhow!(
+                    "Package content contains an unauthenticated symlink: {relative}"
+                ));
+            }
+            if metadata.is_dir() {
+                walk(root, &path, source_relative, records, captured_source)?;
+            } else if metadata.is_file() {
+                let capture = source_relative.is_some_and(|source| source == relative_path);
+                let (digest, bytes) = digest_file(&path, capture)?;
+                if let Some(bytes) = bytes {
+                    if captured_source.replace(bytes).is_some() {
+                        return Err(anyhow!("Package source appeared more than once"));
+                    }
+                }
+                records.push((relative, digest));
+            } else {
+                return Err(anyhow!(
+                    "Package content contains an unsupported file type: {relative}"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    let root = std::fs::canonicalize(root)
+        .with_context(|| format!("Failed to canonicalize package root {}", root.display()))?;
+    let source_relative = source_path
+        .map(|source| {
+            let normalized = match (source.parent(), source.file_name()) {
+                (Some(parent), Some(name)) => std::fs::canonicalize(parent)
+                    .map(|parent| parent.join(name))
+                    .with_context(|| {
+                        format!("Failed to authenticate module parent {}", parent.display())
+                    })?,
+                _ => source.to_path_buf(),
+            };
+            normalized
+                .strip_prefix(&root)
+                .map(Path::to_path_buf)
+                .with_context(|| {
+                    format!(
+                        "Authenticated module source {} is outside package root {}",
+                        source.display(),
+                        root.display()
+                    )
+                })
+        })
+        .transpose()?;
+    let mut records = Vec::new();
+    let mut captured_source = None;
+    walk(
+        &root,
+        &root,
+        source_relative.as_deref(),
+        &mut records,
+        &mut captured_source,
+    )?;
+    if source_relative.is_some() && captured_source.is_none() {
+        return Err(anyhow!(
+            "Authenticated module source disappeared during package traversal"
+        ));
+    }
+    records.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let bytes = serde_json::to_vec(&records)?;
+    Ok((
+        format!("sha256-{}", URL_SAFE_NO_PAD.encode(Sha256::digest(bytes))),
+        captured_source,
+    ))
+}
+
+pub(crate) fn authenticated_package_source(
+    root: &Path,
+    source_path: &Path,
+    expected_integrity: &str,
+) -> Result<Vec<u8>> {
+    let (actual, source) = package_tree_integrity_and_source(root, Some(source_path))?;
+    if actual != expected_integrity {
+        return Err(anyhow!(
+            "Installed package content changed after arming: expected {expected_integrity}, observed {actual}"
+        ));
+    }
+    source.ok_or_else(|| anyhow!("Authenticated package source is absent"))
 }
 
 /// The installed package root for a module path: the `node_modules/<name>`
@@ -2319,5 +2563,75 @@ for (let i = 0; i < 3; i++) {
             .resolve("./mod.ts", Some(&dir.path().join("entry.ts")))
             .unwrap();
         assert_eq!(again.source.as_deref(), Some(source.as_str()));
+    }
+
+    #[test]
+    fn authenticated_package_source_rejects_post_arming_mutation() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().join("package");
+        std::fs::create_dir(&root).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let source = root.join("index.js");
+        std::fs::write(&source, "module.exports = 'armed';\n").unwrap();
+        let integrity = package_tree_integrity(&root).unwrap();
+
+        assert_eq!(
+            authenticated_package_source(&root, &source, &integrity).unwrap(),
+            b"module.exports = 'armed';\n"
+        );
+        std::fs::write(&source, "module.exports = 'mutated';\n").unwrap();
+        let error = authenticated_package_source(&root, &source, &integrity).unwrap_err();
+        assert!(
+            error.to_string().contains("changed after arming"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn authenticated_package_source_closes_metadata_to_read_replacement_race() {
+        struct HookReset;
+        impl Drop for HookReset {
+            fn drop(&mut self) {
+                if let Some(hook) = PACKAGE_SOURCE_OPEN_HOOK.get() {
+                    *hook.lock().unwrap() = None;
+                }
+            }
+        }
+
+        let dir = tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let source = root.join("index.js");
+        std::fs::write(&source, "module.exports = 'authenticated';\n").unwrap();
+        let integrity = package_tree_integrity(&root).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        *PACKAGE_SOURCE_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = Some((source.clone(), std::sync::Arc::clone(&barrier)));
+        let _reset = HookReset;
+
+        let worker_root = root.clone();
+        let worker_source = source.clone();
+        let worker = std::thread::spawn(move || {
+            authenticated_package_source(&worker_root, &worker_source, &integrity)
+        });
+        barrier.wait();
+        std::fs::write(&source, "module.exports = 'racing replacement';\n").unwrap();
+        barrier.wait();
+
+        let error = worker.join().unwrap().unwrap_err();
+        assert!(
+            error.to_string().contains("changed after arming"),
+            "{error:#}"
+        );
     }
 }

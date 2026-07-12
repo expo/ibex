@@ -30,6 +30,28 @@ use std::sync::{Arc, RwLock};
 
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
+/// Reject every startup environment input classified `closed` by the checked
+/// coverage registry. This is intentionally registry-derived so a newly closed
+/// control cannot be forgotten in a handwritten deny list.
+/// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+pub fn reject_closed_startup_environment() -> anyhow::Result<()> {
+    let mut present = crate::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES
+        .iter()
+        .copied()
+        .filter(|name| std::env::var_os(name).is_some())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    present.sort();
+    present.dedup();
+    if !present.is_empty() {
+        anyhow::bail!(
+            "production capability startup rejects closed environment controls: {}",
+            present.join(", ")
+        );
+    }
+    Ok(())
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TypedDynamicGrantRequest {
@@ -156,6 +178,10 @@ pub struct Host {
         >,
     >,
     typed_module_principals: Arc<RwLock<HashMap<String, capsec_semantics::model::Principal>>>,
+    /// Exact authenticated disposition for every coverage edge on the armed
+    /// target. Call sites never manufacture `Complete` locally.
+    target_cells: Arc<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>>,
+    unarmed_closed: bool,
 }
 
 impl Host {
@@ -203,6 +229,8 @@ impl Host {
             ))),
             typed_imports: Arc::new(BTreeMap::new()),
             typed_module_principals: Arc::new(RwLock::new(HashMap::new())),
+            target_cells: Arc::new(BTreeMap::new()),
+            unarmed_closed: false,
         }
     }
 
@@ -211,6 +239,17 @@ impl Host {
     pub fn new_armed(
         config: HostConfig,
         armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        validate_loaded_engine_identity(&armed_snapshot)?;
+        let target_cells = authenticated_target_cells(&armed_snapshot)?;
+        validate_snapshot_root_bindings(&armed_snapshot)?;
+        Self::new_armed_with_target_cells(config, armed_snapshot, target_cells)
+    }
+
+    fn new_armed_with_target_cells(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+        target_cells: BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>,
     ) -> capsec_semantics::Result<Self> {
         if config.mode != SecurityMode::Enforce {
             return Err(capsec_semantics::Error::ArmRefused(
@@ -224,6 +263,11 @@ impl Host {
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "legacy policy and allow/deny overrides are forbidden on an armed host".into(),
+            ));
+        }
+        if config.root_dir.is_some() || config.allowed_hosts.is_some() {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "HostConfig fences are not yet representable in the typed armed ceiling".into(),
             ));
         }
         let profile = capsec_semantics::registry::ValidatedProfile::from_json(
@@ -244,7 +288,35 @@ impl Host {
         host.armed_snapshot = Some(armed_snapshot);
         host.decision_context = Some(decision_context);
         host.typed_imports = typed_imports;
+        host.target_cells = Arc::new(target_cells);
         Ok(host)
+    }
+
+    /// Test-harness escape hatch for debug builds only. Production/release
+    /// embedders cannot bypass the checked target registry.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub unsafe fn new_armed_for_test(
+        config: HostConfig,
+        armed_snapshot: Arc<capsec_semantics::arming::ArmedSnapshot>,
+    ) -> capsec_semantics::Result<Self> {
+        let cells = crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS
+            .iter()
+            .map(|edge| {
+                (
+                    (*edge).to_owned(),
+                    capsec_semantics::decision::TargetCellDisposition::Complete,
+                )
+            })
+            .collect();
+        Self::new_armed_with_target_cells(config, armed_snapshot, cells)
+    }
+
+    fn target_cell(&self, edge: &str) -> capsec_semantics::decision::TargetCellDisposition {
+        self.target_cells
+            .get(edge)
+            .copied()
+            .unwrap_or(capsec_semantics::decision::TargetCellDisposition::Incomplete)
     }
 
     pub fn armed_snapshot(&self) -> Option<&Arc<capsec_semantics::arming::ArmedSnapshot>> {
@@ -285,19 +357,35 @@ impl Host {
                 "typed path normalization requested without an armed snapshot".into(),
             )
         })?;
-        let path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            std::env::current_dir()
-                .map_err(|error| {
-                    capsec_semantics::Error::ArmRefused(format!(
-                        "cannot resolve current directory for typed path: {error}"
-                    ))
-                })?
-                .join(path)
-        };
+        let path = normalize_host_path_for_binding(path)?;
         let components = host_path_components(&path)?;
+        let binding = snapshot.root_binding_for_host_components(principal, &components)?;
+        validate_armed_binding_object(&binding)?;
         snapshot.logical_path_for_host_components(principal, &components)
+    }
+
+    /// Prove that the directory descriptor retained by the native adapter is
+    /// actually below the root object authenticated for this path. A lexical
+    /// `/proc/self/fd`/`F_GETPATH` spelling is insufficient: an attacker can
+    /// swap root A for B while the adapter opens B and restore A before the
+    /// Host re-resolves the spelling. Walking `..` from the descriptor and
+    /// comparing object identities closes that A/B/A window.
+    #[cfg(unix)]
+    pub(crate) fn validate_typed_parent_fd_ancestry(
+        &self,
+        principal: &capsec_semantics::model::Principal,
+        path: &std::path::Path,
+        parent_fd: std::os::fd::RawFd,
+    ) -> capsec_semantics::Result<bool> {
+        let snapshot = self.armed_snapshot.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "filesystem descriptor ancestry requested without an armed snapshot".into(),
+            )
+        })?;
+        let path = normalize_host_path_for_binding(path)?;
+        let components = host_path_components(&path)?;
+        let binding = snapshot.root_binding_for_host_components(principal, &components)?;
+        fd_descends_from_object(parent_fd, &binding.object)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -320,7 +408,7 @@ impl Host {
         retained_handle: Option<capsec_semantics::model::NonEmptyString>,
         presented_handle_ids: Vec<capsec_semantics::model::NonEmptyString>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::decision::EffectGate;
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
             OccurrenceResource, StableId,
@@ -332,18 +420,22 @@ impl Host {
             )
         })?;
         let requested = self.typed_logical_path(&principal, path)?;
-        if constrained_principals.is_empty()
-            || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "filesystem principal stack is empty, noncanonical, or omits the actor".into(),
             ));
         }
         if let Some(resolved_parent_path) = resolved_parent_path {
-            let parent_matches = if requested.components.is_empty() {
+            // A committed descriptor retains object identity and authority
+            // even if its directory is subsequently renamed. Re-resolving
+            // the old lexical parent at Repeat would make legitimate open fds
+            // permanently unusable (and broke macOS's /tmp alias). Commit and
+            // discovery still bind the retained parent to the requested path.
+            let parent_matches = if stage == capsec_semantics::model::Stage::Repeat {
+                true
+            } else if requested.components.is_empty() {
                 self.armed_snapshot
                     .as_deref()
                     .ok_or_else(|| {
@@ -440,7 +532,7 @@ impl Host {
                 Ok(EffectGate {
                     coverage_edge_id: StableId::new(coverage_edge_id)
                         .map_err(capsec_semantics::Error::InvalidModel)?,
-                    target_cell: TargetCellDisposition::Complete,
+                    target_cell: self.target_cell(coverage_edge_id),
                     definition_and_edge_predicates_satisfied: true,
                 })
             })
@@ -463,7 +555,7 @@ impl Host {
         connection_id: Option<capsec_semantics::model::NonEmptyString>,
         redirect_index: Option<capsec_semantics::model::SafeUint>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::decision::EffectGate;
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
             NetworkRequest, OccurrenceResource, PeerClass, Route, StableId,
@@ -474,11 +566,8 @@ impl Host {
                 "fetch operation has no authenticated typed principal".into(),
             )
         })?;
-        if constrained_principals.is_empty()
-            || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "fetch principal stack is empty, noncanonical, or omits the actor".into(),
@@ -538,7 +627,7 @@ impl Host {
             &[EffectGate {
                 coverage_edge_id: StableId::new("surface.native.op.nativefetch.17pv6n3")
                     .map_err(capsec_semantics::Error::InvalidModel)?,
-                target_cell: TargetCellDisposition::Complete,
+                target_cell: self.target_cell("surface.native.op.nativefetch.17pv6n3"),
                 definition_and_edge_predicates_satisfied: true,
             }],
         )
@@ -560,7 +649,7 @@ impl Host {
         verified_peer: Option<capsec_semantics::model::VerifiedPeer>,
         connection_id: Option<capsec_semantics::model::NonEmptyString>,
     ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
-        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::decision::EffectGate;
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
             NetworkRequest, OccurrenceResource, PeerClass, Route, StableId,
@@ -571,11 +660,8 @@ impl Host {
                 "connect operation has no authenticated typed principal".into(),
             )
         })?;
-        if constrained_principals.is_empty()
-            || !constrained_principals.contains(&principal)
-            || constrained_principals
-                .windows(2)
-                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
         {
             return Err(capsec_semantics::Error::ArmRefused(
                 "connect principal stack is empty, noncanonical, or omits the actor".into(),
@@ -637,7 +723,7 @@ impl Host {
             &[EffectGate {
                 coverage_edge_id: StableId::new(coverage_edge_id)
                     .map_err(capsec_semantics::Error::InvalidModel)?,
-                target_cell: TargetCellDisposition::Complete,
+                target_cell: self.target_cell(coverage_edge_id),
                 definition_and_edge_predicates_satisfied: true,
             }],
         )
@@ -1217,7 +1303,7 @@ impl Host {
     /// Runtime-grant a capability to the root principal, bounded by the static
     /// ceiling. Returns whether it was applied. @ref LLP 0013 — §dynamic permissions
     pub fn runtime_grant_root(&self, capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager.runtime_grant_root(capability)
@@ -1225,7 +1311,7 @@ impl Host {
 
     /// Runtime-revoke a runtime-granted root capability.
     pub fn runtime_revoke_root(&self, capability: &str) {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return;
         }
         self.capability_manager.runtime_revoke_root(capability)
@@ -1233,7 +1319,7 @@ impl Host {
 
     /// Tri-state grant status (1 granted / 2 prompt / 0 denied) for root.
     pub fn grant_status(&self, capability: &str) -> u8 {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return 0;
         }
         self.capability_manager.grant_status(capability)
@@ -1255,6 +1341,12 @@ impl Host {
         })
     }
 
+    pub fn closed_unarmed() -> Self {
+        let mut host = Self::new(HostConfig::default());
+        host.unarmed_closed = true;
+        host
+    }
+
     /// Get the capability manager
     pub fn capabilities(&self) -> &Arc<capability::CapabilityManager> {
         &self.capability_manager
@@ -1272,7 +1364,8 @@ impl Host {
     /// boundary short-circuits every capability check when this returns true,
     /// which would silently skip the fence the embedder asked for. (ENG-23876)
     pub fn is_allow_all(&self) -> bool {
-        self.config.mode == SecurityMode::Permissive
+        !self.unarmed_closed
+            && self.config.mode == SecurityMode::Permissive
             && self.config.root_dir.is_none()
             && self.config.allowed_hosts.is_none()
     }
@@ -1284,7 +1377,7 @@ impl Host {
 
     /// Check if a capability is granted
     pub fn check_capability(&self, module_id: &str, capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager.check(module_id, capability)
@@ -1292,7 +1385,7 @@ impl Host {
 
     /// Check whether a principal may mint a passable authority-bearing handle.
     pub fn check_handle_mint(&self, module_id: &str, capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager
@@ -1303,7 +1396,7 @@ impl Host {
     /// no-follow-final normalization while preserving normal audit/enforce
     /// semantics.
     pub fn check_capability_no_follow_final(&self, module_id: &str, capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager
@@ -1314,14 +1407,14 @@ impl Host {
     /// effective grant is the AND of every principal on the call stack
     /// (innermost-first). @ref LLP 0013#phase-5
     pub fn check_capability_stack(&self, stack: &[&str], capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager.check_stack(stack, capability)
     }
 
     pub fn check_capability_stack_no_follow_final(&self, stack: &[&str], capability: &str) -> bool {
-        if self.decision_context.is_some() {
+        if self.unarmed_closed || self.decision_context.is_some() {
             return false;
         }
         self.capability_manager
@@ -1332,6 +1425,9 @@ impl Host {
     /// engine skips the (slightly more expensive) stack collection and uses the
     /// single-frame check. @ref LLP 0013#phase-5
     pub fn has_deputy_classes(&self) -> bool {
+        if self.unarmed_closed {
+            return true;
+        }
         if self.decision_context.is_some() {
             return true;
         }
@@ -1344,16 +1440,26 @@ impl Host {
     /// @ref LLP 0013#mechanism-3 — the loader registers this mapping; with the
     /// carried Hermes patch stack the principal it keys on is the executing
     /// frame's Domain packageId (engine truth, not a forgeable thread-local).
-    pub fn register_module_package(&self, module_id: &str, package: &str, locator: Option<&str>) {
+    pub fn register_module_package(
+        &self,
+        module_id: &str,
+        package: &str,
+        locator: Option<&str>,
+        integrity: Option<&str>,
+    ) {
+        if self.unarmed_closed {
+            return;
+        }
         if self.decision_context.is_some() {
             let matched = self.typed_imports.keys().find(|principal| match principal {
                 capsec_semantics::model::Principal::Package {
                     name,
                     locator: armed_locator,
-                    ..
+                    integrity: armed_integrity,
                 } => {
                     name.as_str() == package
                         && locator.is_some_and(|value| value == armed_locator.as_str())
+                        && integrity.is_some_and(|value| value == armed_integrity.as_str())
                 }
                 _ => false,
             });
@@ -1375,6 +1481,9 @@ impl Host {
     /// policy is the primary gate for them. Returns whether the load may
     /// proceed under the active mode (audit logs but allows).
     pub fn check_import(&self, module_id: &str, specifier: &str) -> bool {
+        if self.unarmed_closed {
+            return false;
+        }
         if self.decision_context.is_some() {
             let principal = if module_id == "0" {
                 self.typed_imports
@@ -1393,6 +1502,12 @@ impl Host {
             let Some(policy) = self.typed_imports.get(&principal) else {
                 return false;
             };
+            if is_module_path_specifier(specifier) {
+                // Root may select a first-party entry/path. Package path loads
+                // are authorized only after resolution against exact graph
+                // principals in `resolve_module_meta_for_principal`.
+                return principal.is_root();
+            }
             return typed_import_allowed(policy, specifier);
         }
         self.capability_manager.check_import(module_id, specifier)
@@ -1410,7 +1525,66 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta = self.resolve_module_meta(specifier, referrer)?;
+        let meta = self.resolve_module_meta_for_principal(specifier, referrer, None)?;
+        self.load_authenticated_module_source(meta)
+    }
+
+    pub fn resolve_module_for_principal(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+    ) -> anyhow::Result<ResolvedModule> {
+        let meta =
+            self.resolve_module_meta_for_principal(specifier, referrer, requester_module_id)?;
+        self.load_authenticated_module_source(meta)
+    }
+
+    fn load_authenticated_module_source(
+        &self,
+        meta: ResolvedModule,
+    ) -> anyhow::Result<ResolvedModule> {
+        if let Some(snapshot) = self.armed_snapshot.as_deref() {
+            if let Some(expected_integrity) = meta.package_integrity.as_deref() {
+                let path = meta
+                    .path
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("authenticated package module has no path"))?;
+                let root = meta.package_root.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("authenticated package module has no package root")
+                })?;
+                let bytes = crate::module_loader::authenticated_package_source(
+                    root,
+                    path,
+                    expected_integrity,
+                )
+                .with_context(|| {
+                    format!("failed to reauthenticate package source {}", path.display())
+                })?;
+                return self.module_loader.load_source_bytes(meta, bytes);
+            }
+            if let Some(path) = meta.path.as_deref() {
+                let components = host_path_components(path)?;
+                let root_principal = self
+                    .typed_imports
+                    .keys()
+                    .find(|principal| principal.is_root())
+                    .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
+                let target_principal = snapshot
+                    .owner_for_host_components(&components)?
+                    .unwrap_or_else(|| root_principal.clone());
+                let binding =
+                    snapshot.root_binding_for_host_components(&target_principal, &components)?;
+                let bytes =
+                    authenticated_source_beneath_binding(&binding, path).with_context(|| {
+                        format!(
+                            "failed to authenticate first-party source {}",
+                            path.display()
+                        )
+                    })?;
+                return self.module_loader.load_source_bytes(meta, bytes);
+            }
+        }
         self.module_loader.load_source(meta)
     }
 
@@ -1432,21 +1606,118 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta = self.module_loader.resolve_meta(specifier, referrer)?;
+        self.resolve_module_meta_for_principal(specifier, referrer, None)
+    }
+
+    pub fn resolve_module_meta_for_principal(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+    ) -> anyhow::Result<ResolvedModule> {
+        if self.unarmed_closed {
+            anyhow::bail!("unarmed host cannot resolve executable modules");
+        }
+        let mut meta = self.module_loader.resolve_meta(specifier, referrer)?;
         if let Some(path) = meta.path.as_ref() {
             if let Some(snapshot) = self.armed_snapshot.as_deref() {
                 let canonical = std::fs::canonicalize(path).with_context(|| {
                     format!("failed to authenticate module path {}", path.display())
                 })?;
                 let components = host_path_components(&canonical)?;
-                let root = self
+                let root_principal = self
                     .typed_imports
                     .keys()
                     .find(|principal| principal.is_root())
+                    .cloned()
                     .ok_or_else(|| anyhow::anyhow!("armed root principal is absent"))?;
-                snapshot
-                    .logical_path_for_host_components(root, &components)
-                    .map_err(|_| anyhow::anyhow!("Permission denied for {}", path.display()))?;
+                let target_principal = snapshot
+                    .owner_for_host_components(&components)?
+                    .unwrap_or_else(|| root_principal.clone());
+                let binding =
+                    snapshot.root_binding_for_host_components(&target_principal, &components)?;
+                validate_armed_binding_object(&binding)?;
+
+                let requester = if let Some(module) = requester_module_id {
+                    self.typed_principal_for_module(module).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "module resolution has no authenticated requesting principal"
+                        )
+                    })?
+                } else {
+                    referrer
+                        .and_then(|path| {
+                            let canonical = std::fs::canonicalize(path).ok()?;
+                            let components = host_path_components(&canonical).ok()?;
+                            snapshot
+                                .owner_for_host_components(&components)
+                                .ok()
+                                .flatten()
+                                .or_else(|| Some(root_principal.clone()))
+                        })
+                        .unwrap_or_else(|| root_principal.clone())
+                };
+
+                if requester != target_principal {
+                    let allowed = match &target_principal {
+                        capsec_semantics::model::Principal::Package { locator, .. } => {
+                            self.typed_imports.get(&requester).is_some_and(|policy| {
+                                policy
+                                    .packages
+                                    .iter()
+                                    .any(|allowed| allowed == locator.as_str())
+                            })
+                        }
+                        _ => false,
+                    };
+                    if !allowed {
+                        anyhow::bail!("Permission denied for {}", path.display());
+                    }
+                }
+
+                match &target_principal {
+                    capsec_semantics::model::Principal::Package {
+                        name,
+                        locator,
+                        integrity,
+                    } => {
+                        let resolved_package_root = meta
+                            .package_root
+                            .as_deref()
+                            .map(std::fs::canonicalize)
+                            .transpose()
+                            .with_context(|| {
+                                format!(
+                                    "failed to authenticate resolved package root for {}",
+                                    path.display()
+                                )
+                            })?;
+                        if meta.package_name.as_deref() != Some(name.as_str())
+                            || resolved_package_root.as_deref()
+                                != Some(host_path_from_binding(&binding)?.as_path())
+                        {
+                            anyhow::bail!(
+                                "resolved package metadata differs from authenticated graph for {}",
+                                path.display()
+                            );
+                        }
+                        meta.package_version = locator
+                            .as_str()
+                            .strip_prefix(&format!("{}@", name.as_str()))
+                            .map(str::to_owned);
+                        meta.package_integrity = Some(integrity.as_str().to_owned());
+                        meta.package_root = Some(host_path_from_binding(&binding)?);
+                    }
+                    _ => {
+                        if meta.package_name.is_some() || meta.package_root.is_some() {
+                            anyhow::bail!(
+                                "unbound package metadata cannot be stamped as trusted root for {}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
+                meta.path = Some(canonical);
             } else {
                 let cap = format!("fs:read:{}", path.to_string_lossy());
                 if !self.check_capability("module-loader", &cap) {
@@ -1458,22 +1729,206 @@ impl Host {
     }
 }
 
+fn normalize_host_path_for_binding(
+    path: &std::path::Path,
+) -> capsec_semantics::Result<std::path::PathBuf> {
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| {
+                capsec_semantics::Error::ArmRefused(format!(
+                    "cannot resolve current directory for typed path: {error}"
+                ))
+            })?
+            .join(path)
+    };
+    // Bind lexical aliases through the directory object they actually
+    // traverse while preserving the final component for no-follow and
+    // absent-create decisions. This makes `/tmp` -> `/private/tmp` and other
+    // symlinked parents agree with the authenticated canonical root.
+    Ok(match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => std::fs::canonicalize(parent)
+            .map(|parent| parent.join(name))
+            .unwrap_or(path),
+        _ => std::fs::canonicalize(&path).unwrap_or(path),
+    })
+}
+
 fn host_path_components(
     path: &std::path::Path,
 ) -> capsec_semantics::Result<Vec<capsec_semantics::model::PathComponent>> {
-    use capsec_semantics::model::PathComponent;
     use std::path::Component;
 
-    path.components()
-        .filter_map(|component| match component {
-            Component::Prefix(prefix) => Some(host_path_component(prefix.as_os_str())),
-            Component::RootDir | Component::CurDir => None,
-            Component::ParentDir => Some(Err(capsec_semantics::Error::ArmRefused(
-                "typed host path contains an unresolved parent component".into(),
-            ))),
-            Component::Normal(value) => Some(host_path_component(value)),
-        })
-        .collect::<capsec_semantics::Result<Vec<PathComponent>>>()
+    let mut result = Vec::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => result.push(host_path_component(prefix.as_os_str())?),
+            Component::RootDir | Component::CurDir => {}
+            Component::ParentDir => {
+                if result.pop().is_none() {
+                    return Err(capsec_semantics::Error::ArmRefused(
+                        "typed host path escapes above its absolute root".into(),
+                    ));
+                }
+            }
+            Component::Normal(value) => result.push(host_path_component(value)?),
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(unix)]
+fn fd_descends_from_object(
+    fd: std::os::fd::RawFd,
+    expected_root: &capsec_semantics::model::ObjectIdentity,
+) -> capsec_semantics::Result<bool> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    if fd < 0 {
+        return Ok(false);
+    }
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicate < 0 {
+        return Ok(false);
+    }
+    let mut current = unsafe { std::fs::File::from_raw_fd(duplicate) };
+    for _ in 0..1024 {
+        let metadata = current.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot inspect retained filesystem parent: {error}"
+            ))
+        })?;
+        let current_object = object_identity_for_metadata(&metadata)?;
+        if &current_object == expected_root {
+            return Ok(true);
+        }
+        if !metadata.is_dir() {
+            return Ok(false);
+        }
+
+        let parent_fd = unsafe {
+            libc::openat(
+                current.as_raw_fd(),
+                b"..\0".as_ptr().cast(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if parent_fd < 0 {
+            return Ok(false);
+        }
+        let parent = unsafe { std::fs::File::from_raw_fd(parent_fd) };
+        let parent_object = object_identity_for_metadata(&parent.metadata().map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "cannot inspect retained filesystem ancestry: {error}"
+            ))
+        })?)?;
+        if parent_object == current_object {
+            return Ok(false);
+        }
+        current = parent;
+    }
+    Err(capsec_semantics::Error::ArmRefused(
+        "retained filesystem ancestry exceeds the supported depth".into(),
+    ))
+}
+
+/// Authenticate the snapshot's exact target claim against the checked product
+/// registry and return the disposition used by every live effect gate.  The
+/// snapshot/launcher cannot assert completeness with a boolean: the target
+/// must be advertised and every generated edge must have one non-unsupported
+/// cell for the exact canonical feature set.
+/// @ref LLP 0021#default-and-target-claim
+fn authenticated_target_cells(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+) -> capsec_semantics::Result<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>> {
+    use capsec_semantics::decision::TargetCellDisposition;
+    use capsec_semantics::Error;
+
+    let rules: serde_json::Value = serde_json::from_str(
+        crate::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+    )
+    .map_err(|error| Error::InvalidModel(format!("invalid checked policy rules: {error}")))?;
+    let cells: serde_json::Value = serde_json::from_str(
+        crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+    )
+    .map_err(|error| Error::InvalidModel(format!("invalid checked target cells: {error}")))?;
+    let target = snapshot.engine_target()?;
+    let features = snapshot.engine_features()?;
+    if features.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(Error::ArmRefused(
+            "engine feature set is not canonical, sorted, and unique".into(),
+        ));
+    }
+    let feature_values = features
+        .iter()
+        .cloned()
+        .map(serde_json::Value::String)
+        .collect::<Vec<_>>();
+    let advertised = rules
+        .pointer("/initialProfile/advertisedTargets")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|targets| {
+            targets.iter().any(|candidate| {
+                candidate.get("triple").and_then(serde_json::Value::as_str) == Some(target.as_str())
+                    && candidate
+                        .get("features")
+                        .and_then(serde_json::Value::as_array)
+                        == Some(&feature_values)
+            })
+        });
+    if !advertised {
+        return Err(Error::ArmRefused(format!(
+            "engine target {target} with its exact features is not advertised"
+        )));
+    }
+
+    let rows = cells
+        .get("cells")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| Error::InvalidModel("checked target cells are missing cells".into()))?;
+    let mut result = BTreeMap::new();
+    for edge in crate::capsec_registry_generated::CAPSEC_COVERAGE_EDGE_IDS {
+        let matching = rows
+            .iter()
+            .filter(|row| {
+                row.get("edgeId").and_then(serde_json::Value::as_str) == Some(*edge)
+                    && row
+                        .pointer("/target/triple")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(target.as_str())
+                    && row
+                        .pointer("/target/features")
+                        .and_then(serde_json::Value::as_array)
+                        == Some(&feature_values)
+            })
+            .collect::<Vec<_>>();
+        if matching.len() != 1 {
+            return Err(Error::ArmRefused(format!(
+                "target has no unique cell for coverage edge {edge}"
+            )));
+        }
+        let disposition = match matching[0]
+            .get("disposition")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("enforced" | "non-capability") => TargetCellDisposition::Complete,
+            Some("closed" | "absent") => TargetCellDisposition::Closed,
+            Some("unsupported") => {
+                return Err(Error::ArmRefused(format!(
+                    "target coverage edge {edge} remains unsupported"
+                )))
+            }
+            Some(other) => {
+                return Err(Error::InvalidModel(format!(
+                    "unknown target-cell disposition {other}"
+                )))
+            }
+            None => return Err(Error::InvalidModel("target cell lacks disposition".into())),
+        };
+        result.insert((*edge).to_owned(), disposition);
+    }
+    Ok(result)
 }
 
 fn host_path_component(
@@ -1494,6 +1949,293 @@ fn host_path_component(
     Err(capsec_semantics::Error::ArmRefused(
         "non-Unicode host path cannot be represented on this target".into(),
     ))
+}
+
+fn host_path_from_binding(
+    binding: &capsec_semantics::arming::ArmedRootBinding,
+) -> capsec_semantics::Result<std::path::PathBuf> {
+    if binding.host_path.root != capsec_semantics::model::LogicalRoot::Absolute
+        || binding.host_path.host_bound != Some(true)
+    {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "armed root binding is not an absolute host binding".into(),
+        ));
+    }
+    let mut path = std::path::PathBuf::from(std::path::MAIN_SEPARATOR.to_string());
+    for component in &binding.host_path.components {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            path.push(std::ffi::OsStr::from_bytes(component.bytes()));
+        }
+        #[cfg(not(unix))]
+        {
+            let text = std::str::from_utf8(component.bytes()).map_err(|_| {
+                capsec_semantics::Error::ArmRefused(
+                    "non-Unicode armed root cannot be represented on this target".into(),
+                )
+            })?;
+            path.push(text);
+        }
+    }
+    Ok(path)
+}
+
+fn object_identity_for_host_path(
+    path: &std::path::Path,
+) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
+    let metadata = std::fs::metadata(path).map_err(|error| {
+        capsec_semantics::Error::ArmRefused(format!(
+            "cannot revalidate armed root {}: {error}",
+            path.display()
+        ))
+    })?;
+    object_identity_for_metadata(&metadata)
+}
+
+fn object_identity_for_metadata(
+    metadata: &std::fs::Metadata,
+) -> capsec_semantics::Result<capsec_semantics::model::ObjectIdentity> {
+    use capsec_semantics::model::{NonEmptyString, ObjectIdentity, ObjectPlatform};
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: if cfg!(any(target_os = "macos", target_os = "ios")) {
+                ObjectPlatform::Apple
+            } else if cfg!(target_os = "android") {
+                ObjectPlatform::Android
+            } else {
+                ObjectPlatform::Unix
+            },
+            volume: NonEmptyString::new(format!("dev:{}", metadata.dev()))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            file: NonEmptyString::new(format!("ino:{}", metadata.ino()))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(ObjectIdentity {
+            platform: ObjectPlatform::Windows,
+            volume: NonEmptyString::new(format!(
+                "volume:{}",
+                metadata.volume_serial_number().unwrap_or(0)
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            file: NonEmptyString::new(format!("file:{}", metadata.file_index().unwrap_or(0)))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+        })
+    }
+}
+
+fn validate_armed_binding_object(
+    binding: &capsec_semantics::arming::ArmedRootBinding,
+) -> capsec_semantics::Result<()> {
+    let path = host_path_from_binding(binding)?;
+    if object_identity_for_host_path(&path)? != binding.object {
+        return Err(capsec_semantics::Error::ArmRefused(format!(
+            "armed root object changed after arming: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+static ROOT_SOURCE_OPEN_HOOK: std::sync::OnceLock<
+    std::sync::Mutex<Option<(std::path::PathBuf, std::sync::Arc<std::sync::Barrier>)>>,
+> = std::sync::OnceLock::new();
+
+#[cfg(test)]
+fn pause_before_authenticated_root_open(path: &std::path::Path) {
+    let hook = ROOT_SOURCE_OPEN_HOOK
+        .get_or_init(|| std::sync::Mutex::new(None))
+        .lock()
+        .ok()
+        .and_then(|hook| hook.as_ref().cloned());
+    if let Some((target, barrier)) = hook {
+        if target == path {
+            barrier.wait();
+            barrier.wait();
+        }
+    }
+}
+
+/// Read a first-party source through the exact authenticated root directory
+/// object. Each component is opened relative to a pinned directory descriptor
+/// with no-follow semantics, so renaming or replacing the root between module
+/// resolution and source read cannot redirect the load.
+fn authenticated_source_beneath_binding(
+    binding: &capsec_semantics::arming::ArmedRootBinding,
+    source_path: &std::path::Path,
+) -> anyhow::Result<Vec<u8>> {
+    let root = host_path_from_binding(binding)?;
+    let relative = source_path.strip_prefix(&root).with_context(|| {
+        format!(
+            "module source {} is outside authenticated root {}",
+            source_path.display(),
+            root.display()
+        )
+    })?;
+    let components = relative
+        .components()
+        .map(|component| match component {
+            std::path::Component::Normal(value) => Ok(value.to_owned()),
+            _ => Err(anyhow::anyhow!(
+                "module source has a non-relative component beneath its authenticated root"
+            )),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    if components.is_empty() {
+        anyhow::bail!("authenticated module source resolves to a root directory");
+    }
+
+    #[cfg(test)]
+    pause_before_authenticated_root_open(&root);
+
+    #[cfg(unix)]
+    {
+        use std::io::Read as _;
+        use std::os::fd::{AsRawFd, FromRawFd};
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut options = std::fs::OpenOptions::new();
+        options
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        let mut current = options
+            .open(&root)
+            .with_context(|| format!("cannot open authenticated root {}", root.display()))?;
+        let actual_root = object_identity_for_metadata(&current.metadata()?)?;
+        if actual_root != binding.object {
+            anyhow::bail!(
+                "authenticated root object changed before module source read: {}",
+                root.display()
+            );
+        }
+
+        for (index, component) in components.iter().enumerate() {
+            let component = std::ffi::CString::new(component.as_bytes())
+                .map_err(|_| anyhow::anyhow!("module source contains a NUL path component"))?;
+            let last = index + 1 == components.len();
+            let flags = if last {
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK
+            } else {
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW
+            };
+            let fd = unsafe { libc::openat(current.as_raw_fd(), component.as_ptr(), flags) };
+            if fd < 0 {
+                return Err(std::io::Error::last_os_error()).with_context(|| {
+                    format!(
+                        "cannot open authenticated module source {}",
+                        source_path.display()
+                    )
+                });
+            }
+            let opened = unsafe { std::fs::File::from_raw_fd(fd) };
+            if last {
+                if !opened.metadata()?.is_file() {
+                    anyhow::bail!(
+                        "authenticated module source is not a regular file: {}",
+                        source_path.display()
+                    );
+                }
+                let mut bytes = Vec::new();
+                let mut opened = opened;
+                opened.read_to_end(&mut bytes).with_context(|| {
+                    format!(
+                        "cannot read authenticated module source {}",
+                        source_path.display()
+                    )
+                })?;
+                return Ok(bytes);
+            }
+            current = opened;
+        }
+        unreachable!("nonempty authenticated source path returns on its final component")
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = (binding, source_path);
+        anyhow::bail!(
+            "armed module source authentication requires descriptor-relative no-follow opens on this target"
+        )
+    }
+}
+
+fn validate_snapshot_root_bindings(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+) -> capsec_semantics::Result<()> {
+    let bindings = snapshot.root_bindings()?;
+    for binding in &bindings {
+        validate_armed_binding_object(binding)?;
+    }
+    for principal in snapshot
+        .import_policies()?
+        .keys()
+        .filter(|principal| principal.is_package())
+    {
+        let matches = bindings
+            .iter()
+            .filter(|binding| {
+                binding.logical_root == capsec_semantics::model::LogicalRoot::Package
+                    && binding.owner.as_ref() == Some(principal)
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "package principal lacks one exact authenticated root binding".into(),
+            ));
+        }
+        let capsec_semantics::model::Principal::Package { integrity, .. } = principal else {
+            unreachable!();
+        };
+        let root = host_path_from_binding(matches[0])?;
+        let actual = crate::module_loader::package_tree_integrity(&root).map_err(|error| {
+            capsec_semantics::Error::ArmRefused(format!(
+                "failed to authenticate package content {}: {error}",
+                root.display()
+            ))
+        })?;
+        if actual != integrity.as_str() {
+            return Err(capsec_semantics::Error::ArmRefused(format!(
+                "installed package content differs from armed integrity at {}",
+                root.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_loaded_engine_identity(
+    snapshot: &capsec_semantics::arming::ArmedSnapshot,
+) -> capsec_semantics::Result<()> {
+    let identity = crate::engine::loaded_engine_binary_identity()
+        .map_err(capsec_semantics::Error::ArmRefused)?;
+    if snapshot.document()["engine"]["binaryDigest"].as_str()
+        != Some(identity.binary_digest.as_str())
+    {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "armed engine digest does not identify the loaded Hermes artifact".into(),
+        ));
+    }
+    let protected = snapshot.document()["protectedObjects"]
+        .as_array()
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row["role"].as_str() == Some("engine-binary"))
+        })
+        .and_then(|row| serde_json::from_value(row["object"].clone()).ok());
+    if protected.as_ref() != Some(&identity.object) {
+        return Err(capsec_semantics::Error::ArmRefused(
+            "protected engine object does not identify the loaded Hermes artifact".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn classify_network_peer(
@@ -1527,17 +2269,6 @@ fn typed_import_allowed(
     policy: &capsec_semantics::arming::PrincipalImportPolicy,
     specifier: &str,
 ) -> bool {
-    // Relative modules remain inside the loader-attributed graph, and the
-    // absolute entry path is selected by the trusted launcher. Package/builtin
-    // reachability is the authority-bearing axis below; do not mistake a local
-    // source filename for a package name.
-    if specifier.starts_with("./")
-        || specifier.starts_with("../")
-        || (std::path::Path::new(specifier).is_absolute()
-            && !specifier.replace('\\', "/").contains("/node_modules/"))
-    {
-        return true;
-    }
     let without_node = specifier.strip_prefix("node:").unwrap_or(specifier);
     let builtin_root = without_node.split('/').next().unwrap_or(without_node);
     // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Terminal builtins remain absent even if an authenticated artifact erroneously lists them.
@@ -1558,6 +2289,12 @@ fn typed_import_allowed(
     policy.packages.iter().any(|allowed| {
         allowed == specifier || package_name_from_specifier(allowed) == requested_package
     })
+}
+
+fn is_module_path_specifier(specifier: &str) -> bool {
+    specifier.starts_with("./")
+        || specifier.starts_with("../")
+        || std::path::Path::new(specifier).is_absolute()
 }
 
 fn fresh_typed_handle_id(
@@ -1647,6 +2384,92 @@ fn is_reserved_v6(address: Ipv6Addr) -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn retained_parent_ancestry_rejects_root_a_b_a_substitution() {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let original = temp.path().join("original");
+        let substitute = temp.path().join("substitute");
+        std::fs::create_dir_all(root.join("nested")).unwrap();
+        std::fs::create_dir_all(substitute.join("nested")).unwrap();
+        let expected = object_identity_for_host_path(&root).unwrap();
+        let open_dir = |path: &std::path::Path| {
+            let mut options = std::fs::OpenOptions::new();
+            options
+                .read(true)
+                .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW);
+            options.open(path).unwrap()
+        };
+        let authentic_parent = open_dir(&root.join("nested"));
+
+        std::fs::rename(&root, &original).unwrap();
+        std::fs::rename(&substitute, &root).unwrap();
+        let substituted_parent = open_dir(&root.join("nested"));
+        std::fs::rename(&root, &substitute).unwrap();
+        std::fs::rename(&original, &root).unwrap();
+
+        use std::os::fd::AsRawFd;
+        assert!(fd_descends_from_object(authentic_parent.as_raw_fd(), &expected).unwrap());
+        assert!(!fd_descends_from_object(substituted_parent.as_raw_fd(), &expected).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn first_party_source_read_rejects_root_swap_at_open() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let original = temp.path().join("original");
+        let substitute = temp.path().join("substitute");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(substitute.join("src")).unwrap();
+        std::fs::write(root.join("src/main.js"), b"authentic").unwrap();
+        std::fs::write(substitute.join("src/main.js"), b"substitute").unwrap();
+        let binding = capsec_semantics::arming::ArmedRootBinding {
+            logical_root: capsec_semantics::model::LogicalRoot::Project,
+            owner: None,
+            logical_path: None,
+            host_path: capsec_semantics::model::LogicalPath {
+                root: capsec_semantics::model::LogicalRoot::Absolute,
+                components: host_path_components(&root).unwrap(),
+                host_bound: Some(true),
+            },
+            object: object_identity_for_host_path(&root).unwrap(),
+        };
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        *ROOT_SOURCE_OPEN_HOOK
+            .get_or_init(|| std::sync::Mutex::new(None))
+            .lock()
+            .unwrap() = Some((root.clone(), barrier.clone()));
+        let source = root.join("src/main.js");
+        let worker =
+            std::thread::spawn(move || authenticated_source_beneath_binding(&binding, &source));
+
+        barrier.wait();
+        std::fs::rename(&root, &original).unwrap();
+        std::fs::rename(&substitute, &root).unwrap();
+        barrier.wait();
+        let result = worker.join().unwrap();
+        *ROOT_SOURCE_OPEN_HOOK.get().unwrap().lock().unwrap() = None;
+        assert!(result.is_err());
+    }
+
+    fn test_project_root() -> &'static std::path::Path {
+        static ROOT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+        ROOT.get_or_init(|| {
+            let root =
+                std::env::temp_dir().join(format!("ibex-armed-host-tests-{}", std::process::id()));
+            std::fs::create_dir_all(root.join("images")).unwrap();
+            std::fs::write(root.join("images/photo.jpg"), b"test image").unwrap();
+            // macOS exposes /var as a symlink to /private/var. Model the
+            // authenticated binding with the same canonical host spelling
+            // that the production path mapper validates.
+            std::fs::canonicalize(root).unwrap()
+        })
+    }
+
     fn example_armed_host() -> Host {
         example_armed_host_with(|_| {})
     }
@@ -1663,10 +2486,14 @@ mod tests {
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
         mutator(&mut value);
-        let digest = capsec_semantics::digest::compute_domain_digest(
-            capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+        let project_root = test_project_root();
+        value["rootBindings"][1]["hostPath"]["components"] =
+            serde_json::to_value(host_path_components(project_root).unwrap()).unwrap();
+        value["rootBindings"][1]["object"] =
+            serde_json::to_value(object_identity_for_host_path(project_root).unwrap()).unwrap();
+        let digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
-            &["armedSnapshotDigest".to_string()],
         )
         .unwrap();
         value["armedSnapshotDigest"] = serde_json::Value::String(digest);
@@ -1692,10 +2519,46 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
-            target_complete_and_advertised: true,
         };
         let snapshot = ArmedSnapshot::load(&bytes, &expected).unwrap();
-        Host::new_armed(HostConfig::default(), Arc::new(snapshot)).unwrap()
+        unsafe { Host::new_armed_for_test(HostConfig::default(), Arc::new(snapshot)).unwrap() }
+    }
+
+    #[test]
+    fn every_generated_closed_startup_environment_name_is_rejected_even_when_empty() {
+        struct EnvironmentRestore(Vec<(&'static str, Option<std::ffi::OsString>)>);
+        impl Drop for EnvironmentRestore {
+            fn drop(&mut self) {
+                for (name, value) in &self.0 {
+                    match value {
+                        Some(value) => std::env::set_var(name, value),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+
+        let _lock = crate::host::abi::host_test_lock();
+        let names = crate::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES;
+        let _restore = EnvironmentRestore(
+            names
+                .iter()
+                .map(|name| (*name, std::env::var_os(name)))
+                .collect(),
+        );
+        for name in names {
+            for other in names {
+                std::env::remove_var(other);
+            }
+            std::env::set_var(name, "");
+            let error = reject_closed_startup_environment().unwrap_err();
+            assert!(error.to_string().contains(name), "{name}: {error:#}");
+        }
+        for name in names {
+            std::env::remove_var(name);
+        }
+        reject_closed_startup_environment()
+            .expect("a clean caller environment must permit normal production startup");
     }
 
     // ENG-23876 — an embedder constructing `HostConfig { root_dir,
@@ -1774,16 +2637,12 @@ mod tests {
 
         let host = example_armed_host();
         let root = host.typed_principal_for_module("0").unwrap();
-        let mapped = host
-            .typed_logical_path(
-                &root,
-                std::path::Path::new("/Users/example/project/images/photo.jpg"),
-            )
-            .unwrap();
+        let photo = test_project_root().join("images/photo.jpg");
+        let mapped = host.typed_logical_path(&root, &photo).unwrap();
         assert_eq!(mapped.root, capsec_semantics::model::LogicalRoot::Project);
         assert_eq!(mapped.components.len(), 2);
         assert!(host.typed_principal_for_module("999").is_none());
-        let open_path = std::path::Path::new("/Users/example/project/images/photo.jpg");
+        let open_path = photo.as_path();
         let requested_open = host
             .authorize_typed_fs_open_stage(
                 "0",
@@ -1824,7 +2683,7 @@ mod tests {
                 capsec_semantics::model::ObjectState::Existing,
                 capsec_semantics::model::FollowMode::FollowFinal,
                 true,
-                Some(std::path::Path::new("/Users/example/project/images")),
+                Some(test_project_root().join("images").as_path()),
                 true,
                 false,
                 Some(object("parent")),
@@ -1848,7 +2707,7 @@ mod tests {
                 capsec_semantics::model::ObjectState::Existing,
                 capsec_semantics::model::FollowMode::FollowFinal,
                 false,
-                Some(std::path::Path::new("/Users/example/project/images")),
+                Some(test_project_root().join("images").as_path()),
                 true,
                 false,
                 Some(object("parent")),
@@ -1872,7 +2731,7 @@ mod tests {
                 capsec_semantics::model::ObjectState::Existing,
                 capsec_semantics::model::FollowMode::FollowFinal,
                 false,
-                Some(std::path::Path::new("/Users/example/project/images")),
+                Some(test_project_root().join("images").as_path()),
                 true,
                 false,
                 Some(object("parent")),
@@ -1891,12 +2750,18 @@ mod tests {
         assert!(host.check_import("0", "image-lib"));
         assert!(host.check_import("0", "image-lib/subpath"));
         assert!(!host.check_import("0", "other-lib"));
-        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
-        let mut deputy_principals = vec![
+        host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
+        let deputy_principals = vec![
             host.typed_principal_for_module("0").unwrap(),
             host.typed_principal_for_module("7").unwrap(),
         ];
-        deputy_principals.sort_by_key(|principal| serde_json::to_vec(principal).unwrap());
+        let deputy_principals =
+            capsec_semantics::model::canonicalize_principal_set(deputy_principals).unwrap();
         let deputy_write = host
             .authorize_typed_fs_open_stage(
                 "0",
@@ -1908,7 +2773,7 @@ mod tests {
                 capsec_semantics::model::ObjectState::Existing,
                 capsec_semantics::model::FollowMode::FollowFinal,
                 false,
-                Some(std::path::Path::new("/Users/example/project/images")),
+                Some(test_project_root().join("images").as_path()),
                 false,
                 true,
                 Some(object("parent")),
@@ -1925,7 +2790,12 @@ mod tests {
         assert!(host.check_import("7", "node:fs/promises"));
         assert!(!host.check_import("7", "node:http"));
         assert!(!host.check_import("7", "other-lib"));
-        host.register_module_package("8", "image-lib", Some("image-lib@9.9.9"));
+        host.register_module_package(
+            "8",
+            "image-lib",
+            Some("image-lib@9.9.9"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
         assert!(!host.check_import("8", "node:fs"));
         assert!(!host.runtime_grant_root("fs:read:/anything"));
         assert_eq!(host.grant_status("fs:read:/anything"), 0);
@@ -2161,7 +3031,12 @@ mod tests {
                 "node:worker_threads"
             ]);
         });
-        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
         assert!(host.check_import("7", "node:fs"));
         for specifier in [
             "async_hooks",
@@ -2199,7 +3074,12 @@ mod tests {
             value["principals"][1]["floor"] = serde_json::json!([selector]);
             value["principals"][1]["denials"] = serde_json::json!([]);
         });
-        connect_host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        connect_host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
         let principal = connect_host.typed_principal_for_module("7").unwrap();
         let requested_host = ConcreteHost::DnsName {
             name: DnsName::new("api.example.com").unwrap(),
@@ -2241,7 +3121,12 @@ mod tests {
             }]);
             value["principals"][1]["denials"] = serde_json::json!([]);
         });
-        fetch_only_host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        fetch_only_host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
         let principal = fetch_only_host.typed_principal_for_module("7").unwrap();
         let denied = fetch_only_host
             .authorize_typed_connect_stage(
@@ -2579,7 +3464,12 @@ mod tests {
         let host = example_armed_host_with(|value| {
             value["principals"][1]["escalationCeiling"] = serde_json::Value::Array(vec![ceiling]);
         });
-        host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        host.register_module_package(
+            "7",
+            "image-lib",
+            Some("image-lib@2.4.1"),
+            Some("sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA"),
+        );
         let principal: Principal = serde_json::from_value(serde_json::json!({
             "kind": "package",
             "name": "image-lib",
@@ -2598,17 +3488,19 @@ mod tests {
             file: NonEmptyString::new(file).unwrap(),
         };
         let authorize = |stage| {
+            let photo = test_project_root().join("images/photo.jpg");
+            let images = test_project_root().join("images");
             host.authorize_typed_fs_open_stage(
                 "7",
                 "fs-open",
                 "surface.native.op.exactfsopen.05ao6wa",
                 vec![principal.clone()],
-                std::path::Path::new("/Users/example/project/images/photo.jpg"),
+                &photo,
                 stage,
                 capsec_semantics::model::ObjectState::Existing,
                 capsec_semantics::model::FollowMode::FollowFinal,
                 false,
-                Some(std::path::Path::new("/Users/example/project/images")),
+                Some(&images),
                 false,
                 true,
                 Some(object("images")),

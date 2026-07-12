@@ -5,7 +5,7 @@
 //! returns an immutable value. No authored policy path or environment input is
 //! retained. @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use crate::decision::{
     ArmInputs, AuthorityCeiling, BoundAuthority, DecisionAuthorityState, PrincipalPolicy,
     ProtectedObjectGuard, SemanticIdentity, TargetArmState, VerifiedDecisionContext,
 };
-use crate::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN};
+use crate::digest::{compute_checked_contract_digest, DigestKind};
 use crate::model::{
     ActionId, AuthoritySelector, Digest, Generation, LogicalPath, LogicalRoot, NonEmptyString,
     ObjectIdentity, PathComponent, Principal, SafeUint,
@@ -37,7 +37,6 @@ pub struct ExpectedArmingIdentity {
     pub engine_binary_digest: Digest,
     pub features: Vec<String>,
     pub package_graph_digest: Digest,
-    pub target_complete_and_advertised: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,9 +103,6 @@ impl ArmedSnapshot {
             &["packageGraph", "digest"],
             expected.package_graph_digest.as_str(),
         )?;
-        if !expected.target_complete_and_advertised {
-            return refused("engine target is not complete and advertised");
-        }
         let features = value_at(&document, &["engine", "features"])?
             .as_array()
             .ok_or_else(|| invalid("engine.features must be an array"))?
@@ -134,11 +130,7 @@ impl ArmedSnapshot {
         }
         let claimed = Digest::new(required_str(&document, "armedSnapshotDigest")?)
             .map_err(Error::InvalidModel)?;
-        let computed = compute_domain_digest(
-            ARMED_SNAPSHOT_DOMAIN,
-            &document,
-            &["armedSnapshotDigest".to_string()],
-        )?;
+        let computed = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &document)?;
         if claimed.as_str() != computed {
             return refused("armed snapshot digest is stale or tampered");
         }
@@ -148,6 +140,7 @@ impl ArmedSnapshot {
             dynamic: generation(&document, "dynamic")?,
             handle: generation(&document, "handle")?,
         };
+        validate_snapshot_invariants(&document)?;
         Ok(Self {
             document: Arc::new(document),
             armed_snapshot_digest: claimed,
@@ -167,6 +160,27 @@ impl ArmedSnapshot {
         &self.document
     }
 
+    pub fn engine_target(&self) -> Result<String> {
+        value_at(&self.document, &["engine", "target"])?
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| invalid("engine.target must be a string"))
+    }
+
+    pub fn engine_features(&self) -> Result<Vec<String>> {
+        value_at(&self.document, &["engine", "features"])?
+            .as_array()
+            .ok_or_else(|| invalid("engine.features must be an array"))?
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| invalid("engine feature must be a string"))
+            })
+            .collect()
+    }
+
     pub fn root_bindings(&self) -> Result<Vec<ArmedRootBinding>> {
         serde_json::from_value(value_at(&self.document, &["rootBindings"])?.clone())
             .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))
@@ -181,6 +195,27 @@ impl ArmedSnapshot {
         principal: &Principal,
         host_components: &[PathComponent],
     ) -> Result<LogicalPath> {
+        let binding = self.root_binding_for_host_components(principal, host_components)?;
+        if binding.logical_root == LogicalRoot::Absolute {
+            return binding.logical_path.ok_or_else(|| {
+                Error::ArmRefused("absolute root binding is missing its logical path".into())
+            });
+        }
+        Ok(LogicalPath {
+            root: binding.logical_root,
+            components: host_components[binding.host_path.components.len()..].to_vec(),
+            host_bound: None,
+        })
+    }
+
+    /// Return the most-specific authenticated root binding used for a host
+    /// path. Callers that touch the operating system must revalidate this
+    /// binding's object identity before relying on the logical mapping.
+    pub fn root_binding_for_host_components(
+        &self,
+        principal: &Principal,
+        host_components: &[PathComponent],
+    ) -> Result<ArmedRootBinding> {
         let mut candidates = self
             .root_bindings()?
             .into_iter()
@@ -203,19 +238,40 @@ impl ArmedSnapshot {
                 .len()
                 .cmp(&left.host_path.components.len())
         });
+        candidates.into_iter().next().ok_or_else(|| {
+            Error::ArmRefused("host path has no authenticated logical-root binding".into())
+        })
+    }
+
+    /// Resolve the owner of the most-specific root binding without trusting a
+    /// caller-supplied principal. Package bindings win over their enclosing
+    /// project binding; non-package paths are represented by `None` (root).
+    pub fn owner_for_host_components(
+        &self,
+        host_components: &[PathComponent],
+    ) -> Result<Option<Principal>> {
+        let mut candidates = self
+            .root_bindings()?
+            .into_iter()
+            .filter(|binding| {
+                binding.host_path.root == LogicalRoot::Absolute
+                    && binding.host_path.host_bound == Some(true)
+                    && host_components.starts_with(&binding.host_path.components)
+                    && (binding.logical_root != LogicalRoot::Absolute
+                        || host_components.len() == binding.host_path.components.len())
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|left, right| {
+            right
+                .host_path
+                .components
+                .len()
+                .cmp(&left.host_path.components.len())
+        });
         let binding = candidates.into_iter().next().ok_or_else(|| {
             Error::ArmRefused("host path has no authenticated logical-root binding".into())
         })?;
-        if binding.logical_root == LogicalRoot::Absolute {
-            return binding.logical_path.ok_or_else(|| {
-                Error::ArmRefused("absolute root binding is missing its logical path".into())
-            });
-        }
-        Ok(LogicalPath {
-            root: binding.logical_root,
-            components: host_components[binding.host_path.components.len()..].to_vec(),
-            host_bound: None,
-        })
+        Ok(binding.owner)
     }
 
     /// Reconstruct the exact semantic identity authenticated by this snapshot.
@@ -350,6 +406,28 @@ impl ArmedSnapshot {
         Ok(policies)
     }
 
+    /// Serialize authenticated package endowments into the engine's internal
+    /// compartment bootstrap format. Ambient process values never participate;
+    /// this projection comes only from the immutable armed document.
+    pub fn endowment_groups(&self) -> Result<Vec<String>> {
+        let principal_rows: Vec<SnapshotPrincipalRow> =
+            serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
+                .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
+        let mut groups = Vec::new();
+        for row in principal_rows {
+            require_sorted_unique_strings(&row.endowments, "principal endowments")?;
+            if row.endowments.is_empty() {
+                continue;
+            }
+            let Principal::Package { locator, .. } = row.principal else {
+                return refused("root principal cannot receive package compartment endowments");
+            };
+            groups.push(format!("{}:{}", locator.as_str(), row.endowments.join(",")));
+        }
+        groups.sort();
+        Ok(groups)
+    }
+
     /// Arm the neutral decision evaluator directly from the authenticated
     /// snapshot and a validated product definition set.
     pub fn decision_context(&self, definitions: DefinitionSet) -> Result<VerifiedDecisionContext> {
@@ -382,10 +460,227 @@ struct SnapshotPrincipalRow {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct SnapshotProtectedObject {
-    #[allow(dead_code)]
     role: String,
     object: ObjectIdentity,
     denied_actions: Vec<ActionId>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SnapshotPackageGraph {
+    #[allow(dead_code)]
+    digest: Digest,
+    nodes: Vec<SnapshotGraphNode>,
+    import_edges: Vec<SnapshotImportEdge>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotGraphNode {
+    principal: Principal,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SnapshotImportEdge {
+    importer: Principal,
+    imported: Principal,
+}
+
+fn validate_snapshot_invariants(document: &Value) -> Result<()> {
+    validate_protected_object_rows(document)?;
+
+    let root_identity: Principal =
+        serde_json::from_value(value_at(document, &["rootIdentity"])?.clone())
+            .map_err(|error| invalid(format!("invalid root identity: {error}")))?;
+    if !root_identity.is_root() {
+        return refused("rootIdentity is not a root principal");
+    }
+    let principal_rows: Vec<SnapshotPrincipalRow> =
+        serde_json::from_value(value_at(document, &["principals"])?.clone())
+            .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
+    let mut authorities = BTreeMap::new();
+    for row in &principal_rows {
+        require_sorted_unique_strings(&row.imports.builtins, "builtin imports")?;
+        require_sorted_unique_strings(&row.imports.packages, "package imports")?;
+        require_sorted_unique_strings(&row.endowments, "principal endowments")?;
+        if authorities.insert(row.principal.clone(), row).is_some() {
+            return refused("armed snapshot contains a duplicate principal authority row");
+        }
+    }
+    if principal_rows
+        .iter()
+        .filter(|row| row.principal.is_root())
+        .count()
+        != 1
+        || !authorities.contains_key(&root_identity)
+    {
+        return refused("armed snapshot must contain exactly its rootIdentity authority row");
+    }
+
+    let graph: SnapshotPackageGraph =
+        serde_json::from_value(value_at(document, &["packageGraph"])?.clone())
+            .map_err(|error| invalid(format!("invalid package graph: {error}")))?;
+    let mut graph_nodes = BTreeSet::new();
+    let mut nodes_by_locator = BTreeMap::new();
+    for node in graph.nodes {
+        let Principal::Package { locator, .. } = &node.principal else {
+            return refused("package graph contains a non-package node");
+        };
+        if !graph_nodes.insert(node.principal.clone())
+            || nodes_by_locator
+                .insert(locator.as_str().to_owned(), node.principal)
+                .is_some()
+        {
+            return refused("package graph nodes are not unique by locator and integrity");
+        }
+    }
+    let package_rows = authorities
+        .keys()
+        .filter(|principal| principal.is_package())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if package_rows != graph_nodes {
+        return refused("package authority rows must exactly equal package graph nodes");
+    }
+
+    let mut graph_edges = BTreeSet::new();
+    for edge in graph.import_edges {
+        if !authorities.contains_key(&edge.importer)
+            || !graph_nodes.contains(&edge.imported)
+            || !graph_edges.insert((edge.importer, edge.imported))
+        {
+            return refused("package graph contains a duplicate or unbound import edge");
+        }
+    }
+    let mut declared_edges = BTreeSet::new();
+    for row in &principal_rows {
+        for locator in &row.imports.packages {
+            let imported = nodes_by_locator.get(locator).ok_or_else(|| {
+                Error::ArmRefused(format!(
+                    "principal import allowlist names unknown package locator {locator}"
+                ))
+            })?;
+            declared_edges.insert((row.principal.clone(), imported.clone()));
+        }
+    }
+    if declared_edges != graph_edges {
+        return refused("principal import allowlists must exactly equal package graph edges");
+    }
+
+    let bindings: Vec<ArmedRootBinding> =
+        serde_json::from_value(value_at(document, &["rootBindings"])?.clone())
+            .map_err(|error| invalid(format!("invalid armed root bindings: {error}")))?;
+    validate_root_bindings(&bindings, &graph_nodes)?;
+    Ok(())
+}
+
+fn validate_root_bindings(
+    bindings: &[ArmedRootBinding],
+    graph_nodes: &BTreeSet<Principal>,
+) -> Result<()> {
+    if bindings.is_empty() {
+        return refused("armed snapshot has no root bindings");
+    }
+    let mut host_paths = BTreeSet::new();
+    let mut logical_keys = BTreeSet::new();
+    let mut objects = BTreeSet::new();
+    let mut package_binding_counts = BTreeMap::<Principal, usize>::new();
+    let mut project_bindings = 0usize;
+    for binding in bindings {
+        if binding.host_path.root != LogicalRoot::Absolute
+            || binding.host_path.host_bound != Some(true)
+            || binding.host_path.components.is_empty()
+        {
+            return refused("root binding must name a non-empty absolute host-bound path");
+        }
+        let host_key = crate::canonical::to_jcs_bytes(
+            &serde_json::to_value(&binding.host_path)
+                .map_err(|error| invalid(format!("invalid root binding path: {error}")))?,
+        )?;
+        if !host_paths.insert(host_key) || !objects.insert(binding.object.clone()) {
+            return refused("root bindings contain a duplicate or ambiguous host object");
+        }
+        let logical_key = crate::canonical::to_jcs_bytes(&serde_json::json!([
+            binding.logical_root,
+            binding.owner,
+            binding.logical_path,
+        ]))?;
+        if !logical_keys.insert(logical_key) {
+            return refused("root bindings contain a duplicate logical mapping");
+        }
+
+        match binding.logical_root {
+            LogicalRoot::Package => {
+                let owner = binding.owner.as_ref().ok_or_else(|| {
+                    Error::ArmRefused("package root binding has no exact owner".into())
+                })?;
+                if !graph_nodes.contains(owner) || binding.logical_path.is_some() {
+                    return refused("package root binding owner is outside the package graph");
+                }
+                *package_binding_counts.entry(owner.clone()).or_default() += 1;
+            }
+            LogicalRoot::Absolute => {
+                if binding.owner.is_some()
+                    || binding.logical_path.as_ref().is_none_or(|path| {
+                        path.root != LogicalRoot::Absolute || path.host_bound != Some(true)
+                    })
+                {
+                    return refused("absolute root binding lacks its exact logical path");
+                }
+            }
+            LogicalRoot::Project => {
+                if binding.owner.is_some() || binding.logical_path.is_some() {
+                    return refused("project root binding has invalid owner or logical path");
+                }
+                project_bindings += 1;
+            }
+            _ => {
+                if binding.owner.is_some() || binding.logical_path.is_some() {
+                    return refused("non-package root binding has invalid owner or logical path");
+                }
+            }
+        }
+    }
+    if project_bindings != 1 {
+        return refused("armed snapshot must contain exactly one project root binding");
+    }
+    if graph_nodes
+        .iter()
+        .any(|principal| package_binding_counts.get(principal) != Some(&1))
+        || package_binding_counts.len() != graph_nodes.len()
+    {
+        return refused("every package graph node must have exactly one package-root binding");
+    }
+    Ok(())
+}
+
+fn validate_protected_object_rows(document: &Value) -> Result<()> {
+    let rows: Vec<SnapshotProtectedObject> =
+        serde_json::from_value(value_at(document, &["protectedObjects"])?.clone())
+            .map_err(|error| invalid(format!("invalid protected objects: {error}")))?;
+    const REQUIRED: [&str; 4] = ["armed-policy", "engine-binary", "package-graph", "registry"];
+    if rows.len() != REQUIRED.len() {
+        return refused("armed snapshot must protect exactly four mandatory artifacts");
+    }
+    let mut roles = Vec::with_capacity(rows.len());
+    let mut objects = Vec::with_capacity(rows.len());
+    for row in rows {
+        if row.denied_actions.len() != 1 || row.denied_actions[0].as_str() != "fs:write" {
+            return refused("every protected artifact must deny exactly fs:write");
+        }
+        roles.push(row.role);
+        objects.push(row.object);
+    }
+    roles.sort();
+    if roles != REQUIRED {
+        return refused("protected artifact roles are missing, duplicate, or mislabeled");
+    }
+    objects.sort();
+    if objects.windows(2).any(|pair| pair[0] == pair[1]) {
+        return refused("mandatory protected artifacts must have distinct object identities");
+    }
+    Ok(())
 }
 
 fn bind_authorities(
@@ -490,12 +785,7 @@ mod tests {
         .unwrap();
         value["workflow"] = Value::String("production".into());
         value["effectiveMode"] = Value::String("enforce".into());
-        let digest = compute_domain_digest(
-            ARMED_SNAPSHOT_DOMAIN,
-            &value,
-            &["armedSnapshotDigest".to_string()],
-        )
-        .unwrap();
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
         value["armedSnapshotDigest"] = Value::String(digest);
         let digest_at =
             |path: &[&str]| Digest::new(value_at(&value, path).unwrap().as_str().unwrap()).unwrap();
@@ -514,9 +804,15 @@ mod tests {
                 .map(|item| item.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
-            target_complete_and_advertised: true,
         };
         (serde_json::to_vec_pretty(&value).unwrap(), expected)
+    }
+
+    fn redigest(value: &mut Value) -> Vec<u8> {
+        value["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, value).unwrap(),
+        );
+        serde_json::to_vec(value).unwrap()
     }
 
     #[test]
@@ -634,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn refuses_tamper_stale_identity_target_graph_and_incomplete_cell() {
+    fn refuses_tamper_stale_identity_target_and_graph() {
         let (bytes, expected) = fixture();
         let mut tampered: Value = serde_json::from_slice(&bytes).unwrap();
         tampered["runNonce"] = Value::String("changed".into());
@@ -653,10 +949,72 @@ mod tests {
         wrong_graph.package_graph_digest =
             Digest::new("sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").unwrap();
         assert!(ArmedSnapshot::load(&bytes, &wrong_graph).is_err());
+    }
 
-        let mut incomplete = expected;
-        incomplete.target_complete_and_advertised = false;
-        assert!(ArmedSnapshot::load(&bytes, &incomplete).is_err());
+    #[test]
+    fn refuses_missing_or_duplicate_protected_artifacts() {
+        let (bytes, expected) = fixture();
+        let mut missing: Value = serde_json::from_slice(&bytes).unwrap();
+        missing["protectedObjects"].as_array_mut().unwrap().pop();
+        missing["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &missing).unwrap(),
+        );
+        assert!(ArmedSnapshot::load(&serde_json::to_vec(&missing).unwrap(), &expected).is_err());
+
+        let mut duplicate: Value = serde_json::from_slice(&bytes).unwrap();
+        duplicate["protectedObjects"][1]["object"] =
+            duplicate["protectedObjects"][0]["object"].clone();
+        duplicate["armedSnapshotDigest"] = Value::String(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &duplicate).unwrap(),
+        );
+        assert!(ArmedSnapshot::load(&serde_json::to_vec(&duplicate).unwrap(), &expected).is_err());
+    }
+
+    #[test]
+    fn contract_digest_canonicalizes_declared_snapshot_sets() {
+        let (bytes, expected) = fixture();
+        let original: Value = serde_json::from_slice(&bytes).unwrap();
+        let mut permuted = original.clone();
+        permuted["principals"].as_array_mut().unwrap().reverse();
+        permuted["protectedObjects"]
+            .as_array_mut()
+            .unwrap()
+            .reverse();
+        permuted["rootBindings"].as_array_mut().unwrap().reverse();
+
+        assert_eq!(
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &original).unwrap(),
+            compute_checked_contract_digest(DigestKind::ArmedSnapshot, &permuted).unwrap(),
+        );
+        let permuted_bytes = redigest(&mut permuted);
+        assert!(ArmedSnapshot::load(&permuted_bytes, &expected).is_ok());
+    }
+
+    #[test]
+    fn refuses_graph_authority_and_root_binding_inconsistencies() {
+        let (bytes, expected) = fixture();
+
+        let mut missing_edge: Value = serde_json::from_slice(&bytes).unwrap();
+        missing_edge["packageGraph"]["importEdges"] = Value::Array(Vec::new());
+        assert!(ArmedSnapshot::load(&redigest(&mut missing_edge), &expected).is_err());
+
+        let mut duplicate_authority: Value = serde_json::from_slice(&bytes).unwrap();
+        let duplicate = duplicate_authority["principals"][1].clone();
+        duplicate_authority["principals"]
+            .as_array_mut()
+            .unwrap()
+            .push(duplicate);
+        assert!(ArmedSnapshot::load(&redigest(&mut duplicate_authority), &expected).is_err());
+
+        let mut ambiguous_object: Value = serde_json::from_slice(&bytes).unwrap();
+        ambiguous_object["rootBindings"][0]["object"] =
+            ambiguous_object["rootBindings"][1]["object"].clone();
+        assert!(ArmedSnapshot::load(&redigest(&mut ambiguous_object), &expected).is_err());
+
+        let mut wrong_package_owner: Value = serde_json::from_slice(&bytes).unwrap();
+        wrong_package_owner["rootBindings"][0]["owner"] =
+            wrong_package_owner["rootIdentity"].clone();
+        assert!(ArmedSnapshot::load(&redigest(&mut wrong_package_owner), &expected).is_err());
     }
 
     #[test]

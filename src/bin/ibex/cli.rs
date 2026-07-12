@@ -7,7 +7,7 @@
 //! harness smoke, not a user-facing test runner; the hidden `compat` command
 //! is the WPT/exact compat harness (fixtures live in the exact repo).
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{builder::PossibleValue, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 /// Ibex CLI - A JavaScript/TypeScript runtime with web APIs
@@ -60,13 +60,12 @@ pub struct Cli {
     #[arg(long)]
     pub inspect_host: Option<String>,
 
-    /// Capability security mode
+    /// Capability security posture (ordinary execution is enforce-only)
     #[arg(long, value_enum, default_value = "auto")]
     pub capsec: CapSecMode,
 
-    /// Harden the runtime at boot: freeze the shared intrinsics and tame the
-    /// intrinsic evaluators (SES-style lockdown). Opt-in — it can break packages
-    /// that mutate intrinsics. Composes with any `--capsec` mode.
+    /// Affirm the production lockdown posture. Ordinary execution enables
+    /// lockdown structurally; this flag is retained as an explicit affirmation.
     /// @ref LLP 0013#mechanism-1
     #[arg(long)]
     pub lockdown: bool,
@@ -82,13 +81,19 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "esm", hide = true)]
     pub bundle_format: BundleFormat,
 
-    /// Capability policy file
+    /// Canonical, digest-bound CapSec policy file
     #[arg(long)]
     pub policy: Option<PathBuf>,
 
+    /// Trusted project root. When omitted, Ibex selects the nearest ancestor
+    /// containing package.json (falling back to the entry directory/current
+    /// directory for package-less projects).
+    #[arg(long, value_name = "DIR")]
+    pub project_root: Option<PathBuf>,
+
     /// Immutable capability snapshot selected by the trusted launcher.
-    /// Must be paired with --capsec-arming-identity. Hidden until WP9 flips
-    /// ordinary execution to the generated armed-artifact workflow.
+    /// Must be paired with --capsec-arming-identity. Hidden trusted-launcher
+    /// plumbing; ordinary execution generates and authenticates the same shape.
     /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
     #[arg(long = "capsec-armed-snapshot", value_name = "FILE", hide = true)]
     pub capsec_armed_snapshot: Option<PathBuf>,
@@ -99,33 +104,26 @@ pub struct Cli {
     #[arg(long = "capsec-arming-identity", value_name = "FILE", hide = true)]
     pub capsec_arming_identity: Option<PathBuf>,
 
-    /// Allow capability (can be repeated)
-    #[arg(long, value_name = "CAPABILITY")]
+    /// Removed legacy authority override; production always refuses it.
+    #[arg(long, value_name = "CAPABILITY", hide = true)]
     pub allow: Vec<String>,
 
-    /// Deny capability (can be repeated)
-    #[arg(long, value_name = "CAPABILITY")]
+    /// Removed legacy authority override; production always refuses it.
+    #[arg(long, value_name = "CAPABILITY", hide = true)]
     pub deny: Vec<String>,
 
-    /// Disable capability checks (legacy mode)
-    #[arg(long)]
+    /// Removed legacy weakening flag; production always refuses it.
+    #[arg(long, hide = true)]
     pub allow_all: bool,
 
-    /// Permit `IBEX_ENDOW` to add or widen compartment endowments even under an
-    /// enforce-mode policy. Development escape hatch: by default a generated
-    /// enforce policy is the sole endowment source and an ambient `IBEX_ENDOW`
-    /// cannot broaden it. @ref LLP 0013#mechanism-2
-    #[arg(long)]
+    /// Removed legacy endowment-widening flag; production always refuses it.
+    /// @ref LLP 0013#mechanism-2
+    #[arg(long, hide = true)]
     pub allow_env_endowments: bool,
 
-    /// Let `--capsec enforce` proceed even when a hard attribution prerequisite
-    /// is missing (frame-derived attribution compiled out of the linked engine,
-    /// or per-package isolation explicitly disabled). Capability decisions still
-    /// run, but attribution is ADVISORY: a dependency's access may be attributed
-    /// to the trusted root. Also honored via `IBEX_CAPSEC_ALLOW_ADVISORY=1`;
-    /// `--allow-advisory-attribution` is accepted as a hidden compatibility alias.
+    /// Removed advisory-attribution escape hatch; production always refuses it.
     /// @ref LLP 0013#mechanism-3 — (ENG-22884)
-    #[arg(long, alias = "allow-advisory-attribution")]
+    #[arg(long, alias = "allow-advisory-attribution", hide = true)]
     pub capsec_allow_advisory: bool,
 
     /// Watch for file changes and auto-restart
@@ -398,21 +396,42 @@ pub enum PolicyCommands {
 
 /// Capability security enforcement mode for CLI.
 ///
-/// @ref LLP 0013#phase-0 — the old `capability`/`strict` split was a no-op; they
-/// are kept as hidden back-compat aliases for the single `enforce` mode. `audit`
-/// (Phase 1) logs would-deny decisions but lets operations proceed.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+/// Ordinary execution accepts only the enforced armed workflow. Historical
+/// values remain parseable but hidden so validation can issue a precise refusal;
+/// foreground audit is the separately named `ibex capsec audit` command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapSecMode {
-    /// Default: honor the policy artifact's declared `mode`, else permissive.
+    /// Generate and authenticate the enforce-only armed execution snapshot.
     Auto,
-    /// Force permissive — allow all capabilities (development/legacy mode) even if
-    /// a policy declares a stricter mode.
+    /// Removed legacy mode; ordinary execution refuses it.
     Permissive,
-    /// Log would-deny decisions but let operations proceed (supply-chain audit)
+    /// Removed legacy spelling; use `ibex capsec audit` for foreground audit.
     Audit,
-    /// Enforce capability declarations; deny on a miss
-    #[value(alias = "strict", alias = "capability")]
+    /// Explicitly affirm enforce-only armed execution.
     Enforce,
+}
+
+impl ValueEnum for CapSecMode {
+    fn value_variants<'a>() -> &'a [Self] {
+        const VARIANTS: &[CapSecMode] = &[
+            CapSecMode::Auto,
+            CapSecMode::Permissive,
+            CapSecMode::Audit,
+            CapSecMode::Enforce,
+        ];
+        VARIANTS
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::Auto => PossibleValue::new("auto"),
+            Self::Permissive => PossibleValue::new("permissive").hide(true),
+            Self::Audit => PossibleValue::new("audit").hide(true),
+            Self::Enforce => PossibleValue::new("enforce")
+                .alias("strict")
+                .alias("capability"),
+        })
+    }
 }
 
 /// Bundler output format for runnable files

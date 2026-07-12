@@ -49,6 +49,7 @@ struct FileEntry {
   std::shared_ptr<WindowsFileHandle> file;
   std::string path;
   bool append = false;
+  uint64_t runtimeNonce = 0;
   uint64_t owner = 0;
   bool canRead = false;
   bool canWrite = false;
@@ -63,6 +64,7 @@ struct FileEntry {
 std::mutex g_files_mutex;
 std::unordered_map<int, FileEntry> g_files;
 int g_next_fd = 3;
+thread_local const std::vector<uint64_t>* g_typed_principal_stack = nullptr;
 
 extern "C" void* ex_host_fs_open(const char* path, uint32_t flags);
 extern "C" int32_t ex_host_fs_read(void* file, uint8_t* buf, uint32_t len);
@@ -81,10 +83,15 @@ extern "C" char* ex_host_fs_stat(const char* path);
 extern "C" char* ex_host_fs_lstat(const char* path);
 extern "C" char* ex_host_fs_readdir(const char* path);
 extern "C" int32_t ex_host_fs_mkdir(const char* path, int32_t recursive);
+extern "C" char* ex_host_fs_mkdir_recursive_result(const char* path);
 extern "C" int32_t ex_host_fs_rmdir(const char* path);
 extern "C" int32_t ex_host_fs_unlink(const char* path);
 extern "C" int32_t ex_host_fs_rename(const char* from, const char* to);
 extern "C" int32_t ex_host_fs_copy(const char* from, const char* to);
+extern "C" int32_t ex_host_fs_copy_exclusive(const char* from, const char* to);
+extern "C" int32_t ex_host_fs_truncate(const char* path, uint64_t len);
+extern "C" int32_t ex_host_fs_utimes(const char* path, double atime, double mtime);
+extern "C" char* ex_host_fs_statfs(const char* path);
 extern "C" char* ex_host_fs_realpath(const char* path);
 extern "C" int32_t ex_host_fs_access(const char* path, int32_t mode);
 extern "C" int32_t ex_host_fs_chmod(const char* path, uint32_t mode);
@@ -106,6 +113,8 @@ const char* fsErrorCode(int32_t error) {
     case EISDIR: return "EISDIR";
     case ENOTEMPTY: return "ENOTEMPTY";
     case ENOSPC: return "ENOSPC";
+    case EXDEV: return "EXDEV";
+    case EMFILE: return "EMFILE";
     case EROFS: return "EROFS";
     case EBUSY: return "EBUSY";
     case ENOSYS: return "ENOSYS";
@@ -124,6 +133,8 @@ const char* fsErrorDescription(int32_t error) {
     case EISDIR: return "illegal operation on a directory";
     case ENOTEMPTY: return "directory not empty";
     case ENOSPC: return "no space left on device";
+    case EXDEV: return "cross-device link not permitted";
+    case EMFILE: return "too many open files";
     case EROFS: return "read-only file system";
     case EBUSY: return "resource busy or locked";
     case ENOSYS: return "function not implemented";
@@ -209,7 +220,8 @@ FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
   if (it == g_files.end() || !fileHandle(it->second)) {
     throw facebook::jsi::JSError(runtime, "bad file descriptor");
   }
-  if (!isAllowAll() && it->second.owner != currentPrincipalId()) {
+  if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      (!isAllowAll() && it->second.owner != currentPrincipalId())) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   return it->second;
@@ -420,13 +432,15 @@ facebook::jsi::Value startFsAsync(
     facebook::jsi::Runtime& runtime,
     std::function<FsAsyncResult()> work) {
   uint64_t principal = currentPrincipalId();
+  auto principalStack =
+      std::make_shared<std::vector<uint64_t>>(exactCollectTypedPrincipalStack());
   auto workPtr = std::make_shared<std::function<FsAsyncResult()>>(std::move(work));
   auto promiseCtor = runtime.global().getPropertyAsFunction(runtime, "Promise");
   auto executor = facebook::jsi::Function::createFromHostFunction(
       runtime,
       facebook::jsi::PropNameID::forAscii(runtime, "executor"),
       2,
-      [handle, principal, workPtr](
+      [handle, principal, principalStack, workPtr](
           facebook::jsi::Runtime& rt,
           const facebook::jsi::Value&,
           const facebook::jsi::Value* args,
@@ -442,7 +456,9 @@ facebook::jsi::Value startFsAsync(
 
         std::string enqueueError;
         bool queued = FsWorkerPool::instance().enqueue(
-            [handle, principal, workPtr, resolve, reject]() mutable {
+            [handle, principal, principalStack, workPtr, resolve, reject]() mutable {
+              ScopedRuntimeSecurityContext securityContext(handle);
+              ScopedTypedPrincipalStack typedStack(*principalStack);
               std::shared_ptr<FsAsyncResult> resultPtr;
               try {
                 resultPtr = std::make_shared<FsAsyncResult>((*workPtr)());
@@ -453,6 +469,7 @@ facebook::jsi::Value startFsAsync(
                 resultPtr = std::make_shared<FsAsyncResult>(
                     fsAsyncError("EIO", "filesystem worker failed", "fs"));
               }
+              *workPtr = {};
               auto runtimeResolve = std::move(resolve);
               auto runtimeReject = std::move(reject);
               pushRuntimeCallback(
@@ -483,7 +500,27 @@ facebook::jsi::Value startFsAsync(
                       } else {
                         reject->call(rt, makeFsAsyncErrorValue(rt, *resultPtr));
                       }
+                    } catch (const facebook::jsi::JSError& deliveryError) {
+                      try {
+                        reject->call(rt, deliveryError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
+                    } catch (const std::exception& deliveryError) {
+                      try {
+                        facebook::jsi::JSError jsError(rt, deliveryError.what());
+                        reject->call(rt, jsError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
                     } catch (...) {
+                      try {
+                        facebook::jsi::JSError jsError(
+                            rt, "filesystem result delivery failed");
+                        reject->call(rt, jsError.value());
+                      } catch (const facebook::jsi::JSError& rejectionError) {
+                        disposeAsyncCallbackError(handle, rejectionError);
+                      }
                     }
                   });
             },
@@ -493,7 +530,9 @@ facebook::jsi::Value startFsAsync(
           // A rejected Promise can retain its executor. Clear the unqueued
           // callable so any owned native resources are released immediately.
           *workPtr = {};
-          reject->call(rt, facebook::jsi::JSError(rt, enqueueError).value());
+          auto queueError = fsAsyncError(
+              "ERR_FS_WORKER_QUEUE_FULL", enqueueError, "fs");
+          reject->call(rt, makeFsAsyncErrorValue(rt, queueError));
         }
         return facebook::jsi::Value::undefined();
       });
@@ -506,11 +545,14 @@ FsAsyncResult fsReadWholeHandleWork(
   if (!file || !file->handle) {
     return fsAsyncBadFd("read");
   }
-  std::lock_guard<std::mutex> ioLock(file->ioMutex);
   std::vector<uint8_t> data;
   uint8_t buf[65536];
   for (;;) {
-    int32_t bytesRead = ex_host_fs_read(file->handle, buf, sizeof(buf));
+    int32_t bytesRead;
+    {
+      std::lock_guard<std::mutex> ioLock(file->ioMutex);
+      bytesRead = ex_host_fs_read(file->handle, buf, sizeof(buf));
+    }
     if (bytesRead < 0) {
       return fsAsyncSyscallError("read", pathForError);
     }
@@ -558,7 +600,6 @@ FsAsyncResult fsWriteAllHandleWork(
   if (!file || !file->handle) {
     return fsAsyncBadFd("write");
   }
-  std::lock_guard<std::mutex> ioLock(file->ioMutex);
   size_t totalWritten = 0;
   while (totalWritten < bytes.size()) {
     size_t remaining = bytes.size() - totalWritten;
@@ -568,14 +609,24 @@ FsAsyncResult fsWriteAllHandleWork(
     // Append is an open-handle property (EXACT_FS_APPEND), so the same call
     // preserves fd identity across rename/unlink and lets the OS serialize
     // concurrent appenders atomically. Reopening by path here violated both.
-    int32_t written = ex_host_fs_write(file->handle, bytes.data() + totalWritten, chunk);
+    int32_t written;
+    {
+      std::lock_guard<std::mutex> ioLock(file->ioMutex);
+      written = ex_host_fs_write(
+          file->handle, bytes.data() + totalWritten, chunk);
+    }
     if (written <= 0) {
       return fsAsyncSyscallError("write", path);
     }
     totalWritten += static_cast<size_t>(written);
   }
   if (flush) {
-    if (ex_host_fs_sync(file->handle, 0) != 0) {
+    int32_t syncResult;
+    {
+      std::lock_guard<std::mutex> ioLock(file->ioMutex);
+      syncResult = ex_host_fs_sync(file->handle, 0);
+    }
+    if (syncResult != 0) {
       return fsAsyncSyscallError("fsync", path);
     }
   }
@@ -769,6 +820,7 @@ FsAsyncResult fsPathOpWork(
     const std::string& a,
     const std::string& b,
     double x,
+    double y,
     uint64_t principal) {
   if (op == "readdir") {
     char* json = ex_host_fs_readdir(a.c_str());
@@ -780,6 +832,13 @@ FsAsyncResult fsPathOpWork(
     return fsAsyncString(std::move(out));
   }
   if (op == "mkdir") {
+    if (x != 0) {
+      char* firstCreated = ex_host_fs_mkdir_recursive_result(a.c_str());
+      if (!firstCreated) return fsAsyncSyscallError("mkdir", a);
+      std::string result(firstCreated);
+      ex_host_free_string(firstCreated);
+      return result.empty() ? fsAsyncOk() : fsAsyncString(std::move(result));
+    }
     if (ex_host_fs_mkdir(a.c_str(), x != 0 ? 1 : 0) != 0) {
       return fsAsyncSyscallError("mkdir", a);
     }
@@ -809,6 +868,12 @@ FsAsyncResult fsPathOpWork(
     }
     return fsAsyncOk();
   }
+  if (op == "copyfile_excl") {
+    if (ex_host_fs_copy_exclusive(a.c_str(), b.c_str()) != 0) {
+      return fsAsyncSyscallError("copyfile", a);
+    }
+    return fsAsyncOk();
+  }
   if (op == "realpath") {
     char* resolved = ex_host_fs_realpath(a.c_str());
     if (!resolved) {
@@ -830,6 +895,25 @@ FsAsyncResult fsPathOpWork(
     }
     return fsAsyncOk();
   }
+  if (op == "truncate") {
+    if (x < 0 || ex_host_fs_truncate(a.c_str(), static_cast<uint64_t>(x)) != 0) {
+      return fsAsyncSyscallError("truncate", a, x < 0 ? EINVAL : 0);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "utime") {
+    if (ex_host_fs_utimes(a.c_str(), x, y) != 0) {
+      return fsAsyncSyscallError("utime", a);
+    }
+    return fsAsyncOk();
+  }
+  if (op == "statfs") {
+    char* json = ex_host_fs_statfs(a.c_str());
+    if (!json) return fsAsyncSyscallError("statfs", a);
+    std::string result(json);
+    ex_host_free_string(json);
+    return fsAsyncString(std::move(result));
+  }
   if (op == "mkdtemp") {
     char* path = ex_host_fs_mkdtemp(a.c_str(), principal);
     if (!path) {
@@ -845,7 +929,8 @@ FsAsyncResult fsPathOpWork(
 bool parseWindowsIoVecArguments(
     facebook::jsi::Runtime& runtime,
     const facebook::jsi::Value& value,
-    std::vector<std::vector<uint8_t>>& buffers) {
+    std::vector<std::vector<uint8_t>>& buffers,
+    bool copyInput = true) {
   if (!value.isObject()) {
     return false;
   }
@@ -871,13 +956,78 @@ bool parseWindowsIoVecArguments(
     if (!extractArrayBufferView(runtime, entryObj, source, byteLength, nullptr)) {
       return false;
     }
-    buffers.push_back(
-        source ? std::vector<uint8_t>(source, source + byteLength) : std::vector<uint8_t>());
+    std::vector<uint8_t> bytes(byteLength);
+    if (copyInput && source && byteLength > 0) {
+      std::copy(source, source + byteLength, bytes.begin());
+    }
+    buffers.push_back(std::move(bytes));
   }
   return true;
 }
 
 } // namespace
+
+std::vector<uint64_t> exactCollectTypedPrincipalStack() {
+  std::vector<uint64_t> principals;
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+  if (g_vm_runtime != nullptr) {
+    auto frames = g_vm_runtime->getStackTrace(
+        facebook::hermes::HermesRuntime::StackTraceKind::NoSourceLocation);
+    for (auto& frame : frames) {
+      auto domain = frame.getDomain();
+      if (domain && *domain != kRuntimePrincipalId &&
+          *domain != kNoUserPrincipalId &&
+          std::find(principals.begin(), principals.end(), *domain) == principals.end()) {
+        principals.push_back(*domain);
+      }
+    }
+  }
+#endif
+  if (g_typed_principal_stack) {
+    for (auto id : *g_typed_principal_stack) {
+      if (std::find(principals.begin(), principals.end(), id) == principals.end()) {
+        principals.push_back(id);
+      }
+    }
+  }
+  auto scheduler = g_native_callback_principal_id;
+  if (scheduler != kNoNativePrincipalOverride
+#ifdef EXACT_HAVE_FRAME_ATTRIBUTION
+      && scheduler != static_cast<uint64_t>(kRuntimePrincipalId)
+      && scheduler != static_cast<uint64_t>(kNoUserPrincipalId)
+#endif
+      && std::find(principals.begin(), principals.end(), scheduler) == principals.end()) {
+    principals.push_back(scheduler);
+  }
+  if (principals.empty()) principals.push_back(currentPrincipalId());
+  return principals;
+}
+
+ScopedTypedPrincipalStack::ScopedTypedPrincipalStack(
+    const std::vector<uint64_t>& principals)
+    : principals_(principals), previous_(g_typed_principal_stack) {
+  g_typed_principal_stack = &principals_;
+}
+
+ScopedTypedPrincipalStack::~ScopedTypedPrincipalStack() {
+  g_typed_principal_stack = previous_;
+}
+
+void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce) {
+  std::vector<std::shared_ptr<WindowsFileHandle>> files;
+  {
+    std::lock_guard<std::mutex> lock(g_files_mutex);
+    for (auto it = g_files.begin(); it != g_files.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        files.push_back(std::move(it->second.file));
+        it = g_files.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  files.clear();
+}
 
 // The POSIX build implements this in hermes_runtime_fs.cc, where it records
 // the SCM_RIGHTS process-IPC fd in the fd ownership registry so raw integers
@@ -1010,6 +1160,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             file,
             path,
             (flags & NODE_O_APPEND) == NODE_O_APPEND,
+            exactCurrentRuntimeNonce(),
             currentPrincipalId(),
             (host_flags & EXACT_FS_READ) == EXACT_FS_READ,
             (host_flags & EXACT_FS_WRITE) == EXACT_FS_WRITE};
@@ -1036,7 +1187,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           if (it == g_files.end()) {
             throw facebook::jsi::JSError(runtime, "bad file descriptor");
           }
-          if (!isAllowAll() && it->second.owner != currentPrincipalId()) {
+          if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+              (!isAllowAll() && it->second.owner != currentPrincipalId())) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
           entry = it->second;
@@ -1224,7 +1376,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
   auto copyFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactCopyFile"),
-      2,
+      3,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -1236,7 +1388,10 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto to = pathArg(runtime, args[1]);
         requireReadCapability(runtime, from);
         requireWriteCapability(runtime, to);
-        if (ex_host_fs_copy(from.c_str(), to.c_str()) != 0) {
+        bool exclusive = count > 2 && args[2].isNumber() &&
+            (static_cast<int>(args[2].asNumber()) & 1) != 0;
+        auto copy = exclusive ? ex_host_fs_copy_exclusive : ex_host_fs_copy;
+        if (copy(from.c_str(), to.c_str()) != 0) {
           throwFs(runtime, "copyfile", from);
         }
         return facebook::jsi::Value::undefined();
@@ -1287,6 +1442,66 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactChmod", std::move(chmodFn));
+
+  auto truncateFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactTruncate"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[1].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactTruncate: path and length required");
+        }
+        auto path = pathArg(runtime, args[0]);
+        auto length = args[1].asNumber();
+        requireWriteCapability(runtime, path);
+        if (length < 0 || ex_host_fs_truncate(path.c_str(), static_cast<uint64_t>(length)) != 0) {
+          throwFs(runtime, "truncate", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactTruncate", std::move(truncateFn));
+
+  auto utimesFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactUtimes"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 3 || !args[1].isNumber() || !args[2].isNumber()) {
+          throw facebook::jsi::JSError(runtime, "__exactUtimes: path, atime, and mtime required");
+        }
+        auto path = pathArg(runtime, args[0]);
+        requireWriteCapability(runtime, path);
+        if (ex_host_fs_utimes(
+                path.c_str(), args[1].asNumber(), args[2].asNumber()) != 0) {
+          throwFs(runtime, "utime", path);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactUtimes", std::move(utimesFn));
+
+  auto statfsFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactStatfs"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1) {
+          throw facebook::jsi::JSError(runtime, "__exactStatfs: path required");
+        }
+        auto path = pathArg(runtime, args[0]);
+        requireReadCapability(runtime, path);
+        return jsonStringResult(
+            runtime, ex_host_fs_statfs(path.c_str()), "statfs", path);
+      });
+  rt.global().setProperty(rt, "__exactStatfs", std::move(statfsFn));
 
   auto mkdtempFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1444,7 +1659,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         auto entry = getFileEntry(runtime, fd);
         requireFileEntryRead(runtime, entry);
         std::vector<std::vector<uint8_t>> buffers;
-        if (!parseWindowsIoVecArguments(runtime, args[1], buffers)) {
+        if (!parseWindowsIoVecArguments(runtime, args[1], buffers, false)) {
           throw facebook::jsi::JSError(
               runtime, "__exactFsReadvAsync: buffers must be Uint8Array-like objects");
         }
@@ -1511,6 +1726,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           b = args[2].toString(runtime).utf8(runtime);
         }
         double x = count > 3 && args[3].isNumber() ? args[3].asNumber() : 0;
+        double y = count > 4 && args[4].isNumber() ? args[4].asNumber() : 0;
         uint64_t principal = currentPrincipalId();
         if (!isAllowAll()) {
           if (op == "readdir" || op == "realpath" || op == "readlink" ||
@@ -1519,7 +1735,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           } else if (op == "rename") {
             requireWriteCapability(runtime, a);
             requireWriteCapability(runtime, b);
-          } else if (op == "copyfile") {
+          } else if (op == "copyfile" || op == "copyfile_excl") {
             requireReadCapability(runtime, a);
             requireWriteCapability(runtime, b);
           } else if (op == "access") {
@@ -1539,8 +1755,8 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           }
         }
         return startFsAsync(
-            handle, runtime, [op, a, b, x, principal]() -> FsAsyncResult {
-              return fsPathOpWork(op, a, b, x, principal);
+            handle, runtime, [op, a, b, x, y, principal]() -> FsAsyncResult {
+              return fsPathOpWork(op, a, b, x, y, principal);
             });
       });
   rt.global().setProperty(rt, "__exactFsPathAsync", std::move(fsPathAsyncFn));

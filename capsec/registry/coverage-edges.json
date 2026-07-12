@@ -128314,6 +128314,16 @@
       "rationale": "Ad-hoc CLI evaluation and REPL entry are closed."
     },
     {
+      "id": "surface.cli.argument.parser.ibex.project.root.os.path.0fb6eqi",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "argument-parser:ibex:project_root:os-path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.argument.parser.ibex.stack.size.utf8.string.0pulg05",
       "classification": "non-capability",
       "surface": {
@@ -131584,6 +131594,46 @@
       "rationale": "Ad-hoc CLI evaluation and REPL entry are closed."
     },
     {
+      "id": "surface.cli.option.ibex.project.root.0tu1xd4",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:project_root"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.project.root.action.set.14phsv6",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:project_root:action:Set"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.project.root.arity.1.1.1vggbdb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:project_root:arity:1:1"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.cli.option.ibex.project.root.value.name.dir.06bp61w",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option:ibex:project_root:value-name:DIR"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.ibex.stack.size.08o3c8i",
       "classification": "non-capability",
       "surface": {
@@ -132354,6 +132404,16 @@
       "rationale": "Ad-hoc CLI evaluation and REPL entry are closed."
     },
     {
+      "id": "surface.cli.option.name.ibex.project.root.project.root.0lbp50w",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "cli",
+        "name": "option-name:ibex:project_root:--project-root"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.cli.option.name.ibex.stack.size.stack.size.1lukp78",
       "classification": "non-capability",
       "surface": {
@@ -132934,6 +132994,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.host.abi.ex.hermes.create.diagnostic.1t314ff",
+      "classification": "closed",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_create_diagnostic"
+      },
+      "cap": "vm:evaluate",
+      "rationale": "The explicitly diagnostic unarmed runtime constructor is outside every production profile."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.debugger.enable.1uf2f9u",
       "classification": "closed",
       "surface": {
@@ -133062,6 +133132,16 @@
       },
       "cap": "ipc:channel",
       "rationale": "Generic embedder event, host-call, and handle transfer is closed."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.engine.binary.path.1xy60vb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_engine_binary_path"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.host.abi.ex.hermes.eval.1t7nlsx",
@@ -133274,6 +133354,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.host.armed.endowments.19wlvvz",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_armed_endowments"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "classification": "non-capability",
       "surface": {
@@ -133354,6 +133444,26 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.claim.armed.context.0lgp4i1",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_claim_armed_context"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.claim.diagnostic.context.0dooych",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_claim_diagnostic_context"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.console.flush.1tisl1d",
       "classification": "non-capability",
       "surface": {
@@ -133408,6 +133518,16 @@
           "source-identity-mismatch"
         ]
       }
+    },
+    {
+      "id": "surface.host.abi.ex.host.enter.context.15xwr1j",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_enter_context"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.host.env.get.11ro4cp",
@@ -133733,6 +133853,70 @@
       }
     },
     {
+      "id": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_copy_exclusive"
+      },
+      "effects": [
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.copy.exclusive.1qw4533.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
       "id": "surface.host.abi.ex.host.fs.fstat.1di7udv",
       "classification": "effects",
       "surface": {
@@ -133889,6 +134073,70 @@
       "gate": "reclassifies",
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.host.abi.ex.host.fs.mkdir.1h3eq8w.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_mkdir_recursive_result"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.mkdir.recursive.result.0xsbypl.decision",
       "lifetimeContract": "operation",
       "barriers": {
         "authorizeBefore": [
@@ -134738,6 +134986,55 @@
       }
     },
     {
+      "id": "surface.host.abi.ex.host.fs.statfs.19uv3yw",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_statfs"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.statfs.19uv3yw.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
       "id": "surface.host.abi.ex.host.fs.sync.011h89u",
       "classification": "effects",
       "surface": {
@@ -134771,6 +135068,70 @@
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.host.abi.ex.host.fs.sync.011h89u.decision",
       "lifetimeContract": "file-handle",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.fs.truncate.1k6o7v3",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_truncate"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.truncate.1k6o7v3.decision",
+      "lifetimeContract": "operation",
       "barriers": {
         "authorizeBefore": [
           "path-discovery",
@@ -134834,6 +135195,70 @@
       "gate": "reclassifies",
       "effectMode": "conjunctive",
       "atomicityGroup": "surface.host.abi.ex.host.fs.unlink.05xgwei.decision",
+      "lifetimeContract": "operation",
+      "barriers": {
+        "authorizeBefore": [
+          "path-discovery",
+          "object-open",
+          "first-use"
+        ],
+        "recheckAt": [
+          "object-use"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.host.abi.ex.host.fs.utimes.12bl9di",
+      "classification": "effects",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_fs_utimes"
+      },
+      "effects": [
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "frame-set",
+        "schedule-time"
+      ],
+      "effectOwnerSource": "innermost-nontransparent-frame",
+      "gate": "reclassifies",
+      "effectMode": "conjunctive",
+      "atomicityGroup": "surface.host.abi.ex.host.fs.utimes.12bl9di.decision",
       "lifetimeContract": "operation",
       "barriers": {
         "authorizeBefore": [
@@ -136171,6 +136596,26 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_host_register_module_package"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.release.context.0ozp44g",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_release_context"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.restore.context.1q77zqb",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_restore_context"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -146781,6 +147226,464 @@
         }
       ],
       "atomicityGroup": "surface.loader.function.rust.load.source.1lpnc7u.decision",
+      "lifetimeContract": "child-process",
+      "barriers": {
+        "authorizeBefore": [
+          "module-resolution",
+          "source-read",
+          "module-admission"
+        ],
+        "recheckAt": [
+          "dynamic-import"
+        ],
+        "cancelAt": [
+          "negative-generation-change",
+          "object-identity-mismatch"
+        ]
+      }
+    },
+    {
+      "id": "surface.loader.function.rust.load.source.bytes.1l8dlka",
+      "classification": "effects",
+      "surface": {
+        "kind": "loader",
+        "name": "function:rust:load_source_bytes"
+      },
+      "effects": [
+        {
+          "cap": "env:read",
+          "selectorNormalizer": "environment.name.selector.v1",
+          "occurrenceNormalizer": "environment.name.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:read",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "fs:write",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "process:spawn",
+          "selectorNormalizer": "process.executable.selector.v1",
+          "occurrenceNormalizer": "process.executable.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery",
+            "commit",
+            "delivery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "stdio:read",
+          "selectorNormalizer": "stdio.selector.v1",
+          "occurrenceNormalizer": "stdio.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "static-floor"
+          ]
+        },
+        {
+          "cap": "stdio:write",
+          "selectorNormalizer": "stdio.selector.v1",
+          "occurrenceNormalizer": "stdio.occurrence.v1",
+          "stages": [
+            "requested",
+            "commit",
+            "repeat"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "static-floor"
+          ]
+        }
+      ],
+      "principalSources": [
+        "loader-referrer"
+      ],
+      "effectOwnerSource": "loader-referrer",
+      "gate": "loader-admission",
+      "effectMode": "conditional",
+      "logicalBranches": [
+        {
+          "id": "builtin-or-memory",
+          "when": [
+            {
+              "fact": "loader.execution.route",
+              "equals": "builtin-or-memory"
+            }
+          ],
+          "effects": [],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "child-process",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "cached-transform",
+          "when": [
+            {
+              "fact": "loader.execution.route",
+              "equals": "cached-transform"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:write",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "child-process",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "disk-source",
+          "when": [
+            {
+              "fact": "loader.execution.route",
+              "equals": "disk-source"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "child-process",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        },
+        {
+          "id": "external-transform",
+          "when": [
+            {
+              "fact": "loader.execution.route",
+              "equals": "external-transform"
+            }
+          ],
+          "effects": [
+            {
+              "cap": "env:read",
+              "selectorNormalizer": "environment.name.selector.v1",
+              "occurrenceNormalizer": "environment.name.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:list",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:read",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "implicit-self",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "fs:write",
+              "selectorNormalizer": "fs.path.selector.v1",
+              "occurrenceNormalizer": "fs.path.occurrence.v1",
+              "stages": [
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "session",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "process:spawn",
+              "selectorNormalizer": "process.executable.selector.v1",
+              "occurrenceNormalizer": "process.executable.occurrence.v1",
+              "stages": [
+                "requested",
+                "discovery",
+                "commit",
+                "delivery"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "stdio:read",
+              "selectorNormalizer": "stdio.selector.v1",
+              "occurrenceNormalizer": "stdio.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "static-floor"
+              ]
+            },
+            {
+              "cap": "stdio:write",
+              "selectorNormalizer": "stdio.selector.v1",
+              "occurrenceNormalizer": "stdio.occurrence.v1",
+              "stages": [
+                "requested",
+                "commit",
+                "repeat"
+              ],
+              "positiveSources": [
+                "ambient-root",
+                "handle",
+                "static-floor"
+              ]
+            }
+          ],
+          "principalSources": [
+            "loader-referrer"
+          ],
+          "effectOwnerSource": "loader-referrer",
+          "lifetimeContract": "child-process",
+          "barriers": {
+            "authorizeBefore": [
+              "module-resolution",
+              "source-read",
+              "module-admission"
+            ],
+            "recheckAt": [
+              "dynamic-import"
+            ],
+            "cancelAt": [
+              "negative-generation-change",
+              "object-identity-mismatch"
+            ]
+          }
+        }
+      ],
+      "atomicityGroup": "surface.loader.function.rust.load.source.bytes.1l8dlka.decision",
       "lifetimeContract": "child-process",
       "barriers": {
         "authorizeBefore": [
@@ -228362,6 +229265,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.native.op.ibextamed.1miuye7",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexTamed"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.native.op.inspector.cdp.http.json.1umywno",
       "classification": "closed",
       "surface": {
@@ -235094,16 +236007,6 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
-      "id": "surface.startup.env.ibex.compartments.0h31phf",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_COMPARTMENTS"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_COMPARTMENTS can weaken, widen, or replace shared runtime security and trust behavior."
-    },
-    {
       "id": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "classification": "effects",
       "surface": {
@@ -235265,16 +236168,6 @@
           "peer-mismatch"
         ]
       }
-    },
-    {
-      "id": "surface.startup.env.ibex.endow.1cvgj9d",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_ENDOW"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_ENDOW can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
       "id": "surface.startup.env.ibex.hermesc.timeout.ms.1h1rtua",
@@ -235454,16 +236347,6 @@
       }
     },
     {
-      "id": "surface.startup.env.ibex.lockdown.1o2femx",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_LOCKDOWN"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_LOCKDOWN can weaken, widen, or replace shared runtime security and trust behavior."
-    },
-    {
       "id": "surface.startup.env.ibex.loop.trace.0qn0o5e",
       "classification": "non-capability",
       "surface": {
@@ -235472,16 +236355,6 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.startup.env.ibex.native.lockdown.0xoo48t",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_NATIVE_LOCKDOWN"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_NATIVE_LOCKDOWN can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
       "id": "surface.startup.env.ibex.no.bytecode.1x1arah",
@@ -235502,16 +236375,6 @@
       },
       "rationaleId": "runtime-bootstrap-state",
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.startup.env.ibex.per.package.chunks.0zpmgup",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_PER_PACKAGE_CHUNKS"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_PER_PACKAGE_CHUNKS can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
       "id": "surface.startup.env.ibex.policy.1jjizio",
@@ -235944,16 +236807,6 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.startup.env.ibex.seal.self.grant.0rx7yyj",
-      "classification": "closed",
-      "surface": {
-        "kind": "startup",
-        "name": "env:IBEX_SEAL_SELF_GRANT"
-      },
-      "cap": "runtime:inspect",
-      "rationale": "IBEX_SEAL_SELF_GRANT can weaken, widen, or replace shared runtime security and trust behavior."
-    },
-    {
       "id": "surface.startup.env.ibex.startup.trace.1t4init",
       "classification": "non-capability",
       "surface": {
@@ -236122,6 +236975,26 @@
           "source-identity-mismatch"
         ]
       }
+    },
+    {
+      "id": "surface.startup.env.ibex.test.armed.create.pause.ms.1gh0a2n",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_ARMED_CREATE_PAUSE_MS"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
+      "id": "surface.startup.env.ibex.test.armed.deny.open.commit.0hu9h0y",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_TEST_ARMED_DENY_OPEN_COMMIT"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.startup.env.ibex.test.fs.worker.max.queue.1jonmn2",
@@ -238584,36 +239457,6 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
-      "id": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.compartment.registry.0ajrreh",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "evaluation:env_flag_enabled:0x0uwpa:compartment-registry"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.eager.install.seal.12wnqhp",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "evaluation:env_flag_enabled:0x0uwpa:eager-install-seal"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
-      "id": "surface.startup.evaluation.env.flag.enabled.0x0uwpa.lockdown.15ni1ju",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "evaluation:env_flag_enabled:0x0uwpa:lockdown"
-      },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
-    },
-    {
       "id": "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2",
       "classification": "closed",
       "surface": {
@@ -238694,6 +239537,26 @@
       "rationale": "The structurally recovered CDP startup evaluator installs inspector reachability and remains closed."
     },
     {
+      "id": "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "evaluation:translation-unit-fallback:compartment-registry"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.evaluation.translation.unit.fallback.eager.install.seal.06dx85t",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "evaluation:translation-unit-fallback:eager-install-seal"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.startup.evaluation.translation.unit.fallback.form.data.1xi28ci",
       "classification": "non-capability",
       "surface": {
@@ -238719,6 +239582,16 @@
       "surface": {
         "kind": "startup",
         "name": "evaluation:translation-unit-fallback:fs-handle"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.evaluation.translation.unit.fallback.lockdown.143w8ae",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "evaluation:translation-unit-fallback:lockdown"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -238784,11 +239657,11 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
-      "id": "surface.startup.install.route.ex.hermes.create.installglobals.0ayl3zp",
+      "id": "surface.startup.install.route.ex.hermes.create.impl.installglobals.17emyh8",
       "classification": "non-capability",
       "surface": {
         "kind": "startup",
-        "name": "install-route:ex_hermes_create:installGlobals"
+        "name": "install-route:ex_hermes_create_impl:installGlobals"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

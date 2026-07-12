@@ -194,7 +194,7 @@
     __packagePrincipals[identity] = id;
     if (__privRegisterPackage) {
       try {
-        __privRegisterPackage(id, selector, identity);
+        __privRegisterPackage(id, selector, identity, record && record.pkgIntegrity);
       } catch (e) {}
     }
     return id;

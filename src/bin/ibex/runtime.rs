@@ -1075,9 +1075,6 @@ impl Runtime {
         if cli.policy.is_some() || crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
             anyhow::bail!("foreground audit does not accept durable policy inputs");
         }
-        std::env::remove_var("IBEX_ENDOW");
-        std::env::set_var("IBEX_LOCKDOWN", "1");
-        enable_isolation_prerequisites(crate::host::SecurityMode::Audit);
         let host = Host::new(HostConfig {
             mode: crate::host::SecurityMode::Audit,
             ..Default::default()
@@ -1339,17 +1336,13 @@ impl Runtime {
         // dir. Tell the loader that dir so it can resolve those requires
         // absolutely, while the entry's own `__dirname`/`__filename` stay mapped
         // to the source (the loader only redirects the `__ibexpkg__` specifiers).
-        let argv_code = if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-            let chunk_dir = entry_path
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let chunk_dir_json =
-                serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
-            format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}")
-        } else {
-            argv_code
-        };
+        let chunk_dir = entry_path
+            .parent()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let chunk_dir_json =
+            serde_json::to_string(&chunk_dir).unwrap_or_else(|_| "\"\"".to_string());
+        let argv_code = format!("globalThis.__exactChunkDir = {chunk_dir_json};\n{argv_code}");
 
         if cfg!(windows) {
             let source = tokio::fs::read_to_string(&entry_path)
@@ -1560,6 +1553,7 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
     use std::sync::Arc;
 
+    validate_production_inputs(cli)?;
     match (&cli.capsec_armed_snapshot, &cli.capsec_arming_identity) {
         (None, None) => build_default_armed_host(cli),
         (Some(_), None) | (None, Some(_)) => anyhow::bail!(
@@ -1620,6 +1614,7 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 .context("invalid strict JSON in capsec arming identity")?;
             let expected: ExpectedArmingIdentity =
                 serde_json::from_value(identity_value).context("invalid capsec arming identity")?;
+            let expected = observed_arming_identity(expected)?;
             let snapshot = Arc::new(
                 ArmedSnapshot::load(&snapshot_bytes, &expected)
                     .context("refused to arm capability snapshot")?,
@@ -1642,13 +1637,12 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
     use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
-    use capsec_semantics::digest::{compute_domain_digest, ARMED_SNAPSHOT_DOMAIN, POLICY_DOMAIN};
+    use capsec_semantics::digest::{
+        compute_checked_contract_digest, compute_domain_digest, DigestKind,
+    };
     use capsec_semantics::model::Digest;
-    use sha2::{Digest as _, Sha256};
 
     validate_production_inputs(cli)?;
-    std::env::set_var("IBEX_LOCKDOWN", "1");
-    enable_isolation_prerequisites(crate::host::SecurityMode::Enforce);
     for line in check_capsec_readiness(
         crate::host::SecurityMode::Enforce,
         CapsecStage::Run,
@@ -1660,56 +1654,18 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     if cli.capsec == crate::cli::CapSecMode::Audit {
         anyhow::bail!("foreground audit requires its separate diagnostic arming workflow");
     }
-    if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
-        anyhow::bail!(
-            "the complete capsec profile is not advertised for this target; refusing to degrade"
-        );
-    }
-
     let entry = cli.file.as_deref().or(match cli.command.as_ref() {
         Some(crate::cli::Commands::Run { file, .. })
         | Some(crate::cli::Commands::Build { file, .. }) => Some(file.as_str()),
         _ => None,
     });
-    let project_candidate = entry
-        .and_then(|entry| std::fs::canonicalize(entry).ok())
-        .and_then(|entry| entry.parent().map(Path::to_path_buf))
-        .unwrap_or(std::env::current_dir()?);
-    let project_root = std::fs::canonicalize(project_candidate)
-        .context("failed to authenticate the project root")?;
-    #[cfg(unix)]
-    let root_object = {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(&project_root)?;
-        serde_json::json!({
-            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) { "apple" } else { "unix" },
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    };
-    #[cfg(not(unix))]
-    let root_object = unreachable!("the only advertised target is Unix-like");
-    let components = project_root
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(serde_json::json!({
-                "encoding": "utf8",
-                "value": value.to_str().expect("advertised target paths must be UTF-8"),
-            })),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let project_root = authenticated_project_root(cli, entry)?;
+    let root_object = runtime_object_identity_json(&project_root)?;
+    let components = runtime_path_components_json(&project_root)?;
 
-    let engine_path = crate::engine::hermes::find_hermes_binary()?;
-    let engine_bytes = std::fs::read(&engine_path)
-        .with_context(|| format!("failed to read Hermes binary {}", engine_path.display()))?;
-    let engine_digest = format!(
-        "sha256-{}",
-        URL_SAFE_NO_PAD.encode(Sha256::digest(&engine_bytes))
-    );
-    if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
-        anyhow::bail!("environment-selected policy paths are forbidden in production");
-    }
+    let engine_identity = crate::engine::hermes::HermesEngine::loaded_engine_identity()?;
+    let engine_digest = engine_identity.binary_digest.clone();
+    let engine_object = serde_json::to_value(&engine_identity.object)?;
     let policy_path = cli
         .policy
         .clone()
@@ -1746,8 +1702,7 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             anyhow::bail!("canonical production policy has invalid {field}");
         }
     }
-    let policy_digest =
-        compute_domain_digest(POLICY_DOMAIN, &policy, &["policyDigest".to_string()])?;
+    let policy_digest = compute_checked_contract_digest(DigestKind::Policy, &policy)?;
     if policy_loaded && policy["policyDigest"].as_str() != Some(policy_digest.as_str()) {
         anyhow::bail!("canonical policy digest is stale or tampered");
     }
@@ -1781,6 +1736,7 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let mut endowment_groups = Vec::new();
     let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
     let mut package_bindings = Vec::new();
+    let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
     for row in policy_principals {
         let principal = row["principal"].clone();
         let authority_rows = |field: &str| -> Result<Vec<serde_json::Value>> {
@@ -1820,37 +1776,34 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
                 endowment_groups.push(format!("{locator}:{}", values.join(",")));
             }
         }
-        if let Some(name) = principal["name"].as_str() {
-            let package_root = project_root.join("node_modules").join(name);
-            if package_root.exists() {
-                let package_root = std::fs::canonicalize(package_root)?;
-                #[cfg(unix)]
-                let object = {
-                    use std::os::unix::fs::MetadataExt;
-                    let metadata = std::fs::metadata(&package_root)?;
-                    serde_json::json!({
-                        "platform": "apple",
-                        "volume": format!("dev:{}", metadata.dev()),
-                        "file": format!("ino:{}", metadata.ino()),
-                    })
-                };
-                let package_components = package_root
-                    .components()
-                    .filter_map(|component| match component {
-                        std::path::Component::Normal(value) => Some(serde_json::json!({
-                            "encoding": "utf8",
-                            "value": value.to_str().expect("advertised target paths must be UTF-8"),
-                        })),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>();
-                package_bindings.push(serde_json::json!({
+        if let (Some(name), Some(locator), Some(integrity)) = (
+            principal["name"].as_str(),
+            principal["locator"].as_str(),
+            principal["integrity"].as_str(),
+        ) {
+            let matches = installed_packages
+                .iter()
+                .filter(|package| {
+                    package.name == name
+                        && package.locator == locator
+                        && package.integrity == integrity
+                })
+                .collect::<Vec<_>>();
+            if matches.len() != 1 {
+                anyhow::bail!(
+                    "authenticated package principal {locator} has {} installed roots",
+                    matches.len()
+                );
+            }
+            let package_root = matches[0].root.clone();
+            let object = runtime_object_identity_json(&package_root)?;
+            let package_components = runtime_path_components_json(&package_root)?;
+            package_bindings.push(serde_json::json!({
                     "logicalRoot": "package",
                     "owner": principal,
                     "hostPath": {"root": "absolute", "components": package_components, "hostBound": true},
                     "object": object,
                 }));
-            }
         }
     }
     let principals_by_locator = policy_principals
@@ -1881,11 +1834,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         }
     }
     endowment_groups.sort();
-    if endowment_groups.is_empty() {
-        std::env::remove_var("IBEX_ENDOW");
-    } else {
-        std::env::set_var("IBEX_ENDOW", endowment_groups.join(";"));
-    }
     let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/capsec/examples/armed-snapshot.canonical.json"
@@ -1894,9 +1842,9 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     value["effectiveMode"] = serde_json::json!("enforce");
     value["policyDigest"] = serde_json::json!(policy_digest);
     value["engine"] = serde_json::json!({
-        "target": "aarch64-apple-darwin",
+        "target": exact_runtime_target(),
         "binaryDigest": engine_digest,
-        "features": ["hermes-frame-attribution", "native-compartments", "native-lockdown"],
+        "features": observed_structural_features(),
     });
     value["packageGraph"] = serde_json::json!({
         "digest": "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
@@ -1910,6 +1858,12 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     )?;
     value["packageGraph"]["digest"] = serde_json::json!(graph_digest);
     value["principals"] = serde_json::Value::Array(snapshot_principals);
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce).context("failed to generate CapSec run nonce")?;
+    value["runNonce"] = serde_json::json!(URL_SAFE_NO_PAD.encode(nonce));
+    let mut epoch = [0u8; 8];
+    getrandom::getrandom(&mut epoch).context("failed to generate CapSec channel epoch")?;
+    value["channelEpoch"] = serde_json::json!(u64::from_le_bytes(epoch).max(1).to_string());
     let mut root_bindings = vec![serde_json::json!({
         "logicalRoot": "project",
         "hostPath": {"root": "absolute", "components": components, "hostBound": true},
@@ -1918,26 +1872,8 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let cache_root = runtime_cache_dir()?;
     std::fs::create_dir_all(&cache_root)?;
     let cache_root = std::fs::canonicalize(cache_root)?;
-    let cache_components = cache_root
-        .components()
-        .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(serde_json::json!({
-                "encoding": "utf8",
-                "value": value.to_str().expect("advertised target paths must be UTF-8"),
-            })),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    #[cfg(unix)]
-    let cache_object = {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = std::fs::metadata(&cache_root)?;
-        serde_json::json!({
-            "platform": "apple",
-            "volume": format!("dev:{}", metadata.dev()),
-            "file": format!("ino:{}", metadata.ino()),
-        })
-    };
+    let cache_components = runtime_path_components_json(&cache_root)?;
+    let cache_object = runtime_object_identity_json(&cache_root)?;
     root_bindings.push(serde_json::json!({
         "logicalRoot": "home",
         "hostPath": {"root": "absolute", "components": cache_components, "hostBound": true},
@@ -1945,16 +1881,55 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     }));
     root_bindings.extend(package_bindings);
     value["rootBindings"] = serde_json::Value::Array(root_bindings);
-    value["protectedObjects"] = serde_json::json!([{
-        "role": "package-graph",
-        "object": root_object,
-        "deniedActions": ["fs:write"],
-    }]);
-    let digest = compute_domain_digest(
-        ARMED_SNAPSHOT_DOMAIN,
-        &value,
-        &["armedSnapshotDigest".to_string()],
+    let policy_bytes = capsec_semantics::canonical::to_jcs_bytes(&policy)?;
+    let graph_bytes = capsec_semantics::canonical::to_jcs_bytes(&value["packageGraph"])?;
+    let registry_record = serde_json::json!({
+        "registryDigest": value["registryDigest"],
+        "capabilityDefinitions": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_CAPABILITY_DEFINITIONS_JSON,
+        )?,
+        "coverageEdges": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_COVERAGE_EDGES_JSON,
+        )?,
+        "targetCells": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON,
+        )?,
+        "policyRules": serde_json::from_str::<serde_json::Value>(
+            ibex_runtime::capsec_registry_generated::CAPSEC_POLICY_RULES_JSON,
+        )?,
+    });
+    let registry_bytes = capsec_semantics::canonical::to_jcs_bytes(&registry_record)?;
+    let policy_object = materialize_protected_artifact(
+        &cache_root,
+        "armed-policy",
+        value["policyDigest"]
+            .as_str()
+            .context("policy digest missing")?,
+        &policy_bytes,
     )?;
+    let graph_object = materialize_protected_artifact(
+        &cache_root,
+        "package-graph",
+        value["packageGraph"]["digest"]
+            .as_str()
+            .context("package graph digest missing")?,
+        &graph_bytes,
+    )?;
+    let registry_object = materialize_protected_artifact(
+        &cache_root,
+        "registry",
+        value["registryDigest"]
+            .as_str()
+            .context("registry digest missing")?,
+        &registry_bytes,
+    )?;
+    value["protectedObjects"] = serde_json::json!([
+        {"role": "armed-policy", "object": policy_object, "deniedActions": ["fs:write"]},
+        {"role": "engine-binary", "object": engine_object, "deniedActions": ["fs:write"]},
+        {"role": "package-graph", "object": graph_object, "deniedActions": ["fs:write"]},
+        {"role": "registry", "object": registry_object, "deniedActions": ["fs:write"]},
+    ]);
+    let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value)?;
     value["armedSnapshotDigest"] = serde_json::json!(digest);
     let digest_at = |path: &[&str]| -> Result<Digest> {
         let field = path
@@ -1978,7 +1953,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             .map(|feature| feature.as_str().unwrap().into())
             .collect(),
         package_graph_digest: digest_at(&["packageGraph", "digest"])?,
-        target_complete_and_advertised: true,
     };
     let snapshot = Arc::new(ArmedSnapshot::load(
         &serde_json::to_vec(&value)?,
@@ -1995,7 +1969,426 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     Ok((host, Some(digest)))
 }
 
+fn exact_runtime_target() -> String {
+    let architecture = match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        "x86_64" => "x86_64",
+        "x86" => "i686",
+        other => other,
+    };
+    let suffix = match std::env::consts::OS {
+        "macos" => "apple-darwin",
+        "ios" => "apple-ios",
+        "linux" => "unknown-linux-gnu",
+        "android" => "linux-android",
+        "windows" => "pc-windows-msvc",
+        other => other,
+    };
+    format!("{architecture}-{suffix}")
+}
+
+fn observed_structural_features() -> Vec<String> {
+    ibex_runtime::engine::loaded_engine_structural_features()
+}
+
+fn observed_arming_identity(
+    mut supplied: capsec_semantics::arming::ExpectedArmingIdentity,
+) -> Result<capsec_semantics::arming::ExpectedArmingIdentity> {
+    use capsec_semantics::model::Digest;
+
+    let compiled: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/examples/armed-snapshot.canonical.json"
+    )))?;
+    supplied.profile = ibex_runtime::capsec_registry_generated::CAPSEC_PROFILE.into();
+    supplied.semantic_core = ibex_runtime::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into();
+    supplied.vocab_digest = Digest::new(
+        compiled["vocabDigest"]
+            .as_str()
+            .context("compiled vocabulary digest is missing")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    supplied.registry_digest = Digest::new(
+        compiled["registryDigest"]
+            .as_str()
+            .context("compiled registry digest is missing")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    supplied.target = exact_runtime_target();
+    supplied.features = observed_structural_features();
+    supplied.engine_binary_digest =
+        Digest::new(crate::engine::hermes::HermesEngine::loaded_engine_identity()?.binary_digest)
+            .map_err(anyhow::Error::msg)?;
+    Ok(supplied)
+}
+
+fn authenticated_project_root(cli: &Cli, entry: Option<&str>) -> Result<std::path::PathBuf> {
+    let entry_path = entry.and_then(|entry| std::fs::canonicalize(entry).ok());
+    if let Some(explicit) = cli.project_root.as_deref() {
+        let root = std::fs::canonicalize(explicit).with_context(|| {
+            format!("failed to authenticate project root {}", explicit.display())
+        })?;
+        if !root.is_dir() {
+            anyhow::bail!("project root is not a directory: {}", root.display());
+        }
+        if entry_path
+            .as_ref()
+            .is_some_and(|entry| !entry.starts_with(&root))
+        {
+            anyhow::bail!(
+                "entry is outside the explicitly authenticated project root {}",
+                root.display()
+            );
+        }
+        return Ok(root);
+    }
+
+    let start = entry_path
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or(std::env::current_dir()?);
+    let mut cursor = std::fs::canonicalize(&start)
+        .with_context(|| format!("failed to authenticate project path {}", start.display()))?;
+    loop {
+        if cursor.join("package.json").is_file() {
+            return Ok(cursor);
+        }
+        let Some(parent) = cursor.parent() else {
+            break;
+        };
+        cursor = parent.to_path_buf();
+    }
+    Ok(std::fs::canonicalize(start)?)
+}
+
+#[derive(Clone, Debug)]
+struct InstalledPackageIdentity {
+    name: String,
+    locator: String,
+    integrity: String,
+    root: std::path::PathBuf,
+}
+
+fn authenticated_installed_packages(
+    project_root: &std::path::Path,
+    principals: &[serde_json::Value],
+) -> Result<Vec<InstalledPackageIdentity>> {
+    use std::collections::{BTreeSet, VecDeque};
+
+    let wanted = principals
+        .iter()
+        .map(|row| {
+            let principal = &row["principal"];
+            Ok((
+                principal["name"]
+                    .as_str()
+                    .context("package principal is missing name")?
+                    .to_owned(),
+                principal["locator"]
+                    .as_str()
+                    .context("package principal is missing locator")?
+                    .to_owned(),
+                principal["integrity"]
+                    .as_str()
+                    .context("package principal is missing integrity")?
+                    .to_owned(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut queue = VecDeque::from([project_root.join("node_modules")]);
+    let mut visited_node_modules = BTreeSet::new();
+    let mut candidate_roots = BTreeSet::new();
+    while let Some(node_modules) = queue.pop_front() {
+        let canonical_nm = match std::fs::canonicalize(&node_modules) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if !visited_node_modules.insert(canonical_nm.clone()) {
+            continue;
+        }
+        let mut entries = std::fs::read_dir(&canonical_nm)
+            .with_context(|| format!("failed to enumerate {}", canonical_nm.display()))?
+            .collect::<std::io::Result<Vec<_>>>()?;
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let name = entry.file_name();
+            let path = entry.path();
+            if name == ".bin" {
+                continue;
+            }
+            if name.to_string_lossy().starts_with('@') {
+                let mut scoped = match std::fs::read_dir(&path) {
+                    Ok(entries) => entries.collect::<std::io::Result<Vec<_>>>()?,
+                    Err(_) => continue,
+                };
+                scoped.sort_by_key(std::fs::DirEntry::file_name);
+                for package in scoped {
+                    if package.path().join("package.json").is_file() {
+                        let root = std::fs::canonicalize(package.path())?;
+                        queue.push_back(root.join("node_modules"));
+                        candidate_roots.insert(root);
+                    }
+                }
+                continue;
+            }
+            if name == ".pnpm" {
+                for store_entry in std::fs::read_dir(&path)? {
+                    queue.push_back(store_entry?.path().join("node_modules"));
+                }
+                continue;
+            }
+            if path.join("package.json").is_file() {
+                let root = std::fs::canonicalize(path)?;
+                queue.push_back(root.join("node_modules"));
+                candidate_roots.insert(root);
+            }
+        }
+    }
+
+    let mut discovered = Vec::new();
+    for root in candidate_roots {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(root.join("package.json"))?)
+                .with_context(|| format!("invalid package manifest in {}", root.display()))?;
+        let Some(name) = manifest.get("name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let locator = manifest
+            .get("version")
+            .and_then(serde_json::Value::as_str)
+            .map(|version| format!("{name}@{version}"))
+            .unwrap_or_else(|| name.to_owned());
+        let matches_any = wanted.iter().any(|(wanted_name, wanted_locator, _)| {
+            wanted_name == name && wanted_locator == &locator
+        });
+        if !matches_any {
+            continue;
+        }
+        let integrity = crate::module_loader::package_tree_integrity(&root)
+            .with_context(|| format!("failed to authenticate package tree {}", root.display()))?;
+        discovered.push(InstalledPackageIdentity {
+            name: name.to_owned(),
+            locator,
+            integrity,
+            root,
+        });
+    }
+
+    for (name, locator, integrity) in &wanted {
+        let candidates = discovered
+            .iter()
+            .filter(|package| &package.name == name && &package.locator == locator)
+            .collect::<Vec<_>>();
+        if candidates.len() != 1 {
+            anyhow::bail!(
+                "package principal {locator} resolved to {} installed roots; duplicate name+locator roots are ambiguous even when only one integrity matches",
+                candidates.len()
+            );
+        }
+        if &candidates[0].integrity != integrity {
+            anyhow::bail!(
+                "package principal {locator} has installed integrity {}, expected {integrity}",
+                candidates[0].integrity
+            );
+        }
+    }
+    Ok(discovered)
+}
+
+fn runtime_object_identity_json(path: &std::path::Path) -> Result<serde_json::Value> {
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("failed to identify {}", path.display()))?;
+    runtime_object_identity_from_metadata(&metadata)
+}
+
+fn runtime_object_identity_from_metadata(
+    metadata: &std::fs::Metadata,
+) -> Result<serde_json::Value> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        return Ok(serde_json::json!({
+            "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                "apple"
+            } else if cfg!(target_os = "android") {
+                "android"
+            } else {
+                "unix"
+            },
+            "volume": format!("dev:{}", metadata.dev()),
+            "file": format!("ino:{}", metadata.ino()),
+        }));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(serde_json::json!({
+            "platform": "windows",
+            "volume": format!("volume:{}", metadata.volume_serial_number().unwrap_or(0)),
+            "file": format!("file:{}", metadata.file_index().unwrap_or(0)),
+        }))
+    }
+}
+
+fn runtime_path_components_json(path: &std::path::Path) -> Result<Vec<serde_json::Value>> {
+    use std::path::Component;
+
+    path.components()
+        .filter_map(|component| match component {
+            Component::Prefix(prefix) => Some(runtime_path_component_json(prefix.as_os_str())),
+            Component::RootDir | Component::CurDir => None,
+            Component::ParentDir => Some(Err(anyhow::anyhow!(
+                "authenticated runtime path contains an unresolved parent component"
+            ))),
+            Component::Normal(value) => Some(runtime_path_component_json(value)),
+        })
+        .collect()
+}
+
+fn runtime_path_component_json(value: &std::ffi::OsStr) -> Result<serde_json::Value> {
+    let component = if let Some(value) = value.to_str() {
+        capsec_semantics::model::PathComponent::utf8(value.to_owned())
+    } else {
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            capsec_semantics::model::PathComponent::binary(value.as_bytes().to_vec())
+        }
+        #[cfg(not(unix))]
+        {
+            return Err(anyhow::anyhow!(
+                "non-Unicode runtime path cannot be represented on this target"
+            ));
+        }
+    }
+    .map_err(anyhow::Error::msg)?;
+    serde_json::to_value(component).map_err(Into::into)
+}
+
+fn materialize_protected_artifact(
+    cache_root: &std::path::Path,
+    role: &str,
+    digest: &str,
+    bytes: &[u8],
+) -> Result<serde_json::Value> {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
+    use std::io::{Read as _, Seek as _, Write as _};
+
+    fn validate_pinned_artifact(
+        file: &mut std::fs::File,
+        expected: &[u8],
+        path: &std::path::Path,
+    ) -> Result<serde_json::Value> {
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            anyhow::bail!(
+                "protected artifact is not a regular file: {}",
+                path.display()
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o222 != 0 {
+                anyhow::bail!("protected artifact is mutable: {}", path.display());
+            }
+        }
+        #[cfg(not(unix))]
+        if !metadata.permissions().readonly() {
+            anyhow::bail!("protected artifact is mutable: {}", path.display());
+        }
+        file.rewind()?;
+        let mut observed = Vec::with_capacity(metadata.len() as usize);
+        file.read_to_end(&mut observed)?;
+        if observed != expected {
+            anyhow::bail!("protected artifact content mismatch at {}", path.display());
+        }
+        runtime_object_identity_from_metadata(&metadata)
+    }
+
+    let directory = cache_root.join("capsec-artifacts");
+    std::fs::create_dir_all(&directory)?;
+    let directory_metadata = std::fs::symlink_metadata(&directory)?;
+    if !directory_metadata.is_dir() || directory_metadata.file_type().is_symlink() {
+        anyhow::bail!(
+            "protected artifact parent is not a stable directory: {}",
+            directory.display()
+        );
+    }
+    let directory = std::fs::canonicalize(directory)?;
+    let filename_digest = digest
+        .strip_prefix("sha256-")
+        .unwrap_or(digest)
+        .replace(|character: char| !character.is_ascii_alphanumeric(), "_");
+    let path = directory.join(format!("{filename_digest}.{role}.json"));
+
+    let open_existing = || -> Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        }
+        options
+            .open(&path)
+            .with_context(|| format!("failed to pin protected artifact {}", path.display()))
+    };
+
+    if path.exists() {
+        let mut file = open_existing()?;
+        return validate_pinned_artifact(&mut file, bytes, &path);
+    }
+
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce).context("failed to name protected artifact staging file")?;
+    let temporary = directory.join(format!(
+        ".{filename_digest}.{role}.{}.tmp",
+        URL_SAFE_NO_PAD.encode(nonce)
+    ));
+    let mut staged = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let publish_result = (|| -> Result<serde_json::Value> {
+        staged.write_all(bytes)?;
+        staged.sync_all()?;
+        let mut permissions = staged.metadata()?.permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            permissions.set_mode(0o400);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(true);
+        staged.set_permissions(permissions)?;
+        staged.sync_all()?;
+        let identity = validate_pinned_artifact(&mut staged, bytes, &temporary)?;
+
+        match std::fs::hard_link(&temporary, &path) {
+            Ok(()) => {
+                std::fs::File::open(&directory)?.sync_all()?;
+                Ok(identity)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let mut existing = open_existing()?;
+                validate_pinned_artifact(&mut existing, bytes, &path)
+            }
+            Err(error) => Err(error.into()),
+        }
+    })();
+    let _ = std::fs::remove_file(&temporary);
+    publish_result
+}
+
 fn validate_production_inputs(cli: &Cli) -> Result<()> {
+    if crate::runtime_env("IBEX_POLICY", "EXACT_POLICY").is_some() {
+        anyhow::bail!("environment-selected policy paths are forbidden in production");
+    }
+    crate::host::reject_closed_startup_environment()?;
     if cli.allow_all
         || cli.capsec == crate::cli::CapSecMode::Permissive
         || !cli.allow.is_empty()
@@ -2038,9 +2431,7 @@ pub(crate) fn apply_build_isolation(cli: &Cli) -> Result<crate::host::SecurityMo
     if cli.capsec == crate::cli::CapSecMode::Audit {
         anyhow::bail!("foreground audit cannot be persisted as a production build posture");
     }
-    std::env::set_var("IBEX_LOCKDOWN", "1");
     let mode = crate::host::SecurityMode::Enforce;
-    enable_isolation_prerequisites(mode);
     for line in
         check_capsec_readiness(mode, CapsecStage::Build, capsec_readiness(cli, None), false)?
     {
@@ -2101,22 +2492,17 @@ pub(crate) enum CapsecStage {
 /// `enable_isolation_prerequisites` so `IBEX_PER_PACKAGE_CHUNKS` reflects the
 /// enforce/audit default; a remaining `0` is an explicit operator opt-out.
 fn capsec_readiness(
-    cli: &Cli,
+    _cli: &Cli,
     policy: Option<&crate::host::policy::PolicyFile>,
 ) -> CapsecReadiness {
-    let package_isolation = match std::env::var("IBEX_PER_PACKAGE_CHUNKS") {
-        Ok(v) if v.trim() == "0" => PackageIsolation::DisabledByOperator,
-        _ => PackageIsolation::Enabled,
-    };
+    let package_isolation = PackageIsolation::Enabled;
     let dynamic_ceiling = policy
         .map(|policy| !policy.ceiling.is_empty())
         .unwrap_or(false);
     CapsecReadiness {
         frame_attribution: cfg!(exact_frame_attribution),
         package_isolation,
-        lockdown: cli.lockdown
-            || crate::env_flag_enabled("IBEX_LOCKDOWN")
-            || crate::env_flag_enabled("IBEX_COMPARTMENTS"),
+        lockdown: true,
         dynamic_ceiling,
     }
 }
@@ -2252,34 +2638,6 @@ fn check_capsec_readiness(
 /// attribution footgun this closes — an ungranted package's dangerous op is
 /// already denied at the host boundary once it is attributed to its own
 /// principal. @ref LLP 0013#mechanism-3
-fn enable_isolation_prerequisites(mode: crate::host::SecurityMode) {
-    use crate::host::SecurityMode;
-    if !matches!(mode, SecurityMode::Enforce | SecurityMode::Audit) {
-        return;
-    }
-    // Respect an explicit operator choice here; the readiness gate decides
-    // whether that choice is acceptable for the selected capsec mode.
-    if std::env::var_os("IBEX_PER_PACKAGE_CHUNKS").is_none() {
-        std::env::set_var("IBEX_PER_PACKAGE_CHUNKS", "1");
-        eprintln!(
-            "note: {} enables per-package isolation so bundled dependencies get \
-             their own principal (opt out with IBEX_PER_PACKAGE_CHUNKS=0)",
-            match mode {
-                SecurityMode::Enforce => "capsec enforce",
-                _ => "capsec audit",
-            }
-        );
-    }
-    // @ref LLP 0013 — §self-grant — under enforce the runtime package
-    // self-grant surface (`Exact.setModuleCapabilities`, the `require({needs})`
-    // channel) must not be reachable: grants come from the policy artifact. Audit
-    // mode observes would-deny self-grant attempts while preserving permissive
-    // behavior, so sealing is limited to enforce. (ENG-22695/ENG-22770)
-    if mode == SecurityMode::Enforce {
-        std::env::set_var("IBEX_SEAL_SELF_GRANT", "1");
-    }
-}
-
 pub async fn prepare_entry_with_format(
     entry: &str,
     bundle_format: BundleFormat,
@@ -2903,14 +3261,12 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     // Resolve with the same truthiness parse the engine uses (ENG-22634), and
     // key the cache on that resolved bool so a compartmentalized bundle can never
     // be reused for a non-compartment run (or vice versa).
-    let compartments =
-        crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS");
-    compartments.hash(&mut hasher);
+    true.hash(&mut hasher);
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
     // (multiple chunk files), so it must key distinctly from a flat bundle. Use
     // the same truthiness parse as the other two read sites so `=0` is a real
     // opt-out and the cache key agrees with what the bundler actually emitted.
-    crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS").hash(&mut hasher);
+    true.hash(&mut hasher);
     hash_file_contents(&mut hasher, entry)?;
 
     for bundler_input in bundler_cache_input_paths() {
@@ -2946,11 +3302,7 @@ fn bundle_file_ext(format: BundleFormat) -> &'static str {
 /// began auto-enabling chunking — ENG-22681). @ref LLP 0013#mechanism-3
 fn bundle_output_path(cache_dir: &Path, key: &str, format: BundleFormat) -> PathBuf {
     let ext = bundle_file_ext(format);
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        cache_dir.join(key).join(format!("bundle.{}", ext))
-    } else {
-        cache_dir.join(format!("{}.bundle.{}", key, ext))
-    }
+    cache_dir.join(key).join(format!("bundle.{}", ext))
 }
 
 /// Copy the per-package chunk siblings a chunked bundle emitted — the
@@ -3244,17 +3596,13 @@ async fn run_bundler(entry: &Path, output: &Path, bundle_format: BundleFormat) -
     // @ref LLP 0013#mechanism-2 — when the runtime boots with lockdown, bundle
     // package (node_modules) code through the per-package compartment rewrite so
     // its bare globals resolve against the runtime compartment registry.
-    if crate::env_flag_enabled("IBEX_LOCKDOWN") || crate::env_flag_enabled("IBEX_COMPARTMENTS") {
-        command.arg("--compartments");
-    }
+    command.arg("--compartments");
     // @ref LLP 0013#mechanism-3 — per-package chunking so a bundled app gets
     // per-package frame attribution (each package chunk loads into its own
     // Domain). Auto-enabled under enforce/audit (see enable_isolation_prereqs);
     // `IBEX_PER_PACKAGE_CHUNKS=0` opts out. iife can't split; the bundler
     // ignores the flag there.
-    if crate::env_flag_enabled("IBEX_PER_PACKAGE_CHUNKS") {
-        command.arg("--per-package-chunks");
-    }
+    command.arg("--per-package-chunks");
     let cmd_output = output_with_timeout(
         &mut command,
         timeout,
@@ -3525,6 +3873,91 @@ mod tests {
         }
     }
 
+    #[test]
+    fn authenticated_packages_reject_duplicate_locator_with_one_drifted_copy() {
+        let project = tempdir().unwrap();
+        let first = project.path().join("node_modules/dup");
+        let parent = project.path().join("node_modules/parent");
+        let second = parent.join("node_modules/dup");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(
+            first.join("package.json"),
+            r#"{"name":"dup","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(first.join("index.js"), "module.exports = 'valid';").unwrap();
+        std::fs::write(
+            parent.join("package.json"),
+            r#"{"name":"parent","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            second.join("package.json"),
+            r#"{"name":"dup","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        std::fs::write(second.join("index.js"), "module.exports = 'drifted';").unwrap();
+        let expected = crate::module_loader::package_tree_integrity(&first).unwrap();
+        let principals = vec![serde_json::json!({
+            "principal": {
+                "kind": "package",
+                "name": "dup",
+                "locator": "dup@1.0.0",
+                "integrity": expected,
+            }
+        })];
+
+        let error = authenticated_installed_packages(project.path(), &principals).unwrap_err();
+        assert!(
+            error.to_string().contains("duplicate name+locator roots"),
+            "{error:#}"
+        );
+    }
+
+    #[test]
+    fn protected_artifacts_are_distinct_pinned_and_reject_mutable_reuse() {
+        let cache = tempdir().unwrap();
+        let roles = ["armed-policy", "engine-binary", "package-graph", "registry"];
+        let mut identities = std::collections::BTreeSet::new();
+        for role in roles {
+            let bytes = format!("protected:{role}");
+            let identity = materialize_protected_artifact(
+                cache.path(),
+                role,
+                "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                bytes.as_bytes(),
+            )
+            .unwrap();
+            assert!(identities.insert(identity.to_string()));
+        }
+        assert_eq!(identities.len(), 4);
+
+        let directory = cache.path().join("capsec-artifacts");
+        let policy = std::fs::read_dir(&directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.to_string_lossy().contains("armed-policy"))
+            .unwrap();
+        let mut permissions = std::fs::metadata(&policy).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            permissions.set_mode(0o600);
+        }
+        #[cfg(not(unix))]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&policy, permissions).unwrap();
+        let error = materialize_protected_artifact(
+            cache.path(),
+            "armed-policy",
+            "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            b"protected:armed-policy",
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("mutable"), "{error:#}");
+    }
+
     fn write_arming_fixture(directory: &Path) -> (PathBuf, PathBuf, String) {
         use capsec_semantics::arming::ExpectedArmingIdentity;
         use capsec_semantics::model::Digest;
@@ -3536,10 +3969,9 @@ mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
-        let digest = capsec_semantics::digest::compute_domain_digest(
-            capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+        let digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
-            &["armedSnapshotDigest".to_string()],
         )
         .unwrap();
         value["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
@@ -3564,7 +3996,6 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
-            target_complete_and_advertised: true,
         };
         let snapshot_path = directory.join("armed.json");
         let identity_path = directory.join("identity.json");

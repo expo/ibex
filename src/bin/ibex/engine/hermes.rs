@@ -58,7 +58,7 @@ struct HermesRuntimeOpaque {
 }
 
 extern "C" {
-    fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
+    fn ex_hermes_create_diagnostic() -> *mut HermesRuntimeOpaque;
     fn ex_hermes_create_armed(
         armed_snapshot_digest: *const std::os::raw::c_char,
     ) -> *mut HermesRuntimeOpaque;
@@ -517,7 +517,7 @@ impl SharedRuntime {
         let raw = unsafe {
             match digest.as_ref() {
                 Some(digest) => ex_hermes_create_armed(digest.as_ptr()),
-                None => ex_hermes_create(),
+                None => ex_hermes_create_diagnostic(),
             }
         };
         if raw.is_null() {
@@ -783,6 +783,11 @@ impl CdpBackend for HermesCdpBackend {
 }
 
 impl HermesEngine {
+    pub(crate) fn loaded_engine_identity(
+    ) -> Result<ibex_runtime::engine::LoadedEngineBinaryIdentity> {
+        ibex_runtime::engine::loaded_engine_binary_identity().map_err(anyhow::Error::msg)
+    }
+
     /// Create a new Hermes engine instance
     #[cfg(test)]
     pub fn new() -> Result<Self> {
@@ -2134,6 +2139,66 @@ mod tests {
         allow_list: bool,
         extra_floor: Vec<serde_json::Value>,
     ) -> (HostResetGuard, String) {
+        let (host, digest) = build_armed_test_host_at(
+            project_root,
+            allow_write,
+            allow_read,
+            allow_list,
+            extra_floor,
+        );
+        assert_ne!(
+            crate::host::abi::install_host(host),
+            0,
+            "test Host context token allocation"
+        );
+        (HostResetGuard, digest)
+    }
+
+    fn build_armed_test_host_at(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+        allow_read: bool,
+        allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
+    ) -> (crate::host::Host, String) {
+        build_armed_test_host_at_with_protected(
+            project_root,
+            allow_write,
+            allow_read,
+            allow_list,
+            extra_floor,
+            None,
+        )
+    }
+
+    fn build_armed_test_host_at_with_protected(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+        allow_read: bool,
+        allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
+        protected_objects: Option<Vec<serde_json::Value>>,
+    ) -> (crate::host::Host, String) {
+        build_armed_test_host_custom(
+            project_root,
+            allow_write,
+            allow_read,
+            allow_list,
+            extra_floor,
+            protected_objects,
+            |_| {},
+        )
+    }
+
+    fn build_armed_test_host_custom(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+        allow_read: bool,
+        allow_list: bool,
+        extra_floor: Vec<serde_json::Value>,
+        protected_objects: Option<Vec<serde_json::Value>>,
+        mutate: impl FnOnce(&mut serde_json::Value),
+    ) -> (crate::host::Host, String) {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
@@ -2144,6 +2209,9 @@ mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        if let Some(protected_objects) = protected_objects {
+            value["protectedObjects"] = serde_json::Value::Array(protected_objects);
+        }
         if let Some(project_root) = project_root {
             let components = project_root
                 .components()
@@ -2216,10 +2284,10 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .extend(extra_floor);
-        let digest = capsec_semantics::digest::compute_domain_digest(
-            capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+        mutate(&mut value);
+        let digest = capsec_semantics::digest::compute_checked_contract_digest(
+            capsec_semantics::digest::DigestKind::ArmedSnapshot,
             &value,
-            &["armedSnapshotDigest".to_string()],
         )
         .unwrap();
         value["armedSnapshotDigest"] = serde_json::Value::String(digest.clone());
@@ -2244,20 +2312,20 @@ mod tests {
                 .map(|feature| feature.as_str().unwrap().into())
                 .collect(),
             package_graph_digest: digest_at(&["packageGraph", "digest"]),
-            target_complete_and_advertised: true,
         };
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
-        let host = crate::host::Host::new_armed(
-            crate::host::HostConfig {
-                mode: crate::host::SecurityMode::Enforce,
-                ..Default::default()
-            },
-            Arc::new(snapshot),
-        )
+        let host = unsafe {
+            crate::host::Host::new_armed_for_test(
+                crate::host::HostConfig {
+                    mode: crate::host::SecurityMode::Enforce,
+                    ..Default::default()
+                },
+                Arc::new(snapshot),
+            )
+        }
         .unwrap();
-        crate::host::abi::install_host(host);
-        (HostResetGuard, digest)
+        (host, digest)
     }
 
     struct HostResetGuard;
@@ -2291,9 +2359,196 @@ mod tests {
         };
         assert!(error.to_string().contains("handshake was rejected"));
 
+        let diagnostic_error = match SharedRuntime::new(None) {
+            Ok(_) => panic!("diagnostic creation must not consume an armed Host context"),
+            Err(error) => error,
+        };
+        assert!(diagnostic_error
+            .to_string()
+            .contains("Failed to create Hermes runtime"));
+
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
         runtime.shutdown();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn concurrent_equal_digest_runtimes_claim_their_exact_installed_host() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let first_path = root.join("first-context.txt");
+        let second_path = root.join("second-context.txt");
+        fs::write(&first_path, b"first").unwrap();
+        fs::write(&second_path, b"second").unwrap();
+        let (first, first_digest) =
+            build_armed_test_host_at(Some(&root), false, false, false, vec![]);
+        let (second, second_digest) =
+            build_armed_test_host_at(Some(&root), false, false, false, vec![]);
+        assert_eq!(first_digest, second_digest, "snapshots intentionally match");
+        let first_observer = first.clone();
+        let second_observer = second.clone();
+
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let spawn = |host: crate::host::Host,
+                     digest: String,
+                     path: std::path::PathBuf,
+                     barrier: Arc<std::sync::Barrier>| {
+            std::thread::spawn(move || {
+                assert_ne!(crate::host::abi::install_host(host), 0);
+                // Both equal-digest Hosts are published before either runtime
+                // claims one. Digest-based newest-match selection can now swap
+                // them; the pending token must bind this thread's exact Host.
+                barrier.wait();
+                let runtime = SharedRuntime::new(Some(&digest)).expect("armed runtime");
+                let source = format!(
+                    "if (typeof __exactEnsureFs === 'function') __exactEnsureFs(); \
+                     try {{ __exactReadFile({path:?}); 'ALLOWED' }} \
+                     catch (_) {{ 'denied' }}",
+                    path = path.to_str().unwrap(),
+                );
+                let value = runtime
+                    .with_runtime(|raw| unsafe {
+                        let source_url = CString::new("host-context-binding-test.js").unwrap();
+                        let mut output = std::ptr::null_mut();
+                        let status = ex_hermes_eval(
+                            raw,
+                            source.as_ptr(),
+                            source.len(),
+                            source_url.as_ptr(),
+                            0,
+                            &mut output,
+                        );
+                        let value = if output.is_null() {
+                            String::new()
+                        } else {
+                            let value = CStr::from_ptr(output).to_string_lossy().into_owned();
+                            ex_hermes_free_string(output);
+                            value
+                        };
+                        (status, value)
+                    })
+                    .unwrap();
+                runtime.shutdown();
+                value
+            })
+        };
+
+        let first_thread = spawn(
+            first,
+            first_digest.clone(),
+            first_path,
+            Arc::clone(&barrier),
+        );
+        let second_thread = spawn(second, second_digest, second_path, barrier);
+        assert_eq!(first_thread.join().unwrap(), (0, "denied".into()));
+        assert_eq!(second_thread.join().unwrap(), (0, "denied".into()));
+
+        let first_evidence = serde_json::to_string(&first_observer.typed_evidence()).unwrap();
+        let second_evidence = serde_json::to_string(&second_observer.typed_evidence()).unwrap();
+        assert!(
+            first_evidence.contains("first-context.txt")
+                && !first_evidence.contains("second-context.txt"),
+            "first runtime decisions must stay on its exact Host: {first_evidence}"
+        );
+        assert!(
+            second_evidence.contains("second-context.txt")
+                && !second_evidence.contains("first-context.txt"),
+            "second runtime decisions must stay on its exact Host: {second_evidence}"
+        );
+        crate::host::abi::install_host(crate::host::Host::strict());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_runtime_reauthenticates_exact_package_source_after_creation() {
+        use std::os::unix::fs::MetadataExt;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let package_root = root.join("node_modules/pkg");
+        fs::create_dir_all(&package_root).unwrap();
+        fs::write(
+            package_root.join("package.json"),
+            r#"{"name":"pkg","version":"1.0.0","main":"index.js"}"#,
+        )
+        .unwrap();
+        let source = package_root.join("index.js");
+        fs::write(&source, "module.exports = 'authenticated';\n").unwrap();
+        let integrity = crate::module_loader::package_tree_integrity(&package_root).unwrap();
+        let metadata = fs::metadata(&package_root).unwrap();
+        let package_components = package_root
+            .components()
+            .filter_map(|component| match component {
+                std::path::Component::Normal(value) => Some(serde_json::json!({
+                    "encoding": "utf8",
+                    "value": value.to_str().unwrap(),
+                })),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let principal = serde_json::json!({
+            "kind": "package",
+            "name": "pkg",
+            "integrity": integrity,
+            "locator": "pkg@1.0.0",
+        });
+        let principal_for_snapshot = principal.clone();
+        let (host, digest) = build_armed_test_host_custom(
+            Some(&root),
+            false,
+            false,
+            false,
+            vec![],
+            None,
+            move |value| {
+                value["principals"][0]["imports"]["packages"] = serde_json::json!(["pkg@1.0.0"]);
+                value["principals"][1]["principal"] = principal_for_snapshot.clone();
+                value["packageGraph"]["nodes"][0]["principal"] = principal_for_snapshot.clone();
+                value["packageGraph"]["importEdges"][0]["imported"] =
+                    principal_for_snapshot.clone();
+                value["rootBindings"][0] = serde_json::json!({
+                    "logicalRoot": "package",
+                    "owner": principal_for_snapshot,
+                    "hostPath": {
+                        "root": "absolute",
+                        "components": package_components,
+                        "hostBound": true,
+                    },
+                    "object": {
+                        "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                            "apple"
+                        } else {
+                            "unix"
+                        },
+                        "volume": format!("dev:{}", metadata.dev()),
+                        "file": format!("ino:{}", metadata.ino()),
+                    },
+                });
+            },
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        // The Host and Hermes runtime are already armed. Replacing source now
+        // must invalidate the package principal before any replacement bytes
+        // reach compilation/evaluation.
+        fs::write(
+            &source,
+            "globalThis.__packageMutationExecuted = true; module.exports = 'mutated';\n",
+        )
+        .unwrap();
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  try { require('pkg'); return 'ALLOWED'; }
+                  catch (_) { return String(globalThis.__packageMutationExecuted === true); }
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("false"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -2820,6 +3075,136 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
+    async fn armed_create_rollback_never_unlinks_a_racing_creator() {
+        struct TestEnvironment;
+        impl Drop for TestEnvironment {
+            fn drop(&mut self) {
+                std::env::remove_var("IBEX_TEST_ARMED_CREATE_PAUSE_MS");
+                std::env::remove_var("IBEX_TEST_ARMED_DENY_OPEN_COMMIT");
+            }
+        }
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let target = root.join("raced-create.txt");
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true, false, true, vec![]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        // Pause after the bridge observes absence, let an independent creator
+        // publish the name, then force the post-open commit to deny. A racy
+        // precheck implementation marks the competitor's object as "created"
+        // and unlinks it during rollback; O_EXCL ownership must not.
+        std::env::set_var("IBEX_TEST_ARMED_CREATE_PAUSE_MS", "250");
+        std::env::set_var("IBEX_TEST_ARMED_DENY_OPEN_COMMIT", "1");
+        let _environment = TestEnvironment;
+        let competitor_target = target.clone();
+        let competitor = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            fs::write(competitor_target, b"competitor-owned").unwrap();
+        });
+
+        let outcome = engine
+            .eval_immediate(&format!(
+                "if (typeof __exactEnsureFs === 'function') __exactEnsureFs(); \
+                 try {{ __exactFsOpen({path:?}, 'w'); 'ALLOWED' }} \
+                 catch (_) {{ 'denied' }}",
+                path = target.to_str().unwrap(),
+            ))
+            .await
+            .unwrap();
+        competitor.join().unwrap();
+
+        assert_eq!(outcome.as_deref(), Some("denied"));
+        assert_eq!(fs::read(&target).unwrap(), b"competitor-owned");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn all_protected_roles_deny_write_unlink_rename_and_replace_before_mutation() {
+        use std::os::unix::fs::MetadataExt;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let roles = ["armed-policy", "engine-binary", "package-graph", "registry"];
+        let mut paths = Vec::new();
+        let mut protected = Vec::new();
+        for role in roles {
+            let path = root.join(format!("{role}.artifact"));
+            fs::write(&path, format!("original:{role}")).unwrap();
+            fs::write(
+                root.join(format!("{role}.artifact.replacement")),
+                format!("replacement:{role}"),
+            )
+            .unwrap();
+            let metadata = fs::metadata(&path).unwrap();
+            protected.push(serde_json::json!({
+                "role": role,
+                "object": {
+                    "platform": if cfg!(any(target_os = "macos", target_os = "ios")) {
+                        "apple"
+                    } else {
+                        "unix"
+                    },
+                    "volume": format!("dev:{}", metadata.dev()),
+                    "file": format!("ino:{}", metadata.ino()),
+                },
+                "deniedActions": ["fs:write"],
+            }));
+            paths.push(path);
+        }
+        let (host, digest) = build_armed_test_host_at_with_protected(
+            Some(&root),
+            true,
+            true,
+            true,
+            vec![],
+            Some(protected),
+        );
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let js_paths = serde_json::to_string(
+            &paths
+                .iter()
+                .map(|path| path.to_str().unwrap())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let outcome = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  var paths = {js_paths};
+                  var denied = 0;
+                  for (var i = 0; i < paths.length; i++) {{
+                    var path = paths[i];
+                    try {{ __exactWriteFile(path, 'mutated'); }} catch (_) {{ denied++; }}
+                    try {{ __exactUnlink(path); }} catch (_) {{ denied++; }}
+                    try {{ __exactRename(path, path + '.moved'); }} catch (_) {{ denied++; }}
+                    try {{ __exactRename(path + '.replacement', path); }} catch (_) {{ denied++; }}
+                  }}
+                  return String(denied);
+                }})()"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("16"));
+        for (role, path) in roles.into_iter().zip(paths) {
+            assert_eq!(
+                fs::read(&path).unwrap(),
+                format!("original:{role}").as_bytes()
+            );
+            assert!(!path.with_extension("artifact.moved").exists());
+            assert_eq!(
+                fs::read(format!("{}.replacement", path.display())).unwrap(),
+                format!("replacement:{role}").as_bytes()
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
     async fn armed_fs_list_denial_prevents_metadata_and_directory_disclosure() {
         let _lock = hermes_engine_test_lock().lock().await;
         let root = std::env::temp_dir().join(format!(
@@ -3210,6 +3595,472 @@ mod tests {
         // Pre-fix (lseek+read) this returned "hi" because the positional read
         // moved the cursor to offset 7; pread leaves it at 0 -> "ab".
         assert_eq!(parsed["sequential"], "ab", "{outcome}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn stale_fd_number_reuse_never_authorizes_the_replacement_object() {
+        use std::os::fd::AsRawFd;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let first = tempdir.path().join("first.txt");
+        let replacement = tempdir.path().join("replacement.txt");
+        fs::write(&first, b"AAAA").unwrap();
+        fs::write(&replacement, b"BBBB").unwrap();
+        let first_path = first.to_str().unwrap();
+        let read_cap = format!("fs:read:{first_path}");
+        let _host_guard = install_test_host_with_allow(&[&read_cap]);
+        let engine = HermesEngine::new().unwrap();
+
+        let opened = engine
+            .eval_immediate(&format!(
+                "if (typeof __exactEnsureFs === 'function') __exactEnsureFs(); \
+                 String(__exactFsOpen({first_path:?}, 'r'))"
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let fd: i32 = opened.trim().parse().expect("numeric native fd");
+
+        assert_eq!(unsafe { libc::close(fd) }, 0);
+        let replacement_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&replacement)
+            .unwrap();
+        let replacement_source_fd = replacement_file.as_raw_fd();
+        if replacement_source_fd != fd {
+            assert_eq!(unsafe { libc::dup2(replacement_source_fd, fd) }, fd);
+        }
+
+        let outcome = engine
+            .eval_immediate(&format!(
+                r#"(function(fd) {{
+                  function denied(operation) {{
+                    try {{
+                      operation();
+                      return 'ALLOWED';
+                    }} catch (error) {{
+                      return String(error && error.message || error);
+                    }}
+                  }}
+                  return JSON.stringify([
+                    denied(function() {{ __exactFsRead(fd, 1, -1); }}),
+                    denied(function() {{ __exactFsFstatSync(fd); }}),
+                    denied(function() {{ __exactFsWrite(fd, new Uint8Array([88]), 0); }}),
+                    denied(function() {{ __exactFsReadAsync(fd, 1, -1); }}),
+                    denied(function() {{ __exactFsWriteAsync(fd, new Uint8Array([88]), 0); }}),
+                    denied(function() {{ __exactFsClose(fd); }}),
+                    denied(function() {{ __exactFsCloseAsync(fd); }})
+                  ]);
+                }})({fd})"#
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let denials: Vec<String> = serde_json::from_str(&outcome).unwrap();
+        assert_eq!(denials.len(), 7);
+        assert!(
+            denials
+                .iter()
+                .all(|message| message.contains("bad file descriptor")),
+            "every stale sync/async operation must fail as EBADF: {denials:?}"
+        );
+
+        let mut bytes = [0u8; 4];
+        assert_eq!(
+            unsafe { libc::pread(fd, bytes.as_mut_ptr().cast(), bytes.len(), 0) },
+            4,
+            "denied close must leave the replacement descriptor open"
+        );
+        assert_eq!(&bytes, b"BBBB", "denied writes must not mutate replacement");
+
+        drop(engine);
+        if replacement_source_fd != fd {
+            assert_eq!(unsafe { libc::close(fd) }, 0);
+        }
+        drop(replacement_file);
+        assert_eq!(fs::read(&replacement).unwrap(), b"BBBB");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn runtime_cleanup_never_closes_a_reused_descriptor_number() {
+        use std::os::fd::AsRawFd;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let owned_path = tempdir.path().join("owned.txt");
+        let replacement_path = tempdir.path().join("replacement.txt");
+        fs::write(&owned_path, b"owned").unwrap();
+        fs::write(&replacement_path, b"replacement").unwrap();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let engine = HermesEngine::new().unwrap();
+        let fd = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  return String(__exactFsOpen({:?}, 'r'));
+                }})()"#,
+                owned_path.to_str().unwrap()
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .parse::<i32>()
+            .unwrap();
+
+        assert_eq!(unsafe { libc::close(fd) }, 0);
+        let replacement = std::fs::File::open(&replacement_path).unwrap();
+        let replacement_source_fd = replacement.as_raw_fd();
+        if replacement_source_fd != fd {
+            assert_eq!(unsafe { libc::dup2(replacement_source_fd, fd) }, fd);
+        }
+
+        drop(engine);
+        let mut bytes = [0u8; 11];
+        assert_eq!(
+            unsafe { libc::pread(fd, bytes.as_mut_ptr().cast(), bytes.len(), 0) },
+            bytes.len() as isize
+        );
+        assert_eq!(&bytes, b"replacement");
+        if replacement_source_fd != fd {
+            assert_eq!(unsafe { libc::close(fd) }, 0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn concurrent_destroy_waits_for_an_inflight_fs_worker_pin() {
+        use std::io::Write as _;
+
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let fifo = tempdir.path().join("blocked-read.fifo");
+        let fifo_c = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o600) }, 0);
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let engine = HermesEngine::new().unwrap();
+        let started = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  globalThis.__blockedRead = __exactFsReadFileAsync({:?}, 'r', 0);
+                  return 'started';
+                }})()"#,
+                fifo.to_str().unwrap()
+            ))
+            .await
+            .unwrap();
+        assert_eq!(started.as_deref(), Some("started"));
+        let shared = engine.runtime.lock().await.as_ref().unwrap().shared();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let destroy = std::thread::spawn(move || {
+            shared.shutdown();
+            done_tx.send(()).unwrap();
+        });
+
+        assert!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err(),
+            "destroy must wait while the worker owns a runtime lifetime pin"
+        );
+        let mut writer = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+        writer.write_all(b"release").unwrap();
+        drop(writer);
+        done_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        destroy.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn diagnostic_allow_all_cannot_use_or_close_an_armed_runtime_fd_or_socket() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(tempdir.path()).unwrap();
+        let file = root.join("armed-owned.txt");
+        fs::write(&file, b"armed").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false, true, true, vec![]);
+        let armed = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let handles = armed
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                  return JSON.stringify({{
+                    fd: __exactFsOpen({path:?}, 'r'),
+                    socket: __exactUdpSocket('udp4')
+                  }});
+                }})()"#,
+                path = file.to_str().unwrap(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let handles: serde_json::Value = serde_json::from_str(&handles).unwrap();
+        let fd = handles["fd"].as_i64().unwrap();
+        let socket = handles["socket"].as_i64().unwrap();
+
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let diagnostic = HermesEngine::new().unwrap();
+        let denied = diagnostic
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
+                  if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                  var denied = 0;
+                  try {{ __exactFsRead({fd}, 1, -1); }} catch (_) {{ denied++; }}
+                  try {{ __exactFsClose({fd}); }} catch (_) {{ denied++; }}
+                  try {{ __exactUdpClose({socket}); }} catch (_) {{ denied++; }}
+                  return String(denied);
+                }})()"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.as_deref(), Some("3"));
+
+        let owner_result = armed
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  var text = String.fromCharCode.apply(null, __exactFsRead({fd}, 5, -1));
+                  __exactFsClose({fd});
+                  __exactUdpClose({socket});
+                  return text;
+                }})()"#,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(owner_result.as_deref(), Some("armed"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_runtime_cannot_use_or_close_diagnostic_sqlite_handles() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let owner = HermesEngine::new().unwrap();
+        let handles = owner
+            .eval_immediate(
+                r#"(function() {
+                  if (typeof __exactEnsureSqlite === 'function') __exactEnsureSqlite();
+                  var db = __exactSqliteOpen(':memory:', null);
+                  var statement = __exactSqlitePrepare(db, 'SELECT 1 AS value');
+                  globalThis.__ownedSqliteDb = db;
+                  globalThis.__ownedSqliteStatement = statement.handle;
+                  return JSON.stringify({ db: db, statement: statement.handle });
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let handles: serde_json::Value = serde_json::from_str(&handles).unwrap();
+        let db = handles["db"].as_u64().unwrap();
+        let statement = handles["statement"].as_u64().unwrap();
+
+        let (_reset, digest) = install_armed_test_host();
+        let intruder = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let denied = intruder
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureSqlite === 'function') __exactEnsureSqlite();
+                  var denied = 0;
+                  try {{ __exactSqliteInTransaction({db}); }} catch (_) {{ denied++; }}
+                  try {{ __exactSqliteExpandedSql({statement}); }} catch (_) {{ denied++; }}
+                  try {{ __exactSqliteFinalize({statement}); }} catch (_) {{ denied++; }}
+                  try {{ __exactSqliteClose({db}); }} catch (_) {{ denied++; }}
+                  return String(denied);
+                }})()"#
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.as_deref(), Some("4"));
+
+        let owner_result = owner
+            .eval_immediate(
+                r#"(function() {
+                  var sql = __exactSqliteExpandedSql(globalThis.__ownedSqliteStatement);
+                  __exactSqliteFinalize(globalThis.__ownedSqliteStatement);
+                  __exactSqliteClose(globalThis.__ownedSqliteDb);
+                  return sql;
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(owner_result.as_deref(), Some("SELECT 1 AS value"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelling_one_runtime_fetch_never_cancels_another_runtime_request() {
+        let _guard = hermes_engine_test_lock().lock().await;
+
+        struct HeldServer {
+            url: String,
+            accepted: std::sync::mpsc::Receiver<()>,
+            release: std::sync::mpsc::Sender<()>,
+            join: std::thread::JoinHandle<()>,
+        }
+        fn held_server(body: &'static str) -> HeldServer {
+            use std::io::{Read as _, Write as _};
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let (accepted_tx, accepted) = std::sync::mpsc::channel();
+            let (release, release_rx) = std::sync::mpsc::channel();
+            let join = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request);
+                accepted_tx.send(()).unwrap();
+                release_rx
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).unwrap();
+            });
+            HeldServer {
+                url: format!("http://127.0.0.1:{port}/"),
+                accepted,
+                release,
+                join,
+            }
+        }
+
+        let first_server = held_server("first");
+        let second_server = held_server("second");
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let first = HermesEngine::new().unwrap();
+        assert_ne!(
+            crate::host::abi::install_host(crate::host::Host::default_legacy()),
+            0
+        );
+        let second = HermesEngine::new().unwrap();
+
+        for (engine, url, name) in [
+            (&first, first_server.url.as_str(), "first"),
+            (&second, second_server.url.as_str(), "second"),
+        ] {
+            let started = engine
+                .eval_immediate(&format!(
+                    r#"globalThis.__fetchState = 'pending';
+                       globalThis.__fetchPromise = __nativeFetch({url:?}, {{}});
+                       globalThis.__fetchPromise.then(
+                         function(response) {{ globalThis.__fetchState = 'ok:' + response.status; }},
+                         function(error) {{ globalThis.__fetchState = 'error:' + String(error); }}
+                       );
+                       {name:?};"#
+                ))
+                .await
+                .unwrap();
+            assert_eq!(started.as_deref(), Some(name));
+        }
+        first_server
+            .accepted
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        second_server
+            .accepted
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+
+        first
+            .eval_immediate("globalThis.__fetchPromise.__exactCancel(); 'cancelled';")
+            .await
+            .unwrap();
+        second_server.release.send(()).unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let second_state = loop {
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                second.drive_event_loop(),
+            )
+            .await;
+            let state = second
+                .eval_immediate("globalThis.__fetchState")
+                .await
+                .unwrap()
+                .unwrap_or_default();
+            if state != "pending" || std::time::Instant::now() >= deadline {
+                break state;
+            }
+        };
+        assert_eq!(second_state, "ok:200");
+
+        first_server.release.send(()).unwrap();
+        first_server.join.join().unwrap();
+        second_server.join.join().unwrap();
+    }
+
+    #[cfg(feature = "host-http-server")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_runtime_cannot_use_or_close_diagnostic_http_server() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _host_guard = install_test_host_with_allow(&["network:listen:127.0.0.1:0"]);
+        let owner = HermesEngine::new().unwrap();
+        let server = eval_json(
+            &owner,
+            r#"(function() {
+              if (typeof __exactEnsureHttp === 'function') __exactEnsureHttp();
+              var result = JSON.parse(__exactHttpServe(0, '127.0.0.1'));
+              globalThis.__ownedHttpServer = result.id;
+              return JSON.stringify(result);
+            })()"#,
+        )
+        .await;
+        let server_id = server["id"].as_u64().unwrap();
+
+        let (_reset, digest) = install_armed_test_host();
+        let intruder = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let denied = intruder
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureHttp === 'function') __exactEnsureHttp();
+                  var denied = 0;
+                  try {{ __exactHttpAddress({server_id}); }} catch (_) {{ denied++; }}
+                  try {{ __exactHttpSetRef({server_id}, 0); }} catch (_) {{ denied++; }}
+                  try {{ __exactHttpClose({server_id}, 1); }} catch (_) {{ denied++; }}
+                  return String(denied);
+                }})()"#
+            ))
+            .await
+            .unwrap();
+        assert_eq!(denied.as_deref(), Some("3"));
+
+        let owner_result = owner
+            .eval_immediate(
+                r#"(function() {
+                  var address = __exactHttpAddress(globalThis.__ownedHttpServer);
+                  __exactHttpClose(globalThis.__ownedHttpServer, 1);
+                  return address === null ? 'missing' : 'closed';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(owner_result.as_deref(), Some("closed"));
     }
 
     #[cfg(feature = "host-http-server")]

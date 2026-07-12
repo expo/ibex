@@ -563,6 +563,16 @@ describe('path async fs natives (ENG-23541)', () => {
     expect(first && first.name).toBe('nested');
     expect(pathAsyncCalls.readdir).toBeGreaterThanOrEqual(3);
   });
+
+  test('recursive readdir preserves nested names for absolute trailing-slash roots', async () => {
+    const root = nodePath.join(dir, 'async-tree-trailing');
+    nodeFs.mkdirSync(nodePath.join(root, 'nested'), { recursive: true });
+    nodeFs.writeFileSync(nodePath.join(root, 'nested', 'leaf'), 'x');
+    const entries = await fs.promises.readdir(root + nodePath.sep, { recursive: true });
+    expect(entries).toContain('nested');
+    expect(entries).toContain(nodePath.join('nested', 'leaf'));
+    expect(entries).not.toContain(nodePath.join('ested', 'leaf'));
+  });
 });
 
 describe('vectored async fs natives (ENG-23541)', () => {
@@ -719,5 +729,37 @@ describe('async traversal fs APIs (ENG-23541)', () => {
       setTimeout(() => nodeFs.writeFileSync(p, 'bb'), 30);
     });
     expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
+  });
+
+  test('watch polling uses async metadata natives and detects a file change', async () => {
+    const p = nodePath.join(dir, 'watch-worker-backed.txt');
+    nodeFs.writeFileSync(p, 'a');
+    asyncNativeCalls.stat = 0;
+    await new Promise<void>((resolve, reject) => {
+      const watcher = fs.watch(p, { interval: 10 }, (event: string) => {
+        if (event !== 'change') return;
+        clearTimeout(timeout);
+        watcher.close();
+        resolve();
+      });
+      const timeout = setTimeout(() => {
+        watcher.close();
+        reject(new Error('watch timeout'));
+      }, 1000);
+      setTimeout(() => nodeFs.writeFileSync(p, 'changed'), 40);
+    });
+    expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
+  });
+
+  test('non-recursive async rm rejects directories without deleting them', async () => {
+    const empty = nodePath.join(dir, 'rm-empty-directory');
+    const nonempty = nodePath.join(dir, 'rm-nonempty-directory');
+    nodeFs.mkdirSync(empty);
+    nodeFs.mkdirSync(nonempty);
+    nodeFs.writeFileSync(nodePath.join(nonempty, 'child'), 'x');
+    await expect(fs.promises.rm(empty)).rejects.toMatchObject({ code: 'ERR_FS_EISDIR' });
+    await expect(fs.promises.rm(nonempty)).rejects.toMatchObject({ code: 'ERR_FS_EISDIR' });
+    expect(nodeFs.existsSync(empty)).toBe(true);
+    expect(nodeFs.existsSync(nonempty)).toBe(true);
   });
 });

@@ -33,6 +33,7 @@ namespace {
 
 struct SocketEntry {
   int fd = -1;
+  uint64_t runtimeNonce = 0;
   uint64_t owner = 0;
   std::string capability;
   bool typedConnect = false;
@@ -48,6 +49,22 @@ struct SocketEntry {
 static std::unordered_map<int, SocketEntry> g_socket_handles;
 static int g_next_socket_handle = 1;
 static std::mutex g_socket_mutex;
+
+void cleanupRuntimeSockets(uint64_t runtimeNonce) {
+  std::vector<int> owned;
+  {
+    std::lock_guard<std::mutex> lock(g_socket_mutex);
+    for (auto it = g_socket_handles.begin(); it != g_socket_handles.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        if (it->second.fd >= 0) owned.push_back(it->second.fd);
+        it = g_socket_handles.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  for (int fd : owned) ::close(fd);
+}
 
 std::string networkEndpointCapability(const char* base, const std::string& host, int port) {
   return std::string(base) + ":" + host + ":" + std::to_string(port);
@@ -94,6 +111,7 @@ int registerSocketHandle(int fd, const std::string& capability, uint64_t owner =
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.capability = capability;
   g_socket_handles[handle] = std::move(entry);
@@ -113,6 +131,7 @@ int registerTypedConnectHandle(
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
   entry.typedHost = host;
@@ -136,6 +155,7 @@ int registerTypedPendingConnectHandle(
   int handle = g_next_socket_handle++;
   SocketEntry entry;
   entry.fd = fd;
+  entry.runtimeNonce = exactCurrentRuntimeNonce();
   entry.owner = owner;
   entry.typedConnect = true;
   entry.typedPending = true;
@@ -269,6 +289,9 @@ SocketEntry requireSocketHandle(
     }
     entry = it->second;
   }
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
   if (!isAllowAll()) {
     if (entry.owner != currentPrincipalId()) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -318,7 +341,8 @@ int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscal
   if (it == g_socket_handles.end()) {
     return -1;
   }
-  if (!isAllowAll() && it->second.owner != entry.owner) {
+  if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      (!isAllowAll() && it->second.owner != entry.owner)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   int fd = it->second.fd;
@@ -342,6 +366,7 @@ void commitTypedPendingSocket(
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   auto current = g_socket_handles.find(handle);
   if (current == g_socket_handles.end() || current->second.fd != pending.fd ||
+      current->second.runtimeNonce != exactCurrentRuntimeNonce() ||
       current->second.owner != pending.owner || !current->second.typedPending) {
     throw facebook::jsi::JSError(runtime, "TCP pending handle changed before commit");
   }
@@ -358,12 +383,18 @@ void setSocketCapability(
   SocketEntry entry = requireSocketHandle(runtime, handle, syscall);
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   auto it = g_socket_handles.find(handle);
-  if (it != g_socket_handles.end() && (isAllowAll() || it->second.owner == entry.owner)) {
+  if (it != g_socket_handles.end() &&
+      it->second.runtimeNonce == exactCurrentRuntimeNonce() &&
+      (isAllowAll() || it->second.owner == entry.owner)) {
     it->second.capability = capability;
   }
 }
 
 } // namespace
+
+void exactCleanupRuntimeSockets(uint64_t runtimeNonce) {
+  cleanupRuntimeSockets(runtimeNonce);
+}
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;

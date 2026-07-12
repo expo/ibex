@@ -37,4 +37,7 @@ pub mod http_server {
 
 // Re-export everything from the shared runtime
 #[allow(unused_imports)]
-pub use ibex_runtime::host::{abi, capability, policy, process, Host, HostConfig, SecurityMode};
+pub use ibex_runtime::host::{
+    abi, capability, policy, process, reject_closed_startup_environment, Host, HostConfig,
+    SecurityMode,
+};

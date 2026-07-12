@@ -54,6 +54,7 @@ typedef void (*NativeFetchResponseCallback)(
 namespace {
 
 struct LinuxFetchRequest {
+    uint64_t runtime_nonce{0};
     std::atomic<bool> cancelled{false};
 };
 
@@ -584,6 +585,7 @@ static void native_fetch_perform_async(
 
 extern "C" void native_fetch_perform(
     uint32_t request_id,
+    uint64_t runtime_nonce,
     const char* method,
     const char* url,
     const char* headers,
@@ -610,6 +612,7 @@ extern "C" void native_fetch_perform(
     }
 
     auto request_state = std::make_shared<LinuxFetchRequest>();
+    request_state->runtime_nonce = runtime_nonce;
     register_fetch_request(request_id, request_state);
 
     // ENG-23471 — run the blocking transfer on the bounded FetchWorkerPool
@@ -645,12 +648,13 @@ extern "C" void native_fetch_perform(
     }
 }
 
-extern "C" void native_fetch_cancel(uint32_t request_id) {
+extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce) {
     std::shared_ptr<LinuxFetchRequest> request;
     {
         std::lock_guard<std::mutex> lock(g_fetch_requests_mutex);
         auto it = g_fetch_requests.find(request_id);
-        if (it == g_fetch_requests.end()) {
+        if (it == g_fetch_requests.end() ||
+            it->second->runtime_nonce != runtime_nonce) {
             return;
         }
         request = it->second;

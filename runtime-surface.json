@@ -13,8 +13,16 @@
     "policy",
     "capsec"
   ],
-  "hiddenHarnessCommands": ["self-test", "compat"],
-  "reservedCommands": ["test", "install", "bench", "exec"],
+  "hiddenHarnessCommands": [
+    "self-test",
+    "compat"
+  ],
+  "reservedCommands": [
+    "test",
+    "install",
+    "bench",
+    "exec"
+  ],
   "legacyProjectCommands": [
     "new",
     "create",
@@ -45,58 +53,177 @@
         {
           "commandPath": "ibex compat",
           "argumentId": "log",
-          "conflictsWith": ["json"]
+          "conflictsWith": [
+            "json"
+          ]
         }
       ],
       "nonEnumeratedParsers": [
-        { "commandPath": "ibex", "argumentId": "allow", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "args", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "capsec_armed_snapshot", "parserKind": "os-path" },
-        { "commandPath": "ibex", "argumentId": "capsec_arming_identity", "parserKind": "os-path" },
-        { "commandPath": "ibex", "argumentId": "deny", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "eval_code", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "file", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "inspect_host", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "inspect_port", "parserKind": "unsigned-integer-u16" },
+        {
+          "commandPath": "ibex",
+          "argumentId": "allow",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "args",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "capsec_armed_snapshot",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "capsec_arming_identity",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "deny",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "eval_code",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "file",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "inspect_host",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "inspect_port",
+          "parserKind": "unsigned-integer-u16"
+        },
         {
           "commandPath": "ibex",
           "argumentId": "max_http_header_size",
           "parserKind": "unsigned-integer-usize"
         },
-        { "commandPath": "ibex", "argumentId": "policy", "parserKind": "os-path" },
-        { "commandPath": "ibex", "argumentId": "print_eval", "parserKind": "utf8-string" },
-        { "commandPath": "ibex", "argumentId": "stack_size", "parserKind": "utf8-string" },
-        { "commandPath": "ibex build", "argumentId": "file", "parserKind": "utf8-string" },
-        { "commandPath": "ibex build", "argumentId": "outdir", "parserKind": "os-path" },
-        { "commandPath": "ibex capsec audit", "argumentId": "args", "parserKind": "utf8-string" },
-        { "commandPath": "ibex capsec audit", "argumentId": "file", "parserKind": "utf8-string" },
+        {
+          "commandPath": "ibex",
+          "argumentId": "policy",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "print_eval",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "project_root",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex",
+          "argumentId": "stack_size",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex build",
+          "argumentId": "file",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex build",
+          "argumentId": "outdir",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex capsec audit",
+          "argumentId": "args",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex capsec audit",
+          "argumentId": "file",
+          "parserKind": "utf8-string"
+        },
         {
           "commandPath": "ibex compat",
           "argumentId": "jobs",
           "parserKind": "unsigned-integer-usize"
         },
-        { "commandPath": "ibex compat", "argumentId": "module", "parserKind": "utf8-string" },
-        { "commandPath": "ibex compat", "argumentId": "section", "parserKind": "utf8-string" },
-        { "commandPath": "ibex compat", "argumentId": "test", "parserKind": "utf8-string" },
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "module",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "section",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex compat",
+          "argumentId": "test",
+          "parserKind": "utf8-string"
+        },
         {
           "commandPath": "ibex compat",
           "argumentId": "timeout",
           "parserKind": "unsigned-integer-u64"
         },
-        { "commandPath": "ibex eval", "argumentId": "code", "parserKind": "utf8-string" },
-        { "commandPath": "ibex policy check", "argumentId": "entry", "parserKind": "os-path" },
-        { "commandPath": "ibex policy check", "argumentId": "mode", "parserKind": "utf8-string" },
-        { "commandPath": "ibex policy check", "argumentId": "out", "parserKind": "os-path" },
-        { "commandPath": "ibex policy generate", "argumentId": "entry", "parserKind": "os-path" },
+        {
+          "commandPath": "ibex eval",
+          "argumentId": "code",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy check",
+          "argumentId": "entry",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex policy check",
+          "argumentId": "mode",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex policy check",
+          "argumentId": "out",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex policy generate",
+          "argumentId": "entry",
+          "parserKind": "os-path"
+        },
         {
           "commandPath": "ibex policy generate",
           "argumentId": "mode",
           "parserKind": "utf8-string"
         },
-        { "commandPath": "ibex policy generate", "argumentId": "out", "parserKind": "os-path" },
-        { "commandPath": "ibex run", "argumentId": "args", "parserKind": "utf8-string" },
-        { "commandPath": "ibex run", "argumentId": "file", "parserKind": "utf8-string" },
-        { "commandPath": "ibex run", "argumentId": "inspect_host", "parserKind": "utf8-string" },
+        {
+          "commandPath": "ibex policy generate",
+          "argumentId": "out",
+          "parserKind": "os-path"
+        },
+        {
+          "commandPath": "ibex run",
+          "argumentId": "args",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex run",
+          "argumentId": "file",
+          "parserKind": "utf8-string"
+        },
+        {
+          "commandPath": "ibex run",
+          "argumentId": "inspect_host",
+          "parserKind": "utf8-string"
+        },
         {
           "commandPath": "ibex run",
           "argumentId": "inspect_port",
@@ -110,11 +237,15 @@
         "options": [
           {
             "id": "allow",
-            "names": ["--allow"],
+            "names": [
+              "--allow"
+            ],
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["CAPABILITY"],
+              "valueNames": [
+                "CAPABILITY"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -123,49 +254,72 @@
               "defaultValues": [],
               "defaultMissingValues": [],
               "allowHyphenValues": false
-            }
+            },
+            "hidden": true
           },
           {
             "id": "allow_all",
-            "names": ["--allow-all"],
+            "names": [
+              "--allow-all"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["ALLOW_ALL"],
+              "valueNames": [
+                "ALLOW_ALL"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
-            }
+            },
+            "hidden": true
           },
           {
             "id": "allow_env_endowments",
-            "names": ["--allow-env-endowments"],
+            "names": [
+              "--allow-env-endowments"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["ALLOW_ENV_ENDOWMENTS"],
+              "valueNames": [
+                "ALLOW_ENV_ENDOWMENTS"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
-            }
+            },
+            "hidden": true
           },
           {
             "id": "bundle_format",
-            "names": ["--bundle-format"],
+            "names": [
+              "--bundle-format"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["BUNDLE_FORMAT"],
+              "valueNames": [
+                "BUNDLE_FORMAT"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "enumerated",
@@ -182,7 +336,9 @@
                 }
               ],
               "possibleValuesHidden": false,
-              "defaultValues": ["esm"],
+              "defaultValues": [
+                "esm"
+              ],
               "defaultMissingValues": [],
               "allowHyphenValues": false
             },
@@ -190,11 +346,15 @@
           },
           {
             "id": "capsec",
-            "names": ["--capsec"],
+            "names": [
+              "--capsec"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["CAPSEC"],
+              "valueNames": [
+                "CAPSEC"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "enumerated",
@@ -207,50 +367,70 @@
                 {
                   "value": "permissive",
                   "aliases": [],
-                  "hidden": false
+                  "hidden": true
                 },
                 {
                   "value": "audit",
                   "aliases": [],
-                  "hidden": false
+                  "hidden": true
                 },
                 {
                   "value": "enforce",
-                  "aliases": ["strict", "capability"],
+                  "aliases": [
+                    "strict",
+                    "capability"
+                  ],
                   "hidden": false
                 }
               ],
               "possibleValuesHidden": false,
-              "defaultValues": ["auto"],
+              "defaultValues": [
+                "auto"
+              ],
               "defaultMissingValues": [],
               "allowHyphenValues": false
             }
           },
           {
             "id": "capsec_allow_advisory",
-            "names": ["--capsec-allow-advisory"],
+            "names": [
+              "--capsec-allow-advisory"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["CAPSEC_ALLOW_ADVISORY"],
+              "valueNames": [
+                "CAPSEC_ALLOW_ADVISORY"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             },
-            "hiddenAliases": ["--allow-advisory-attribution"]
+            "hidden": true,
+            "hiddenAliases": [
+              "--allow-advisory-attribution"
+            ]
           },
           {
             "id": "capsec_armed_snapshot",
-            "names": ["--capsec-armed-snapshot"],
+            "names": [
+              "--capsec-armed-snapshot"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -264,11 +444,15 @@
           },
           {
             "id": "capsec_arming_identity",
-            "names": ["--capsec-arming-identity"],
+            "names": [
+              "--capsec-arming-identity"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -282,11 +466,15 @@
           },
           {
             "id": "compat",
-            "names": ["--compat"],
+            "names": [
+              "--compat"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["MODE"],
+              "valueNames": [
+                "MODE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "enumerated",
@@ -305,29 +493,41 @@
           },
           {
             "id": "completion_bash",
-            "names": ["--completion-bash"],
+            "names": [
+              "--completion-bash"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["COMPLETION_BASH"],
+              "valueNames": [
+                "COMPLETION_BASH"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             },
             "hidden": true
           },
           {
             "id": "deny",
-            "names": ["--deny"],
+            "names": [
+              "--deny"
+            ],
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["CAPABILITY"],
+              "valueNames": [
+                "CAPABILITY"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -336,15 +536,20 @@
               "defaultValues": [],
               "defaultMissingValues": [],
               "allowHyphenValues": false
-            }
+            },
+            "hidden": true
           },
           {
             "id": "engine",
-            "names": ["--engine"],
+            "names": [
+              "--engine"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["ENGINE"],
+              "valueNames": [
+                "ENGINE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "enumerated",
@@ -356,18 +561,25 @@
                 }
               ],
               "possibleValuesHidden": false,
-              "defaultValues": ["hermes"],
+              "defaultValues": [
+                "hermes"
+              ],
               "defaultMissingValues": [],
               "allowHyphenValues": false
             }
           },
           {
             "id": "eval_code",
-            "names": ["--eval", "-e"],
+            "names": [
+              "--eval",
+              "-e"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["CODE"],
+              "valueNames": [
+                "CODE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -380,46 +592,66 @@
           },
           {
             "id": "expose_internals",
-            "names": ["--expose-internals"],
+            "names": [
+              "--expose-internals"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["EXPOSE_INTERNALS"],
+              "valueNames": [
+                "EXPOSE_INTERNALS"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             },
             "hidden": true
           },
           {
             "id": "inspect",
-            "names": ["--inspect"],
+            "names": [
+              "--inspect"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT"],
+              "valueNames": [
+                "INSPECT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_host",
-            "names": ["--inspect-host"],
+            "names": [
+              "--inspect-host"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["INSPECT_HOST"],
+              "valueNames": [
+                "INSPECT_HOST"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -432,45 +664,65 @@
           },
           {
             "id": "inspect_open",
-            "names": ["--inspect-open"],
+            "names": [
+              "--inspect-open"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_OPEN"],
+              "valueNames": [
+                "INSPECT_OPEN"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_pause",
-            "names": ["--inspect-pause"],
+            "names": [
+              "--inspect-pause"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_PAUSE"],
+              "valueNames": [
+                "INSPECT_PAUSE"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_port",
-            "names": ["--inspect-port"],
+            "names": [
+              "--inspect-port"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["INSPECT_PORT"],
+              "valueNames": [
+                "INSPECT_PORT"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -483,62 +735,90 @@
           },
           {
             "id": "inspect_wait",
-            "names": ["--inspect-wait"],
+            "names": [
+              "--inspect-wait"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_WAIT"],
+              "valueNames": [
+                "INSPECT_WAIT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "keep_alive",
-            "names": ["--keep-alive"],
+            "names": [
+              "--keep-alive"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["KEEP_ALIVE"],
+              "valueNames": [
+                "KEEP_ALIVE"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "lockdown",
-            "names": ["--lockdown"],
+            "names": [
+              "--lockdown"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["LOCKDOWN"],
+              "valueNames": [
+                "LOCKDOWN"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "max_http_header_size",
-            "names": ["--max-http-header-size"],
+            "names": [
+              "--max-http-header-size"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["BYTES"],
+              "valueNames": [
+                "BYTES"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -552,11 +832,15 @@
           },
           {
             "id": "policy",
-            "names": ["--policy"],
+            "names": [
+              "--policy"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["POLICY"],
+              "valueNames": [
+                "POLICY"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -569,11 +853,37 @@
           },
           {
             "id": "print_eval",
-            "names": ["--print", "-p"],
+            "names": [
+              "--print",
+              "-p"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["CODE"],
+              "valueNames": [
+                "CODE"
+              ],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "project_root",
+            "names": [
+              "--project-root"
+            ],
+            "valueShape": {
+              "action": "Set",
+              "required": false,
+              "valueNames": [
+                "DIR"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -586,11 +896,15 @@
           },
           {
             "id": "stack_size",
-            "names": ["--stack-size"],
+            "names": [
+              "--stack-size"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["SIZE"],
+              "valueNames": [
+                "SIZE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -604,36 +918,55 @@
           },
           {
             "id": "version",
-            "names": ["--version", "-v"],
+            "names": [
+              "--version",
+              "-v"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["VERSION"],
+              "valueNames": [
+                "VERSION"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             },
-            "hiddenAliases": ["-V"]
+            "hiddenAliases": [
+              "-V"
+            ]
           },
           {
             "id": "watch",
-            "names": ["--watch"],
+            "names": [
+              "--watch"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["WATCH"],
+              "valueNames": [
+                "WATCH"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           }
@@ -646,7 +979,9 @@
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -664,7 +999,9 @@
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["ARGS"],
+              "valueNames": [
+                "ARGS"
+              ],
               "minValues": 0,
               "maxValues": null,
               "valueDomain": "arbitrary",
@@ -682,11 +1019,15 @@
         "options": [
           {
             "id": "outdir",
-            "names": ["--outdir"],
+            "names": [
+              "--outdir"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["OUTDIR"],
+              "valueNames": [
+                "OUTDIR"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -706,7 +1047,9 @@
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -732,7 +1075,9 @@
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -750,7 +1095,9 @@
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["ARGS"],
+              "valueNames": [
+                "ARGS"
+              ],
               "minValues": 0,
               "maxValues": null,
               "valueDomain": "arbitrary",
@@ -769,45 +1116,66 @@
         "options": [
           {
             "id": "all",
-            "names": ["--all"],
+            "names": [
+              "--all"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["ALL"],
+              "valueNames": [
+                "ALL"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "failed",
-            "names": ["--failed"],
+            "names": [
+              "--failed"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["FAILED"],
+              "valueNames": [
+                "FAILED"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "jobs",
-            "names": ["--jobs", "-j"],
+            "names": [
+              "--jobs",
+              "-j"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["N"],
+              "valueNames": [
+                "N"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -820,79 +1188,115 @@
           },
           {
             "id": "json",
-            "names": ["--json"],
+            "names": [
+              "--json"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["JSON"],
+              "valueNames": [
+                "JSON"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "log",
-            "names": ["--log"],
+            "names": [
+              "--log"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["LOG"],
+              "valueNames": [
+                "LOG"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "log_color",
-            "names": ["--log-color"],
+            "names": [
+              "--log-color"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["LOG_COLOR"],
+              "valueNames": [
+                "LOG_COLOR"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "log_no_skip",
-            "names": ["--log-no-skip"],
+            "names": [
+              "--log-no-skip"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["LOG_NO_SKIP"],
+              "valueNames": [
+                "LOG_NO_SKIP"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "module",
-            "names": ["--module"],
+            "names": [
+              "--module"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["MODULE"],
+              "valueNames": [
+                "MODULE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -905,62 +1309,90 @@
           },
           {
             "id": "no_retry",
-            "names": ["--no-retry"],
+            "names": [
+              "--no-retry"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["NO_RETRY"],
+              "valueNames": [
+                "NO_RETRY"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "quick",
-            "names": ["--quick"],
+            "names": [
+              "--quick"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["QUICK"],
+              "valueNames": [
+                "QUICK"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "report",
-            "names": ["--report"],
+            "names": [
+              "--report"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["REPORT"],
+              "valueNames": [
+                "REPORT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "section",
-            "names": ["--section"],
+            "names": [
+              "--section"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["SECTION"],
+              "valueNames": [
+                "SECTION"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -973,28 +1405,41 @@
           },
           {
             "id": "strict",
-            "names": ["--strict"],
+            "names": [
+              "--strict"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["STRICT"],
+              "valueNames": [
+                "STRICT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "test",
-            "names": ["--test", "-t"],
+            "names": [
+              "--test",
+              "-t"
+            ],
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["FILTER"],
+              "valueNames": [
+                "FILTER"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1007,11 +1452,15 @@
           },
           {
             "id": "timeout",
-            "names": ["--timeout"],
+            "names": [
+              "--timeout"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["MS"],
+              "valueNames": [
+                "MS"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1024,18 +1473,26 @@
           },
           {
             "id": "update_expectations",
-            "names": ["--update-expectations"],
+            "names": [
+              "--update-expectations"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["UPDATE_EXPECTATIONS"],
+              "valueNames": [
+                "UPDATE_EXPECTATIONS"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           }
@@ -1051,7 +1508,9 @@
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["SHELL"],
+              "valueNames": [
+                "SHELL"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "enumerated",
@@ -1106,7 +1565,9 @@
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["CODE"],
+              "valueNames": [
+                "CODE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1127,11 +1588,15 @@
         "options": [
           {
             "id": "entry",
-            "names": ["--entry"],
+            "names": [
+              "--entry"
+            ],
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["ENTRY"],
+              "valueNames": [
+                "ENTRY"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1144,11 +1609,15 @@
           },
           {
             "id": "mode",
-            "names": ["--mode"],
+            "names": [
+              "--mode"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["MODE"],
+              "valueNames": [
+                "MODE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1161,11 +1630,15 @@
           },
           {
             "id": "out",
-            "names": ["--out"],
+            "names": [
+              "--out"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["OUT"],
+              "valueNames": [
+                "OUT"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1183,11 +1656,15 @@
         "options": [
           {
             "id": "entry",
-            "names": ["--entry"],
+            "names": [
+              "--entry"
+            ],
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["ENTRY"],
+              "valueNames": [
+                "ENTRY"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1200,11 +1677,15 @@
           },
           {
             "id": "mode",
-            "names": ["--mode"],
+            "names": [
+              "--mode"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["MODE"],
+              "valueNames": [
+                "MODE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1217,11 +1698,15 @@
           },
           {
             "id": "out",
-            "names": ["--out"],
+            "names": [
+              "--out"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["OUT"],
+              "valueNames": [
+                "OUT"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1242,28 +1727,40 @@
         "options": [
           {
             "id": "inspect",
-            "names": ["--inspect"],
+            "names": [
+              "--inspect"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT"],
+              "valueNames": [
+                "INSPECT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_host",
-            "names": ["--inspect-host"],
+            "names": [
+              "--inspect-host"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["INSPECT_HOST"],
+              "valueNames": [
+                "INSPECT_HOST"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1276,45 +1773,65 @@
           },
           {
             "id": "inspect_open",
-            "names": ["--inspect-open"],
+            "names": [
+              "--inspect-open"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_OPEN"],
+              "valueNames": [
+                "INSPECT_OPEN"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_pause",
-            "names": ["--inspect-pause"],
+            "names": [
+              "--inspect-pause"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_PAUSE"],
+              "valueNames": [
+                "INSPECT_PAUSE"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "inspect_port",
-            "names": ["--inspect-port"],
+            "names": [
+              "--inspect-port"
+            ],
             "valueShape": {
               "action": "Set",
               "required": false,
-              "valueNames": ["INSPECT_PORT"],
+              "valueNames": [
+                "INSPECT_PORT"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1327,52 +1844,76 @@
           },
           {
             "id": "inspect_wait",
-            "names": ["--inspect-wait"],
+            "names": [
+              "--inspect-wait"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["INSPECT_WAIT"],
+              "valueNames": [
+                "INSPECT_WAIT"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "keep_alive",
-            "names": ["--keep-alive"],
+            "names": [
+              "--keep-alive"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["KEEP_ALIVE"],
+              "valueNames": [
+                "KEEP_ALIVE"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           },
           {
             "id": "watch",
-            "names": ["--watch"],
+            "names": [
+              "--watch"
+            ],
             "valueShape": {
               "action": "SetTrue",
               "required": false,
-              "valueNames": ["WATCH"],
+              "valueNames": [
+                "WATCH"
+              ],
               "minValues": 0,
               "maxValues": 0,
               "valueDomain": "none",
               "possibleValues": [],
               "possibleValuesHidden": false,
-              "defaultValues": ["false"],
-              "defaultMissingValues": ["true"],
+              "defaultValues": [
+                "false"
+              ],
+              "defaultMissingValues": [
+                "true"
+              ],
               "allowHyphenValues": false
             }
           }
@@ -1385,7 +1926,9 @@
             "valueShape": {
               "action": "Set",
               "required": true,
-              "valueNames": ["FILE"],
+              "valueNames": [
+                "FILE"
+              ],
               "minValues": 1,
               "maxValues": 1,
               "valueDomain": "arbitrary",
@@ -1403,7 +1946,9 @@
             "valueShape": {
               "action": "Append",
               "required": false,
-              "valueNames": ["ARGS"],
+              "valueNames": [
+                "ARGS"
+              ],
               "minValues": 0,
               "maxValues": null,
               "valueDomain": "arbitrary",

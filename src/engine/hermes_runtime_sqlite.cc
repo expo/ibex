@@ -25,11 +25,13 @@ constexpr uint64_t SQLITE_OPEN_READWRITE = 0x00000002;
 constexpr uint64_t SQLITE_OPEN_CREATE = 0x00000004;
 
 struct SqliteHandleEntry {
+  uint64_t runtimeNonce;
   uint64_t owner;
   std::vector<std::string> capabilities;
 };
 
 struct SqliteStatementEntry {
+  uint64_t runtimeNonce;
   uint64_t owner;
   uint64_t dbHandle;
   std::vector<std::string> capabilities;
@@ -123,14 +125,22 @@ void registerSqliteDb(uint64_t dbHandle, std::vector<std::string> capabilities) 
     return;
   }
   std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
-  g_sqlite_dbs[dbHandle] = SqliteHandleEntry{currentPrincipalId(), std::move(capabilities)};
+  g_sqlite_dbs[dbHandle] = SqliteHandleEntry{
+      exactCurrentRuntimeNonce(), currentPrincipalId(), std::move(capabilities)};
 }
 
 void unregisterSqliteDb(uint64_t dbHandle) {
   std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
-  g_sqlite_dbs.erase(dbHandle);
+  auto db = g_sqlite_dbs.find(dbHandle);
+  if (db == g_sqlite_dbs.end() ||
+      db->second.runtimeNonce != exactCurrentRuntimeNonce()) {
+    return;
+  }
+  auto runtimeNonce = db->second.runtimeNonce;
+  g_sqlite_dbs.erase(db);
   for (auto it = g_sqlite_statements.begin(); it != g_sqlite_statements.end();) {
-    if (it->second.dbHandle == dbHandle) {
+    if (it->second.runtimeNonce == runtimeNonce &&
+        it->second.dbHandle == dbHandle) {
       it = g_sqlite_statements.erase(it);
     } else {
       ++it;
@@ -144,10 +154,12 @@ void registerSqliteStatement(uint64_t statementHandle, uint64_t dbHandle) {
   }
   std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
   auto db = g_sqlite_dbs.find(dbHandle);
-  if (db == g_sqlite_dbs.end()) {
+  if (db == g_sqlite_dbs.end() ||
+      db->second.runtimeNonce != exactCurrentRuntimeNonce()) {
     return;
   }
   g_sqlite_statements[statementHandle] = SqliteStatementEntry{
+      db->second.runtimeNonce,
       db->second.owner,
       dbHandle,
       db->second.capabilities,
@@ -156,16 +168,17 @@ void registerSqliteStatement(uint64_t statementHandle, uint64_t dbHandle) {
 
 void unregisterSqliteStatement(uint64_t statementHandle) {
   std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
-  g_sqlite_statements.erase(statementHandle);
+  auto statement = g_sqlite_statements.find(statementHandle);
+  if (statement != g_sqlite_statements.end() &&
+      statement->second.runtimeNonce == exactCurrentRuntimeNonce()) {
+    g_sqlite_statements.erase(statement);
+  }
 }
 
 SqliteHandleEntry requireSqliteDb(
     facebook::jsi::Runtime& runtime,
     uint64_t dbHandle,
     const char* syscall) {
-  if (isAllowAll()) {
-    return SqliteHandleEntry{currentPrincipalId(), {}};
-  }
   SqliteHandleEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
@@ -176,11 +189,17 @@ SqliteHandleEntry requireSqliteDb(
     }
     entry = it->second;
   }
-  if (entry.owner != currentPrincipalId()) {
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(syscall) + ": sqlite handle belongs to a different runtime");
+  }
+  if (!isAllowAll() && entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": sqlite handle belongs to a different principal");
   }
-  requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+  if (!isAllowAll()) {
+    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+  }
   return entry;
 }
 
@@ -188,9 +207,6 @@ SqliteStatementEntry requireSqliteStatement(
     facebook::jsi::Runtime& runtime,
     uint64_t statementHandle,
     const char* syscall) {
-  if (isAllowAll()) {
-    return SqliteStatementEntry{currentPrincipalId(), 0, {}};
-  }
   SqliteStatementEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
@@ -201,12 +217,19 @@ SqliteStatementEntry requireSqliteStatement(
     }
     entry = it->second;
   }
-  if (entry.owner != currentPrincipalId()) {
+  if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
+    throw facebook::jsi::JSError(
+        runtime,
+        std::string(syscall) + ": sqlite statement belongs to a different runtime");
+  }
+  if (!isAllowAll() && entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime,
         std::string(syscall) + ": sqlite statement belongs to a different principal");
   }
-  requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+  if (!isAllowAll()) {
+    requireSqliteCapabilities(runtime, entry.capabilities, syscall);
+  }
   return entry;
 }
 
@@ -238,6 +261,33 @@ uint64_t extractJsonHandle(const char* json) {
 }
 
 } // namespace
+
+void exactCleanupRuntimeSqlite(uint64_t runtimeNonce) {
+  std::vector<uint64_t> dbHandles;
+  {
+    std::lock_guard<std::mutex> lock(g_sqlite_handle_mutex);
+    for (auto it = g_sqlite_statements.begin(); it != g_sqlite_statements.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        it = g_sqlite_statements.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (auto it = g_sqlite_dbs.begin(); it != g_sqlite_dbs.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        dbHandles.push_back(it->first);
+        it = g_sqlite_dbs.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  // Closing can drop the final Arc and run SQLite teardown. Never do that
+  // while holding the registry mutex used by Host calls in other runtimes.
+  for (auto handle : dbHandles) {
+    ex_host_sqlite_close(handle);
+  }
+}
 
 static bool sqliteColumnTypeIsBlob(
     facebook::jsi::Runtime& runtime,

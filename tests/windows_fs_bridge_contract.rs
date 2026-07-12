@@ -5,6 +5,7 @@
 //! ABI choices from silently regressing between Windows CI runs.
 
 const WINDOWS_FS: &str = include_str!("../src/engine/hermes_runtime_fs_windows.cc");
+const POSIX_FS: &str = include_str!("../src/engine/hermes_runtime_fs.cc");
 const HOST_ABI: &str = include_str!("../src/host/abi.rs");
 
 #[test]
@@ -57,4 +58,40 @@ fn windows_file_handle_lifetime_is_shared_with_workers() {
     assert!(WINDOWS_FS.contains("std::shared_ptr<WindowsFileHandle>"));
     assert!(WINDOWS_FS.contains("std::mutex ioMutex"));
     assert!(WINDOWS_FS.contains("g_files.erase(it)"));
+}
+
+#[test]
+fn retained_parent_cache_is_bounded_and_runtime_scoped() {
+    assert!(POSIX_FS.contains("kMaxParentFdCacheKeys = 4096"));
+    assert!(POSIX_FS.contains("it->second.expired()"));
+    assert!(POSIX_FS.contains("g_parent_fd_cache.erase(g_parent_fd_cache.begin())"));
+    assert!(POSIX_FS.contains("const auto prefix = std::to_string(runtimeNonce) + \":\""));
+}
+
+#[test]
+fn rollback_eligible_creates_are_exclusive_and_fd_entries_are_identity_checked() {
+    assert!(POSIX_FS.contains("baseFlags | O_CREAT | O_EXCL"));
+    assert!(POSIX_FS.contains("baseFlags & ~(O_CREAT | O_EXCL)"));
+    assert!(POSIX_FS.contains("openArmedTargetAtomically("));
+    assert!(POSIX_FS.contains("it->second.objectDevice != static_cast<uint64_t>(sb.st_dev)"));
+    assert!(POSIX_FS.contains("if (!stale && (principalMayUseUnknownFd(principal)"));
+    assert!(POSIX_FS.contains("g_transferable_fds.erase(fd)"));
+}
+
+#[test]
+fn windows_path_worker_implements_node_metadata_and_exclusive_copy_ops() {
+    for hook in [
+        "ex_host_fs_mkdir_recursive_result",
+        "ex_host_fs_copy_exclusive",
+        "ex_host_fs_truncate",
+        "ex_host_fs_utimes",
+        "ex_host_fs_statfs",
+    ] {
+        assert!(WINDOWS_FS.contains(hook), "missing Windows path ABI {hook}");
+        assert!(HOST_ABI.contains(hook), "missing Rust path ABI {hook}");
+    }
+    assert!(WINDOWS_FS.contains("op == \"copyfile_excl\""));
+    assert!(WINDOWS_FS.contains("op == \"truncate\""));
+    assert!(WINDOWS_FS.contains("op == \"utime\""));
+    assert!(WINDOWS_FS.contains("op == \"statfs\""));
 }

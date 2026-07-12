@@ -25,8 +25,11 @@ and app framework live in the `exact` repo.
 
 Consumers depend on a deliberately narrow surface (see [LLP 0002](./llp/0002-host-embedding-abi.spec.md)):
 
-- Five C ABI functions: `ex_hermes_create`, `ex_hermes_destroy`,
-  `ex_hermes_eval`, `ex_hermes_free_string`, `ex_hermes_set_host_call`.
+- The lifecycle/evaluation C ABI: production construction uses
+  `ex_hermes_create_armed`; the historical `ex_hermes_create` symbol always
+  refuses, and `ex_hermes_create_diagnostic` is explicitly non-production.
+  Runtime driving continues through `ex_hermes_destroy`, `ex_hermes_eval`,
+  `ex_hermes_free_string`, and `ex_hermes_set_host_call`.
 - The Rust host ABI: `ibex_runtime::host::{install_host, Host}`.
 
 ## Building
