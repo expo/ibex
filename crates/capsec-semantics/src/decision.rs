@@ -175,6 +175,17 @@ impl VerifiedDecisionContext {
     pub fn authority(&self) -> &DecisionAuthorityState {
         &self.authority
     }
+
+    /// Publish a newly validated live authority state while preserving the
+    /// authenticated semantic identity and definition set.
+    pub fn with_authority(&self, authority: DecisionAuthorityState) -> Result<Self> {
+        validate_authority_state(&self.identity, &self.definitions, &authority)?;
+        Ok(Self {
+            identity: self.identity.clone(),
+            definitions: self.definitions.clone(),
+            authority,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

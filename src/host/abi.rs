@@ -963,6 +963,60 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
     }
 }
 
+/// Publish a ceiling-bounded typed dynamic grant. Returns 1 when applied, 0
+/// for an idempotent duplicate, and -1 on malformed/forbidden input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    with_host(
+        |host| match host.grant_typed_dynamic_json(request) {
+            Ok(applied) => i32::from(applied),
+            Err(error) => {
+                eprintln!("error: typed dynamic grant refused: {error}");
+                -1
+            }
+        },
+        -1,
+    )
+}
+
+/// Revoke a typed dynamic grant by its JSON string ID. Returns 1 when removed,
+/// 0 when absent, and -1 on malformed input.
+///
+/// # Safety
+///
+/// `request` must reference `request_len` readable bytes for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
+    request: *const u8,
+    request_len: usize,
+) -> i32 {
+    if request.is_null() {
+        return -1;
+    }
+    let request = unsafe { std::slice::from_raw_parts(request, request_len) };
+    with_host(
+        |host| match host.revoke_typed_dynamic_json(request) {
+            Ok(removed) => i32::from(removed),
+            Err(error) => {
+                eprintln!("error: typed dynamic revocation refused: {error}");
+                -1
+            }
+        },
+        -1,
+    )
+}
+
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.
 /// Used by the C++ bridge to skip expensive capability checks.
 #[no_mangle]

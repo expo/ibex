@@ -299,6 +299,12 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
                                       const uint8_t* gates,
                                       size_t gates_len);
 
+/// Publish or revoke ceiling-bounded typed dynamic authority. Grant input is a
+/// strict JSON request object; revoke input is a strict JSON string grant ID.
+/// Returns 1 when changed, 0 when unchanged, and -1 on refusal.
+int ex_host_typed_dynamic_grant(const uint8_t* request, size_t request_len);
+int ex_host_typed_dynamic_revoke(const uint8_t* request, size_t request_len);
+
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);
 

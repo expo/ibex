@@ -29,6 +29,14 @@ use std::sync::{Arc, RwLock};
 
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TypedDynamicGrantRequest {
+    grant_id: capsec_semantics::model::NonEmptyString,
+    principal: capsec_semantics::model::Principal,
+    authority: capsec_semantics::model::AuthoritySelector,
+}
+
 /// Capability security enforcement mode.
 ///
 /// @ref LLP 0013#phase-0 — the historical `Capability` and `Strict` modes were
@@ -126,7 +134,7 @@ pub struct Host {
     /// Typed, validated authority state decoded from the immutable snapshot.
     /// Legacy `PolicyFile` data never enters this context.
     /// @ref LLP 0021#wp8--port-handles-dynamic-authority-and-audit-evidence
-    decision_context: Option<Arc<capsec_semantics::decision::VerifiedDecisionContext>>,
+    decision_context: Option<Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>>,
     typed_evidence: Arc<RwLock<VecDeque<capsec_semantics::decision::StructuredDecisionEvidence>>>,
     typed_imports: Arc<
         BTreeMap<
@@ -248,7 +256,9 @@ impl Host {
                 "/capsec/registry/policy-rules.json"
             )),
         )?;
-        let decision_context = Arc::new(armed_snapshot.decision_context(profile.definitions)?);
+        let decision_context = Arc::new(RwLock::new(
+            armed_snapshot.decision_context(profile.definitions)?,
+        ));
         let typed_imports = Arc::new(armed_snapshot.import_policies()?);
         let mut host = Self::new(config);
         host.armed_snapshot = Some(armed_snapshot);
@@ -263,7 +273,7 @@ impl Host {
 
     pub fn decision_context(
         &self,
-    ) -> Option<&Arc<capsec_semantics::decision::VerifiedDecisionContext>> {
+    ) -> Option<&Arc<RwLock<capsec_semantics::decision::VerifiedDecisionContext>>> {
         self.decision_context.as_ref()
     }
 
@@ -279,15 +289,18 @@ impl Host {
                 "typed decision requested without an armed context".into(),
             )
         })?;
+        let context = context.read().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
         let decision = capsec_semantics::decision::evaluate_decision_set(
-            context,
+            &context,
             set,
             gates,
             capsec_semantics::decision::Workflow::ProductionEnforce,
             &classify_network_peer,
         )?;
         let evidence =
-            capsec_semantics::decision::structure_decision_evidence(context, set, &decision);
+            capsec_semantics::decision::structure_decision_evidence(&context, set, &decision);
         if let Ok(mut rows) = self.typed_evidence.write() {
             if rows.len() == MAX_TYPED_EVIDENCE_ENTRIES {
                 rows.pop_front();
@@ -325,6 +338,146 @@ impl Host {
             .read()
             .map(|rows| rows.iter().cloned().collect())
             .unwrap_or_default()
+    }
+
+    pub fn grant_typed_dynamic(
+        &self,
+        grant_id: capsec_semantics::model::NonEmptyString,
+        principal: capsec_semantics::model::Principal,
+        selector: capsec_semantics::model::AuthoritySelector,
+    ) -> capsec_semantics::Result<bool> {
+        use capsec_semantics::decision::{BoundAuthority, DynamicGrant};
+
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed dynamic grant requested without an armed context".into(),
+            )
+        })?;
+        let mut current = context.write().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let mut authority = current.authority().clone();
+        if authority
+            .dynamic_grants
+            .iter()
+            .any(|grant| grant.grant_id == grant_id)
+        {
+            return Ok(false);
+        }
+        let next_dynamic = authority
+            .generations
+            .dynamic
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "dynamic generation cannot be incremented".into(),
+                )
+            })?;
+        let package_root_owner = selector
+            .resource
+            .contains_package_logical_root()
+            .then(|| principal.is_package().then(|| principal.clone()))
+            .flatten();
+        authority.dynamic_grants.push(DynamicGrant {
+            grant_id: grant_id.clone(),
+            principal,
+            authority: BoundAuthority {
+                source_id: capsec_semantics::model::NonEmptyString::new(format!(
+                    "dynamic.{}",
+                    grant_id.as_str()
+                ))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: current.identity().armed_snapshot_digest.clone(),
+                package_root_owner,
+            },
+            observed_negative_generation: authority.generations.negative,
+            published_dynamic_generation: next_dynamic,
+        });
+        authority
+            .dynamic_grants
+            .sort_by(|left, right| left.grant_id.cmp(&right.grant_id));
+        authority.generations.dynamic = next_dynamic;
+        *current = current.with_authority(authority)?;
+        Ok(true)
+    }
+
+    pub fn grant_typed_dynamic_json(&self, request_json: &[u8]) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "dynamic grant request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let request: TypedDynamicGrantRequest = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.grant_typed_dynamic(request.grant_id, request.principal, request.authority)
+    }
+
+    pub fn revoke_typed_dynamic(
+        &self,
+        grant_id: &capsec_semantics::model::NonEmptyString,
+    ) -> capsec_semantics::Result<bool> {
+        let context = self.decision_context.as_deref().ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "typed dynamic revocation requested without an armed context".into(),
+            )
+        })?;
+        let mut current = context.write().map_err(|_| {
+            capsec_semantics::Error::ArmRefused("typed decision context lock is poisoned".into())
+        })?;
+        let mut authority = current.authority().clone();
+        let original_len = authority.dynamic_grants.len();
+        authority
+            .dynamic_grants
+            .retain(|grant| &grant.grant_id != grant_id);
+        if authority.dynamic_grants.len() == original_len {
+            return Ok(false);
+        }
+        let next_negative = authority
+            .generations
+            .negative
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "negative generation cannot be incremented".into(),
+                )
+            })?;
+        let next_dynamic = authority
+            .generations
+            .dynamic
+            .checked_increment()
+            .ok_or_else(|| {
+                capsec_semantics::Error::ArmRefused(
+                    "dynamic generation cannot be incremented".into(),
+                )
+            })?;
+        authority.generations.negative = next_negative;
+        authority.generations.dynamic = next_dynamic;
+        for grant in &mut authority.dynamic_grants {
+            grant.observed_negative_generation = next_negative;
+            grant.published_dynamic_generation = next_dynamic;
+        }
+        for handle in &mut authority.handles {
+            handle.observed_negative_generation = next_negative;
+        }
+        for revocation in &mut authority.revocations {
+            revocation.generation = next_negative;
+        }
+        *current = current.with_authority(authority)?;
+        Ok(true)
+    }
+
+    pub fn revoke_typed_dynamic_json(&self, request_json: &[u8]) -> capsec_semantics::Result<bool> {
+        let text = std::str::from_utf8(request_json).map_err(|error| {
+            capsec_semantics::Error::InvalidJson(format!(
+                "dynamic revocation request is not UTF-8: {error}"
+            ))
+        })?;
+        let value = capsec_semantics::strict_json::parse_strict(text)?;
+        let grant_id: capsec_semantics::model::NonEmptyString = serde_json::from_value(value)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        self.revoke_typed_dynamic(&grant_id)
     }
 
     /// The authority-bearing handle registry. @ref LLP 0013#delegation-and-authority-flow
@@ -895,5 +1048,116 @@ mod tests {
             evidence[0].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
+    }
+
+    #[test]
+    fn typed_dynamic_grant_is_ceiling_bounded_and_revocation_invalidates_it() {
+        use capsec_semantics::decision::{DecisionOutcome, EffectGate};
+        use capsec_semantics::model::{AuthoritySelector, DecisionSet, NonEmptyString, Principal};
+
+        let host = example_armed_host();
+        let principal_value = serde_json::json!({
+            "kind": "package",
+            "name": "image-lib",
+            "integrity": "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCA",
+            "locator": "image-lib@2.4.1"
+        });
+        let principal: Principal = serde_json::from_value(principal_value.clone()).unwrap();
+        let selector: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "device:location",
+            "resource": {
+                "kind": "device-location",
+                "usage": "foreground",
+                "precision": "coarse"
+            }
+        }))
+        .unwrap();
+        let decision: DecisionSet = serde_json::from_value(serde_json::json!({
+            "decisionSetSchema": "ibex/capsec-decision-set/1",
+            "operationId": "location-delivery",
+            "atomicityGroup": "test.device.location",
+            "combination": "conjunction",
+            "context": {
+                "stage": "delivery",
+                "actor": principal_value,
+                "constrainedPrincipals": [principal_value]
+            },
+            "effects": [{
+                "cap": "device:location",
+                "effectOwner": principal_value,
+                "resource": {
+                    "kind": "device-occurrence",
+                    "requested": {
+                        "kind": "device-location",
+                        "usage": "foreground",
+                        "precision": "coarse"
+                    },
+                    "brokerGeneration": 1,
+                    "deviceIdentity": "test-location-provider"
+                }
+            }]
+        }))
+        .unwrap();
+        let gates: Vec<EffectGate> = serde_json::from_value(serde_json::json!([{
+            "coverageEdgeId": "test.device.location",
+            "targetCell": "complete",
+            "definitionAndEdgePredicatesSatisfied": true
+        }]))
+        .unwrap();
+
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Deny
+        );
+        let grant_id = NonEmptyString::new("location-session").unwrap();
+        let grant_request = serde_json::to_vec(&serde_json::json!({
+            "grantId": grant_id.as_str(),
+            "principal": principal,
+            "authority": selector
+        }))
+        .unwrap();
+        assert!(host.grant_typed_dynamic_json(&grant_request).unwrap());
+        assert!(!host.grant_typed_dynamic_json(&grant_request).unwrap());
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Allow
+        );
+        assert!(host
+            .revoke_typed_dynamic_json(br#""location-session""#)
+            .unwrap());
+        assert_eq!(
+            host.evaluate_typed_decision(&decision, &gates)
+                .unwrap()
+                .outcome,
+            DecisionOutcome::Deny
+        );
+
+        let too_precise: AuthoritySelector = serde_json::from_value(serde_json::json!({
+            "cap": "device:location",
+            "resource": {
+                "kind": "device-location",
+                "usage": "foreground",
+                "precision": "precise"
+            }
+        }))
+        .unwrap();
+        let principal: Principal = serde_json::from_value(principal_value).unwrap();
+        assert!(host
+            .grant_typed_dynamic(
+                NonEmptyString::new("too-precise").unwrap(),
+                principal,
+                too_precise,
+            )
+            .is_err());
+        assert!(matches!(
+            host.grant_typed_dynamic_json(
+                br#"{"grantId":"a","grantId":"b","principal":{},"authority":{}}"#
+            ),
+            Err(capsec_semantics::Error::DuplicateKey { .. })
+        ));
     }
 }

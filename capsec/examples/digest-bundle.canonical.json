@@ -137149,6 +137149,26 @@
             "rationale": "Clock reads are runtime information rather than reusable positive package authority; timing-side-channel policy belongs to the runtime profile."
           },
           {
+            "id": "surface.host.abi.ex.host.typed.dynamic.grant.1fo1sdq",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_typed_dynamic_grant"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.host.abi.ex.host.typed.dynamic.revoke.1bspq9q",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_typed_dynamic_revoke"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.version.0j3pfft",
             "classification": "non-capability",
             "surface": {
