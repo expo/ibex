@@ -823,10 +823,11 @@ pub extern "C" fn ibex_tls_peer_certs_json(id: u64) -> *mut c_char {
 #[no_mangle]
 pub extern "C" fn ibex_tls_free(id: u64) {
     let runtime_nonce = current_runtime_nonce();
+    let principal = current_principal_id();
     let mut map = engines().lock().unwrap();
     if map
         .get(&id)
-        .is_some_and(|owned| owned.runtime_nonce == runtime_nonce)
+        .is_some_and(|owned| owned.runtime_nonce == runtime_nonce && owned.owner == principal)
     {
         map.remove(&id);
     }

@@ -861,6 +861,11 @@ void installAndroidHostFunctions(ExactHermesRuntime* handle);
 void unregisterAndroidHostFunctions(ExactHermesRuntime* handle);
 void installIpcListenerPatch(ExactHermesRuntime* handle);
 
+// Process-global registries retain resources by runtime nonce and must be
+// drained before the owning Hermes handle is deleted.
+extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce);
+extern "C" void ibex_tls_cleanup_runtime(uint64_t runtimeNonce);
+
 extern "C" void ex_host_console_log(int32_t level, const char* message);
 extern "C" void native_ws_retain_context(void* context);
 extern "C" void native_ws_release_context(void* context);
