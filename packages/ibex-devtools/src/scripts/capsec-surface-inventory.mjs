@@ -8139,6 +8139,87 @@ function cppLiteralArgument(tokens) {
   return strings.length === 1 ? strings[0].value : null;
 }
 
+function cppUnsignedIntegerArgument(tokens) {
+  const text = tokens.map((token) => token.value).join("");
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(text)) return null;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+/**
+ * Recover direct `createFromHostFunction` assignments.  This is intentionally
+ * narrower than the general JSI inventory: a public probe may call a global
+ * only when source proves both the function identity and declared arity.  An
+ * object property, factory return, alias, or dynamically named registration
+ * stays unprobeable until a separate descriptor is authored.
+ */
+function cppAssignedHostFunctions(tokens, sourcePath) {
+  const functions = new Map();
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (
+      tokens[index]?.value !== "createFromHostFunction" ||
+      tokens[index + 1]?.value !== "("
+    ) {
+      continue;
+    }
+    const close = matchingToken(tokens, index + 1, "(", ")");
+    if (close === -1) {
+      throw new Error(
+        `${sourcePath}: createFromHostFunction call has no closing parenthesis`,
+      );
+    }
+    const args = cppCallArguments(tokens, index + 1, close);
+    if (args.length < 4) continue;
+    const functionName = cppLiteralArgument(args[1]);
+    const arity = cppUnsignedIntegerArgument(args[2]);
+    if (functionName === null || arity === null) continue;
+
+    let equals = index - 1;
+    while (
+      equals >= 0 &&
+      tokens[equals].value !== "=" &&
+      tokens[equals].value !== ";" &&
+      tokens[equals].value !== "{" &&
+      tokens[equals].value !== "}"
+    ) {
+      equals -= 1;
+    }
+    if (equals < 1 || tokens[equals].value !== "=") continue;
+    let variable = equals - 1;
+    while (variable >= 0 && tokens[variable].type !== "identifier") {
+      variable -= 1;
+    }
+    if (variable < 0) continue;
+    const variableName = tokens[variable].value;
+    const descriptor = { arity, functionName };
+    const prior = functions.get(variableName);
+    if (prior === null) continue;
+    if (prior && JSON.stringify(prior) !== JSON.stringify(descriptor)) {
+      // Common local names such as `executor` can be reused by independent
+      // nested factories. That makes the assignment ambiguous for public
+      // invocation purposes, so retain no descriptor rather than guessing.
+      functions.set(variableName, null);
+      continue;
+    }
+    functions.set(variableName, descriptor);
+  }
+  return functions;
+}
+
+function cppMovedOrDirectIdentifier(tokens) {
+  if (tokens.length === 1 && tokens[0].type === "identifier") {
+    return tokens[0].value;
+  }
+  const move = tokens.findIndex(
+    (token, index) =>
+      token.value === "move" &&
+      tokens[index + 1]?.value === "(" &&
+      tokens[index + 2]?.type === "identifier" &&
+      tokens[index + 3]?.value === ")",
+  );
+  return move === -1 ? null : tokens[move + 2].value;
+}
+
 function getAllEnvironmentInstallationBranches(tokens, sourcePath, baseRefs) {
   const definitions = [];
   for (let index = 0; index < tokens.length - 2; index += 1) {
@@ -8242,6 +8323,7 @@ export function scanCppGlobalPropertySurfaces(
   sourcePath = "<native-source>",
 ) {
   const tokens = lexCpp(text, sourcePath);
+  const assignedHostFunctions = cppAssignedHostFunctions(tokens, sourcePath);
   const calls = [];
   const objectOwners = new Set();
   const closedGlobalTableNames = new Set();
@@ -8361,6 +8443,7 @@ export function scanCppGlobalPropertySurfaces(
 
   const ownerPaths = new Map();
   const facts = new Map();
+  const publicInvocations = new Map();
   const dynamicFacts = new Set();
   const propertyNameForCall = (call) => {
     const literal = cppLiteralArgument(call.args[1]);
@@ -8394,6 +8477,20 @@ export function scanCppGlobalPropertySurfaces(
     const name = propertyNameForCall(call);
     if (DYNAMIC_TABLE_MEMBER.test(name)) dynamicFacts.add(name);
     addFact(name);
+    const assigned = cppMovedOrDirectIdentifier(call.args[2]);
+    const hostFunction = assignedHostFunctions.get(assigned);
+    if (
+      hostFunction &&
+      hostFunction.functionName === name &&
+      !DYNAMIC_TABLE_MEMBER.test(name)
+    ) {
+      publicInvocations.set(name, {
+        arity: hostFunction.arity,
+        globalName: name,
+        kind: "native-global-function",
+        sourceRef: sourceSymbol(sourcePath, `jsi-global:${name}`),
+      });
+    }
     for (const owner of valueOwners(call.args[2])) addOwnerPath(owner, name);
   }
   for (const name of closedGlobalTableNames) addFact(name);
@@ -8459,6 +8556,9 @@ export function scanCppGlobalPropertySurfaces(
           memberName:
             memberSegments.length === 0 ? null : memberSegments.join("."),
           moduleSpecifiers: [],
+          ...(publicInvocations.has(exportName)
+            ? { publicInvocation: publicInvocations.get(exportName) }
+            : {}),
           sourceKey: "native_jsi_global",
           surfaceType: "global-api",
           ...(dynamicFacts.has(exportName)

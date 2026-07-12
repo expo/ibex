@@ -1758,6 +1758,35 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     });
   });
 
+  test("native JSI globals derive direct public function invocation descriptors", () => {
+    const source = `
+      auto directFn = facebook::jsi::Function::createFromHostFunction(
+        rt, facebook::jsi::PropNameID::forAscii(rt, "__exactDirect"), 4,
+        [](facebook::jsi::Runtime&, const auto&, const auto*, size_t) {
+          return facebook::jsi::Value::undefined();
+        });
+      rt.global().setProperty(rt, "__exactDirect", std::move(directFn));
+
+      facebook::jsi::Object namespaceObject(rt);
+      namespaceObject.setProperty(rt, "nested", directFn);
+      rt.global().setProperty(rt, "namespaceObject", std::move(namespaceObject));
+    `;
+    const rows = scanCppGlobalPropertySurfaces(source, "synthetic.cc");
+    expect(
+      rows.find((row) => row.name === "__exactDirect")?.metadata
+        .publicInvocation,
+    ).toEqual({
+      arity: 4,
+      globalName: "__exactDirect",
+      kind: "native-global-function",
+      sourceRef: "synthetic.cc#jsi-global:__exactDirect",
+    });
+    expect(
+      rows.find((row) => row.name === "global:namespaceObject.nested")
+        ?.metadata.publicInvocation,
+    ).toBeUndefined();
+  });
+
   test("native environment enumeration exposes exact platform alternatives", () => {
     const source = `
       auto getAllEnvFn = facebook::jsi::Function::createFromHostFunction(
