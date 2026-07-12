@@ -540,7 +540,7 @@ describe("exact-target CapSec executable recipes", () => {
     const rows = recipes.recipes.filter(
       (recipe) => recipe.publicSurfaceProbe?.kind === "target-absence-probe",
     );
-    expect(rows).toHaveLength(109);
+    expect(rows).toHaveLength(110);
     expect(rows.every((recipe) => recipe.scenario === "absent")).toBe(true);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
@@ -609,6 +609,27 @@ describe("exact-target CapSec executable recipes", () => {
     expect(
       androidGlobal.publicSurfaceProbe.invocation.sourceDescriptorDigest,
     ).toMatch(/^sha256-/u);
+    const iosLayoutTree = rows.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe.invocation.surfaceName ===
+        "global:exact.getLayoutTree",
+    );
+    expect(iosLayoutTree.publicSurfaceProbe).toMatchObject({
+      surfaceObservedKey: "native-op:global:exact.getLayoutTree",
+      invocation: {
+        sourceDescriptor: {
+          kind: "target-absent-native-operation",
+          targetVariants: ["ios"],
+          probeMode: {
+            kind: "runtime-global-property",
+            globalName: "exact",
+            memberName: "getLayoutTree",
+          },
+        },
+        expectedResult: "absent",
+        expectedTypedDecisionCount: 0,
+      },
+    });
   });
 
   test("binds closed startup environment controls to the production entry", () => {
