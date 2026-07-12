@@ -391,8 +391,10 @@ fn validate_observation(
     assert_eq!(
         typed_decisions.len(),
         invocation.expected_typed_decision_count,
-        "{}: wrong typed decision count",
-        recipe.fixture_id
+        "{}: wrong typed decision count: {}",
+        recipe.fixture_id,
+        serde_json::to_string(typed_decisions)
+            .expect("serialize mismatched public builtin decisions")
     );
     match invocation.expected_result.as_str() {
         "return" => assert_eq!(invocation_result["kind"], "return"),
@@ -533,6 +535,26 @@ async fn execute_recipe(
         Some(PublicSurfaceProbe::EffectBuiltin(probe)) => probe,
         _ => panic!("builtin recipe has no effect-builtin public probe"),
     };
+    // The manifest has distinct obligations for importing a builtin root and
+    // invoking each exported operation. Load the exact public module before
+    // opening this export's observer session so import-time effects (for
+    // example, node:fs reading NODE_DEBUG) cannot be misattributed to every
+    // exported function. The invocation below still performs the real public
+    // require and receives the runtime's authenticated cache entry.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    let preload = format!(
+        "require({}); 'loaded'",
+        serde_json::to_string(&probe.invocation.module_specifier)
+            .expect("serialize preloaded builtin module")
+    );
+    assert_eq!(
+        engine
+            .eval_immediate(&preload)
+            .await
+            .expect("preload public builtin module")
+            .as_deref(),
+        Some("loaded")
+    );
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
