@@ -667,8 +667,11 @@ descriptor and typed repeat checks. Synchronous and worker-backed whole-file
 reads use their own registry edges, accept only retained regular files, and
 recheck authority and identity before each chunk. `stat` and directory
 enumeration likewise use retained no-follow targets and their own `fs:list`
-edges; enumeration rechecks before every disclosed entry. The remaining
-path-based filesystem operations are still pending.
+edges; enumeration rechecks before every disclosed entry. Whole-file replace,
+append, and worker-backed write use their own edges, authorize absent-create or
+existing state before `openat`, commit the actual regular file before delayed
+truncation, and recheck before each write/flush. The remaining path-based
+filesystem operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 

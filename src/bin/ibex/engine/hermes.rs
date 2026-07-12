@@ -2308,6 +2308,8 @@ mod tests {
         let existing = root.join("existing.txt");
         let created = root.join("created.txt");
         let async_created = root.join("async-created.txt");
+        let async_whole = root.join("async-whole.txt");
+        let whole_created = root.join("whole-created.txt");
         std::fs::write(&existing, b"old contents").unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), true, true, true);
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
@@ -2328,17 +2330,22 @@ mod tests {
                 if (String.fromCharCode.apply(null, reread) !== 'new') throw new Error('readFile');
                 if (!JSON.parse(__exactStat({existing:?})).is_file) throw new Error('stat');
                 if (JSON.parse(__exactReaddir({root:?})).indexOf('existing.txt') < 0) throw new Error('readdir');
+                __exactWriteFile({existing:?}, 'whole');
+                __exactAppendFile({existing:?}, '+tail');
+                __exactWriteFile({whole_created:?}, 'fresh');
                 return 'ok';
             }})()"#,
             existing = existing.to_str().unwrap(),
             created = created.to_str().unwrap(),
             root = root.to_str().unwrap(),
+            whole_created = whole_created.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
         assert_eq!(outcome.as_deref(), Some("ok"));
-        assert_eq!(std::fs::read(&existing).unwrap(), b"new");
+        assert_eq!(std::fs::read(&existing).unwrap(), b"whole+tail");
         assert_eq!(std::fs::read(&created).unwrap(), b"ma");
+        assert_eq!(std::fs::read(&whole_created).unwrap(), b"fresh");
 
         let async_script = format!(
             r#"globalThis.__armedAsyncOpen = 'pending';
@@ -2376,7 +2383,24 @@ mod tests {
             .eval_immediate("globalThis.__armedAsyncRead")
             .await
             .unwrap();
-        assert_eq!(async_read.as_deref(), Some("new"));
+        assert_eq!(async_read.as_deref(), Some("whole+tail"));
+        let async_write_script = format!(
+            r#"globalThis.__armedAsyncWrite = 'pending';
+               __exactFsWriteFileAsync({path:?}, 'worker', 'w', 438, true).then(function() {{
+                 globalThis.__armedAsyncWrite = 'ok';
+               }}, function(error) {{
+                 globalThis.__armedAsyncWrite = 'error:' + error.message;
+               }});"#,
+            path = async_whole.to_str().unwrap(),
+        );
+        engine.eval_immediate(&async_write_script).await.unwrap();
+        engine.drive_event_loop().await.unwrap();
+        let async_write = engine
+            .eval_immediate("globalThis.__armedAsyncWrite")
+            .await
+            .unwrap();
+        assert_eq!(async_write.as_deref(), Some("ok"));
+        assert_eq!(std::fs::read(&async_whole).unwrap(), b"worker");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2410,6 +2434,11 @@ mod tests {
                 try {{ __exactFsOpenAsync({absent:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactReadFile({existing:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactFsReadFileAsync({existing:?}, 'r', 0); }} catch (_) {{ denied++; }}
+                try {{ __exactWriteFile({existing:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactWriteFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
+                try {{ __exactAppendFile({existing:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactAppendFile({absent:?}, 'created'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsWriteFileAsync({absent:?}, 'created', 'w', 438, true); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             existing = existing.to_str().unwrap(),
@@ -2417,7 +2446,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("6"));
+        assert_eq!(outcome.as_deref(), Some("11"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         let _ = std::fs::remove_dir_all(root);
@@ -2502,6 +2531,12 @@ mod tests {
                 try {{ __exactFsReadFileAsync({final_escape:?}, 'r', 0); }} catch (_) {{ denied++; }}
                 try {{ __exactStat({final_escape:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactReaddir({parent_escape:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactWriteFile({parent_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactWriteFile({final_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactAppendFile({parent_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactAppendFile({final_escape:?}, 'lost'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsWriteFileAsync({parent_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
+                try {{ __exactFsWriteFileAsync({final_escape:?}, 'lost', 'w', 438, true); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             parent_escape = parent_escape.to_str().unwrap(),
@@ -2509,7 +2544,7 @@ mod tests {
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("8"));
+        assert_eq!(outcome.as_deref(), Some("14"));
         assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(outside);

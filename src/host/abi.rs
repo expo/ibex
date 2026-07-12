@@ -996,6 +996,15 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
         ),
         3 => ("fs-stat", "surface.native.op.exactstat.1432ztv"),
         4 => ("fs-readdir", "surface.native.op.exactreaddir.0tg30vk"),
+        5 => ("fs-write-file", "surface.native.op.exactwritefile.1h0gy8u"),
+        6 => (
+            "fs-append-file",
+            "surface.native.op.exactappendfile.1b1b7nn",
+        ),
+        7 => (
+            "fs-write-file-async",
+            "surface.native.op.exactfswritefileasync.0fv6zp9",
+        ),
         _ => return -1,
     };
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
