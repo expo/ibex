@@ -2114,13 +2114,17 @@ BufferProto.fill = function(value, start, end, encoding) {
 Buffer.prototype = Object.create(Uint8Array.prototype, {
   constructor: { value: Buffer, writable: true, configurable: true }
 });
+var _defineBufferPrototypeProperty = Object.defineProperty;
 for (var _bk in BufferProto) {
   if (Object.prototype.hasOwnProperty.call(BufferProto, _bk)) {
     // Lazy builtin evaluation can run after Uint8Array.prototype is locked
     // down. An assignment cannot shadow an inherited non-writable method in
     // sloppy CommonJS, so define each intended Buffer override directly.
     // @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
-    Object.defineProperty(Buffer.prototype, _bk, {
+    // Keep the assignment as the static source-level copy declaration; the
+    // defineProperty immediately after it is the lockdown-safe realization.
+    Buffer.prototype[_bk] = BufferProto[_bk];
+    _defineBufferPrototypeProperty(Buffer.prototype, _bk, {
       value: BufferProto[_bk],
       writable: true,
       configurable: true,
