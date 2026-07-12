@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(185);
+    expect(nativePublicFixtures).toHaveLength(191);
     expect(
       nativePublicFixtures
         .filter(
@@ -1246,6 +1246,57 @@ describe("exact-target CapSec executable recipes", () => {
       expect(
         recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
       ).toBe(recipe.scenario === "allow" ? 3 : 1);
+    }
+  });
+
+  test("binds project metadata reads to one stable retained path", () => {
+    for (const globalName of ["__exactStat", "__exactLstat", "__exactRealpath"]) {
+      const metadataReads = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(metadataReads).toHaveLength(2);
+      expect(metadataReads.map((recipe) => recipe.scenario)).toEqual([
+        "allow",
+        "deny",
+      ]);
+      for (const recipe of metadataReads) {
+        expect(recipe).toMatchObject({
+          actionIds: ["fs:list"],
+          status: "fully-executable",
+          residualReasons: [],
+          publicSurfaceProbe: {
+            invocation: {
+              arguments: [
+                { kind: "json-literal", value: "Cargo.toml" },
+                { kind: "json-literal", value: null },
+              ],
+              requiredFloor: [
+                {
+                  cap: "fs:list",
+                  resource: {
+                    kind: "path-exact",
+                    path: {
+                      root: "project",
+                      components: [
+                        { encoding: "utf8", value: "Cargo.toml" },
+                      ],
+                    },
+                  },
+                },
+              ],
+              expectedActionIds: ["fs:list"],
+            },
+          },
+        });
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+        ).toEqual(
+          recipe.scenario === "allow"
+            ? ["requested", "discovery", "repeat"]
+            : ["requested"],
+        );
+      }
     }
   });
 

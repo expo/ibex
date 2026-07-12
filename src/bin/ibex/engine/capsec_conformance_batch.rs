@@ -684,12 +684,33 @@ fn install_native_public_test_host(
         "an explicit native public denial requires an exact selector"
     );
     let denials = deny.then(|| floor.clone()).unwrap_or_default();
-    let (host, digest) =
-        build_armed_test_host_custom(None, false, false, false, floor, None, move |value| {
+    let uses_project_path = floor.iter().any(|selector| {
+        matches!(
+            selector["resource"]["kind"].as_str(),
+            Some("path-exact" | "path-tree")
+        ) && selector["resource"]["path"]["root"] == "project"
+    });
+    let mutate = move |value: &mut serde_json::Value| {
             if !denials.is_empty() {
                 value["principals"][0]["denials"] = serde_json::Value::Array(denials);
             }
-        });
+        };
+    let (host, digest) = if uses_project_path {
+        build_armed_test_host_control(
+            Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))),
+            false,
+            false,
+            false,
+            floor,
+            Vec::new(),
+            false,
+            0,
+            None,
+            mutate,
+        )
+    } else {
+        build_armed_test_host_custom(None, false, false, false, floor, None, mutate)
+    };
     assert_ne!(
         crate::host::abi::install_host(host),
         0,

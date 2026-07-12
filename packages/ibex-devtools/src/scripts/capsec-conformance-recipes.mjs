@@ -692,6 +692,32 @@ const nativePrintTemplate = () =>
     requiredSourceArity: 1,
     setup: [],
   });
+const projectPathExactResource = (...components) => ({
+  kind: "path-exact",
+  path: {
+    root: "project",
+    components: components.map((value) => ({ encoding: "utf8", value })),
+  },
+});
+const nativeProjectMetadataTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list"],
+    arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
+    expectedDecisionCounts: { allow: 3, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "discovery", "repeat"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -907,6 +933,9 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetTotalMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetUptime", nativeSystemInfoTemplate("uptime")],
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
+  ["__exactLstat", nativeProjectMetadataTemplate()],
+  ["__exactRealpath", nativeProjectMetadataTemplate()],
+  ["__exactStat", nativeProjectMetadataTemplate()],
   [
     "__exactHashRaw",
     nativeNoEffectTemplate(2, [
