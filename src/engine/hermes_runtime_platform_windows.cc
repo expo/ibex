@@ -999,6 +999,10 @@ struct WindowsSpawnedProcess {
   std::shared_ptr<WindowsSpawnPipeBuffer> stdoutBuffer;
   std::shared_ptr<WindowsSpawnPipeBuffer> stderrBuffer;
   bool exited = false;
+  // @ref LLP 0008#sockets-dns-and-process — explicit ChildProcess.unref()
+  // transfers lifetime out of the owning Hermes runtime. Closing our HANDLE at
+  // teardown must not terminate that child.
+  bool referenced = true;
   int exitCode = -1;
   int killedSignal = 0;
 };
@@ -1252,7 +1256,7 @@ std::vector<uint8_t> drainWindowsPipeBuffer(
   return out;
 }
 
-std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
+std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcessOwnership(
     facebook::jsi::Runtime& runtime,
     int handle,
     const char* operation) {
@@ -1269,13 +1273,23 @@ std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
     throw facebook::jsi::JSError(
         runtime, std::string(operation) + ": handle belongs to a different runtime");
   }
-  if (!isAllowAll()) {
-    if (proc->owner != currentPrincipalId()) {
-      throw facebook::jsi::JSError(runtime, std::string(operation) + ": handle belongs to a different principal");
-    }
-    if (!proc->capability.empty() && !checkCapability(proc->capability)) {
-      throw facebook::jsi::JSError(runtime, "Permission denied: process:spawn capability required");
-    }
+  // Permissive capability policy never turns a forgeable numeric handle into
+  // ambient object authority.
+  if (proc->owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different principal");
+  }
+  return proc;
+}
+
+std::shared_ptr<WindowsSpawnedProcess> requireWindowsSpawnProcess(
+    facebook::jsi::Runtime& runtime,
+    int handle,
+    const char* operation) {
+  auto proc = requireWindowsSpawnProcessOwnership(runtime, handle, operation);
+  if (!proc->capability.empty() && !checkCapability(proc->capability)) {
+    throw facebook::jsi::JSError(
+        runtime, "Permission denied: process:spawn capability required");
   }
   return proc;
 }
@@ -1591,12 +1605,18 @@ extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce) {
   for (const auto& proc : owned) {
     if (isValidHandle(proc->process)) {
       DWORD exitCode = 0;
-      if (GetExitCodeProcess(proc->process, &exitCode) && exitCode == STILL_ACTIVE) {
+      if (proc->referenced &&
+          GetExitCodeProcess(proc->process, &exitCode) &&
+          exitCode == STILL_ACTIVE) {
         TerminateProcess(proc->process, 1);
       }
-      WaitForSingleObject(proc->process, INFINITE);
+      if (proc->referenced) {
+        WaitForSingleObject(proc->process, INFINITE);
+      }
     }
     requestWindowsStdinClose(proc, true, true);
+    // Closing a process HANDLE does not terminate the process. In particular,
+    // unref'ed detached children continue independently after runtime teardown.
     closeHandleIfValid(proc->process);
   }
 }
@@ -2180,6 +2200,36 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(ok != FALSE);
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
+
+  auto spawnSetReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSpawnSetReferenced: numeric handle and boolean state required");
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = requireWindowsSpawnProcessOwnership(
+            runtime, handle, "__exactSpawnSetReferenced");
+        bool updated = false;
+        {
+          std::lock_guard<std::mutex> lock(g_windows_spawn_mutex);
+          auto it = g_windows_spawned_processes.find(handle);
+          if (it != g_windows_spawned_processes.end() && it->second == proc) {
+            proc->referenced = args[1].getBool();
+            updated = true;
+          }
+        }
+        return facebook::jsi::Value(updated);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(spawnSetReferencedFn));
 
   auto spawnCloseStdinFn = facebook::jsi::Function::createFromHostFunction(
       rt,

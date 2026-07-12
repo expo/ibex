@@ -940,6 +940,7 @@ void installIpcListenerPatch(ExactHermesRuntime* handle);
 
 // Process-global registries retain resources by runtime nonce and must be
 // drained before the owning Hermes handle is deleted.
+extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce);
 extern "C" void exactCleanupRuntimeWebSockets(uint64_t runtimeNonce);
 extern "C" void ibex_tls_cleanup_runtime(uint64_t runtimeNonce);
 

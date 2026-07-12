@@ -82,6 +82,12 @@ struct SpawnedProcess {
   int ipcFd = -1;
   std::vector<int> extraFds;
   bool exited = false;
+  // @ref LLP 0008#sockets-dns-and-process — Node's ChildProcess.ref()/unref()
+  // controls whether the process keeps its owning runtime alive. Runtime
+  // teardown may kill referenced children to
+  // reclaim them, but an explicitly unref'ed child is intentionally orphaned
+  // and must be allowed to finish independently.
+  bool referenced = true;
   int exitCode = -1;
   int exitSignal = 0;
 };
@@ -109,6 +115,84 @@ void closeSpawnedProcessFds(const std::shared_ptr<SpawnedProcess>& proc) {
   }
   proc->stdinFd = proc->stdoutFd = proc->stderrFd = proc->ipcFd = -1;
   for (int& fd : proc->extraFds) fd = -1;
+}
+
+// A process-global, detached reaper prevents children intentionally orphaned
+// by ChildProcess.unref() from becoming zombies when a Hermes runtime is
+// destroyed while its native host process continues running. The state is
+// deliberately process-lifetime storage: a detached worker must never observe
+// function-static teardown during C++ global destruction.
+struct UnreferencedSpawnReaper {
+  std::mutex mutex;
+  std::condition_variable cv;
+  std::vector<pid_t> pids;
+  bool workerStarted = false;
+};
+
+UnreferencedSpawnReaper& unreferencedSpawnReaper() {
+  static auto* state = new UnreferencedSpawnReaper();
+  return *state;
+}
+
+void runUnreferencedSpawnReaper(UnreferencedSpawnReaper* state) {
+  for (;;) {
+    std::vector<pid_t> candidates;
+    {
+      std::unique_lock<std::mutex> lock(state->mutex);
+      state->cv.wait(lock, [state] { return !state->pids.empty(); });
+      candidates = state->pids;
+    }
+
+    std::vector<pid_t> finished;
+    for (pid_t pid : candidates) {
+      int status = 0;
+      pid_t result;
+      do {
+        result = waitpid(pid, &status, WNOHANG);
+      } while (result < 0 && errno == EINTR);
+      // ECHILD means another legitimate waiter already reaped it. Treat other
+      // permanent waitpid errors as terminal too, avoiding a hot retry loop.
+      if (result == pid || result < 0) finished.push_back(pid);
+    }
+
+    std::unique_lock<std::mutex> lock(state->mutex);
+    for (pid_t pid : finished) {
+      state->pids.erase(
+          std::remove(state->pids.begin(), state->pids.end(), pid),
+          state->pids.end());
+    }
+    if (!state->pids.empty()) {
+      state->cv.wait_for(lock, std::chrono::milliseconds(50));
+    }
+  }
+}
+
+void reapUnreferencedSpawnEventually(pid_t pid) {
+  if (pid <= 0) return;
+  auto& state = unreferencedSpawnReaper();
+  bool startWorker = false;
+  {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    if (std::find(state.pids.begin(), state.pids.end(), pid) == state.pids.end()) {
+      state.pids.push_back(pid);
+    }
+    if (!state.workerStarted) {
+      state.workerStarted = true;
+      startWorker = true;
+    }
+  }
+  if (startWorker) {
+    try {
+      std::thread(runUnreferencedSpawnReaper, &state).detach();
+    } catch (...) {
+      // Never allow a resource-exhaustion exception to escape the C teardown
+      // ABI. A later enqueue retries worker creation; process exit still hands
+      // the child to the OS reaper if this was the final runtime.
+      std::lock_guard<std::mutex> lock(state.mutex);
+      state.workerStarted = false;
+    }
+  }
+  state.cv.notify_one();
 }
 }  // namespace
 
@@ -762,6 +846,19 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value(false);
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(killFn));
+
+  auto setReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [](facebook::jsi::Runtime&,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value*,
+         size_t) -> facebook::jsi::Value {
+        return facebook::jsi::Value(false);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(setReferencedFn));
 
   auto closeFn = facebook::jsi::Function::createFromHostFunction(
       rt,
@@ -1754,7 +1851,7 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
   rt.global().setProperty(rt, "__exactSpawnSync", std::move(spawnSyncFn));
 
   // --- Async spawn support ---
-  auto requireSpawnHandle =
+  auto requireSpawnHandleOwnership =
       [](facebook::jsi::Runtime& runtime, int handle, const char* syscall)
           -> std::shared_ptr<SpawnedProcess> {
         std::shared_ptr<SpawnedProcess> proc;
@@ -1776,6 +1873,15 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         if (proc->owner != currentPrincipalId()) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
+        return proc;
+      };
+
+  auto requireSpawnHandle =
+      [requireSpawnHandleOwnership](facebook::jsi::Runtime& runtime,
+                                    int handle,
+                                    const char* syscall)
+          -> std::shared_ptr<SpawnedProcess> {
+        auto proc = requireSpawnHandleOwnership(runtime, handle, syscall);
         if (!proc->capability.empty() && !checkCapability(proc->capability)) {
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
@@ -2922,6 +3028,41 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactSpawnKill", std::move(spawnKillFn));
 
+  // __exactSpawnSetReferenced(handle, referenced) -> boolean
+  // Lifecycle reference state is object authority, not an ambient numeric
+  // handle. Validate both runtime nonce and principal before changing it. This
+  // intentionally does not re-check process:spawn: a capability revocation
+  // must not prevent the owning process object from being safely unref'ed.
+  auto spawnSetReferencedFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactSpawnSetReferenced"),
+      2,
+      [requireSpawnHandleOwnership](facebook::jsi::Runtime& runtime,
+                                    const facebook::jsi::Value&,
+                                    const facebook::jsi::Value* args,
+                                    size_t count) -> facebook::jsi::Value {
+        if (count < 2 || !args[0].isNumber() || !args[1].isBool()) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactSpawnSetReferenced: numeric handle and boolean state required");
+        }
+        int handle = static_cast<int>(args[0].asNumber());
+        auto proc = requireSpawnHandleOwnership(
+            runtime, handle, "__exactSpawnSetReferenced");
+        bool updated = false;
+        {
+          std::lock_guard<std::mutex> lock(s_spawnMutex);
+          auto it = s_spawnedProcesses.find(handle);
+          if (it != s_spawnedProcesses.end() && it->second == proc) {
+            proc->referenced = args[1].getBool();
+            updated = true;
+          }
+        }
+        return facebook::jsi::Value(updated);
+      });
+  rt.global().setProperty(
+      rt, "__exactSpawnSetReferenced", std::move(spawnSetReferencedFn));
+
   // __exactSpawnCloseStdin(handle) -> void
   // __exactSpawnCloseStdin(handle, stream?) -> void
   // Closes the requested stream so the child process sees EOF.
@@ -3086,12 +3227,19 @@ extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce) {
   }
 
   for (const auto& proc : owned) {
-    // An unreaped child keeps its pid reserved, so kill-before-wait cannot hit
-    // a recycled process. Runtime teardown must not leave zombies or fds.
     if (!proc->exited && proc->pid > 0) {
-      kill(proc->pid, SIGKILL);
-      while (waitpid(proc->pid, nullptr, 0) < 0 && errno == EINTR) {}
-      proc->exited = true;
+      if (proc->referenced) {
+        // An unreaped child keeps its pid reserved, so kill-before-wait cannot
+        // hit a recycled process. Referenced children belong to this runtime
+        // and are reclaimed synchronously during teardown.
+        kill(proc->pid, SIGKILL);
+        while (waitpid(proc->pid, nullptr, 0) < 0 && errno == EINTR) {}
+        proc->exited = true;
+      } else {
+        // Explicit ChildProcess.unref() transfers lifetime out of the runtime.
+        // Do not kill it; keep the native host zombie-free if it remains alive.
+        reapUnreferencedSpawnEventually(proc->pid);
+      }
     }
     closeSpawnedProcessFds(proc);
   }

@@ -434,6 +434,52 @@ c.on('exit', function (code) { console.log('RESULT|exit=fired|code=' + code); })
     );
 }
 
+/// Runtime teardown owns still-referenced native children, but an explicit
+/// `child.unref()` transfers lifetime out of the runtime. The old cleanup path
+/// unconditionally SIGKILLed every registry entry, so the standard detached +
+/// unref daemon pattern appeared to work until the parent runtime was deleted.
+#[test]
+fn detached_unref_child_survives_runtime_teardown() {
+    let dir = unique_dir("detached_unref_teardown");
+    let worker = dir.join("worker.sh");
+    let sentinel = dir.join("survived.txt");
+    write_text(&worker, "#!/bin/sh\nsleep 0.35\nprintf survived > \"$1\"\n");
+    let app = format!(
+        r#"
+const cp = require('child_process');
+const child = cp.spawn('sh', [{worker}, {sentinel}], {{
+  detached: true,
+  stdio: 'ignore'
+}});
+child.unref();
+console.log('RESULT|pid=' + child.pid);
+"#,
+        worker = serde_json_string(&worker.to_string_lossy()),
+        sentinel = serde_json_string(&sentinel.to_string_lossy()),
+    );
+
+    let run = run_app_in(&dir, &app, Duration::from_secs(15));
+    let line = result_line(&run);
+    assert!(
+        field(line, "pid=")
+            .and_then(|pid| pid.parse::<u32>().ok())
+            .is_some(),
+        "detached child did not spawn: {line}"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sentinel.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(
+        std::fs::read_to_string(&sentinel).ok().as_deref(),
+        Some("survived"),
+        "runtime teardown killed an explicitly unref'ed detached child\nstdout:\n{}\nstderr:\n{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
 /// The native spawn hardcoded `execl("/bin/sh", ...)` and ignored the `shell`
 /// string. With the fix a custom shell binary is exec'd. The helper shell script
 /// ignores its `-c` argument and prints a sentinel, so the sentinel appears only

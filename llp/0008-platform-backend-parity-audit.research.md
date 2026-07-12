@@ -5,7 +5,7 @@
 **Systems:** Engine, Build, Runtime
 **Author:** Codex
 **Date:** 2026-06-14
-**Revised:** 2026-07-11 (ENG-23541: Windows async fs worker-pool hooks and verified error/handle/durability semantics; previously 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
+**Revised:** 2026-07-12 (spawn registry teardown now honors explicit ChildProcess unref state; previously 2026-07-11: ENG-23541 Windows async fs worker-pool hooks and verified error/handle/durability semantics; 2026-07-09: Linux curl CLI fallback now spawns via posix_spawnp instead of std::system — ENG-23874; Windows Child Process section — ENG-23485; default-path DNS rcode fidelity and the raw UDP transport decision — ENG-23506)
 **Related:** LLP 0001; LLP 0003; LLP 0005
 
 ## Purpose
@@ -42,23 +42,13 @@ already-running child `curl` process.
 
 ## Windows Child Process
 
-Windows has a real native **sync** spawn bridge (`__exactSpawnSync` in
-`hermes_runtime_platform_windows.cc`; ENG-23115 brought base64 stdio, real
-`process.env`, and `maxBuffer` parity), but **no async native spawn**.
-`cp.spawn`/`exec`/`execFile` on win32 are emulated by
-`_spawnSyncBackedChildProcess` in `src/builtins/child-process.js`: the child
-runs to completion inside spawnSync and its buffered output is replayed
-afterwards. Consequences (ENG-23485 finding #5):
-
-- the event loop blocks for the child's entire lifetime;
-- stdin writes and `kill()` can never reach the live child;
-- IPC could never deliver a message to or from a live child.
-
-Since ENG-23485 this is loud instead of silent: the emulation emits a one-time
-`process.emitWarning`, and `'ipc'` stdio (including `fork`) throws `ENOTSUP`
-on win32. A real async backend (CreateProcess + overlapped pipes implementing
-the same `__exactSpawn*` host-function contract as POSIX) is tracked in
-ENG-23500.
+Windows has native sync and async `CreateProcess` bridges in
+`hermes_runtime_platform_windows.cc`. The async path implements the shared
+`__exactSpawn*` contract with bounded stdin queuing, background pipe readers,
+poll/kill/dispose, environment/cwd/shell support, and detached process groups.
+Windows IPC, inherited `fd:N` entries, and extra pipe descriptors remain
+explicitly unsupported rather than silently falling back to blocking sync
+spawn.
 
 Android uses a Java/JNI OkHttp bridge for fetch and WebSocket. The C++ runtime
 keeps the same `native_fetch_*` and `native_ws_*` symbols, while
@@ -171,6 +161,14 @@ libuv does (`EAI_NONAME`/`EAI_NODATA` → `ENOTFOUND`, `EAI_AGAIN` passes
 through). Windows' `__exactDnsResolve` is a `getaddrinfo`-based stub with no
 record-query transport, so it has no rcode to preserve; the JS-side code mapping
 in `src/builtins/dns.js` is shared across platforms.
+
+Async child-process registry entries are owned by both runtime nonce and
+principal. `ChildProcess.ref()` / `unref()` updates an owner-validated native
+reference bit: runtime teardown synchronously kills and reaps referenced
+children, but must preserve explicitly unref'ed children. POSIX hands those
+children to a process-global nonblocking `waitpid` reaper so a long-lived host
+does not accumulate zombies; Windows closes its process handle without calling
+`TerminateProcess` or waiting.
 
 ## OS Info
 

@@ -3516,7 +3516,23 @@ ChildProcess.prototype.kill = function(signal) {
   return ok;
 };
 
+function _setNativeChildProcessReferenced(child, referenced) {
+  if (!child || child._exited || child._handle === null ||
+      child._handle === undefined || child._handle < 0) {
+    return;
+  }
+  if (typeof globalThis.__exactSpawnSetReferenced === 'function') {
+    // @ref LLP 0008#sockets-dns-and-process — the native registry owns teardown
+    // policy. Keeping this state only in the JS timer meant ex_hermes_destroy
+    // killed detached children even after an
+    // explicit child.unref(). The host validates runtime + principal ownership
+    // before accepting the transition.
+    globalThis.__exactSpawnSetReferenced(child._handle, referenced);
+  }
+}
+
 ChildProcess.prototype.ref = function() {
+  _setNativeChildProcessReferenced(this, true);
   this._ref = true;
   if (this._pollTimer && typeof this._pollTimer.ref === 'function') this._pollTimer.ref();
   if (this._exited || this._pollTimer ||
@@ -3546,6 +3562,7 @@ ChildProcess.prototype.ref = function() {
 };
 
 ChildProcess.prototype.unref = function() {
+  _setNativeChildProcessReferenced(this, false);
   this._ref = false;
   if (this._pollTimer && typeof this._pollTimer.unref === 'function') this._pollTimer.unref();
   return this;

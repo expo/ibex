@@ -3087,6 +3087,7 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
     // refusal must unwind those just like normal destruction; deleting only
     // the Hermes handle leaves stale authority keyed by its nonce.
     unregisterAndroidHostFunctions(handle);
+    exactCleanupRuntimeSpawnedProcesses(handle->runtime_nonce);
     exactCleanupRuntimeWebSockets(handle->runtime_nonce);
     ibex_tls_cleanup_runtime(handle->runtime_nonce);
     ibex_zlib_streams::cleanupZlibStreams(handle);
@@ -3147,6 +3148,7 @@ extern "C" void ex_hermes_destroy(ExactHermesRuntime* runtime) {
   unregisterRuntimeAndWaitForNativeWorkers(runtime);
   unregisterAndroidHostFunctions(runtime);
   cancelAllFetchCallbacks(runtime);
+  exactCleanupRuntimeSpawnedProcesses(runtime->runtime_nonce);
   exactCleanupRuntimeWebSockets(runtime->runtime_nonce);
   ibex_tls_cleanup_runtime(runtime->runtime_nonce);
   ibex_zlib_streams::cleanupZlibStreams(runtime);
