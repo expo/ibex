@@ -338,6 +338,9 @@ impl Host {
         module_id: &str,
         path: &std::path::Path,
         stage: capsec_semantics::model::Stage,
+        object_state: capsec_semantics::model::ObjectState,
+        disclosure_only: bool,
+        resolved_parent_path: Option<&std::path::Path>,
         needs_read: bool,
         needs_write: bool,
         parent_object: Option<capsec_semantics::model::ObjectIdentity>,
@@ -348,7 +351,7 @@ impl Host {
         use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
         use capsec_semantics::model::{
             ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
-            FollowMode, ObjectState, OccurrenceResource, StableId,
+            FollowMode, OccurrenceResource, StableId,
         };
 
         let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
@@ -357,17 +360,30 @@ impl Host {
             )
         })?;
         let requested = self.typed_logical_path(&principal, path)?;
-        let object_state = ObjectState::Existing;
-        let actions: Vec<&str> = match stage {
-            capsec_semantics::model::Stage::Requested
-            | capsec_semantics::model::Stage::Discovery => vec!["fs:list"],
-            _ => [
+        if let Some(resolved_parent_path) = resolved_parent_path {
+            let mut expected_parent = requested.clone();
+            if expected_parent.components.pop().is_none()
+                || self.typed_logical_path(&principal, resolved_parent_path)? != expected_parent
+            {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "retained filesystem parent escaped its authenticated logical root".into(),
+                ));
+            }
+        } else if stage != capsec_semantics::model::Stage::Requested {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "staged filesystem authorization is missing a resolved retained parent".into(),
+            ));
+        }
+        let actions: Vec<&str> = if disclosure_only {
+            vec!["fs:list"]
+        } else {
+            [
                 needs_read.then_some("fs:read"),
                 needs_write.then_some("fs:write"),
             ]
             .into_iter()
             .flatten()
-            .collect(),
+            .collect()
         };
         if actions.is_empty() {
             return Err(capsec_semantics::Error::ArmRefused(
@@ -1387,6 +1403,9 @@ mod tests {
                 "0",
                 open_path,
                 capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                true,
+                None,
                 true,
                 false,
                 None,
@@ -1409,6 +1428,9 @@ mod tests {
                 "0",
                 open_path,
                 capsec_semantics::model::Stage::Discovery,
+                capsec_semantics::model::ObjectState::Existing,
+                true,
+                Some(std::path::Path::new("/Users/example/project/images")),
                 true,
                 false,
                 Some(object("parent")),
@@ -1426,6 +1448,9 @@ mod tests {
                 "0",
                 open_path,
                 capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::ObjectState::Existing,
+                false,
+                Some(std::path::Path::new("/Users/example/project/images")),
                 true,
                 false,
                 Some(object("parent")),
@@ -1443,6 +1468,9 @@ mod tests {
                 "0",
                 open_path,
                 capsec_semantics::model::Stage::Repeat,
+                capsec_semantics::model::ObjectState::Existing,
+                false,
+                Some(std::path::Path::new("/Users/example/project/images")),
                 true,
                 false,
                 Some(object("parent")),

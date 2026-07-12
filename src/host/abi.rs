@@ -964,7 +964,7 @@ pub unsafe extern "C" fn ex_host_evaluate_typed_decision(
 }
 
 /// Authorize one stage of the native `fs.open` branch against authenticated
-/// logical roots and, at commit, the actual retained descriptor identity.
+/// logical roots, a retained parent directory, and the actual descriptor.
 /// Returns 1 allow, 0 deny, and -1 for malformed/unsupported adapter input.
 ///
 /// # Safety
@@ -974,6 +974,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     module_id: u64,
     path: *const c_char,
     stage: u32,
+    parent_fd: i32,
     fd: i32,
     needs_read: i32,
     needs_write: i32,
@@ -982,7 +983,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{NonEmptyString, Stage};
 
-    if path.is_null() || !matches!(stage, 0..=3) {
+    if path.is_null() || !matches!(stage, 0..=4) {
         return -1;
     }
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
@@ -1007,74 +1008,86 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             Err(_) => return -1,
         }
     };
-    let (stage, parent_object, final_object, retained_handle) = if stage == 0 {
-        (Stage::Requested, None, None, None)
-    } else if stage == 3 {
-        #[cfg(unix)]
-        {
-            let Some(parent) = path.parent() else {
-                return -1;
-            };
-            let parent = if parent.as_os_str().is_empty() {
-                std::path::Path::new(".")
-            } else {
-                parent
-            };
-            let Some(parent_object) = object_identity_for_path(parent) else {
-                return 0;
-            };
-            let Some(final_object) = object_identity_for_path(&path) else {
-                return 0;
-            };
+    let (stage, object_state, disclosure_only, parent_object, final_object, retained_handle) =
+        if stage == 0 {
             (
-                Stage::Discovery,
-                Some(parent_object),
-                Some(final_object),
+                Stage::Requested,
+                capsec_semantics::model::ObjectState::Existing,
+                true,
+                None,
+                None,
                 None,
             )
-        }
-        #[cfg(not(unix))]
-        {
-            return -1;
-        }
+        } else if matches!(stage, 3 | 4) {
+            #[cfg(unix)]
+            {
+                if parent_fd < 0 {
+                    return -1;
+                }
+                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
+                    return 0;
+                };
+                let (object_state, final_object) = match object_identity_at(parent_fd, &path) {
+                    Ok(Some(identity)) => (
+                        capsec_semantics::model::ObjectState::Existing,
+                        Some(identity),
+                    ),
+                    Ok(None) => (capsec_semantics::model::ObjectState::AbsentCreate, None),
+                    Err(()) => return 0,
+                };
+                (
+                    Stage::Discovery,
+                    object_state,
+                    stage == 3,
+                    Some(parent_object),
+                    final_object,
+                    None,
+                )
+            }
+            #[cfg(not(unix))]
+            {
+                return -1;
+            }
+        } else {
+            if parent_fd < 0 || fd < 0 {
+                return -1;
+            }
+            #[cfg(unix)]
+            {
+                let Some(final_object) = object_identity_for_fd(fd) else {
+                    return -1;
+                };
+                let Some(parent_object) = object_identity_for_fd(parent_fd) else {
+                    return -1;
+                };
+                let retained = match NonEmptyString::new(format!("fd:{fd}")) {
+                    Ok(value) => value,
+                    Err(_) => return -1,
+                };
+                (
+                    if stage == 1 {
+                        Stage::Commit
+                    } else {
+                        Stage::Repeat
+                    },
+                    capsec_semantics::model::ObjectState::Existing,
+                    false,
+                    Some(parent_object),
+                    Some(final_object),
+                    Some(retained),
+                )
+            }
+            #[cfg(not(unix))]
+            {
+                return -1;
+            }
+        };
+    let resolved_parent_path = if stage == Stage::Requested {
+        None
     } else {
-        if fd < 0 {
-            return -1;
-        }
-        #[cfg(unix)]
-        {
-            let Some(final_object) = object_identity_for_fd(fd) else {
-                return -1;
-            };
-            let Some(parent) = path.parent() else {
-                return -1;
-            };
-            let parent = if parent.as_os_str().is_empty() {
-                std::path::Path::new(".")
-            } else {
-                parent
-            };
-            let Some(parent_object) = object_identity_for_path(parent) else {
-                return -1;
-            };
-            let retained = match NonEmptyString::new(format!("fd:{fd}")) {
-                Ok(value) => value,
-                Err(_) => return -1,
-            };
-            (
-                if stage == 1 {
-                    Stage::Commit
-                } else {
-                    Stage::Repeat
-                },
-                Some(parent_object),
-                Some(final_object),
-                Some(retained),
-            )
-        }
-        #[cfg(not(unix))]
-        {
-            return -1;
+        match resolved_path_for_fd(parent_fd) {
+            Some(path) => Some(path),
+            None => return 0,
         }
     };
     with_host(
@@ -1082,7 +1095,13 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
             &module_id.to_string(),
             &path,
             stage,
-            needs_read != 0,
+            object_state,
+            disclosure_only,
+            resolved_parent_path.as_deref(),
+            needs_read != 0
+                && !(stage == Stage::Discovery
+                    && object_state == capsec_semantics::model::ObjectState::AbsentCreate
+                    && !disclosure_only),
             needs_write != 0,
             parent_object,
             final_object,
@@ -1116,12 +1135,40 @@ fn object_identity_for_fd(fd: i32) -> Option<capsec_semantics::model::ObjectIden
     object_identity_from_stat(unsafe { stat.assume_init() })
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, buffer.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    let length = buffer.iter().position(|byte| *byte == 0)?;
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        &buffer[..length],
+    )))
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios"))))]
+fn resolved_path_for_fd(fd: i32) -> Option<std::path::PathBuf> {
+    std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()
+}
+
 #[cfg(unix)]
-fn object_identity_for_path(
+fn object_identity_at(
+    parent_fd: i32,
     path: &std::path::Path,
-) -> Option<capsec_semantics::model::ObjectIdentity> {
-    let metadata = std::fs::metadata(path).ok()?;
-    object_identity(metadata.dev(), metadata.ino())
+) -> Result<Option<capsec_semantics::model::ObjectIdentity>, ()> {
+    use std::os::unix::ffi::OsStrExt;
+    let name = path.file_name().ok_or(())?;
+    let name = std::ffi::CString::new(name.as_bytes()).map_err(|_| ())?;
+    let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), 0) } == 0 {
+        return Ok(object_identity_from_stat(unsafe { stat.assume_init() }));
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::ENOENT) => Ok(None),
+        _ => Err(()),
+    }
 }
 
 #[cfg(unix)]

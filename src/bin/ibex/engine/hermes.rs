@@ -2124,6 +2124,13 @@ mod tests {
     }
 
     fn install_armed_test_host() -> (HostResetGuard, String) {
+        install_armed_test_host_at(None, false)
+    }
+
+    fn install_armed_test_host_at(
+        project_root: Option<&std::path::Path>,
+        allow_write: bool,
+    ) -> (HostResetGuard, String) {
         use capsec_semantics::arming::{ArmedSnapshot, ExpectedArmingIdentity};
         use capsec_semantics::model::Digest;
 
@@ -2134,6 +2141,42 @@ mod tests {
         .unwrap();
         value["workflow"] = serde_json::Value::String("production".into());
         value["effectiveMode"] = serde_json::Value::String("enforce".into());
+        if let Some(project_root) = project_root {
+            let components = project_root
+                .components()
+                .filter_map(|component| match component {
+                    std::path::Component::Normal(value) => Some(serde_json::json!({
+                        "encoding": "utf8",
+                        "value": value.to_str().expect("test path must be UTF-8"),
+                    })),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            value["rootBindings"][1]["hostPath"] = serde_json::json!({
+                "root": "absolute",
+                "components": components,
+                "hostBound": true,
+            });
+            let mut floor = serde_json::json!([
+                {"cap":"fs:list","resource":{"kind":"path-tree","path":{"root":"project","components":[]}}},
+                {"cap":"fs:read","resource":{"kind":"path-tree","path":{"root":"project","components":[]}}}
+            ])
+            .as_array()
+            .unwrap()
+            .clone();
+            if allow_write {
+                floor.push(serde_json::json!({
+                    "cap":"fs:write",
+                    "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
+                }));
+            } else {
+                value["principals"][0]["denials"] = serde_json::json!([{
+                    "cap":"fs:write",
+                    "resource":{"kind":"path-tree","path":{"root":"project","components":[]}}
+                }]);
+            }
+            value["principals"][0]["floor"] = serde_json::Value::Array(floor);
+        }
         let digest = capsec_semantics::digest::compute_domain_digest(
             capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
             &value,
@@ -2212,6 +2255,135 @@ mod tests {
         let runtime =
             SharedRuntime::new(Some(&digest)).expect("matching digest must create Hermes");
         runtime.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_fs_open_authorizes_create_truncate_and_repeated_write() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-open-write-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let existing = root.join("existing.txt");
+        let created = root.join("created.txt");
+        std::fs::write(&existing, b"old contents").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureFs();
+                var existing = __exactFsOpen({existing:?}, 'w');
+                __exactFsWrite(existing, 'new', -1);
+                __exactFsClose(existing);
+                var created = __exactFsOpen({created:?}, 'w+');
+                __exactFsWrite(created, 'made', -1);
+                __exactFsClose(created);
+                return 'ok';
+            }})()"#,
+            existing = existing.to_str().unwrap(),
+            created = created.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+
+        assert_eq!(outcome.as_deref(), Some("ok"));
+        assert_eq!(std::fs::read(&existing).unwrap(), b"new");
+        assert_eq!(std::fs::read(&created).unwrap(), b"made");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_fs_open_denial_cannot_truncate_or_create() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let root = std::env::temp_dir().join(format!(
+            "ibex-capsec-open-deny-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let existing = root.join("existing.txt");
+        let absent = root.join("absent.txt");
+        std::fs::write(&existing, b"must survive").unwrap();
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), false);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureFs();
+                var denied = 0;
+                try {{ __exactFsOpen({existing:?}, 'w'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsOpen({absent:?}, 'w'); }} catch (_) {{ denied++; }}
+                return String(denied);
+            }})()"#,
+            existing = existing.to_str().unwrap(),
+            absent = absent.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+
+        assert_eq!(outcome.as_deref(), Some("2"));
+        assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
+        assert!(!absent.exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_fs_open_rejects_parent_and_final_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let _lock = hermes_engine_test_lock().lock().await;
+        let nonce = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let root = std::env::temp_dir().join(format!("ibex-capsec-symlink-root-{nonce}"));
+        let outside = std::env::temp_dir().join(format!("ibex-capsec-symlink-outside-{nonce}"));
+        std::fs::create_dir(&root).unwrap();
+        std::fs::create_dir(&outside).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let outside = std::fs::canonicalize(outside).unwrap();
+        let outside_file = outside.join("protected.txt");
+        std::fs::write(&outside_file, b"outside").unwrap();
+        symlink(&outside, root.join("parent-link")).unwrap();
+        symlink(&outside_file, root.join("final-link")).unwrap();
+        let parent_escape = root.join("parent-link/protected.txt");
+        let final_escape = root.join("final-link");
+        let (_reset, digest) = install_armed_test_host_at(Some(&root), true);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+
+        let script = format!(
+            r#"(function() {{
+                __exactEnsureFs();
+                var denied = 0;
+                try {{ __exactFsOpen({parent_escape:?}, 'w'); }} catch (_) {{ denied++; }}
+                try {{ __exactFsOpen({final_escape:?}, 'w'); }} catch (_) {{ denied++; }}
+                return String(denied);
+            }})()"#,
+            parent_escape = parent_escape.to_str().unwrap(),
+            final_escape = final_escape.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+
+        assert_eq!(outcome.as_deref(), Some("2"));
+        assert_eq!(std::fs::read(&outside_file).unwrap(), b"outside");
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 
     #[tokio::test(flavor = "current_thread")]

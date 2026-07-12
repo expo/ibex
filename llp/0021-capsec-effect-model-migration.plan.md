@@ -645,19 +645,20 @@ Acceptance:
 - File descriptors and handles retain owner, authority source, revocation
   generation, and resource identity for repeated operations.
 
-Implementation status (2026-07-11): synchronous native read-only `fs.open` now has an
-armed-only adapter. It authorizes the requested logical path before calling
-`open(2)`, authorizes discovery against parent/final path identities, then
-authorizes commit against the actual `fstat` identity and a
-retained descriptor ID before publishing the fd registry entry. An explicitly
-presented typed bearer ID participates in both decisions. Armed write/create/
-truncate opens remain closed before `open(2)` until retained-parent discovery
-can authorize them without pre-decision mutation. Legacy hosts retain
-their existing gate; armed refusal never falls back to it. The fd registry
-retains the presented bearer ID and every armed read re-authorizes at `repeat`
-against a fresh `fstat` identity and current authority generations. Retained-
-parent openat walking for writes, async open, and the remaining filesystem
-operations are still pending.
+Implementation status (2026-07-11): synchronous native `fs.open` now has an
+armed-only staged adapter for read, write, create, and truncate. It authorizes
+the requested logical path, retains and verifies the resolved parent directory
+inside the authenticated logical root, distinguishes existing from
+absent-create discovery, and authorizes the operation effects before `openat`.
+Final symlinks are closed with `O_NOFOLLOW`; parent symlinks that resolve outside
+the authenticated binding are refused. Truncation is deferred until commit has
+authorized the actual `fstat` identity and retained descriptor ID, so a denial
+cannot mutate an existing or absent target. An explicitly presented typed
+bearer ID participates in every stage. Legacy hosts retain their existing gate;
+armed refusal never falls back to it. The fd registry retains the parent
+descriptor and presented bearer ID, and every armed read or write re-authorizes
+at `repeat` against fresh identities and current authority generations. Async
+open and the remaining filesystem operations are still pending.
 
 ### WP6 — Convert network effects and protected peers
 

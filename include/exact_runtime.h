@@ -301,10 +301,12 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
                                       size_t gates_len);
 
 /// Authorize requested (stage=0), retained-fd commit (stage=1), repeated
-/// descriptor use (stage=2), or path discovery (stage=3) for fs.open.
+/// descriptor use (stage=2), path disclosure (stage=3), or pre-open effects
+/// (stage=4) for fs.open. Stages after requested require `parent_fd`.
 int ex_host_authorize_typed_fs_open(uint64_t module_id,
                                     const char* path,
                                     uint32_t stage,
+                                    int32_t parent_fd,
                                     int32_t fd,
                                     int32_t needs_read,
                                     int32_t needs_write,

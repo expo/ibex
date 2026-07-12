@@ -63,6 +63,7 @@ extern "C" int32_t ex_host_authorize_typed_fs_open(
     uint64_t module_id,
     const char* path,
     uint32_t stage,
+    int32_t parent_fd,
     int32_t fd,
     int32_t needs_read,
     int32_t needs_write,
@@ -86,6 +87,7 @@ struct FdEntry {
   bool canWrite;
   bool processIpc;
   std::string presentedHandleId;
+  std::shared_ptr<int> retainedParent;
 };
 
 static std::mutex g_fd_registry_mutex;
@@ -109,13 +111,15 @@ static void registerFd(
     const std::string& path,
     bool canRead,
     bool canWrite,
-    const std::string& presentedHandleId = "") {
+    const std::string& presentedHandleId = "",
+    std::shared_ptr<int> retainedParent = nullptr) {
   if (fd < 0 || isAllowAll()) {
     return;
   }
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry[fd] =
-      FdEntry{currentPrincipalId(), path, canRead, canWrite, false, presentedHandleId};
+      FdEntry{currentPrincipalId(), path, canRead, canWrite, false,
+              presentedHandleId, std::move(retainedParent)};
 }
 
 void exactRegisterProcessIpcFd(int fd) {
@@ -128,7 +132,7 @@ void exactRegisterProcessIpcFd(int fd) {
 #endif
   std::lock_guard<std::mutex> lock(g_fd_registry_mutex);
   g_fd_registry[fd] =
-      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true, ""};
+      FdEntry{owner, std::string("/dev/fd/") + std::to_string(fd), true, true, true, "", nullptr};
 }
 
 static void unregisterFd(int fd) {
@@ -158,7 +162,7 @@ static FdEntry requireOwnedFd(facebook::jsi::Runtime& runtime, int fd, const cha
   if (!entry) {
     if (principalMayUseUnknownFd(principal) || isAllowAll()) {
       return FdEntry{
-          principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false, ""};
+          principal, std::string("/dev/fd/") + std::to_string(fd), true, true, false, "", nullptr};
     }
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": bad file descriptor");
   }
@@ -181,7 +185,8 @@ static void requireFdRead(facebook::jsi::Runtime& runtime, int fd, const char* s
         ? nullptr
         : entry.presentedHandleId.c_str();
     if (ex_host_authorize_typed_fs_open(
-            entry.owner, entry.path.c_str(), 2, fd, 1, 0, handle) != 1) {
+            entry.owner, entry.path.c_str(), 2,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 1, 0, handle) != 1) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
     }
   } else if (!checkCapability("fs:read:" + entry.path)) {
@@ -197,7 +202,16 @@ static void requireFdWrite(facebook::jsi::Runtime& runtime, int fd, const char* 
   if (!entry.canWrite) {
     throw facebook::jsi::JSError(runtime, std::string(syscall) + ": fd not opened for writing");
   }
-  if (!checkCapability("fs:write:" + entry.path)) {
+  if (ex_host_is_armed() == 1) {
+    const char* handle = entry.presentedHandleId.empty()
+        ? nullptr
+        : entry.presentedHandleId.c_str();
+    if (ex_host_authorize_typed_fs_open(
+            entry.owner, entry.path.c_str(), 2,
+            entry.retainedParent ? *entry.retainedParent : -1, fd, 0, 1, handle) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+  } else if (!checkCapability("fs:write:" + entry.path)) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 }
@@ -407,6 +421,21 @@ static void normalizeWriteErrno(int fd) {
     errno = EFBIG;
   }
 #endif
+}
+
+static std::pair<std::string, std::string> splitParentAndName(
+    const std::string& path) {
+  auto slash = path.find_last_of('/');
+  if (slash == std::string::npos) return {".", path};
+  if (slash == 0) return {"/", path.substr(1)};
+  return {path.substr(0, slash), path.substr(slash + 1)};
+}
+
+static std::shared_ptr<int> retainedFd(int fd) {
+  return std::shared_ptr<int>(new int(fd), [](int* retained) {
+    if (*retained >= 0) ::close(*retained);
+    delete retained;
+  });
 }
 
 // Parse a Node open() flags argument (a string like "r"/"w+"/"ax", or numeric
@@ -1975,22 +2004,9 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
         if (armed) {
           classifyOpenAccess(posixFlags, needsRead, needsWrite);
           if (ex_host_authorize_typed_fs_open(
-                  currentPrincipalId(), path.c_str(), 0, -1,
+                  currentPrincipalId(), path.c_str(), 0, -1, -1,
                   needsRead ? 1 : 0, needsWrite ? 1 : 0,
                   presentedHandlePtr) != 1) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-          // Write/create/truncate cannot safely defer fs:write authorization
-          // until after ::open, because the syscall may already have mutated
-          // the filesystem. Keep the armed branch closed until the discovery
-          // phase walks a retained parent and commits with openat/openat2.
-          if (needsWrite) {
-            throw facebook::jsi::JSError(
-                runtime, "Permission denied: typed write open requires retained-parent discovery");
-          }
-          if (ex_host_authorize_typed_fs_open(
-                  currentPrincipalId(), path.c_str(), 3, -1,
-                  1, 0, presentedHandlePtr) != 1) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
         } else {
@@ -2002,21 +2018,55 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           mode = static_cast<int>(args[2].asNumber());
         }
 
-        int fd = ::open(path.c_str(), posixFlags, mode);
+        std::shared_ptr<int> retainedParent;
+        int fd = -1;
+        if (armed) {
+          // @ref LLP 0021#wp5--convert-filesystem-effects-and-checked-object-execution — Retain the parent and commit the actual fd before truncation or later I/O.
+          auto [parentPath, name] = splitParentAndName(path);
+          int parentFd = ::open(parentPath.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+          if (parentFd < 0) throwFsError(runtime, "open", path);
+          retainedParent = retainedFd(parentFd);
+          if (name.empty() ||
+              ex_host_authorize_typed_fs_open(
+                  currentPrincipalId(), path.c_str(), 3, parentFd, -1,
+                  needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                  presentedHandlePtr) != 1 ||
+              ex_host_authorize_typed_fs_open(
+                  currentPrincipalId(), path.c_str(), 4, parentFd, -1,
+                  needsRead ? 1 : 0, needsWrite ? 1 : 0,
+                  presentedHandlePtr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
+          // O_TRUNC mutates during open. Delay it until the actual descriptor
+          // identity has passed commit authorization.
+          fd = ::openat(
+              parentFd, name.c_str(), (posixFlags & ~O_TRUNC) | O_NOFOLLOW, mode);
+        } else {
+          fd = ::open(path.c_str(), posixFlags, mode);
+        }
         if (fd < 0) {
           throwFsError(runtime, "open", path);
         }
         if (armed && ex_host_authorize_typed_fs_open(
-                         currentPrincipalId(), path.c_str(), 1, fd,
+                         currentPrincipalId(), path.c_str(), 1,
+                         *retainedParent, fd,
                          needsRead ? 1 : 0, needsWrite ? 1 : 0,
                          presentedHandlePtr) != 1) {
           ::close(fd);
           throw facebook::jsi::JSError(runtime, "Permission denied");
         }
+        if (armed && (posixFlags & O_TRUNC) != 0 && ::ftruncate(fd, 0) != 0) {
+          int savedErrno = errno;
+          ::close(fd);
+          errno = savedErrno;
+          throwFsError(runtime, "open", path);
+        }
         // @ref LLP 0013#policy — raw POSIX fds are forgeable integers, so the
         // host records the owner/path/access class at open and later fd ops
         // recheck both ownership and the current capability grant. (ENG-22707)
-        registerFd(fd, path, needsRead, needsWrite, presentedHandle);
+        registerFd(
+            fd, path, needsRead, needsWrite, presentedHandle,
+            std::move(retainedParent));
         return facebook::jsi::Value(fd);
       });
   rt.global().setProperty(rt, "__exactFsOpen", std::move(fsOpenFn));
