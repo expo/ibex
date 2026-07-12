@@ -1988,6 +1988,11 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(
                 runtime, "Permission denied: typed write open requires retained-parent discovery");
           }
+          if (ex_host_authorize_typed_fs_open(
+                  currentPrincipalId(), path.c_str(), 3, -1,
+                  1, 0, presentedHandlePtr) != 1) {
+            throw facebook::jsi::JSError(runtime, "Permission denied");
+          }
         } else {
           requireOpenCapability(runtime, path, posixFlags, needsRead, needsWrite);
         }

@@ -300,8 +300,8 @@ char* ex_host_evaluate_typed_decision(const uint8_t* decision_set,
                                       const uint8_t* gates,
                                       size_t gates_len);
 
-/// Authorize requested (stage=0), retained-fd commit (stage=1), or repeated
-/// descriptor use (stage=2) for the native fs.open branch.
+/// Authorize requested (stage=0), retained-fd commit (stage=1), repeated
+/// descriptor use (stage=2), or path discovery (stage=3) for fs.open.
 int ex_host_authorize_typed_fs_open(uint64_t module_id,
                                     const char* path,
                                     uint32_t stage,

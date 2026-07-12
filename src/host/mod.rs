@@ -1404,6 +1404,23 @@ mod tests {
             volume: capsec_semantics::model::NonEmptyString::new("dev:test").unwrap(),
             file: capsec_semantics::model::NonEmptyString::new(file).unwrap(),
         };
+        let discovered_open = host
+            .authorize_typed_fs_open_stage(
+                "0",
+                open_path,
+                capsec_semantics::model::Stage::Discovery,
+                true,
+                false,
+                Some(object("parent")),
+                Some(object("photo")),
+                None,
+                Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(
+            discovered_open.outcome,
+            capsec_semantics::decision::DecisionOutcome::Allow
+        );
         let committed_open = host
             .authorize_typed_fs_open_stage(
                 "0",
@@ -1538,11 +1555,11 @@ mod tests {
         let denied = host.evaluate_typed_decision(&denied_set, &gates).unwrap();
         assert_eq!(denied.outcome, DecisionOutcome::Deny);
         let evidence = host.typed_evidence();
-        assert_eq!(evidence.len(), 5);
-        assert_eq!(evidence[3].outcome, DecisionOutcome::Allow);
-        assert_eq!(evidence[4].outcome, DecisionOutcome::Deny);
+        assert_eq!(evidence.len(), 6);
+        assert_eq!(evidence[4].outcome, DecisionOutcome::Allow);
+        assert_eq!(evidence[5].outcome, DecisionOutcome::Deny);
         assert_eq!(
-            evidence[3].identity.armed_snapshot_digest,
+            evidence[4].identity.armed_snapshot_digest,
             host.armed_snapshot().unwrap().digest().clone()
         );
     }

@@ -982,7 +982,7 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     use capsec_semantics::decision::DecisionOutcome;
     use capsec_semantics::model::{NonEmptyString, Stage};
 
-    if path.is_null() || !matches!(stage, 0..=2) {
+    if path.is_null() || !matches!(stage, 0..=3) {
         return -1;
     }
     let path_bytes = unsafe { CStr::from_ptr(path) }.to_bytes();
@@ -1009,6 +1009,34 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_open(
     };
     let (stage, parent_object, final_object, retained_handle) = if stage == 0 {
         (Stage::Requested, None, None, None)
+    } else if stage == 3 {
+        #[cfg(unix)]
+        {
+            let Some(parent) = path.parent() else {
+                return -1;
+            };
+            let parent = if parent.as_os_str().is_empty() {
+                std::path::Path::new(".")
+            } else {
+                parent
+            };
+            let Some(parent_object) = object_identity_for_path(parent) else {
+                return 0;
+            };
+            let Some(final_object) = object_identity_for_path(&path) else {
+                return 0;
+            };
+            (
+                Stage::Discovery,
+                Some(parent_object),
+                Some(final_object),
+                None,
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            return -1;
+        }
     } else {
         if fd < 0 {
             return -1;
