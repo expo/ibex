@@ -4971,24 +4971,6 @@ cp \"$input\" \"$out\"\n";
             };"#,
         )
         .unwrap();
-        let package_integrity = crate::module_loader::package_tree_integrity(&package).unwrap();
-        let package_metadata = std::fs::metadata(&package).unwrap();
-        let package_components = package
-            .components()
-            .filter_map(|component| match component {
-                std::path::Component::Normal(value) => Some(serde_json::json!({
-                    "encoding": "utf8",
-                    "value": value.to_str().expect("test package path must be UTF-8"),
-                })),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let package_principal = serde_json::json!({
-            "kind":"package",
-            "name":"image-lib",
-            "integrity": package_integrity,
-            "locator":"image-lib@2.4.1"
-        });
         let entry = root.join("app.js");
         std::fs::write(
             &entry,
@@ -5030,7 +5012,6 @@ cp \"$input\" \"$out\"\n";
                 _ => None,
             })
             .collect::<Vec<_>>();
-        use std::os::unix::fs::MetadataExt;
         let package_metadata = std::fs::metadata(&package).unwrap();
         let principal_for_snapshot = serde_json::to_value(&principal).unwrap();
         let (host, digest) = build_armed_test_host_control(
