@@ -570,6 +570,14 @@ function _bufferFromBase64(value) {
 
 function _bufferFromBytes(value) {
   if (typeof Buffer !== 'undefined' && typeof Buffer.from === 'function') {
+    if (typeof Buffer.isBuffer === 'function' && Buffer.isBuffer(value)) return value;
+    // Buffer.from(TypedArray) copies, while the ArrayBuffer overload creates a
+    // view. TLS owns/retains these JS buffers until the native/raw consumer is
+    // finished, so sharing the backing store avoids an extra 64 KiB copy in
+    // each direction without changing its lifetime.
+    if (_isArrayBufferView(value) && value.buffer) {
+      return Buffer.from(value.buffer, value.byteOffset || 0, value.byteLength);
+    }
     return Buffer.from(value);
   }
   return value;

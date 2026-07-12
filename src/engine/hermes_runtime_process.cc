@@ -1772,13 +1772,14 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(
               runtime, std::string(syscall) + ": handle belongs to a different runtime");
         }
-        if (!isAllowAll()) {
-          if (proc->owner != currentPrincipalId()) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
-          if (!proc->capability.empty() && !checkCapability(proc->capability)) {
-            throw facebook::jsi::JSError(runtime, "Permission denied");
-          }
+        // Permissive policy does not make numeric handles ambient. Ownership
+        // is an object-capability boundary independent of whether authority
+        // checks are configured to allow all operations.
+        if (proc->owner != currentPrincipalId()) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
+        }
+        if (!proc->capability.empty() && !checkCapability(proc->capability)) {
+          throw facebook::jsi::JSError(runtime, "Permission denied");
         }
         return proc;
       };

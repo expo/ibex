@@ -68,6 +68,9 @@ struct OwnedEngine {
     /// alone are not an ownership boundary: two runtimes can assign the same
     /// principal number. The runtime nonce is checked before every lookup.
     runtime_nonce: u64,
+    /// Principal that minted the numeric handle. Permissive policy does not
+    /// make native handles ambient across package compartments.
+    owner: u64,
     engine: Engine,
 }
 
@@ -83,12 +86,19 @@ const MAX_JS_SAFE_INTEGER: u64 = (1_u64 << 53) - 1;
 
 unsafe extern "C" {
     fn ex_hermes_current_runtime_nonce() -> u64;
+    fn ex_hermes_current_principal_id() -> u64;
 }
 
 fn current_runtime_nonce() -> u64 {
     // SAFETY: this function reads the runtime-thread's current security
     // context and has no pointer arguments or lifetime requirements.
     unsafe { ex_hermes_current_runtime_nonce() }
+}
+
+fn current_principal_id() -> u64 {
+    // SAFETY: like the nonce accessor, this reads runtime-thread-local
+    // security context and has no pointer/lifetime preconditions.
+    unsafe { ex_hermes_current_principal_id() }
 }
 
 fn allocate_engine_id(counter: &AtomicU64) -> Option<u64> {
@@ -107,11 +117,13 @@ thread_local! {
     // Construction errors are consumed synchronously by the C++ bridge on
     // the same runtime thread. A process-global slot let one runtime steal or
     // overwrite another runtime's error during concurrent construction.
-    static LAST_ERROR: RefCell<Option<(u64, String)>> = const { RefCell::new(None) };
+    static LAST_ERROR: RefCell<Option<(u64, u64, String)>> = const { RefCell::new(None) };
 }
 
 fn set_last_error(message: String) {
-    LAST_ERROR.with(|slot| *slot.borrow_mut() = Some((current_runtime_nonce(), message)));
+    LAST_ERROR.with(|slot| {
+        *slot.borrow_mut() = Some((current_runtime_nonce(), current_principal_id(), message))
+    });
 }
 
 /// A `ServerCertVerifier` that runs the real WebPKI verification, records the
@@ -122,6 +134,32 @@ fn set_last_error(message: String) {
 struct RecordingVerifier {
     inner: Arc<WebPkiServerVerifier>,
     outcome: Arc<Mutex<VerifyOutcome>>,
+}
+
+fn default_crypto_provider() -> &'static Arc<rustls::crypto::CryptoProvider> {
+    static PROVIDER: OnceLock<Arc<rustls::crypto::CryptoProvider>> = OnceLock::new();
+    PROVIDER.get_or_init(|| Arc::new(rustls::crypto::ring::default_provider()))
+}
+
+fn default_root_store() -> &'static Arc<RootCertStore> {
+    static ROOTS: OnceLock<Arc<RootCertStore>> = OnceLock::new();
+    ROOTS.get_or_init(|| {
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        Arc::new(roots)
+    })
+}
+
+fn default_server_verifier() -> &'static Arc<WebPkiServerVerifier> {
+    static VERIFIER: OnceLock<Arc<WebPkiServerVerifier>> = OnceLock::new();
+    VERIFIER.get_or_init(|| {
+        WebPkiServerVerifier::builder_with_provider(
+            default_root_store().clone(),
+            default_crypto_provider().clone(),
+        )
+        .build()
+        .expect("the compiled webpki root store must build a verifier")
+    })
 }
 
 fn classify_verify_error(err: &TlsError) -> (bool, String, String) {
@@ -299,8 +337,10 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
         return Err("encrypted client private keys are not supported by the rustls bridge".into());
     }
 
-    let mut provider_value = rustls::crypto::ring::default_provider();
-    if !config.cipher_suites.is_empty() {
+    let provider = if config.cipher_suites.is_empty() {
+        default_crypto_provider().clone()
+    } else {
+        let mut provider_value = default_crypto_provider().as_ref().clone();
         provider_value.cipher_suites.retain(|suite| {
             let (openssl, standard) = cipher_names(suite.suite());
             config.cipher_suites.iter().any(|requested| {
@@ -318,11 +358,11 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
                 config.cipher_suites
             ));
         }
-    }
-    let provider = Arc::new(provider_value);
+        Arc::new(provider_value)
+    };
 
-    let mut roots = RootCertStore::empty();
-    if let Some(ca_pem) = config.ca.as_deref() {
+    let custom_roots = if let Some(ca_pem) = config.ca.as_deref() {
+        let mut roots = RootCertStore::empty();
         let mut added = 0usize;
         for cert in CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
             let cert = cert.map_err(|e| format!("invalid certificate in ca option: {e}"))?;
@@ -334,15 +374,23 @@ fn build_engine(config_json: &str) -> Result<Engine, String> {
         if added == 0 {
             return Err("ca option contained no certificates".into());
         }
+        Some(Arc::new(roots))
     } else {
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    }
+        None
+    };
 
     let outcome = Arc::new(Mutex::new(VerifyOutcome::default()));
-    let webpki_verifier =
-        WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone())
+    let webpki_verifier = if let Some(roots) = custom_roots {
+        WebPkiServerVerifier::builder_with_provider(roots, provider.clone())
             .build()
-            .map_err(|e| format!("failed to build certificate verifier: {e}"))?;
+            .map_err(|e| format!("failed to build certificate verifier: {e}"))?
+    } else if config.cipher_suites.is_empty() {
+        default_server_verifier().clone()
+    } else {
+        WebPkiServerVerifier::builder_with_provider(default_root_store().clone(), provider.clone())
+            .build()
+            .map_err(|e| format!("failed to build certificate verifier: {e}"))?
+    };
     let verifier = Arc::new(RecordingVerifier {
         inner: webpki_verifier,
         outcome: outcome.clone(),
@@ -452,12 +500,13 @@ fn record_process_error(engine: &mut Engine, err: &TlsError) {
 
 fn with_engine<R>(id: u64, f: impl FnOnce(&mut Engine) -> R) -> Option<R> {
     let runtime_nonce = current_runtime_nonce();
+    let principal = current_principal_id();
     if runtime_nonce == 0 {
         return None;
     }
     let mut map = engines().lock().unwrap();
     let owned = map.get_mut(&id)?;
-    if owned.runtime_nonce != runtime_nonce {
+    if owned.runtime_nonce != runtime_nonce || owned.owner != principal {
         return None;
     }
     Some(f(&mut owned.engine))
@@ -478,6 +527,7 @@ fn to_owned_cstring(value: String) -> *mut c_char {
 #[no_mangle]
 pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 {
     let runtime_nonce = current_runtime_nonce();
+    let owner = current_principal_id();
     if runtime_nonce == 0 {
         set_last_error("TLS engine creation requires an active runtime".into());
         return 0;
@@ -503,6 +553,7 @@ pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 
                 id,
                 OwnedEngine {
                     runtime_nonce,
+                    owner,
                     engine,
                 },
             );
@@ -524,13 +575,14 @@ pub unsafe extern "C" fn ibex_tls_client_new(config_json: *const c_char) -> u64 
 #[no_mangle]
 pub extern "C" fn ibex_tls_last_error() -> *mut c_char {
     let runtime_nonce = current_runtime_nonce();
+    let principal = current_principal_id();
     match LAST_ERROR.with(|slot| {
         let mut slot = slot.borrow_mut();
         if slot
             .as_ref()
-            .is_some_and(|(owner, _)| *owner == runtime_nonce)
+            .is_some_and(|(nonce, owner, _)| *nonce == runtime_nonce && *owner == principal)
         {
-            slot.take().map(|(_, message)| message)
+            slot.take().map(|(_, _, message)| message)
         } else {
             None
         }

@@ -1689,7 +1689,13 @@ fn module_cache_key(path: &Path, target: &str, source: &str) -> Result<String> {
     hasher.update(target.as_bytes());
     hasher.update(b"\0");
     let cache_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    hasher.update(cache_path.to_string_lossy().as_bytes());
+    let cache_path = cache_path.to_str().with_context(|| {
+        format!(
+            "Transpile cache does not support a non-UTF-8 module path: {}",
+            cache_path.display()
+        )
+    })?;
+    hasher.update(cache_path.as_bytes());
     hasher.update(b"\0");
     hasher.update(transpile_tooling_hash()?);
     hasher.update(b"\0");
@@ -1747,7 +1753,13 @@ fn compute_transpile_tooling_hash() -> Result<[u8; 32]> {
         let mut hasher = Sha256::new();
         hasher.update(b"subprocess-transpile-script\0");
         let identity = transpile_override_identity()?;
-        hasher.update(identity.path.to_string_lossy().as_bytes());
+        let script_path = identity.path.to_str().with_context(|| {
+            format!(
+                "Transpile override does not support a non-UTF-8 path: {}",
+                identity.path.display()
+            )
+        })?;
+        hasher.update(script_path.as_bytes());
         hasher.update(b"\0");
         hasher.update(identity.digest);
         return Ok(hasher.finalize().into());
@@ -2057,7 +2069,11 @@ fn run_transpile_override(
     // The tooling digest and the executed script come from the same captured
     // bytes. Executing the live override path here would recreate the source
     // split-input race for the tool itself.
-    let staged_script = unique_staged_transpile_input(&script.path, output);
+    // Keep the authenticated copy beside the selected script so its relative
+    // imports resolve exactly as they do for the configured entry point. A
+    // copy in the cache output directory silently broke any override that
+    // imported `./helper`.
+    let staged_script = unique_staged_transpile_input(&script.path, &script.path);
     let mut script_file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -2130,11 +2146,11 @@ fn unique_tmp_path(output: &Path) -> PathBuf {
             .unwrap_or(0)
     };
 
-    let stem = output
+    let mut name = output
         .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("module");
-    let name = format!("{stem}.{}.{seq}.{rand:016x}.tmp", std::process::id());
+        .unwrap_or_else(|| OsStr::new("module"))
+        .to_os_string();
+    name.push(format!(".{}.{seq}.{rand:016x}.tmp", std::process::id()));
     match output.parent() {
         Some(parent) => parent.join(name),
         None => PathBuf::from(name),
@@ -2517,6 +2533,7 @@ mod tests {
         let entry = dir.path().join("module.ts");
         let output = dir.path().join("module.js");
         let script = dir.path().join("transpile.cjs");
+        let helper = dir.path().join("helper.cjs");
         let ready = dir.path().join("ready");
         let release = dir.path().join("release");
         let observed = dir.path().join("observed-entry");
@@ -2524,7 +2541,7 @@ mod tests {
         std::fs::write(
             &script,
             format!(
-                "const fs=require('fs'); const a=process.argv; \
+                "const fs=require('fs'); if (!require('./helper.cjs')) throw new Error('missing helper'); const a=process.argv; \
                  const entry=a[a.indexOf('--entry')+1], out=a[a.indexOf('--out')+1]; \
                  fs.writeFileSync({}, entry); fs.writeFileSync({}, ''); \
                  while(!fs.existsSync({})) {{}} \
@@ -2535,6 +2552,7 @@ mod tests {
             ),
         )
         .unwrap();
+        std::fs::write(&helper, "module.exports = true;\n").unwrap();
         let script_source = std::fs::read(&script).unwrap();
         let script_identity = TranspileOverrideIdentity {
             path: script.clone(),

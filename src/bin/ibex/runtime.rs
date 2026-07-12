@@ -1364,7 +1364,35 @@ impl Runtime {
         let is_bytecode = entry_path.extension().and_then(|s| s.to_str()) == Some("hbc");
         if is_bytecode {
             self.engine.eval_immediate(&argv_code).await?;
-            match self.engine.run_file(&entry_str).await {
+            let content_dir = entry_path.parent().filter(|parent| {
+                parent
+                    .parent()
+                    .and_then(Path::file_name)
+                    .is_some_and(|name| name == ".bytecode-cache")
+            });
+            // Content-addressed HBC is untrusted cache data. Read and verify it
+            // once, then pass those exact bytes to Hermes. Direct user-supplied
+            // .hbc files retain the normal engine path behavior.
+            let verified = match content_dir {
+                Some(_) => Some(
+                    engine::hermes::load_verified_bytecode_artifact(None, &entry_path)
+                        .await
+                        .context("Bytecode cache changed before execution")?,
+                ),
+                None => None,
+            };
+            let manifest_source = verified
+                .as_ref()
+                .map(|artifact| artifact.source_path.clone());
+            let execution = match verified.as_ref() {
+                Some(artifact) => {
+                    self.engine
+                        .run_bytecode_bytes(&artifact.bytes, &entry_str)
+                        .await
+                }
+                None => self.engine.run_file(&entry_str).await,
+            };
+            match execution {
                 Ok(result) => return Ok(result),
                 Err(e) => {
                     // Only a genuine load failure — the bytecode buffer was
@@ -1384,14 +1412,7 @@ impl Runtime {
                     // Bytecode failed to load (version mismatch or corrupt).
                     // Mark bytecode as incompatible so we don't re-compile.
                     BYTECODE_INCOMPATIBLE.store(true, Ordering::Relaxed);
-                    let manifest_source = engine::hermes::bytecode_source_path(&entry_path).await;
                     // Delete the stale .hbc and fall through to require() with JS source.
-                    let content_dir = entry_path.parent().filter(|parent| {
-                        parent
-                            .parent()
-                            .and_then(Path::file_name)
-                            .is_some_and(|name| name == ".bytecode-cache")
-                    });
                     if let Some(content_dir) = content_dir {
                         let _ = tokio::fs::remove_dir_all(content_dir).await;
                     } else {
@@ -2854,7 +2875,9 @@ pub async fn prepare_entry_with_format(
 }
 
 fn deps_manifest_path(output: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.deps.json", output.display()))
+    let mut path = output.as_os_str().to_os_string();
+    path.push(".deps.json");
+    PathBuf::from(path)
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -2911,7 +2934,13 @@ fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<Strin
         "file" => std::fs::read(path).ok().map(|bytes| sha256_bytes(&bytes)),
         "symlink" => std::fs::read_link(path)
             .ok()
-            .map(|target| sha256_bytes(target.to_string_lossy().as_bytes())),
+            .and_then(|target| target.to_str().map(|value| sha256_bytes(value.as_bytes()))),
+        "missing" => match std::fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Some(sha256_bytes(b"missing"))
+            }
+            _ => None,
+        },
         "directory" => {
             let mut entries = std::fs::read_dir(path)
                 .ok()?
@@ -2919,12 +2948,15 @@ fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<Strin
                 .ok()?;
             entries.sort_by(|left, right| {
                 left.file_name()
-                    .to_string_lossy()
+                    .to_str()
+                    .unwrap_or("")
                     .as_bytes()
-                    .cmp(right.file_name().to_string_lossy().as_bytes())
+                    .cmp(right.file_name().to_str().unwrap_or("").as_bytes())
             });
             let mut encoded = Vec::new();
             for entry in entries {
+                let name = entry.file_name();
+                let name = name.to_str()?;
                 let metadata = std::fs::symlink_metadata(entry.path()).ok()?;
                 let kind = if metadata.file_type().is_symlink() {
                     b'l'
@@ -2937,15 +2969,11 @@ fn bundle_resolution_input_digest(input: &BundleResolutionInput) -> Option<Strin
                 };
                 encoded.push(kind);
                 encoded.push(0);
-                encoded.extend_from_slice(entry.file_name().to_string_lossy().as_bytes());
+                encoded.extend_from_slice(name.as_bytes());
                 encoded.push(0);
                 if metadata.file_type().is_symlink() {
-                    encoded.extend_from_slice(
-                        std::fs::read_link(entry.path())
-                            .ok()?
-                            .to_string_lossy()
-                            .as_bytes(),
-                    );
+                    let target = std::fs::read_link(entry.path()).ok()?;
+                    encoded.extend_from_slice(target.to_str()?.as_bytes());
                 }
                 encoded.push(b'\n');
             }
@@ -3160,7 +3188,9 @@ async fn bundle_cache_is_fresh(output: &Path, entry: &Path) -> bool {
 
 #[cfg(test)]
 fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.meta.json", bytecode.display()))
+    let mut path = bytecode.as_os_str().to_os_string();
+    path.push(".meta.json");
+    PathBuf::from(path)
 }
 
 async fn bytecode_cache_is_fresh(source: &Path, bytecode: &Path) -> bool {
@@ -3171,17 +3201,21 @@ async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    let source = tokio::fs::read(entry).await?;
+    let source_identity = std::fs::canonicalize(entry)
+        .with_context(|| format!("Failed to authenticate bytecode source {}", entry.display()))?;
+    let source = tokio::fs::read(&source_identity).await?;
     let source_digest_before = sha256_bytes(&source);
     let toolchain_identity = engine::hermes::bytecode_cache_identity();
     let cache_key = sha256_bytes(
         format!("bytecode-cache-v2\0{source_digest_before}\0{toolchain_identity}").as_bytes(),
     );
-    let parent = entry.parent().context("bytecode source has no parent")?;
+    let parent = source_identity
+        .parent()
+        .context("bytecode source has no parent")?;
     let cache_root = parent.join(".bytecode-cache");
     let final_dir = cache_root.join(&cache_key);
     let hbc_path = final_dir.join("entry.hbc");
-    if bytecode_cache_is_fresh(entry, &hbc_path).await {
+    if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
         return Ok(hbc_path);
     }
 
@@ -3198,24 +3232,25 @@ async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
     tokio::fs::create_dir(&stage_dir).await?;
     let stage_hbc = stage_dir.join("entry.hbc");
     if let Err(error) =
-        engine::hermes::compile_source_to_bytecode(entry, &source, &stage_hbc, None).await
+        engine::hermes::compile_source_to_bytecode(&source_identity, &source, &stage_hbc, None)
+            .await
     {
         tokio::fs::remove_dir_all(&stage_dir).await.ok();
         return Err(error);
     }
-    let source_digest_after = sha256_file(entry).await?;
+    let source_digest_after = sha256_file(&source_identity).await?;
     if source_digest_before != source_digest_after {
         tokio::fs::remove_dir_all(&stage_dir).await.ok();
         anyhow::bail!(
             "Source changed while compiling bytecode for {}",
-            entry.display()
+            source_identity.display()
         );
     }
 
     let gate = acquire_bundle_artifact_gate(&final_dir).await?;
     let mut quarantine = None;
     if final_dir.exists() {
-        if bytecode_cache_is_fresh(entry, &hbc_path).await {
+        if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
             tokio::fs::remove_dir_all(&stage_dir).await.ok();
             return Ok(hbc_path);
         }
@@ -3588,42 +3623,29 @@ fn digest_field(hasher: &mut Sha256, label: &str, bytes: &[u8]) {
     hasher.update(bytes);
 }
 
-fn bundler_cache_input_paths() -> Vec<PathBuf> {
+fn bundler_cache_input_paths() -> Result<Vec<PathBuf>> {
     // Outside a checkout there is no bundler to run and no scripts to hash;
     // the cache key must not require a repo.
     let Ok(root) = repo_root() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    vec![
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("rolldown-bundle.mjs"),
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("transforms.mjs"),
+    [
+        "packages/ibex-devtools/src/scripts/rolldown-bundle.mjs",
+        "packages/ibex-devtools/src/scripts/transforms.mjs",
         // @ref LLP 0019#consequences — ENG-22987: the canonical Hermes-compat transforms
         // (for-of scoping, exponentiation, BigInt, async generators) moved out
         // of transforms.mjs into hermes-compat.mjs, which transforms.mjs now
         // re-exports. The bundle cache must hash the file the logic actually
         // lives in, or an edit to the transform semantics would not invalidate
         // cached bundles.
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("hermes-compat.mjs"),
+        "packages/ibex-devtools/src/scripts/hermes-compat.mjs",
         // @ref LLP 0014#parse-and-strip — the grant-attribute strip runs in
         // every bundle; its logic changing must invalidate cached bundles.
-        root.join("packages")
-            .join("ibex-devtools")
-            .join("src")
-            .join("scripts")
-            .join("import-grants.mjs"),
+        "packages/ibex-devtools/src/scripts/import-grants.mjs",
     ]
+    .into_iter()
+    .map(|relative| authenticated_repo_file(&root, Path::new(relative)))
+    .collect()
 }
 
 fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String> {
@@ -3655,18 +3677,20 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     );
     let canonical_entry = std::fs::canonicalize(entry)
         .with_context(|| format!("Failed to resolve bundle entry {}", entry.display()))?;
-    digest_field(
-        &mut hasher,
-        "entry-path",
-        canonical_entry.to_string_lossy().as_bytes(),
-    );
+    let canonical_entry_utf8 = canonical_entry.to_str().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Bundle cache does not support a non-UTF-8 entry path: {}",
+            canonical_entry.display()
+        )
+    })?;
+    digest_field(&mut hasher, "entry-path", canonical_entry_utf8.as_bytes());
     digest_field(
         &mut hasher,
         "entry-content",
         &std::fs::read(&canonical_entry)?,
     );
 
-    for bundler_input in bundler_cache_input_paths() {
+    for bundler_input in bundler_cache_input_paths()? {
         digest_field(
             &mut hasher,
             "bundler-input-path",
@@ -4272,6 +4296,13 @@ async fn run_bundler(
     artifact_root: &Path,
     bundle_format: BundleFormat,
 ) -> Result<PathBuf> {
+    if entry.to_str().is_none() || artifact_root.to_str().is_none() {
+        anyhow::bail!(
+            "Bundling/cache publication does not support non-UTF-8 paths: entry={}, cache={}",
+            entry.display(),
+            artifact_root.display()
+        );
+    }
     let (runner, runner_name) = find_js_runner()?;
     let script = bundler_script_path()?;
     let working_dir = bundler_working_dir()?;
@@ -4426,16 +4457,10 @@ async fn run_bundler(
 
 fn bundler_script_path() -> Result<PathBuf> {
     let root = repo_root()?;
-    let script = root
-        .join("packages")
-        .join("ibex-devtools")
-        .join("src")
-        .join("scripts")
-        .join("rolldown-bundle.mjs");
-    if !script.exists() {
-        anyhow::bail!("Bundler script not found at {}", script.display());
-    }
-    Ok(script)
+    authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs"),
+    )
 }
 
 /// `ibex policy generate|check` — runs the LLP 0014 policy generator with the
@@ -4446,15 +4471,10 @@ pub async fn run_policy_command(command: &crate::cli::PolicyCommands) -> Result<
     use crate::cli::PolicyCommands;
 
     let root = repo_root()?;
-    let script = root
-        .join("packages")
-        .join("ibex-devtools")
-        .join("src")
-        .join("scripts")
-        .join("generate-policy.mjs");
-    if !script.exists() {
-        anyhow::bail!("Policy generator not found at {}", script.display());
-    }
+    let script = authenticated_repo_file(
+        &root,
+        Path::new("packages/ibex-devtools/src/scripts/generate-policy.mjs"),
+    )?;
     let (runner, _runner_name) = find_js_runner()?;
 
     let mut cmd = tokio::process::Command::new(&runner);
@@ -4534,25 +4554,34 @@ fn repo_root() -> Result<PathBuf> {
                     .join("package.json")
                     .is_file()
             {
-                Some(ancestor.to_path_buf())
+                std::fs::canonicalize(ancestor).ok()
             } else {
                 None
             }
         })
     }
 
-    if let Ok(root) = std::env::var("IBEX_REPO_ROOT").or_else(|_| std::env::var("EXACT_REPO_ROOT"))
+    if let Some(raw) =
+        std::env::var_os("IBEX_REPO_ROOT").or_else(|| std::env::var_os("EXACT_REPO_ROOT"))
     {
-        let root = PathBuf::from(root);
-        if let Some(found) = find_from(&root) {
-            return Ok(found);
+        let root = PathBuf::from(raw);
+        if !root.is_absolute() {
+            anyhow::bail!("IBEX_REPO_ROOT must be an absolute authenticated directory");
         }
+        return find_from(&root).ok_or_else(|| {
+            anyhow::anyhow!(
+                "IBEX_REPO_ROOT does not identify an Ibex checkout: {}",
+                root.display()
+            )
+        });
     }
 
-    if let Ok(current_dir) = std::env::current_dir() {
-        if let Some(found) = find_from(&current_dir) {
-            return Ok(found);
-        }
+    // The compile-time checkout is authenticated by the build. Never inspect
+    // the application cwd or its ancestors: an app can create a lookalike
+    // packages/ tree and otherwise select executable bundler code (the same
+    // confused-tool-discovery class as ENG-24254's fake Hermes compiler).
+    if let Some(found) = find_from(Path::new(env!("CARGO_MANIFEST_DIR"))) {
+        return Ok(found);
     }
 
     if let Ok(exe_path) = std::env::current_exe() {
@@ -4561,7 +4590,29 @@ fn repo_root() -> Result<PathBuf> {
         }
     }
 
-    anyhow::bail!("Failed to resolve repo root. Run from an Ibex checkout or set IBEX_REPO_ROOT")
+    anyhow::bail!(
+        "Failed to resolve an authenticated Ibex tooling root. Set IBEX_REPO_ROOT to an absolute trusted checkout"
+    )
+}
+
+fn authenticated_repo_file(root: &Path, relative: &Path) -> Result<PathBuf> {
+    let canonical_root = std::fs::canonicalize(root).with_context(|| {
+        format!(
+            "Failed to authenticate Ibex tooling root {}",
+            root.display()
+        )
+    })?;
+    let candidate = canonical_root.join(relative);
+    let canonical = std::fs::canonicalize(&candidate)
+        .with_context(|| format!("Ibex tooling file not found at {}", candidate.display()))?;
+    if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        anyhow::bail!(
+            "Ibex tooling file {} escapes authenticated root {}",
+            canonical.display(),
+            canonical_root.display()
+        );
+    }
+    Ok(canonical)
 }
 
 /// Determine runtime cache directory.
@@ -4629,6 +4680,8 @@ mod tests {
                     "IBEX_PER_PACKAGE_CHUNKS",
                     "IBEX_SEAL_SELF_GRANT",
                     "IBEX_ENDOW",
+                    "IBEX_REPO_ROOT",
+                    "EXACT_REPO_ROOT",
                 ]
                 .into_iter()
                 .map(|key| (key, std::env::var_os(key)))
@@ -5472,6 +5525,53 @@ mod tests {
         );
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bundle_rejects_resolution_candidate_added_after_resolver_decision() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let source_dir = tempdir().unwrap();
+        let cache_dir = tempdir().unwrap();
+        let barrier_dir = tempdir().unwrap();
+        let entry = source_dir.path().join("entry.js");
+        let selected = source_dir.path().join("dep.ts");
+        let higher_precedence = source_dir.path().join("dep.js");
+        let artifact_root = cache_dir.path().join("cache-key");
+        std::fs::write(&entry, "module.exports = require('./dep').value;\n").unwrap();
+        std::fs::write(&selected, "exports.value = 'typescript';\n").unwrap();
+        unsafe {
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY", &selected);
+            std::env::set_var("IBEX_TEST_BUNDLE_BARRIER_DIR", barrier_dir.path());
+        }
+        let task_entry = entry.clone();
+        let task_root = artifact_root.clone();
+        let task =
+            tokio::spawn(
+                async move { run_bundler(&task_entry, &task_root, BundleFormat::Cjs).await },
+            );
+        let captured = barrier_dir.path().join("captured");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !captured.exists() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert!(captured.exists(), "bundler never resolved/captured dep.ts");
+        std::fs::write(&higher_precedence, "exports.value = 'javascript';\n").unwrap();
+        std::fs::write(barrier_dir.path().join("release"), []).unwrap();
+        let result = task.await.unwrap();
+        unsafe {
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_ENTRY");
+            std::env::remove_var("IBEX_TEST_BUNDLE_BARRIER_DIR");
+        }
+        assert!(
+            result.is_err(),
+            "a build whose resolution precedence changed must not publish"
+        );
+        assert!(std::fs::read_dir(&artifact_root)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .all(|entry| entry.file_name().to_string_lossy().starts_with('.')));
+    }
+
     #[test]
     fn bundle_cache_quota_evicts_old_graphs_but_keeps_current() {
         let dir = tempdir().unwrap();
@@ -5590,7 +5690,7 @@ mod tests {
     fn bundler_cache_input_paths_cover_shared_bundler_sources() {
         // In-repo runs hash both bundler scripts; outside a checkout the list
         // is empty by design.
-        let paths = bundler_cache_input_paths();
+        let paths = bundler_cache_input_paths().unwrap();
 
         assert_eq!(paths.len(), 4);
         assert!(paths
@@ -5607,6 +5707,46 @@ mod tests {
             .iter()
             .any(|path| path.ends_with("packages/ibex-devtools/src/scripts/import-grants.mjs")));
         assert!(paths.iter().all(|path| path.exists()));
+    }
+
+    #[tokio::test]
+    async fn application_cwd_cannot_select_lookalike_bundler_tooling() {
+        let _lock = crate::engine::hermes::hermes_engine_test_lock()
+            .lock()
+            .await;
+        let _env = ProductionEnvGuard::capture();
+        std::env::remove_var("IBEX_REPO_ROOT");
+        std::env::remove_var("EXACT_REPO_ROOT");
+
+        let fake = tempdir().unwrap();
+        std::fs::create_dir_all(fake.path().join("vendored-generated")).unwrap();
+        std::fs::create_dir_all(fake.path().join("packages/ibex-runtime-js")).unwrap();
+        std::fs::create_dir_all(fake.path().join("packages/ibex-devtools/src/scripts")).unwrap();
+        std::fs::write(
+            fake.path().join("packages/ibex-runtime-js/package.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            fake.path().join("packages/ibex-devtools/package.json"),
+            "{}",
+        )
+        .unwrap();
+        std::fs::write(
+            fake.path()
+                .join("packages/ibex-devtools/src/scripts/rolldown-bundle.mjs"),
+            "throw new Error('application-controlled bundler executed');",
+        )
+        .unwrap();
+
+        let original = std::env::current_dir().unwrap();
+        std::env::set_current_dir(fake.path()).unwrap();
+        let selected = bundler_script_path();
+        std::env::set_current_dir(original).unwrap();
+
+        let selected = selected.unwrap();
+        assert!(selected.starts_with(std::fs::canonicalize(env!("CARGO_MANIFEST_DIR")).unwrap()));
+        assert!(!selected.starts_with(fake.path()));
     }
 
     #[test]

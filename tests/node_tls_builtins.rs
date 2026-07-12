@@ -66,6 +66,8 @@ Md/fFsEQi8gONn+RDAEJjd+CR+EchO6UjciR+fZtUMeqhqM6Eq4td8d7t3t7/93v
 GZp+REcWUDv3rRhch2XhCaD5Hw==
 -----END PRIVATE KEY-----";
 
+const WRONG_CLIENT_KEY: &str = include_str!("fixtures/crypto/rsa2048_priv_pkcs1.pem");
+
 /// Prefix a script with `KEY`/`CERT` consts holding the fixture PEMs.
 fn with_fixture_pems(script: &str) -> String {
     format!(
@@ -417,6 +419,8 @@ plain.listen(0, '127.0.0.1', function () {
 // ============================================================
 
 mod tls_bridge_support {
+    use rustls::server::WebPkiClientVerifier;
+    use rustls::RootCertStore;
     use rustls_pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -434,6 +438,27 @@ mod tls_bridge_support {
             .expect("server config builds");
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Arc::new(config)
+    }
+
+    fn mutual_tls_server_config() -> Arc<rustls::ServerConfig> {
+        let certs: Vec<_> = CertificateDer::pem_slice_iter(super::TEST_CERT.as_bytes())
+            .collect::<Result<_, _>>()
+            .expect("fixture cert parses");
+        let key =
+            PrivateKeyDer::from_pem_slice(super::TEST_KEY.as_bytes()).expect("fixture key parses");
+        let mut client_roots = RootCertStore::empty();
+        client_roots
+            .add(certs[0].clone())
+            .expect("fixture client trust anchor");
+        let client_verifier = WebPkiClientVerifier::builder(Arc::new(client_roots))
+            .build()
+            .expect("client verifier builds");
+        Arc::new(
+            rustls::ServerConfig::builder()
+                .with_client_cert_verifier(client_verifier)
+                .with_single_cert(certs, key)
+                .expect("mTLS server config builds"),
+        )
     }
 
     /// Spawn a real TLS server on 127.0.0.1: reads until a blank line (or
@@ -481,6 +506,112 @@ mod tls_bridge_support {
                     let _ = tls.flush();
                 });
             }
+        });
+        port
+    }
+
+    /// A real TLS server that requires a client certificate chaining to the
+    /// fixture certificate. The fixture is self-signed, so it serves as both
+    /// the test root and the client/server identity.
+    pub fn spawn_mutual_tls_http_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind mTLS loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = mutual_tls_server_config();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let config = config.clone();
+                std::thread::spawn(move || {
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .ok();
+                    let Ok(mut conn) = rustls::ServerConnection::new(config) else {
+                        return;
+                    };
+                    let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+                    let mut request = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    loop {
+                        match tls.read(&mut buf) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => {
+                                request.extend_from_slice(&buf[..n]);
+                                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    let body = b"mutual-tls-ok";
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = tls.write_all(response.as_bytes());
+                    let _ = tls.write_all(body);
+                    tls.conn.send_close_notify();
+                    let _ = tls.flush();
+                });
+            }
+        });
+        port
+    }
+
+    /// Echo the plaintext HTTP request back in the response body so the JS
+    /// client test can assert header/auth option propagation through a custom
+    /// Agent/createConnection path.
+    pub fn spawn_tls_request_echo_server(connections: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind TLS echo loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        let config = server_config();
+        std::thread::spawn(move || {
+            for _ in 0..connections {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let Ok(mut conn) = rustls::ServerConnection::new(config.clone()) else {
+                    return;
+                };
+                let mut tls = rustls::Stream::new(&mut conn, &mut stream);
+                let mut request = Vec::new();
+                let mut buf = [0u8; 2048];
+                loop {
+                    match tls.read(&mut buf) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => {
+                            request.extend_from_slice(&buf[..n]);
+                            if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                                break;
+                            }
+                        }
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    request.len()
+                );
+                let _ = tls.write_all(response.as_bytes());
+                let _ = tls.write_all(&request);
+                tls.conn.send_close_notify();
+                let _ = tls.flush();
+            }
+        });
+        port
+    }
+
+    pub fn spawn_stalled_tcp_server(connections: usize) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind stalled loopback");
+        let port = listener.local_addr().expect("local addr").port();
+        std::thread::spawn(move || {
+            let mut streams = Vec::new();
+            for _ in 0..connections {
+                let Ok((stream, _)) = listener.accept() else {
+                    return;
+                };
+                streams.push(stream);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            drop(streams);
         });
         port
     }
@@ -965,6 +1096,203 @@ https.get('https://localhost:{port}/', {{ ca: [CERT] }}, function (res) {{
     let v = run_script(&with_fixture_pems(&script), 30).await;
     assert_eq!(v["status"], 200, "{v}");
     assert_eq!(v["body"], "ok-over-real-tls", "{v}");
+}
+
+#[tokio::test]
+async fn node_tls_bridge_mutual_tls_requires_a_matching_cert_and_key() {
+    let port = tls_bridge_support::spawn_mutual_tls_http_server();
+    let wrong_key = serde_json::to_string(WRONG_CLIENT_KEY).unwrap();
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{}};
+var pending = 3;
+var watchdog = setTimeout(function () {{
+  out.watchdog = 'fired';
+  console.log(JSON.stringify(out));
+  process.exit(1);
+}}, 12000);
+function done() {{
+  pending--;
+  if (pending !== 0) return;
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}}
+
+var ok = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost',
+  ca: [CERT], cert: CERT, key: KEY
+}}, function () {{
+  var response = '';
+  ok.on('data', function (chunk) {{ response += chunk.toString(); }});
+  ok.on('end', function () {{ out.success = response.indexOf('mutual-tls-ok') !== -1; done(); }});
+  ok.end('GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+}});
+ok.on('error', function (e) {{ out.successError = e.message; done(); }});
+
+var missing = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT], cert: CERT
+}});
+missing.on('error', function (e) {{ out.missing = String(e.message); done(); }});
+
+var wrong = tls.connect({{
+  port: {port}, host: '127.0.0.1', servername: 'localhost',
+  ca: [CERT], cert: CERT, key: {wrong_key}
+}});
+wrong.on('error', function (e) {{ out.wrong = String(e.message); done(); }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["success"], true, "valid client identity must work: {v}");
+    assert!(
+        v["missing"]
+            .as_str()
+            .is_some_and(|message| message.contains("both cert and key are required")),
+        "one-sided client identity must be rejected: {v}"
+    );
+    assert!(
+        v["wrong"]
+            .as_str()
+            .is_some_and(|message| message.contains("mismatch")),
+        "mismatched client certificate/key must be rejected before handshake: {v}"
+    );
+}
+
+#[tokio::test]
+async fn node_tls_bridge_end_with_data_during_handshake_flushes_before_close_notify() {
+    let payload = "end-during-handshake";
+    let port = tls_bridge_support::spawn_delayed_tls_sink(payload.len());
+    let script = format!(
+        r#"
+var tls = require('tls');
+var out = {{ callback: false, secure: false, body: '' }};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true }})); process.exit(1); }}, 10000);
+var socket = tls.connect({{ port: {port}, host: '127.0.0.1', servername: 'localhost', ca: [CERT] }});
+socket.on('secureConnect', function () {{ out.secure = true; }});
+socket.on('data', function (chunk) {{ out.body += chunk.toString(); }});
+socket.on('end', function () {{
+  clearTimeout(watchdog);
+  console.log(JSON.stringify(out));
+  process.exit(0);
+}});
+socket.on('error', function (e) {{ out.error = (e.code || '') + ':' + e.message; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(1); }});
+socket.end({payload:?}, function () {{ out.callback = true; }});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 25).await;
+    assert_eq!(
+        v["secure"], true,
+        "handshake must complete before ending: {v}"
+    );
+    assert_eq!(v["callback"], true, "end callback must run: {v}");
+    assert_eq!(v["body"], format!("ack:{}", payload.len()), "{v}");
+}
+
+#[tokio::test]
+async fn node_https_honors_custom_agent_create_connection_auth_and_array_headers() {
+    let port = tls_bridge_support::spawn_tls_request_echo_server(2);
+    let script = format!(
+        r#"
+var https = require('https');
+var tls = require('tls');
+var out = {{}};
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 12000);
+function collect(name, request, next) {{
+  request.on('response', function (response) {{
+    var body = '';
+    response.on('data', function (chunk) {{ body += chunk.toString(); }});
+    response.on('end', function () {{ out[name] = body; next(); }});
+  }});
+  request.on('error', function (error) {{ out[name + 'Error'] = error.code || error.message; next(); }});
+  request.end();
+}}
+
+var agent = new https.Agent({{ ca: [CERT] }});
+var inheritedCreate = agent.createConnection;
+agent.createConnection = function (options, callback) {{
+  out.customAgent = true;
+  return inheritedCreate.call(this, options, callback);
+}};
+var first = https.request({{
+  host: '127.0.0.1', port: {port}, servername: 'localhost', agent: agent,
+  auth: 'alice:secret',
+  headers: [['X-First', 'one'], ['X-Second', 'two']]
+}});
+collect('agentRequest', first, function () {{
+  var second = https.request({{
+    host: '127.0.0.1', port: {port}, servername: 'localhost', ca: [CERT],
+    createConnection: function (options, callback) {{
+      out.customCreateConnection = true;
+      return tls.connect(options, callback);
+    }},
+    headers: [['X-Third', 'three']]
+  }});
+  collect('connectionRequest', second, function () {{
+    clearTimeout(watchdog);
+    console.log(JSON.stringify(out));
+    process.exit(0);
+  }});
+}});
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 30).await;
+    assert_eq!(v["customAgent"], true, "custom Agent was bypassed: {v}");
+    assert_eq!(
+        v["customCreateConnection"], true,
+        "request createConnection was bypassed: {v}"
+    );
+    let agent_request = v["agentRequest"].as_str().unwrap_or_default();
+    assert!(
+        agent_request
+            .to_ascii_lowercase()
+            .contains("authorization: basic ywxpy2u6c2vjcmv0"),
+        "auth option did not become Basic authorization: {v}"
+    );
+    let agent_request_lower = agent_request.to_ascii_lowercase();
+    assert!(
+        agent_request_lower.contains("x-first: one"),
+        "array header lost: {v}"
+    );
+    assert!(
+        agent_request_lower.contains("x-second: two"),
+        "array header lost: {v}"
+    );
+    assert!(
+        v["connectionRequest"]
+            .as_str()
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .contains("x-third: three"),
+        "array header lost on custom createConnection path: {v}"
+    );
+}
+
+#[tokio::test]
+async fn node_https_timeout_and_abort_signal_reach_socket_transport() {
+    let port = tls_bridge_support::spawn_stalled_tcp_server(2);
+    let script = format!(
+        r#"
+var https = require('https');
+var out = {{}};
+var pending = 2;
+var watchdog = setTimeout(function () {{ console.log(JSON.stringify({{ watchdog: true, out: out }})); process.exit(1); }}, 8000);
+function done() {{ if (--pending) return; clearTimeout(watchdog); console.log(JSON.stringify(out)); process.exit(0); }}
+var timed = https.get({{ host: '127.0.0.1', port: {port}, servername: 'localhost', rejectUnauthorized: false, timeout: 75 }});
+timed.on('timeout', function () {{ out.timeout = true; timed.destroy(); }});
+timed.on('close', function () {{ done(); }});
+timed.on('error', function (e) {{ out.timeoutError = e.code || e.message; }});
+
+var controller = new AbortController();
+var aborted = https.get({{ host: '127.0.0.1', port: {port}, servername: 'localhost', rejectUnauthorized: false, signal: controller.signal }});
+aborted.on('error', function (e) {{ out.abortCode = e.code || e.name; }});
+aborted.on('close', function () {{ done(); }});
+setTimeout(function () {{ controller.abort(); }}, 25);
+"#
+    );
+    let v = run_script(&with_fixture_pems(&script), 20).await;
+    assert_eq!(v["timeout"], true, "HTTPS timeout option was dropped: {v}");
+    assert_eq!(v["abortCode"], "ABORT_ERR", "HTTPS signal was dropped: {v}");
 }
 
 #[tokio::test]

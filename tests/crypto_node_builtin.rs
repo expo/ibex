@@ -589,6 +589,125 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
     );
 }
 
+/// The reduced BigInt implementation must reject work that can monopolize the
+/// runtime thread, and it must never ignore an explicitly requested DSA P1363
+/// wire encoding that its native bridge cannot produce.
+#[tokio::test]
+async fn prime_sync_work_is_bounded_and_dsa_p1363_fails_loudly() {
+    let js = "(function(){ var c = require('crypto'); var out = {}; \
+        function code(name, fn) { try { fn(); out[name] = 'no-throw'; } catch (e) { out[name] = e.code; } } \
+        code('generate', function(){ c.generatePrimeSync(513); }); \
+        code('safe', function(){ c.generatePrimeSync(257, { safe: true }); }); \
+        code('candidate', function(){ c.checkPrimeSync(1n << 512n); }); \
+        code('rounds', function(){ c.checkPrimeSync(65537n, { checks: 65 }); }); \
+        var dsaDer = Buffer.from('300b06072a8648ce380401', 'hex'); \
+        var dsaPem = '-----BEGIN PUBLIC KEY-----\\n' + dsaDer.toString('base64') + '\\n-----END PUBLIC KEY-----'; \
+        code('dsaSign', function(){ c.sign('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }); }); \
+        code('dsaVerify', function(){ c.verify('sha256', Buffer.from('x'), { key: dsaPem, dsaEncoding: 'ieee-p1363' }, Buffer.alloc(40)); }); \
+        return JSON.stringify(out); })()";
+    let result = eval(js).await;
+    assert_eq!(
+        result,
+        r#"{"generate":"ERR_CRYPTO_OPERATION_FAILED","safe":"ERR_CRYPTO_OPERATION_FAILED","candidate":"ERR_CRYPTO_OPERATION_FAILED","rounds":"ERR_CRYPTO_OPERATION_FAILED","dsaSign":"ERR_OSSL_UNSUPPORTED","dsaVerify":"ERR_OSSL_UNSUPPORTED"}"#,
+        "sync work bounds and P1363 rejection must fail explicitly: {result}"
+    );
+}
+
+/// Cross-check P1363 conversion in both directions against Node/OpenSSL for
+/// every coordinate width supported by the compatibility layer. This catches
+/// the easy-to-miss P-521 case (66-byte coordinates, not a power-of-two byte
+/// width) as well as P-256/P-384.
+#[tokio::test]
+async fn ec_p1363_interoperates_with_node_for_p256_p384_and_p521() {
+    let oracle = r#"
+const c = require('crypto');
+const msg = Buffer.from('ibex-p1363-cross-implementation');
+const curves = [['P-256','prime256v1'], ['P-384','secp384r1'], ['P-521','secp521r1']];
+const vectors = curves.map(([name, namedCurve]) => {
+  const pair = c.generateKeyPairSync('ec', {
+    namedCurve,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+  });
+  const signature = c.sign('sha256', msg, { key: pair.privateKey, dsaEncoding: 'ieee-p1363' });
+  return { name, publicKey: pair.publicKey, privateKey: pair.privateKey, signature: signature.toString('base64') };
+});
+process.stdout.write(JSON.stringify(vectors));
+"#;
+    let oracle_output = match Command::new("node").arg("-e").arg(oracle).output().await {
+        Ok(output) if output.status.success() => output,
+        _ => {
+            eprintln!("skipping P1363 cross-implementation test: Node oracle unavailable");
+            return;
+        }
+    };
+    let vectors = String::from_utf8(oracle_output.stdout).expect("Node vector JSON is UTF-8");
+    let ibex_js = format!(
+        r#"(function(){{
+          var c = require('crypto');
+          var msg = Buffer.from('ibex-p1363-cross-implementation');
+          var vectors = {vectors};
+          try {{
+            return JSON.stringify(vectors.map(function(v) {{
+              var nodeSignature = Buffer.from(v.signature, 'base64');
+              var verified = c.verify('sha256', msg,
+                {{ key: v.publicKey, dsaEncoding: 'ieee-p1363' }}, nodeSignature);
+              var ibexSignature = c.sign('sha256', msg,
+                {{ key: v.privateKey, dsaEncoding: 'ieee-p1363' }});
+              return {{ name: v.name, verified: verified, length: ibexSignature.length,
+                signature: ibexSignature.toString('base64') }};
+            }}));
+          }} catch (e) {{ return 'ERR:' + (e.code || '') + ':' + e.message; }}
+        }})()"#
+    );
+    let ibex_result = eval(&ibex_js).await;
+    if ibex_result.starts_with("ERR:") && is_unavailable(&ibex_result) {
+        eprintln!("skipping: asymmetric crypto bridge unavailable ({ibex_result})");
+        return;
+    }
+    let ibex_signatures: serde_json::Value =
+        serde_json::from_str(&ibex_result).expect("Ibex P1363 result JSON");
+    let expected_lengths = [64_u64, 96, 132];
+    for (index, expected) in expected_lengths.into_iter().enumerate() {
+        assert_eq!(
+            ibex_signatures[index]["verified"], true,
+            "Ibex must verify Node's P1363 signature: {ibex_result}"
+        );
+        assert_eq!(
+            ibex_signatures[index]["length"], expected,
+            "P1363 coordinate width is wrong: {ibex_result}"
+        );
+    }
+
+    let verify_oracle = r#"
+const c = require('crypto');
+const vectors = JSON.parse(process.env.IBEX_EC_VECTORS);
+const signatures = JSON.parse(process.env.IBEX_EC_SIGNATURES);
+const msg = Buffer.from('ibex-p1363-cross-implementation');
+process.stdout.write(JSON.stringify(signatures.map((entry, i) =>
+  c.verify('sha256', msg, { key: vectors[i].publicKey, dsaEncoding: 'ieee-p1363' },
+    Buffer.from(entry.signature, 'base64')))));
+"#;
+    let verified = Command::new("node")
+        .arg("-e")
+        .arg(verify_oracle)
+        .env("IBEX_EC_VECTORS", &vectors)
+        .env("IBEX_EC_SIGNATURES", &ibex_result)
+        .output()
+        .await
+        .expect("Node verifier runs");
+    assert!(
+        verified.status.success(),
+        "Node verifier failed: {}",
+        String::from_utf8_lossy(&verified.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&verified.stdout),
+        "[true,true,true]",
+        "Node must verify every Ibex P1363 signature"
+    );
+}
+
 /// ENG-23465 finding 3: verify.verify(key, signature, signatureEncoding)
 /// decodes hex/base64 signature strings (they always verified false before).
 #[tokio::test]

@@ -61,6 +61,16 @@ impl SourceMap {
         Self::parse(&data)
     }
 
+    /// Parse a V3 source map from an already-authenticated byte buffer.
+    ///
+    /// Bytecode cache callers use this instead of reopening the pathname after
+    /// checking its digest. That keeps the object we parse identical to the
+    /// object whose digest was verified even if the pathname is replaced.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Arc<Self>> {
+        let json = std::str::from_utf8(bytes).ok()?;
+        Some(Arc::new(Self::parse(json)?))
+    }
+
     /// Load a source map through a process-wide cache so repeated errors from
     /// the same bundle don't re-read and re-decode the whole map (which can be
     /// 10^5-10^6 mappings) on every error. The cache is validated against the

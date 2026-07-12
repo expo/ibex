@@ -531,6 +531,7 @@ fn find_hermesc_binary() -> Result<PathBuf> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct HermesToolIdentity {
     path: PathBuf,
+    bytes: Arc<Vec<u8>>,
     sha256: String,
     length: u64,
     modified_nanos: u128,
@@ -544,9 +545,16 @@ impl HermesToolIdentity {
     fn capture(path: &Path) -> Result<Self> {
         let path = std::fs::canonicalize(path)
             .with_context(|| format!("Failed to authenticate Hermes tool {}", path.display()))?;
-        let bytes = std::fs::read(&path)
-            .with_context(|| format!("Failed to hash Hermes tool {}", path.display()))?;
-        let metadata = std::fs::metadata(&path)?;
+        path.to_str()
+            .context("Hermes tool paths must be valid UTF-8")?;
+        // Bind bytes and metadata to one opened file object. Reading the path
+        // and then stat'ing it allowed a replacement between those syscalls to
+        // produce a mixed identity.
+        let mut file = std::fs::File::open(&path)
+            .with_context(|| format!("Failed to open Hermes tool {}", path.display()))?;
+        let metadata = file.metadata()?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        std::io::Read::read_to_end(&mut file, &mut bytes)?;
         let modified_nanos = metadata
             .modified()
             .ok()
@@ -557,6 +565,7 @@ impl HermesToolIdentity {
         use std::os::unix::fs::MetadataExt;
         Ok(Self {
             path,
+            bytes: Arc::new(bytes.clone()),
             sha256: format!("{:x}", Sha256::digest(&bytes)),
             length: metadata.len(),
             modified_nanos,
@@ -585,13 +594,45 @@ impl HermesToolIdentity {
         let object = String::new();
         format!(
             "{}\0{}\0{}\0{}\0{}",
-            self.path.display(),
+            self.path
+                .to_str()
+                .expect("HermesToolIdentity rejects non-UTF-8 paths"),
             self.sha256,
             self.length,
             self.modified_nanos,
             object
         )
     }
+}
+
+struct StagedHermesTool(PathBuf);
+
+impl Drop for StagedHermesTool {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
+fn stage_authenticated_hermes_tool(identity: &HermesToolIdentity) -> Result<StagedHermesTool> {
+    let stage_dir = temporary_output_path(&std::env::temp_dir().join("ibex-hermes-tool"));
+    std::fs::create_dir(&stage_dir)
+        .with_context(|| format!("Failed to create Hermes tool stage {}", stage_dir.display()))?;
+    let staged_path = stage_dir.join(if cfg!(windows) {
+        "hermes.exe"
+    } else {
+        "hermes"
+    });
+    std::fs::write(&staged_path, identity.bytes.as_slice())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged_path, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let staged_digest = format!("{:x}", Sha256::digest(std::fs::read(&staged_path)?));
+    if staged_digest != identity.sha256 {
+        anyhow::bail!("Hermes runtime tool changed while staging authenticated bytes");
+    }
+    Ok(StagedHermesTool(stage_dir))
 }
 
 fn find_hermesc_identity() -> Result<HermesToolIdentity> {
@@ -1339,15 +1380,16 @@ impl HermesEngine {
         if source_url != "<eval>" && source_url != "<module-loader>" {
             let map_path = format!("{}.map", source_url);
             if Path::new(&map_path).exists() {
-                if Path::new(source_url)
+                let source_map = if Path::new(source_url)
                     .extension()
                     .and_then(|ext| ext.to_str())
                     == Some("hbc")
-                    && !bytecode_source_map_is_fresh(Path::new(source_url), Path::new(&map_path))
                 {
-                    return message.to_string();
-                }
-                if let Some(sm) = super::sourcemap::SourceMap::load_cached(Path::new(&map_path)) {
+                    verified_bytecode_source_map(Path::new(source_url), Path::new(&map_path))
+                } else {
+                    super::sourcemap::SourceMap::load_cached(Path::new(&map_path))
+                };
+                if let Some(sm) = source_map {
                     return super::sourcemap::rewrite_error(message, &sm, source_url);
                 }
             }
@@ -1371,15 +1413,6 @@ impl HermesEngine {
                     }
                     let map_file = format!("{}.map", filename);
                     if Path::new(&map_file).exists() {
-                        if Path::new(filename).extension().and_then(|ext| ext.to_str())
-                            == Some("hbc")
-                            && !bytecode_source_map_is_fresh(
-                                Path::new(filename),
-                                Path::new(&map_file),
-                            )
-                        {
-                            continue;
-                        }
                         bundle_path = Some(filename.to_string());
                         break;
                     }
@@ -1389,7 +1422,13 @@ impl HermesEngine {
 
         if let Some(bp) = bundle_path {
             let map_file = format!("{}.map", bp);
-            if let Some(sm) = super::sourcemap::SourceMap::load_cached(Path::new(&map_file)) {
+            let source_map =
+                if Path::new(&bp).extension().and_then(|ext| ext.to_str()) == Some("hbc") {
+                    verified_bytecode_source_map(Path::new(&bp), Path::new(&map_file))
+                } else {
+                    super::sourcemap::SourceMap::load_cached(Path::new(&map_file))
+                };
+            if let Some(sm) = source_map {
                 return super::sourcemap::rewrite_error(message, &sm, &bp);
             }
         }
@@ -1773,6 +1812,13 @@ impl Engine for HermesEngine {
         Ok(result)
     }
 
+    async fn run_bytecode_bytes(&self, bytes: &[u8], source_url: &str) -> Result<Option<String>> {
+        self.maybe_enable_debugger().await?;
+        let result = self.eval_bytes(bytes, source_url, true).await?;
+        self.drive_event_loop().await?;
+        Ok(result)
+    }
+
     async fn run_file_immediate(&self, path: &str) -> Result<Option<String>> {
         // Like `run_file` but without driving the event loop to quiescence, so a
         // `.load server.js` that starts a long-lived server/timer returns to the
@@ -1841,12 +1887,19 @@ impl Engine for HermesEngine {
 
 /// Get the Hermes version
 pub fn get_version() -> Result<String> {
-    let hermes_path = find_hermes_binary()?;
+    let identity = HermesToolIdentity::capture(&find_hermes_binary()?)?;
+    let staged = stage_authenticated_hermes_tool(&identity)?;
+    let hermes_path = staged.0.join(if cfg!(windows) {
+        "hermes.exe"
+    } else {
+        "hermes"
+    });
 
     let output = std::process::Command::new(&hermes_path)
         .arg("--version")
         .output()
         .context("Failed to get Hermes version")?;
+    identity.verify_selected_path()?;
 
     let version = String::from_utf8_lossy(&output.stdout);
     // Parse the version from output like "Hermes JavaScript compiler version 0.12.0"
@@ -1949,12 +2002,14 @@ fn repl_idle_wait(
 fn temporary_output_path(path: &std::path::Path) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let file_name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("ibex-bytecode");
     let seq = COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
-    path.with_file_name(format!(".{file_name}.{}.{seq}.tmp", std::process::id()))
+    let mut file_name = std::ffi::OsString::from(".");
+    file_name.push(
+        path.file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("ibex-bytecode")),
+    );
+    file_name.push(format!(".{}.{seq}.tmp", std::process::id()));
+    path.with_file_name(file_name)
 }
 
 struct CachePublishLock(std::fs::File);
@@ -1966,7 +2021,7 @@ impl Drop for CachePublishLock {
 }
 
 async fn acquire_cache_publish_lock(output: &Path) -> Result<CachePublishLock> {
-    let lock_path = PathBuf::from(format!("{}.lock", output.display()));
+    let lock_path = path_with_suffix(output, ".lock");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let file = std::fs::OpenOptions::new()
         .read(true)
@@ -2026,42 +2081,58 @@ struct BytecodeArtifactManifest {
     toolchain_identity: String,
 }
 
+fn path_with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut value = path.as_os_str().to_os_string();
+    value.push(suffix);
+    PathBuf::from(value)
+}
+
 fn bytecode_manifest_path(bytecode: &Path) -> PathBuf {
-    PathBuf::from(format!("{}.meta.json", bytecode.display()))
+    path_with_suffix(bytecode, ".meta.json")
 }
 
-fn sha256_path_sync(path: &Path) -> Option<String> {
-    std::fs::read(path)
-        .ok()
-        .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
-}
-
+#[cfg(test)]
 fn bytecode_source_map_is_fresh(bytecode: &Path, source_map: &Path) -> bool {
+    verified_bytecode_source_map(bytecode, source_map).is_some()
+}
+
+fn verified_bytecode_source_map(
+    bytecode: &Path,
+    source_map: &Path,
+) -> Option<std::sync::Arc<super::sourcemap::SourceMap>> {
     let Ok(raw) = std::fs::read(bytecode_manifest_path(bytecode)) else {
-        return false;
+        return None;
     };
     let Ok(manifest) = serde_json::from_slice::<BytecodeArtifactManifest>(&raw) else {
-        return false;
+        return None;
     };
     if manifest.version != 2 || manifest.toolchain_identity != bytecode_cache_identity() {
-        return false;
+        return None;
     }
-    let expected_map = absolute_path(source_map);
-    if manifest.source_map_path.as_deref() != Some(expected_map.to_string_lossy().as_ref()) {
-        return false;
+    let expected_map = std::fs::canonicalize(source_map).ok()?;
+    let expected_map_utf8 = expected_map.to_str()?;
+    if manifest.source_map_path.as_deref() != Some(expected_map_utf8) {
+        return None;
     }
-    matches!(
-        (
-            sha256_path_sync(Path::new(&manifest.source_path)),
-            sha256_path_sync(bytecode),
-            sha256_path_sync(source_map),
-            manifest.source_map_sha256.as_deref(),
-        ),
-        (Some(source), Some(bytecode_digest), Some(map), Some(expected_map_digest))
-            if source == manifest.source_sha256
-                && bytecode_digest == manifest.bytecode_sha256
-                && map == expected_map_digest
-    )
+    let source_path = std::fs::canonicalize(&manifest.source_path).ok()?;
+    if source_path.to_str()? != manifest.source_path {
+        return None;
+    }
+
+    // Verify the exact vectors consumed below rather than hashing each path
+    // and reopening the map afterwards. This closes the verify/use race for
+    // both the HBC buffer and its source map.
+    let source_bytes = std::fs::read(source_path).ok()?;
+    let bytecode_bytes = std::fs::read(bytecode).ok()?;
+    let map_bytes = std::fs::read(expected_map).ok()?;
+    let expected_map_digest = manifest.source_map_sha256.as_deref()?;
+    if format!("{:x}", Sha256::digest(&source_bytes)) != manifest.source_sha256
+        || format!("{:x}", Sha256::digest(&bytecode_bytes)) != manifest.bytecode_sha256
+        || format!("{:x}", Sha256::digest(&map_bytes)) != expected_map_digest
+    {
+        return None;
+    }
+    super::sourcemap::SourceMap::from_bytes(&map_bytes)
 }
 
 fn absolute_path(path: &Path) -> PathBuf {
@@ -2101,39 +2172,62 @@ fn bytecode_cache_identity_for(compiler: Option<&HermesToolIdentity>) -> String 
     )
 }
 
-pub(crate) async fn bytecode_artifact_is_fresh(source: &Path, bytecode: &Path) -> bool {
-    let Ok(raw) = tokio::fs::read(bytecode_manifest_path(bytecode)).await else {
-        return false;
-    };
-    let Ok(manifest) = serde_json::from_slice::<BytecodeArtifactManifest>(&raw) else {
-        return false;
-    };
-    if manifest.version != 2 || manifest.toolchain_identity != bytecode_cache_identity() {
-        return false;
-    }
-    let source_path = std::fs::canonicalize(source).unwrap_or_else(|_| absolute_path(source));
-    let recorded_source = std::fs::canonicalize(&manifest.source_path)
-        .unwrap_or_else(|_| absolute_path(Path::new(&manifest.source_path)));
-    if source_path != recorded_source {
-        return false;
-    }
-    if manifest.source_map_path.is_some() || manifest.source_map_sha256.is_some() {
-        return false;
-    }
-    matches!(
-        (sha256_path(source).await, sha256_path(bytecode).await),
-        (Ok(source_digest), Ok(bytecode_digest))
-            if source_digest == manifest.source_sha256
-                && bytecode_digest == manifest.bytecode_sha256
-    )
+pub(crate) struct VerifiedBytecodeArtifact {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) source_path: PathBuf,
 }
 
-pub(crate) async fn bytecode_source_path(bytecode: &Path) -> Option<PathBuf> {
-    let raw = tokio::fs::read(bytecode_manifest_path(bytecode))
+pub(crate) async fn load_verified_bytecode_artifact(
+    expected_source: Option<&Path>,
+    bytecode: &Path,
+) -> Result<VerifiedBytecodeArtifact> {
+    let Ok(raw) = tokio::fs::read(bytecode_manifest_path(bytecode)).await else {
+        anyhow::bail!("bytecode cache manifest is missing");
+    };
+    let manifest = serde_json::from_slice::<BytecodeArtifactManifest>(&raw)
+        .context("invalid bytecode cache manifest")?;
+    if manifest.version != 2 || manifest.toolchain_identity != bytecode_cache_identity() {
+        anyhow::bail!("bytecode cache toolchain identity mismatch");
+    }
+    let source_path = std::fs::canonicalize(&manifest.source_path)
+        .with_context(|| format!("bytecode source is missing: {}", manifest.source_path))?;
+    let source_path_utf8 = source_path
+        .to_str()
+        .context("bytecode cache does not support non-UTF-8 source paths")?;
+    if source_path_utf8 != manifest.source_path {
+        anyhow::bail!("bytecode source path is not canonical");
+    }
+    if let Some(expected_source) = expected_source {
+        let expected_source = std::fs::canonicalize(expected_source).with_context(|| {
+            format!("bytecode source is missing: {}", expected_source.display())
+        })?;
+        if expected_source != source_path {
+            anyhow::bail!("bytecode cache source identity mismatch");
+        }
+    }
+    if manifest.source_map_path.is_some() || manifest.source_map_sha256.is_some() {
+        anyhow::bail!("entry bytecode cache unexpectedly contains a source map");
+    }
+    // Read each selected object once. The byte vector returned below is the
+    // same vector whose digest is checked, so pathname replacement after this
+    // point cannot change what Hermes executes.
+    let source_bytes = tokio::fs::read(&source_path).await?;
+    let bytecode_bytes = tokio::fs::read(bytecode).await?;
+    if format!("{:x}", Sha256::digest(&source_bytes)) != manifest.source_sha256
+        || format!("{:x}", Sha256::digest(&bytecode_bytes)) != manifest.bytecode_sha256
+    {
+        anyhow::bail!("bytecode cache digest mismatch");
+    }
+    Ok(VerifiedBytecodeArtifact {
+        bytes: bytecode_bytes,
+        source_path,
+    })
+}
+
+pub(crate) async fn bytecode_artifact_is_fresh(source: &Path, bytecode: &Path) -> bool {
+    load_verified_bytecode_artifact(Some(source), bytecode)
         .await
-        .ok()?;
-    let manifest = serde_json::from_slice::<BytecodeArtifactManifest>(&raw).ok()?;
-    (manifest.version == 2).then(|| PathBuf::from(manifest.source_path))
+        .is_ok()
 }
 
 async fn replace_file_atomically(staged: &Path, final_path: &Path) -> Result<()> {
@@ -2234,7 +2328,8 @@ pub async fn compile_to_bytecode(
     output: &std::path::Path,
     source_map: Option<&std::path::Path>,
 ) -> Result<()> {
-    let input_path = PathBuf::from(input);
+    let input_path = std::fs::canonicalize(input)
+        .with_context(|| format!("Failed to authenticate bytecode source {input}"))?;
     let source = tokio::fs::read(&input_path)
         .await
         .with_context(|| format!("Failed to read bytecode source {input}"))?;
@@ -2265,6 +2360,15 @@ async fn compile_source_to_bytecode_with_compiler(
     source_map: Option<&Path>,
     compiler_identity: &HermesToolIdentity,
 ) -> Result<()> {
+    // Select/canonicalize the source identity before any async compile work.
+    // Callers read the exact bytes through this canonical path, so the
+    // manifest never canonicalizes a different pathname object after compile.
+    let source_path = std::fs::canonicalize(input_path)
+        .with_context(|| format!("Failed to authenticate source {}", input_path.display()))?;
+    let source_path_string = source_path
+        .to_str()
+        .context("bytecode cache does not support non-UTF-8 source paths")?
+        .to_owned();
     let _publish_lock = acquire_cache_publish_lock(output).await?;
     // Gate on the `HBC bytecode version:` line both tools print — the version
     // that actually determines whether the runtime can load hermesc's output.
@@ -2287,18 +2391,19 @@ async fn compile_source_to_bytecode_with_compiler(
         "hermesc"
     };
     let staged_compiler = compile_dir.join(compiler_name);
-    tokio::fs::copy(&compiler_identity.path, &staged_compiler).await?;
-    tokio::fs::set_permissions(
-        &staged_compiler,
-        std::fs::metadata(&compiler_identity.path)?.permissions(),
-    )
-    .await?;
+    tokio::fs::write(&staged_compiler, compiler_identity.bytes.as_slice()).await?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tokio::fs::set_permissions(&staged_compiler, std::fs::Permissions::from_mode(0o700))
+            .await?;
+    }
     if sha256_path(&staged_compiler).await? != compiler_identity.sha256 {
         anyhow::bail!("Hermes compiler changed while staging authenticated binary");
     }
     compiler_identity.verify_selected_path()?;
 
-    let source_name = input_path
+    let source_name = source_path
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("entry.js"));
     let staged_input = compile_dir.join(source_name);
@@ -2360,22 +2465,27 @@ async fn compile_source_to_bytecode_with_compiler(
     wait_for_hbc_test_barrier("compile-finished", output).await?;
     compiler_identity.verify_selected_path()?;
     if let Some(map_path) = temp_source_map.as_ref() {
-        rewrite_staged_source_map(map_path, &staged_input, input_path)?;
+        rewrite_staged_source_map(map_path, &staged_input, &source_path)?;
     }
 
-    let source_path =
-        std::fs::canonicalize(&input_path).unwrap_or_else(|_| absolute_path(&input_path));
-    let source_map_path = source_map.map(absolute_path);
+    let source_map_path = source_map
+        .map(|path| {
+            let path = absolute_path(path);
+            path.to_str()
+                .context("bytecode cache does not support non-UTF-8 source-map paths")
+                .map(str::to_owned)
+        })
+        .transpose()?;
     let source_map_sha256 = match temp_source_map.as_ref() {
         Some(path) => Some(sha256_path(path).await?),
         None => None,
     };
     let manifest = BytecodeArtifactManifest {
         version: 2,
-        source_path: source_path.to_string_lossy().into_owned(),
+        source_path: source_path_string,
         source_sha256: source_digest,
         bytecode_sha256: sha256_path(&temp_output).await?,
-        source_map_path: source_map_path.map(|path| path.to_string_lossy().into_owned()),
+        source_map_path,
         source_map_sha256,
         toolchain_identity: bytecode_cache_identity_for(Some(compiler_identity)),
     };

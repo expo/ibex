@@ -64,6 +64,143 @@ if (!opts.entry || !opts.out) {
 
 const entry = path.resolve(process.cwd(), opts.entry);
 const out = path.resolve(process.cwd(), opts.out);
+const utf8Compare = (left, right) =>
+  Buffer.compare(Buffer.from(String(left), 'utf8'), Buffer.from(String(right), 'utf8'));
+const digestFile = async (file) =>
+  createHash('sha256').update(await fs.readFile(file)).digest('hex');
+const missingDigest = createHash('sha256').update('missing').digest('hex');
+const metadataNames = [
+  'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json',
+  'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'jsconfig.json',
+];
+const exists = async (candidate) => {
+  try { await fs.lstat(candidate); return true; } catch { return false; }
+};
+const directoryDigest = async (directory) => {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  const rows = [];
+  for (const item of entries) {
+    const kind = item.isSymbolicLink() ? 'l' : item.isDirectory() ? 'd' : item.isFile() ? 'f' : 'o';
+    let target = '';
+    if (kind === 'l') target = await fs.readlink(path.join(directory, item.name));
+    rows.push({ name: item.name, row: `${kind}\0${item.name}\0${target}\n` });
+  }
+  rows.sort((a, b) => utf8Compare(a.name, b.name));
+  return createHash('sha256').update(rows.map((item) => item.row).join('')).digest('hex');
+};
+
+const resolutionInputMap = new Map();
+const rememberResolutionInput = (record) => {
+  const key = `${record.kind}\0${record.path}`;
+  // First observation wins: later hooks run after a resolver decision and
+  // must never bless a mutation that changed that decision's precedence.
+  if (!resolutionInputMap.has(key)) resolutionInputMap.set(key, record);
+};
+const snapshotPathState = async (candidate) => {
+  const absolute = path.resolve(candidate);
+  try {
+    const stat = await fs.lstat(absolute);
+    if (stat.isSymbolicLink()) {
+      rememberResolutionInput({
+        kind: 'symlink',
+        path: absolute,
+        sha256: createHash('sha256').update(await fs.readlink(absolute)).digest('hex'),
+      });
+    } else if (stat.isDirectory()) {
+      rememberResolutionInput({ kind: 'directory', path: absolute, sha256: await directoryDigest(absolute) });
+    } else if (stat.isFile()) {
+      rememberResolutionInput({ kind: 'file', path: absolute, sha256: await digestFile(absolute) });
+    }
+  } catch {
+    rememberResolutionInput({ kind: 'missing', path: absolute, sha256: missingDigest });
+  }
+};
+const addSymlinkComponents = async (file) => {
+  const absolute = path.resolve(file);
+  const parsed = path.parse(absolute);
+  let current = parsed.root;
+  for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, component);
+    try {
+      const stat = await fs.lstat(current);
+      if (stat.isSymbolicLink()) {
+        rememberResolutionInput({
+          kind: 'symlink',
+          path: current,
+          sha256: createHash('sha256').update(await fs.readlink(current)).digest('hex'),
+        });
+      }
+    } catch { break; }
+  }
+};
+const findProjectRoot = async (file) => {
+  let root = path.dirname(file);
+  for (let current = root;; current = path.dirname(current)) {
+    const hasMetadata = (await Promise.all(
+      metadataNames.map((name) => exists(path.join(current, name)))
+    )).some(Boolean);
+    if (hasMetadata) root = current;
+    if (await exists(path.join(current, '.git')) || path.dirname(current) === current) {
+      if (await exists(path.join(current, '.git'))) root = current;
+      return root;
+    }
+  }
+};
+const projectRoot = await findProjectRoot(entry);
+const extensionCandidates = ['', '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs', '.json'];
+const snapshotResolutionRequest = async (source, importer) => {
+  if (typeof source !== 'string' || source.startsWith('\0')) return;
+  const importerPath = importer && !importer.startsWith('\0') ? importer : entry;
+  const base = path.dirname(importerPath);
+  await addSymlinkComponents(importerPath);
+
+  // Resolver configuration and ancestor directory membership affect both
+  // extension precedence and package/exports selection.
+  for (let current = base, depth = 0; depth < 64; depth++) {
+    await snapshotPathState(current);
+    for (const name of metadataNames) await snapshotPathState(path.join(current, name));
+    if (current === projectRoot || path.dirname(current) === current) break;
+    current = path.dirname(current);
+  }
+
+  if (source.startsWith('.') || path.isAbsolute(source)) {
+    const candidate = path.isAbsolute(source) ? source : path.resolve(base, source);
+    await snapshotPathState(path.dirname(candidate));
+    for (const extension of extensionCandidates) {
+      await snapshotPathState(`${candidate}${extension}`);
+      if (extension) await snapshotPathState(path.join(candidate, `index${extension}`));
+    }
+    await addSymlinkComponents(candidate);
+    return;
+  }
+
+  const parts = source.split('/');
+  const packageName = source.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+  for (let current = base, depth = 0; depth < 64; depth++) {
+    const nodeModules = path.join(current, 'node_modules');
+    const packageRoot = path.join(nodeModules, packageName);
+    await snapshotPathState(nodeModules);
+    await snapshotPathState(packageRoot);
+    await snapshotPathState(path.join(packageRoot, 'package.json'));
+    if (current === projectRoot || path.dirname(current) === current) break;
+    current = path.dirname(current);
+  }
+};
+
+const digestResolutionInput = async (record) => {
+  try {
+    const stat = await fs.lstat(record.path);
+    if (record.kind === 'missing') return null;
+    if (record.kind === 'symlink' && stat.isSymbolicLink()) {
+      return createHash('sha256').update(await fs.readlink(record.path)).digest('hex');
+    }
+    if (record.kind === 'directory' && stat.isDirectory()) return directoryDigest(record.path);
+    if (record.kind === 'file' && stat.isFile()) return digestFile(record.path);
+    return null;
+  } catch {
+    return record.kind === 'missing' ? missingDigest : null;
+  }
+};
 
 // Capture the exact pre-transform source text Rolldown hands to its plugin
 // pipeline. The cache manifest is built from these bytes, not a post-build
@@ -72,6 +209,10 @@ const capturedModules = new Map();
 let captureBarrierUsed = false;
 const sourceCapturePlugin = {
   name: 'ibex-cache-source-capture',
+  async resolveId(source, importer) {
+    if (opts.cacheManifest) await snapshotResolutionRequest(source, importer);
+    return null;
+  },
   async transform(code, id) {
     if (!id.startsWith('\0') && path.isAbsolute(id)) {
       const real = await fs.realpath(id);
@@ -100,6 +241,7 @@ const sourceCapturePlugin = {
     return null;
   },
 };
+if (opts.cacheManifest) await snapshotResolutionRequest(entry, undefined);
 const rolldownConfig = createRolldownConfig({
   input: entry,
   // Disable tree-shaking so that calls with observable side effects
@@ -167,21 +309,17 @@ if (typeof bundle.close === 'function') {
 // modules (\0-prefixed) and externals are skipped.
 if (opts.cacheManifest) {
   const moduleIds = new Set([await fs.realpath(entry)]);
-  const originalModuleIds = new Set([entry]);
   for (const item of writeResult?.output ?? []) {
     if (item?.type === 'chunk' && item.modules) {
       for (const id of Object.keys(item.modules)) {
         if (!id.startsWith('\0') && path.isAbsolute(id)) {
           moduleIds.add(await fs.realpath(id));
-          originalModuleIds.add(id);
         }
       }
     }
   }
-  const digestFile = async (file) =>
-    createHash('sha256').update(await fs.readFile(file)).digest('hex');
   const deps = [];
-  for (const modulePath of [...moduleIds].sort()) {
+  for (const modulePath of [...moduleIds].sort(utf8Compare)) {
     const captured = capturedModules.get(modulePath);
     if (!captured) {
       throw new Error(`cache source capture missed ${modulePath}`);
@@ -194,98 +332,15 @@ if (opts.cacheManifest) {
     deps.push({ path: modulePath, sha256: captured.sha256 });
   }
 
-  const resolutionInputMap = new Map();
-  const rememberResolutionInput = (record) => {
-    resolutionInputMap.set(`${record.kind}\0${record.path}`, record);
-  };
-  const exists = async (candidate) => {
-    try { await fs.lstat(candidate); return true; } catch { return false; }
-  };
-  const directoryDigest = async (directory) => {
-    const entries = await fs.readdir(directory, { withFileTypes: true });
-    const rows = [];
-    for (const item of entries) {
-      let kind = item.isSymbolicLink() ? 'l' : item.isDirectory() ? 'd' : item.isFile() ? 'f' : 'o';
-      let target = '';
-      if (kind === 'l') target = await fs.readlink(path.join(directory, item.name));
-      rows.push({ name: item.name, row: `${kind}\0${item.name}\0${target}\n` });
-    }
-    rows.sort((a, b) => Buffer.compare(Buffer.from(a.name), Buffer.from(b.name)));
-    return createHash('sha256').update(rows.map((item) => item.row).join('')).digest('hex');
-  };
-  const addDirectory = async (directory) => {
-    const absolute = path.resolve(directory);
-    try {
-      const stat = await fs.stat(absolute);
-      if (!stat.isDirectory()) return;
-      rememberResolutionInput({
-        kind: 'directory',
-        path: absolute,
-        sha256: await directoryDigest(absolute),
-      });
-    } catch {}
-  };
-  const addFile = async (file) => {
-    const absolute = path.resolve(file);
-    try {
-      const stat = await fs.stat(absolute);
-      if (!stat.isFile()) return;
-      rememberResolutionInput({ kind: 'file', path: absolute, sha256: await digestFile(absolute) });
-    } catch {}
-  };
-  const addSymlinkComponents = async (file) => {
-    const absolute = path.resolve(file);
-    const parsed = path.parse(absolute);
-    let current = parsed.root;
-    for (const component of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
-      current = path.join(current, component);
-      try {
-        const stat = await fs.lstat(current);
-        if (stat.isSymbolicLink()) {
-          const target = await fs.readlink(current);
-          rememberResolutionInput({
-            kind: 'symlink',
-            path: current,
-            sha256: createHash('sha256').update(target).digest('hex'),
-          });
-        }
-      } catch { break; }
-    }
-  };
-  const metadataNames = [
-    'package.json', 'bun.lock', 'bun.lockb', 'package-lock.json',
-    'pnpm-lock.yaml', 'yarn.lock', 'tsconfig.json', 'jsconfig.json',
-  ];
-  let projectRoot = path.dirname(entry);
-  for (let current = projectRoot;; current = path.dirname(current)) {
-    const hasMetadata = (await Promise.all(
-      metadataNames.map((name) => exists(path.join(current, name)))
-    )).some(Boolean);
-    if (hasMetadata) {
-      projectRoot = current;
-    }
-    if (await exists(path.join(current, '.git')) || path.dirname(current) === current) {
-      if (await exists(path.join(current, '.git'))) projectRoot = current;
-      break;
-    }
-  }
-  for (const moduleId of originalModuleIds) {
-    await addSymlinkComponents(moduleId);
-    let current = path.dirname(moduleId);
-    for (let depth = 0; depth < 64; depth++) {
-      await addDirectory(current);
-      for (const name of metadataNames) await addFile(path.join(current, name));
-      if (current === projectRoot || path.dirname(current) === current) break;
-      // An external symlink target only needs its package boundary; source
-      // project ancestors are covered by the original symlinked module id.
-      if (!path.resolve(current).startsWith(path.resolve(projectRoot)) &&
-          await exists(path.join(current, 'package.json'))) break;
-      current = path.dirname(current);
+  for (const record of resolutionInputMap.values()) {
+    const currentDigest = await digestResolutionInput(record);
+    if (currentDigest !== record.sha256) {
+      throw new Error(`module resolution input changed while bundling: ${record.path}`);
     }
   }
   const resolutionInputs = [...resolutionInputMap.values()].sort((a, b) => {
-    const byPath = Buffer.compare(Buffer.from(a.path), Buffer.from(b.path));
-    return byPath || a.kind.localeCompare(b.kind);
+    const byPath = utf8Compare(a.path, b.path);
+    return byPath || utf8Compare(a.kind, b.kind);
   });
   const resolutionDigest = createHash('sha256')
     .update(JSON.stringify(resolutionInputs))
@@ -299,7 +354,7 @@ if (opts.cacheManifest) {
     const outputPath = path.join(outDir, outputName);
     outputs.push({ path: outputName, sha256: await digestFile(outputPath) });
   }
-  outputs.sort((a, b) => a.path.localeCompare(b.path));
+  outputs.sort((a, b) => utf8Compare(a.path, b.path));
   const graphDigest = createHash('sha256')
     .update(JSON.stringify(deps))
     .digest('hex');

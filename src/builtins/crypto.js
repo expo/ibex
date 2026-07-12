@@ -2397,6 +2397,20 @@ function _dsaEncoding(key) {
   return encoding;
 }
 
+function _p1363CoordinateSize(key, keyType) {
+  if (_dsaEncoding(key) !== 'ieee-p1363') return null;
+  if (keyType === 'ec') return _ecCoordinateSize(key);
+  // Node's option covers both ECDSA and DSA. The reduced native signer has no
+  // way to recover DSA's q size, so passing DER through while claiming P1363
+  // would create signatures with the wrong wire format. Fail before invoking
+  // the native operation instead of silently ignoring the requested encoding.
+  if (keyType === 'dsa') {
+    throw _createCryptoError(Error, 'ERR_OSSL_UNSUPPORTED',
+      'IEEE P1363 signature encoding for DSA keys is not supported by this runtime');
+  }
+  return null;
+}
+
 // Extract the RSA padding scheme + PSS salt length from the key-options
 // object form ({ key, padding, saltLength }) that Node's sign/verify accept.
 // These used to be dropped entirely, so a jsonwebtoken PS256 request silently
@@ -2443,13 +2457,15 @@ function sign(algorithm, data, key, outputEncoding) {
     // native failure (unsupported hash, bad key, unsupported scheme) must
     // propagate — the old catch fell through to the HMAC branch below and
     // returned a 32-byte HMAC masquerading as a signature (ENG-23129).
+    var keyType = _detectAsymmetricKeyType(keyText);
+    var p1363Size = _p1363CoordinateSize(key, keyType);
     if (typeof __exactSignSync !== 'function') {
       throw new Error('crypto.sign: asymmetric signing is not available on this platform');
     }
     var rsaOpts = _rsaSchemeFromKeyOptions(key);
     var nativeBytes = __exactSignSync(hash, dataBytes, keyText, rsaOpts.scheme, rsaOpts.saltLength);
-    if (_dsaEncoding(key) === 'ieee-p1363' && _detectAsymmetricKeyType(keyText) === 'ec') {
-      nativeBytes = _derSignatureToP1363(nativeBytes, _ecCoordinateSize(key));
+    if (p1363Size !== null) {
+      nativeBytes = _derSignatureToP1363(nativeBytes, p1363Size);
     }
     return _signatureOutput(nativeBytes, outputEncoding);
   }
@@ -2486,6 +2502,18 @@ function verify(algorithm, data, key, signature, callback) {
 
   var result = false;
   if (typeof keyText === 'string' && _isPemKeyText(keyText)) {
+    var keyType = _detectAsymmetricKeyType(keyText);
+    var p1363Size;
+    try {
+      p1363Size = _p1363CoordinateSize(key, keyType);
+    } catch (encodingError) {
+      if (typeof callback === 'function') {
+        var _nextTickEncoding = (typeof process !== 'undefined' && typeof process.nextTick === 'function') ? process.nextTick : function(fn) { setTimeout(fn, 0); };
+        _nextTickEncoding(function() { callback(encodingError); });
+        return;
+      }
+      throw encodingError;
+    }
     if (typeof __exactVerifySync !== 'function') {
       var unavailable = new Error('crypto.verify: asymmetric verification is not available on this platform');
       if (typeof callback === 'function') {
@@ -2497,8 +2525,8 @@ function verify(algorithm, data, key, signature, callback) {
     }
     try {
       var rsaOpts = _rsaSchemeFromKeyOptions(key);
-      if (_dsaEncoding(key) === 'ieee-p1363' && _detectAsymmetricKeyType(keyText) === 'ec') {
-        var derSignature = _p1363SignatureToDer(signatureValue, _ecCoordinateSize(key));
+      if (p1363Size !== null) {
+        var derSignature = _p1363SignatureToDer(signatureValue, p1363Size);
         if (!derSignature) {
           result = false;
         } else {
@@ -3740,9 +3768,17 @@ X509Certificate.prototype.verify = function() { return false; };
 X509Certificate.prototype.publicKey = undefined;
 
 // --- generatePrime / generatePrimeSync ---
+// Prime operations in this compatibility layer use synchronous JavaScript
+// BigInt arithmetic. Bound both operand size and caller-selected MR rounds so
+// an untrusted request cannot pin a runtime thread for minutes. Larger jobs
+// need a native worker-backed implementation.
+var _MAX_SYNC_PRIME_BITS = 512;
+var _MAX_SYNC_SAFE_PRIME_BITS = 256;
+var _MAX_SYNC_PRIME_CHECKS = 64;
+
 function generatePrimeSync(size, options) {
   if (typeof size !== 'number') throw _errInvalidArgType('size', 'of type number', size);
-  if (size < 1 || size > 2147483647 || !Number.isFinite(size)) {
+  if (size < 1 || size > 2147483647 || !Number.isFinite(size) || !Number.isInteger(size)) {
     throw _errOutOfRange('size', '>= 1 && <= 2147483647', size);
   }
   if (options !== undefined && (typeof options !== 'object' || options === null)) {
@@ -3760,6 +3796,12 @@ function generatePrimeSync(size, options) {
     }
     if (options.rem !== undefined && !_isStringOrBuffer(options.rem) && typeof options.rem !== 'bigint') {
       throw _errInvalidArgType('options.rem', 'a bigint, ArrayBuffer, Buffer, TypedArray, or DataView', options.rem);
+    }
+    if (size > _MAX_SYNC_PRIME_BITS || (options.safe && size > _MAX_SYNC_SAFE_PRIME_BITS)) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Synchronous prime generation is limited to ' +
+        (options.safe ? _MAX_SYNC_SAFE_PRIME_BITS : _MAX_SYNC_PRIME_BITS) +
+        ' bits in this runtime; use a native worker backend for larger primes');
     }
     // Check negative bigints for add/rem
     if (typeof options.add === 'bigint' && options.add < 0n) {
@@ -3787,6 +3829,11 @@ function generatePrimeSync(size, options) {
         }
       }
     }
+  }
+  if (size > _MAX_SYNC_PRIME_BITS) {
+    throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+      'Synchronous prime generation is limited to ' + _MAX_SYNC_PRIME_BITS +
+      ' bits in this runtime; use a native worker backend for larger primes');
   }
   // Generate a real probable prime (Miller-Rabin, exact bit length), honoring
   // safe/add/rem — the old code returned a random odd number without any
@@ -3913,6 +3960,11 @@ function checkPrimeSync(candidate, options) {
     if (options.checks < 0 || options.checks > 2147483647 || !Number.isInteger(options.checks)) {
       throw _errOutOfRange('options.checks', '>= 0 && <= 2147483647', options.checks);
     }
+    if (options.checks > _MAX_SYNC_PRIME_CHECKS) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Synchronous prime checks are limited to ' + _MAX_SYNC_PRIME_CHECKS +
+        ' Miller-Rabin rounds in this runtime');
+    }
   }
   // Check for bignum too long (> 64MB)
   if (_isStringOrBuffer(candidate)) {
@@ -3923,10 +3975,20 @@ function checkPrimeSync(candidate, options) {
     if (candidateLen >= 67108864) {
       throw _createCryptoError(Error, 'ERR_OSSL_BN_BIGNUM_TOO_LONG', 'bignum too long');
     }
+    if (candidateLen > Math.ceil(_MAX_SYNC_PRIME_BITS / 8)) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Synchronous prime checks are limited to ' + _MAX_SYNC_PRIME_BITS +
+        ' bits in this runtime; use a native worker backend for larger candidates');
+    }
   }
   var mrChecks = (options && typeof options.checks === 'number' && options.checks > 0) ? options.checks : 20;
   var val;
   if (typeof candidate === 'bigint') {
+    if (candidate.toString(2).length > _MAX_SYNC_PRIME_BITS) {
+      throw _createCryptoError(Error, 'ERR_CRYPTO_OPERATION_FAILED',
+        'Synchronous prime checks are limited to ' + _MAX_SYNC_PRIME_BITS +
+        ' bits in this runtime; use a native worker backend for larger candidates');
+    }
     return _isProbablePrimeBigInt(candidate, mrChecks);
   }
   var bytes = _toBytes(candidate);

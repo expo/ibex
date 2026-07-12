@@ -89,12 +89,10 @@ WebSocketEntry requireWebSocketOwner(
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": WebSocket belongs to a different runtime");
   }
-  if (isAllowAll()) {
-    if (entry.closing) {
-      throw facebook::jsi::JSError(runtime, std::string(syscall) + ": WebSocket is closing");
-    }
-    return entry;
-  }
+  // Allow-all controls capability policy, not handle ownership. Principal and
+  // runtime identity remain mandatory in permissive mode; otherwise any
+  // package that guesses a small numeric id can operate another package's
+  // socket whenever the host policy is permissive.
   if (entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": WebSocket belongs to a different principal");

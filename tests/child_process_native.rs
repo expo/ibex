@@ -15,6 +15,7 @@
 #![cfg(unix)]
 
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -721,6 +722,102 @@ setTimeout(function () {
         Some("0"),
         "U+FFFD replacement characters leaked into the delivered payload: {line}"
     );
+}
+
+/// Child fd remapping must work even when the ibex parent begins with the
+/// conventional low descriptors closed. Pipe/socketpair allocation can then
+/// reuse fd 0/1/2/3, so a naive sequence of dup2 calls overwrites a source fd
+/// needed by a later mapping. Exercise IPC and an extra pipe together because
+/// they require two distinct source descriptors above the standard streams.
+#[test]
+fn fork_stdio_remap_survives_closed_low_parent_fds() {
+    let dir = unique_dir("closed-low-fds");
+    write_text(
+        &dir.join("child.js"),
+        r#"
+const fs = require('fs');
+fs.writeSync(4, 'extra-fd-ok');
+process.send({ ipc: 'ipc-ok' });
+setTimeout(function () { process.exit(0); }, 20);
+"#,
+    );
+    write_text(
+        &dir.join("app.js"),
+        r#"
+const cp = require('child_process');
+const fs = require('fs');
+const resultPath = __dirname + '/result.json';
+const child = cp.fork(__dirname + '/child.js', [], {
+  stdio: ['ignore', 'ignore', 'ignore', 'ipc', 'pipe']
+});
+let ipc = null;
+let extra = '';
+let extraClosed = false;
+let childClosed = false;
+function finish() {
+  if (!childClosed || !extraClosed) return;
+  fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, code: child.exitCode }));
+}
+child.on('message', function (message) { ipc = message && message.ipc; });
+child.stdio[4].on('data', function (chunk) { extra += chunk.toString(); });
+child.stdio[4].on('end', function () { extraClosed = true; finish(); });
+child.on('close', function () { childClosed = true; finish(); });
+setTimeout(function () {
+  if (!childClosed || !extraClosed) {
+    fs.writeFileSync(resultPath, JSON.stringify({ ipc: ipc, extra: extra, timeout: true }));
+    try { child.kill(); } catch (_) {}
+    process.exit(1);
+  }
+}, 10000);
+"#,
+    );
+
+    let mut command = Command::new(IBEX);
+    command
+        .arg("run")
+        .arg("app.js")
+        .current_dir(&dir)
+        .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // SAFETY: this callback runs in the single post-fork child immediately
+    // before exec and only invokes the async-signal-safe close(2) syscall.
+    unsafe {
+        command.pre_exec(|| {
+            for fd in 0..=3 {
+                libc::close(fd);
+            }
+            Ok(())
+        });
+    }
+    let mut child = command.spawn().expect("spawn ibex with closed low fds");
+    let deadline = Instant::now() + Duration::from_secs(25);
+    loop {
+        if child.try_wait().expect("wait for ibex").is_some() {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("ibex with closed low fds timed out");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let raw = std::fs::read_to_string(dir.join("result.json"))
+        .expect("app must record child IPC/extra-fd result");
+    let result: serde_json::Value = serde_json::from_str(&raw).expect("valid result JSON");
+    assert_eq!(result["ipc"], "ipc-ok", "IPC fd was clobbered: {result}");
+    assert_eq!(
+        result["extra"], "extra-fd-ok",
+        "extra stdio fd was clobbered: {result}"
+    );
+    assert_eq!(
+        result["code"], 0,
+        "forked child did not exit cleanly: {result}"
+    );
+    assert_eq!(result.get("timeout"), None, "fd remap stalled: {result}");
 }
 
 /// ENG-24262: fork happens while native fs/DNS workers are active. Child setup
