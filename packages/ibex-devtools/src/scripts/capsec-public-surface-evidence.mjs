@@ -852,6 +852,62 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: closed-surface runtime invocation descriptor drift`,
       );
     }
+    if (authored.operation?.kind === "loader-executable-file") {
+      const loaderExpectation = new Map([
+        [
+          "native-addon",
+          {
+            extension: ".node",
+            rejectionFragment: "Native addons are closed",
+          },
+        ],
+        [
+          "wasm",
+          {
+            extension: ".wasm",
+            rejectionFragment: "WebAssembly modules are closed",
+          },
+        ],
+      ]).get(authored.operation.loaderKind);
+      const descriptor = authored.sourceDescriptor;
+      exactKeys(
+        descriptor,
+        [
+          "kind",
+          "loaderKind",
+          "extension",
+          "sourceRefs",
+          "sourceMetadata",
+        ],
+        `${recipe.fixtureId}: closed loader source descriptor`,
+      );
+      exactKeys(
+        authored.operation,
+        ["kind", "loaderKind", "extension", "rejectionFragment"],
+        `${recipe.fixtureId}: closed loader operation`,
+      );
+      if (
+        loaderExpectation === undefined ||
+        authored.surfaceKind !== "loader" ||
+        authored.surfaceName !==
+          `${authored.operation.loaderKind}-module` ||
+        recipe.terminalObservedKey !==
+          `loader:${authored.operation.loaderKind}-module` ||
+        descriptor.kind !== "closed-loader-executable-kind" ||
+        descriptor.loaderKind !== authored.operation.loaderKind ||
+        descriptor.extension !== loaderExpectation.extension ||
+        authored.operation.extension !== loaderExpectation.extension ||
+        authored.operation.rejectionFragment !==
+          loaderExpectation.rejectionFragment ||
+        canonicalJson(descriptor.sourceRefs) !==
+          canonicalJson(["src/module_loader/mod.rs#resolve_with_oxc"]) ||
+        descriptor.sourceMetadata !== null
+      ) {
+        throw new Error(
+          `${recipe.fixtureId}: closed loader invocation is not bound to the executed extension guard`,
+        );
+      }
+    }
   } else if (
     invocation?.invocationSchema ===
     "ibex/capsec-callback-invariant-invocation/1"

@@ -668,16 +668,16 @@ async fn execute_closed_loader_executable(
             (".wasm", "WebAssembly modules are closed")
         }
     );
-    if invocation.surface_name.starts_with("kind:") {
-        assert_eq!(
-            descriptor.source_metadata["evidenceType"],
-            "loader-kind-branch"
-        );
-        assert_eq!(descriptor.source_metadata["loaderKind"], *loader_kind);
-    } else {
-        assert_eq!(invocation.surface_name, format!("{loader_kind}-module"));
-        assert!(descriptor.source_metadata.is_null());
-    }
+    // The extension guard returns before Oxc's ModuleType::Addon/Wasm match
+    // arms. A public file import therefore proves only the resolve_with_oxc
+    // source facet; the later kind facets must remain residual.
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
+    assert_eq!(invocation.surface_name, format!("{loader_kind}-module"));
+    assert_eq!(
+        descriptor.source_refs,
+        ["src/module_loader/mod.rs#resolve_with_oxc"]
+    );
+    assert!(descriptor.source_metadata.is_null());
     let (surface_kind, surface_name) = coverage
         .get(&recipe.edge_ids[0])
         .expect("closed loader recipe names an unknown coverage edge");
@@ -1445,8 +1445,8 @@ async fn capsec_public_closed_recipe_batch() {
         "expected every reviewed lockdown-tamed evaluator"
     );
     assert_eq!(
-        loader_count, 4,
-        "expected both source facets for each closed executable loader kind"
+        loader_count, 2,
+        "expected only the publicly executed extension-guard loader facets"
     );
     let _lock = hermes_engine_test_lock().lock().await;
     let _environment_restore = ClosedEnvironmentRestore::clear();

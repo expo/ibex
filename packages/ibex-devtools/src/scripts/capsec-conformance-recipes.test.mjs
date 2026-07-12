@@ -821,23 +821,33 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
-  test("binds executable loader kinds to real fail-closed file imports", () => {
+  test("binds only executed extension guards to fail-closed file imports", () => {
     const rows = recipes.recipes.filter(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "loader-executable-file",
     );
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(2);
     expect(
       rows.map((recipe) => [
+        recipe.terminalObservedKey,
         recipe.publicSurfaceProbe.invocation.operation.loaderKind,
         recipe.publicSurfaceProbe.invocation.operation.extension,
+        recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs,
       ]),
     ).toEqual([
-      ["native-addon", ".node"],
-      ["wasm", ".wasm"],
-      ["native-addon", ".node"],
-      ["wasm", ".wasm"],
+      [
+        "loader:native-addon-module",
+        "native-addon",
+        ".node",
+        ["src/module_loader/mod.rs#resolve_with_oxc"],
+      ],
+      [
+        "loader:wasm-module",
+        "wasm",
+        ".wasm",
+        ["src/module_loader/mod.rs#resolve_with_oxc"],
+      ],
     ]);
     expect(
       rows.every(
@@ -850,6 +860,19 @@ describe("exact-target CapSec executable recipes", () => {
             0,
       ),
     ).toBe(true);
+    for (const terminal of ["loader:kind:native-addon", "loader:kind:wasm"]) {
+      const residual = recipes.recipes.find(
+        (recipe) => recipe.terminalObservedKey === terminal,
+      );
+      expect(residual).toMatchObject({
+        status: "unresolved",
+        publicSurfaceProbe: null,
+        residualReasons: [
+          "closed-surface-denial-probe-not-authored",
+          "public-surface-invocation-not-authored",
+        ],
+      });
+    }
   });
 
   test("leaves cache-order-dependent builtin alias initialization residual", () => {

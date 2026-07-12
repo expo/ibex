@@ -654,22 +654,18 @@ function completeClosedLoaderCatalog() {
     kind: "closed-loader-executable-kind",
     loaderKind: "native-addon",
     extension: ".node",
-    sourceRefs: ["src/module_loader/mod.rs#kind:native-addon"],
-    sourceMetadata: {
-      evidenceType: "loader-kind-branch",
-      loaderKind: "native-addon",
-      occurrenceCount: 1,
-    },
+    sourceRefs: ["src/module_loader/mod.rs#resolve_with_oxc"],
+    sourceMetadata: null,
   };
   recipe.fixtureId = "fixture.loader.native-addon.closed";
-  recipe.terminalObservedKey = "loader:kind:native-addon";
+  recipe.terminalObservedKey = "loader:native-addon-module";
   recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
   recipe.route.alternatives[0].terminalObservedKey =
     recipe.terminalObservedKey;
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "loader",
-    surfaceName: "kind:native-addon",
+    surfaceName: "native-addon-module",
     sourceDescriptor,
     sourceDescriptorDigest: taggedDigest(sourceDescriptor),
     operation: {
@@ -1702,7 +1698,38 @@ describe("CapSec public-surface promotion evidence", () => {
         runtimeObservation: closedRuntimeObservation(mismatchedKind),
         coverage,
       }),
-    ).toThrow(/did not fail closed at resolution/);
+    ).toThrow(/executed extension guard/);
+
+    const unexecutedKindFacet = structuredClone(recipe);
+    unexecutedKindFacet.terminalObservedKey = "loader:kind:native-addon";
+    unexecutedKindFacet.route.surfaceObservedKeys = [
+      unexecutedKindFacet.terminalObservedKey,
+    ];
+    unexecutedKindFacet.route.alternatives[0].terminalObservedKey =
+      unexecutedKindFacet.terminalObservedKey;
+    unexecutedKindFacet.publicSurfaceProbe.surfaceObservedKey =
+      unexecutedKindFacet.terminalObservedKey;
+    const kindInvocation = unexecutedKindFacet.publicSurfaceProbe.invocation;
+    kindInvocation.surfaceName = "kind:native-addon";
+    kindInvocation.sourceDescriptor.sourceRefs = [
+      "src/module_loader/mod.rs#kind:native-addon",
+    ];
+    kindInvocation.sourceDescriptor.sourceMetadata = {
+      evidenceType: "loader-kind-branch",
+      loaderKind: "native-addon",
+      occurrenceCount: 1,
+    };
+    kindInvocation.sourceDescriptorDigest = taggedDigest(
+      kindInvocation.sourceDescriptor,
+    );
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: unexecutedKindFacet,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(unexecutedKindFacet),
+        coverage,
+      }),
+    ).toThrow(/executed extension guard/);
   });
 
   test("accepts exact source-bound target absence and rejects invented entry proof", () => {

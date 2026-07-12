@@ -458,19 +458,21 @@ function loaderExecutableKindProbe({
   if (!surfaceObservedKey.startsWith("loader:")) return null;
   const live = liveByObservedKey.get(surfaceObservedKey);
   const edge = coverageByObservedKey.get(surfaceObservedKey);
-  const metadataKind =
-    live?.metadata?.evidenceType === "loader-kind-branch"
-      ? live.metadata.loaderKind
-      : null;
+  // The filename guard returns before ModuleType::Addon/Wasm is inspected.
+  // Only the resolve_with_oxc facet is public-source executable; the later
+  // kind branches remain honest residuals.
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report
   const fixedKind = live?.name?.endsWith("-module")
     ? live.name.slice(0, -"-module".length)
     : null;
-  const loaderKind = metadataKind ?? fixedKind;
+  const loaderKind = fixedKind;
   if (
     !new Set(["native-addon", "wasm"]).has(loaderKind) ||
     live?.kind !== "loader" ||
+    live.metadata != null ||
     !Array.isArray(live.sourceRefs) ||
-    live.sourceRefs.length === 0 ||
+    canonicalJson(live.sourceRefs) !==
+      canonicalJson(["src/module_loader/mod.rs#resolve_with_oxc"]) ||
     edge?.id !== plan.edgeIds[0] ||
     edge.classification !== "closed" ||
     route.alternatives[0].terminalObservedKey !== surfaceObservedKey
