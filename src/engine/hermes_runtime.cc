@@ -858,20 +858,15 @@ RuntimeCallbackTarget exactRuntimeCallbackTarget(ExactHermesRuntime* runtime) {
   return RuntimeCallbackTarget{runtime, runtime->runtime_nonce};
 }
 
-// Resolve an externally retained opaque handle without dereferencing it. This
-// is the only safe way for an any-thread producer (notably the watchdog) to
-// turn a raw callback token back into a runtime generation: the address may
-// already be stale or may name a newer allocation.
-static RuntimeCallbackTarget registeredRuntimeCallbackTarget(
-    ExactHermesRuntime* runtime) {
-  if (!runtime) return {};
+extern "C" uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime) {
+  if (!runtime) return 0;
   std::lock_guard<std::mutex> lock(g_runtimeRegistryMutex);
   auto it = g_activeRuntimes.find(runtime);
   if (it == g_activeRuntimes.end() ||
       it->second.state != RuntimeLifecycleState::Running) {
-    return {};
+    return 0;
   }
-  return RuntimeCallbackTarget{runtime, it->second.nonce};
+  return it->second.nonce;
 }
 
 void registerRuntime(ExactHermesRuntime* runtime) {
@@ -4472,12 +4467,28 @@ extern "C" void ex_hermes_schedule_watchdog_heartbeat(
     ExactHermesRuntime* runtime,
     void (*callback)(void* context),
     void* context) {
-  if (!runtime || !callback) {
-    return;
-  }
+  // Deprecated raw-pointer ABI. A pointer alone cannot distinguish a stale
+  // generation A from a later runtime B allocated at the same address, so the
+  // only safe compatibility behavior is to reject it. New callers must carry
+  // the nonce captured while they owned the live runtime.
+  // @ref LLP 0003#the-event-loop — cross-thread callback identity is
+  // pointer-plus-nonce; raw-pointer compatibility fails closed.
+  (void)runtime;
+  (void)callback;
+  (void)context;
+}
 
-  auto target = registeredRuntimeCallbackTarget(runtime);
-  if (!target) return;
+extern "C" void ex_hermes_schedule_watchdog_heartbeat_for_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
+    void (*callback)(void* context),
+    void* context) {
+  if (!runtime || runtime_nonce == 0 || !callback) return;
+
+  // The producer must carry the nonce captured while it owned this runtime.
+  // Looking up the current nonce from `runtime` would turn a stale pointer to
+  // generation A into a valid target for generation B after allocator reuse.
+  RuntimeCallbackTarget target{runtime, runtime_nonce};
   pushRuntimeCallback(target, [callback, context](facebook::jsi::Runtime&) {
     callback(context);
   });

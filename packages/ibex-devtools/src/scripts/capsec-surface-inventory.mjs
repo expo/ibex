@@ -14661,7 +14661,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
     fixedEvidence(
       "public-abi",
       "src/engine/hermes_runtime.cc",
-      "ex_hermes_schedule_watchdog_heartbeat",
+      "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     ),
   ),
   fixedSurface(

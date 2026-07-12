@@ -5091,7 +5091,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_now_ms",
     "ex_hermes_poll",
     "ex_hermes_resolve_host_call",
+    "ex_hermes_runtime_nonce",
     "ex_hermes_schedule_watchdog_heartbeat",
+    "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
     "ex_hermes_set_host_call",
@@ -11962,6 +11964,15 @@ function classifyConcreteSurface(surface) {
   if (surface.kind === "host-abi") {
     if (!REVIEWED_HOST_ABI_NAMES.has(surface.name)) return null;
     if (surface.name === "ex_hermes_current_runtime_nonce") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (surface.name === "ex_hermes_runtime_nonce") {
+      return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      surface.name ===
+      "ex_hermes_schedule_watchdog_heartbeat_for_generation"
+    ) {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
     }
     if (surface.name === "ex_hermes_engine_mapped_object") {

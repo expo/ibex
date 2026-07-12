@@ -384,6 +384,19 @@ mod tests {
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
+        fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
+        fn ex_hermes_runtime_nonce(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_schedule_watchdog_heartbeat(
+            runtime: *mut HermesRuntimeOpaque,
+            callback: extern "C" fn(*mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
+        fn ex_hermes_schedule_watchdog_heartbeat_for_generation(
+            runtime: *mut HermesRuntimeOpaque,
+            runtime_nonce: u64,
+            callback: extern "C" fn(*mut std::ffi::c_void),
+            context: *mut std::ffi::c_void,
+        );
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
@@ -415,6 +428,69 @@ mod tests {
     fn legacy_unarmed_constructor_is_non_executable() {
         unsafe {
             assert!(ex_hermes_create().is_null());
+        }
+    }
+
+    extern "C" fn count_watchdog_heartbeat(context: *mut std::ffi::c_void) {
+        let count = unsafe { &*(context.cast::<std::sync::atomic::AtomicUsize>()) };
+        count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// A watchdog executor retains its runtime identity across threads. If the
+    /// handle address is recycled, an old heartbeat must not be relabelled with
+    /// the new runtime's nonce and admitted into that runtime.
+    #[test]
+    fn watchdog_heartbeat_rejects_a_stale_generation_at_a_reused_address() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            let stale_runtime = ex_hermes_create_diagnostic();
+            assert!(!stale_runtime.is_null());
+            let stale_nonce = ex_hermes_runtime_nonce(stale_runtime);
+            assert_ne!(stale_nonce, 0);
+            ex_hermes_destroy(stale_runtime);
+
+            let replacement = ex_hermes_create_diagnostic();
+            assert!(!replacement.is_null());
+
+            let replacement_nonce = ex_hermes_runtime_nonce(replacement);
+            assert_ne!(replacement_nonce, 0);
+            assert_ne!(replacement_nonce, stale_nonce);
+            let count = std::sync::atomic::AtomicUsize::new(0);
+            let context = (&count as *const std::sync::atomic::AtomicUsize)
+                .cast_mut()
+                .cast::<std::ffi::c_void>();
+
+            ex_hermes_schedule_watchdog_heartbeat(replacement, count_watchdog_heartbeat, context);
+            assert_eq!(ex_hermes_callback_backlog(replacement), 0);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 0);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+            // Force the exact identity pair seen after address reuse: the
+            // address now names B, while the producer still carries A's
+            // captured nonce. Physical allocator reuse is irrelevant to the
+            // registry operation and would make this test nondeterministic.
+            ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                replacement,
+                stale_nonce,
+                count_watchdog_heartbeat,
+                context,
+            );
+            assert_eq!(ex_hermes_callback_backlog(replacement), 0);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 0);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+            ex_hermes_schedule_watchdog_heartbeat_for_generation(
+                replacement,
+                replacement_nonce,
+                count_watchdog_heartbeat,
+                context,
+            );
+            assert_eq!(ex_hermes_callback_backlog(replacement), 1);
+            assert_eq!(ex_hermes_poll(replacement, ex_hermes_now_ms()), 1);
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 1);
+            ex_hermes_destroy(replacement);
         }
     }
 

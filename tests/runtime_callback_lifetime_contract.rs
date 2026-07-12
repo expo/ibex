@@ -88,7 +88,10 @@ fn unpinned_event_sources_also_carry_generation_tokens() {
     assert!(android.contains("std::vector<RuntimeCallbackTarget> runtimes"));
     assert!(android.contains("pushRuntimeCallback(target"));
     assert!(debugger.contains("withRuntimePinned(target"));
-    assert!(runtime.contains("auto target = registeredRuntimeCallbackTarget(runtime);"));
+    assert!(runtime.contains("ex_hermes_schedule_watchdog_heartbeat_for_generation"));
+    assert!(runtime.contains("uint64_t runtime_nonce,"));
+    assert!(runtime.contains("RuntimeCallbackTarget target{runtime, runtime_nonce};"));
+    assert!(!runtime.contains("registeredRuntimeCallbackTarget"));
 }
 
 #[test]

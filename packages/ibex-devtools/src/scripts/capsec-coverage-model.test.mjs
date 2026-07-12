@@ -665,6 +665,25 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(edgeActions(flush)).toEqual([]);
   });
 
+  test("watchdog generation ABI classifies nonce capture and callback attribution", () => {
+    const nonce = classifyObservedSurface(
+      surface("host-abi", "ex_hermes_runtime_nonce"),
+      context,
+    );
+    expect(nonce.edge.classification).toBe("non-capability");
+    expect(nonce.edge.rationaleId).toBe("authority-control-plane");
+
+    const schedule = classifyObservedSurface(
+      surface(
+        "host-abi",
+        "ex_hermes_schedule_watchdog_heartbeat_for_generation",
+      ),
+      context,
+    );
+    expect(schedule.edge.classification).toBe("non-capability");
+    expect(schedule.edge.rationaleId).toBe("callback-attribution-carrier");
+  });
+
   test("newly discovered builtin instance members have reviewed retained-resource semantics", () => {
     for (const [exportName, expectedActions] of [
       ["ReadStream._read", ["fs:list", "fs:read"]],
@@ -3685,6 +3704,20 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     );
     expect(
       edgeByObservedKey.get("host-abi:ex_host_console_flush"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "callback-attribution-carrier",
+    });
+    expect(
+      edgeByObservedKey.get("host-abi:ex_hermes_runtime_nonce"),
+    ).toMatchObject({
+      classification: "non-capability",
+      rationaleId: "authority-control-plane",
+    });
+    expect(
+      edgeByObservedKey.get(
+        "host-abi:ex_hermes_schedule_watchdog_heartbeat_for_generation",
+      ),
     ).toMatchObject({
       classification: "non-capability",
       rationaleId: "callback-attribution-carrier",

@@ -241,6 +241,12 @@ allow-all production runtime.
    `src/engine/hermes_runtime.cc:1815-1949`). Source comments document a
    `cli-notify` replacement for the default callback path `[observed]`
    (`src/engine/mod.rs:18-37`).
+   A host retaining a runtime for an asynchronous watchdog must snapshot its
+   nonce with `ex_hermes_runtime_nonce()` while it owns the live handle and
+   call `ex_hermes_schedule_watchdog_heartbeat_for_generation()`. The legacy
+   raw-pointer-only watchdog symbol remains ABI-compatible but fails closed;
+   it cannot safely infer which generation an address once named `[observed]`
+   (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
 5. `ex_hermes_destroy()` must run on the runtime's owner thread. It marks the
    pointer-plus-nonce registry identity closing, unregisters/cancels native
    callback sources, drains generation-scoped producer pins, and destroys

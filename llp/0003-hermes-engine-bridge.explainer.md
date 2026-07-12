@@ -132,6 +132,12 @@ does teardown erase the generation and delete Hermes. An old completion can
 therefore neither enter a new runtime allocated at the same address nor force
 the former leak-on-dead-runtime fallback `[observed]`
 (`src/engine/hermes_runtime.cc`; `src/engine/hermes_runtime_{dns,fs,http,fetch,websocket}.cc`).
+The public watchdog bridge applies the same rule at the host boundary: the
+host captures the live nonce and later supplies pointer plus nonce to the
+generation-bearing entry point. Its retained three-argument compatibility
+symbol rejects every request, because recovering the *current* nonce from a
+stale address would relabel an old producer for a replacement runtime
+`[observed]` (`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
 
 Async failures are fatal, matching Node: a callback that throws with no
 `uncaughtException` handler consuming it — a timer, a `process.nextTick`, a

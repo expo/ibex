@@ -3911,6 +3911,8 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         "ex_hermes_current_principal_id",
         "ex_hermes_current_runtime_nonce",
         "ex_hermes_engine_mapped_object",
+        "ex_hermes_runtime_nonce",
+        "ex_hermes_schedule_watchdog_heartbeat_for_generation",
       ]),
     );
     expect(

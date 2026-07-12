@@ -148,6 +148,12 @@ int ex_hermes_has_pending_tasks(ExactHermesRuntime* runtime);
 /// Get the current number of queued cross-thread callbacks waiting to run.
 uint32_t ex_hermes_callback_backlog(ExactHermesRuntime* runtime);
 
+/// Snapshot the generation nonce for a live runtime handle. Hosts that retain
+/// a handle for asynchronous work must capture this while they own the live
+/// runtime and carry it with every later completion; never recover a nonce
+/// from a possibly stale pointer when the completion fires.
+uint64_t ex_hermes_runtime_nonce(ExactHermesRuntime* runtime);
+
 /// Wake the event loop when a callback is pushed from a background thread.
 /// Called automatically by the runtime when async operations complete.
 void ex_hermes_notify_callback(void);
@@ -161,10 +167,29 @@ void ex_hermes_set_host_wake_hook(
     void (*hook)(void* context),
     void* context);
 
-/// Queue a lightweight watchdog callback onto the cross-thread callback queue.
-/// The callback executes during the next poll on the runtime-owning thread.
+/// Deprecated raw-pointer-only watchdog ABI. This function fails closed and
+/// does not invoke `callback`: a raw address cannot identify a runtime after
+/// allocator reuse. Use the generation-bearing variant below.
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((deprecated(
+    "use ex_hermes_schedule_watchdog_heartbeat_for_generation")))
+#elif defined(_MSC_VER)
+__declspec(deprecated(
+    "use ex_hermes_schedule_watchdog_heartbeat_for_generation"))
+#endif
 void ex_hermes_schedule_watchdog_heartbeat(
     ExactHermesRuntime* runtime,
+    void (*callback)(void* context),
+    void* context);
+
+/// Queue a lightweight watchdog callback onto the cross-thread callback queue.
+/// `runtime_nonce` must be the value captured for this exact handle generation
+/// with `ex_hermes_runtime_nonce` while the runtime was live. A stale pointer
+/// paired with an old nonce is rejected even if its address has been reused.
+/// The callback executes during the next poll on the runtime-owning thread.
+void ex_hermes_schedule_watchdog_heartbeat_for_generation(
+    ExactHermesRuntime* runtime,
+    uint64_t runtime_nonce,
     void (*callback)(void* context),
     void* context);
 
