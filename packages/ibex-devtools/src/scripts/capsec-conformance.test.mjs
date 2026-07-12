@@ -85,6 +85,54 @@ const pass = {
 };
 
 describe("capsec target conformance", () => {
+  test("binds each fixture only to the selected branch that owns it", () => {
+    const multiBranchImplementation = {
+      surfaces: [
+        {
+          edgeId: "edge.one",
+          branchId: "edge.one.default",
+          enforcementBranchId: "edge.one.default",
+          targetVariant: "default",
+          targetApplicability: { kind: "fallback" },
+          fixtureObligations: ["edge.one.default.closed"],
+        },
+        {
+          edgeId: "edge.one",
+          branchId: "edge.one.binary",
+          enforcementBranchId: "edge.one.binary",
+          targetVariant: "binary",
+          targetApplicability: { kind: "runtime-variant", value: "binary" },
+          fixtureObligations: ["edge.one.binary.closed"],
+        },
+      ],
+    };
+    const catalog = fixtureCatalogForTarget({
+      coverage,
+      implementation: multiBranchImplementation,
+      target,
+    });
+    expect(catalog[0].implementationBranchIds).toEqual([
+      "edge.one.binary",
+      "edge.one.default",
+    ]);
+    expect(
+      fixtureExecutionPlan(catalog, "edge.one.binary.closed"),
+    ).toMatchObject({
+      implementationBranchIds: ["edge.one.binary"],
+      enforcementBranchIds: ["edge.one.binary"],
+      expectedObservation: {
+        kind: "enforcement-branch",
+        branchId: "edge.one.binary",
+      },
+    });
+    expect(
+      fixtureExecutionPlan(catalog, "edge.one.default.closed"),
+    ).toMatchObject({
+      implementationBranchIds: ["edge.one.default"],
+      enforcementBranchIds: ["edge.one.default"],
+    });
+  });
+
   test("inventory obligations without executions remain incomplete", () => {
     const report = buildConformanceReport({
       coverage,

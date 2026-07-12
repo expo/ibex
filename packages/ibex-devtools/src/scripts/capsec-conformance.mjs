@@ -21,21 +21,54 @@ const digest = (value) =>
     .digest("base64url")}`;
 
 function fixturePlans(catalog) {
+  const accumulated = new Map();
+  for (const cell of catalog) {
+    const required = new Set(cell.requiredFixtures);
+    const bindings = new Map();
+    for (const binding of cell.fixtureBindings) {
+      if (bindings.has(binding.fixtureId)) {
+        throw new Error(
+          `${cell.edgeId}: duplicate fixture binding ${binding.fixtureId}`,
+        );
+      }
+      bindings.set(binding.fixtureId, binding);
+    }
+    for (const fixtureId of required) {
+      const binding = bindings.get(fixtureId);
+      if (!binding) {
+        throw new Error(
+          `${cell.edgeId}: required fixture ${fixtureId} has no branch binding`,
+        );
+      }
+      const entry = accumulated.get(fixtureId) ?? {
+        edgeIds: new Set(),
+        implementationBranchIds: new Set(),
+        enforcementBranchIds: new Set(),
+      };
+      entry.edgeIds.add(cell.edgeId);
+      for (const branchId of binding.implementationBranchIds) {
+        entry.implementationBranchIds.add(branchId);
+      }
+      for (const branchId of binding.enforcementBranchIds) {
+        entry.enforcementBranchIds.add(branchId);
+      }
+      accumulated.set(fixtureId, entry);
+    }
+    for (const fixtureId of bindings.keys()) {
+      if (!required.has(fixtureId)) {
+        throw new Error(
+          `${cell.edgeId}: fixture binding ${fixtureId} is not a required fixture`,
+        );
+      }
+    }
+  }
+
   const plans = new Map();
-  const fixtureIds = canonicalSet(
-    catalog.flatMap((cell) => cell.requiredFixtures),
-  );
-  for (const fixtureId of fixtureIds) {
-    const cells = catalog.filter((cell) =>
-      cell.requiredFixtures.includes(fixtureId),
-    );
-    const edgeIds = canonicalSet(cells.map((cell) => cell.edgeId));
-    const implementationBranchIds = canonicalSet(
-      cells.flatMap((cell) => cell.implementationBranchIds),
-    );
-    const enforcementBranchIds = canonicalSet(
-      cells.flatMap((cell) => cell.enforcementBranchIds),
-    );
+  for (const fixtureId of canonicalSet(accumulated.keys())) {
+    const entry = accumulated.get(fixtureId);
+    const edgeIds = canonicalSet(entry.edgeIds);
+    const implementationBranchIds = canonicalSet(entry.implementationBranchIds);
+    const enforcementBranchIds = canonicalSet(entry.enforcementBranchIds);
     let expectedObservation;
     if (enforcementBranchIds.length === 1) {
       expectedObservation = {
@@ -66,6 +99,10 @@ function fixturePlans(catalog) {
 
 export function fixtureExecutionPlan(catalog, fixtureId) {
   return fixturePlans(catalog).get(fixtureId) ?? null;
+}
+
+export function fixtureExecutionPlans(catalog) {
+  return [...fixturePlans(catalog).values()];
 }
 
 function validateExecutionEvidence(
@@ -146,17 +183,42 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
         throw new Error(`${edge.id}: selected unknown branch ${branchId}`);
       return row;
     });
+    const absenceFixture = absenceFixtureForTarget(edge.id, target);
+    const requiredFixtures = canonicalSet(
+      selected.length === 0
+        ? [absenceFixture]
+        : selected.flatMap((row) => row.fixtureObligations),
+    );
+    const fixtureBindings = requiredFixtures.map((fixtureId) => {
+      const matchingRows = selected.filter((row) =>
+        row.fixtureObligations.includes(fixtureId),
+      );
+      if (selected.length > 0 && matchingRows.length === 0) {
+        throw new Error(
+          `${edge.id}: fixture ${fixtureId} has no selected implementation branch`,
+        );
+      }
+      return {
+        fixtureId,
+        implementationBranchIds: canonicalSet(
+          matchingRows.map((row) => row.branchId),
+        ),
+        enforcementBranchIds: canonicalSet(
+          matchingRows.map((row) => row.enforcementBranchId),
+        ),
+      };
+    });
     return {
       edgeId: edge.id,
       implementationBranchIds: canonicalSet(branchIds),
       enforcementBranchIds: canonicalSet(
         selected.map((row) => row.enforcementBranchId),
       ),
-      requiredFixtures: canonicalSet(
-        selected.length === 0
-          ? [absenceFixtureForTarget(edge.id, target)]
-          : selected.flatMap((row) => row.fixtureObligations),
-      ),
+      requiredFixtures,
+      // This is part of the execution catalog digest, but not repeated in the
+      // public per-edge report cell. It prevents one branch's fixture from
+      // inheriting every other branch selected for the same target cell.
+      fixtureBindings,
     };
   });
 }
@@ -225,8 +287,9 @@ export function buildConformanceReport({
     const missingFixtures = cell.requiredFixtures.filter(
       (id) => !results.has(id),
     );
+    const { fixtureBindings: _fixtureBindings, ...publicCell } = cell;
     return {
-      ...cell,
+      ...publicCell,
       status:
         failedFixtures.length === 0 && missingFixtures.length === 0
           ? "conformant"
