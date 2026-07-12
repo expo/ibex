@@ -1809,6 +1809,70 @@ pub unsafe extern "C" fn ex_host_authorize_typed_environment_read_stack(
     )
 }
 
+/// Authorize one stage of the direct global `print()` stdout broker write.
+/// Returns 1 allow, 0 deny, and -1 for malformed adapter input.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_print_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    stage: u32,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::Stage;
+
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 {
+        return -1;
+    }
+    let stage = match stage {
+        0 => Stage::Requested,
+        2 => Stage::Commit,
+        4 => Stage::Repeat,
+        _ => return -1,
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            match host.authorize_typed_print_stage(
+                &module_id.to_string(),
+                constrained_principals,
+                stage,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed print authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
 /// Authorize one staged fetch or raw-connect occurrence from an engine adapter.
 /// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
 ///

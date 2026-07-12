@@ -736,6 +736,91 @@ impl Host {
         )
     }
 
+    /// Authorize one direct `print()` write into the host's bounded stdout
+    /// console broker before the line is enqueued.
+    // @ref LLP 0021#typed-resources-and-initial-vocabulary — stdio authority
+    // binds both the stream and its exact source identity.
+    pub fn authorize_typed_print_stage(
+        &self,
+        module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        stage: capsec_semantics::model::Stage,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::EffectGate;
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            NonEmptyString, OccurrenceResource, SelectorResource, StableId, StdioSource,
+            StdioSourceKind, StdioStream,
+        };
+
+        if !matches!(
+            stage,
+            capsec_semantics::model::Stage::Requested
+                | capsec_semantics::model::Stage::Commit
+                | capsec_semantics::model::Stage::Repeat
+        ) {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "direct print supports only requested, commit, and repeat stages".into(),
+            ));
+        }
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "direct print has no authenticated typed principal".into(),
+            )
+        })?;
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "stdio principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
+        let requested = SelectorResource::Stdio {
+            stream: StdioStream::Stdout,
+            source: StdioSource {
+                kind: StdioSourceKind::Broker,
+                identity: NonEmptyString::new("ibex:console:stdout")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+            },
+        };
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let coverage_edge_id = "surface.native.op.global.print.0zmmm8e";
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: NonEmptyString::new(format!(
+                "direct-print:{module_id}:{operation_resource}"
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(format!("{coverage_edge_id}.decision"))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals,
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: ActionId::new("stdio:write")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                effect_owner: principal,
+                resource: OccurrenceResource::StdioOccurrence {
+                    requested: Box::new(requested),
+                },
+            }],
+        };
+        self.evaluate_typed_decision(
+            &set,
+            &[EffectGate {
+                coverage_edge_id: StableId::new(coverage_edge_id)
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                target_cell: self.target_cell(coverage_edge_id),
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn authorize_typed_fetch_stage(
         &self,

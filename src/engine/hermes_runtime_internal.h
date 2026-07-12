@@ -294,6 +294,11 @@ extern "C" int32_t ex_host_authorize_typed_environment_read_stack(
     uint32_t stage,
     const uint8_t* name,
     size_t name_len);
+extern "C" int32_t ex_host_authorize_typed_print_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t stage);
 
 // @ref LLP 0013#mechanism-3 — frame-derived capability attribution. The bridge
 // symbols are exported by the carried Hermes patch stack (patches/hermes/0003)
@@ -616,6 +621,20 @@ inline void authorizeTypedEnvironmentRead(
             name.size()) != 1) {
       throw facebook::jsi::JSError(
           runtime, "Permission denied: env:read authority required");
+    }
+  }
+}
+// @ref LLP 0021#decision-staging-and-principal-semantics — direct print
+// authorizes every generated stage before the line enters the stdout broker.
+inline void authorizeTypedPrint(facebook::jsi::Runtime& runtime) {
+  if (ex_host_is_armed() != 1) return;
+  auto principal = currentPrincipalId();
+  auto principals = exactCollectTypedPrincipalStack();
+  for (uint32_t stage : {0u, 2u, 4u}) {
+    if (ex_host_authorize_typed_print_stack(
+            principal, principals.data(), principals.size(), stage) != 1) {
+      throw facebook::jsi::JSError(
+          runtime, "Permission denied: stdio:write authority required");
     }
   }
 }

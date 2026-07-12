@@ -669,6 +669,29 @@ const nativeEnvironmentReadTemplate = (name) =>
     requiredSourceArity: 1,
     setup: [],
   });
+const nativePrintTemplate = () =>
+  Object.freeze({
+    actionIds: ["stdio:write"],
+    arguments: [literalArgument("ibex-capsec-print")],
+    expectedDecisionCounts: { allow: 3, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "commit", "repeat"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "stdio:write",
+        resource: {
+          kind: "stdio",
+          stream: "stdout",
+          source: { kind: "broker", identity: "ibex:console:stdout" },
+        },
+      },
+    ],
+    requiredSourceArity: 1,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -695,6 +718,7 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 ]);
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
+  ["print", nativePrintTemplate()],
   [
     "queueMicrotask",
     nativeNoEffectTemplate(1, [harnessNoopCallbackArgument()]),

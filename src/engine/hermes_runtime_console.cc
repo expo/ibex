@@ -60,6 +60,7 @@ void installConsoleGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
          size_t count) -> facebook::jsi::Value {
+        authorizeTypedPrint(runtime);
         std::string message;
         for (size_t i = 0; i < count; ++i) {
           if (i > 0) {

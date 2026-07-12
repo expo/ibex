@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(183);
+    expect(nativePublicFixtures).toHaveLength(185);
     expect(
       nativePublicFixtures
         .filter(
@@ -1201,6 +1201,51 @@ describe("exact-target CapSec executable recipes", () => {
           ? ["requested", "commit"]
           : ["requested"],
       );
+    }
+  });
+
+  test("binds direct print to the exact stdout broker and generated stages", () => {
+    const print = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "print",
+    );
+    expect(print).toHaveLength(2);
+    expect(print.map((recipe) => recipe.scenario)).toEqual(["allow", "deny"]);
+    for (const recipe of print) {
+      expect(recipe).toMatchObject({
+        actionIds: ["stdio:write"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [
+              { kind: "json-literal", value: "ibex-capsec-print" },
+            ],
+            requiredFloor: [
+              {
+                cap: "stdio:write",
+                resource: {
+                  kind: "stdio",
+                  stream: "stdout",
+                  source: {
+                    kind: "broker",
+                    identity: "ibex:console:stdout",
+                  },
+                },
+              },
+            ],
+            expectedActionIds: ["stdio:write"],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "commit", "repeat"]
+          : ["requested"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(recipe.scenario === "allow" ? 3 : 1);
     }
   });
 

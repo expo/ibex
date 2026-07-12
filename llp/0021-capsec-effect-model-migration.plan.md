@@ -913,6 +913,11 @@ entry is returned. Denial fixtures stop at requested. For these exact
 source/setup/argument recipes, a noisy static dynamic-call list is diagnostic
 rather than residual: promotion still requires the runtime-observed gate to
 belong to the source-derived terminal allow-list.
+Direct global `print()` writes now authorize the exact stdout console-broker
+identity (`broker` / `ibex:console:stdout`) at requested, commit, and repeat
+before enqueuing a line. Denial therefore cannot leak output through the
+best-effort mirror, and this public path no longer bypasses typed
+`stdio:write` authority.
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 
