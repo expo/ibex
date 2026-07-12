@@ -685,6 +685,10 @@ also remains closed in armed execution: retaining a target descriptor and then
 calling name-based `unlinkat` would still permit a swap between identity check
 and deletion, so sync and async denial fixtures require the original file or
 directory to survive until a genuinely race-safe removal strategy is adopted.
+The same armed denial fixture covers unported sync and async rename, copy,
+symlink, and hard-link paths, proving they cannot mutate either source or
+destination through the legacy oracle while their typed staged adapters remain
+pending.
 
 ### WP6 — Convert network effects and protected peers
 

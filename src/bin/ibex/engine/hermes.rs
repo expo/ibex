@@ -2485,6 +2485,10 @@ mod tests {
         let absent_directory = root.join("absent-directory");
         let async_absent_directory = root.join("async-absent-directory");
         let retained_directory = root.join("retained-directory");
+        let renamed = root.join("renamed.txt");
+        let copied = root.join("copied.txt");
+        let symlinked = root.join("symlinked.txt");
+        let hard_linked = root.join("hard-linked.txt");
         std::fs::write(&existing, b"must survive").unwrap();
         std::fs::create_dir(&retained_directory).unwrap();
         let (_reset, digest) = install_armed_test_host_at(Some(&root), false, false, true);
@@ -2510,20 +2514,36 @@ mod tests {
                 try {{ __exactRmdir({retained_directory:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactFsPathAsync('unlink', {existing:?}, '', 0, 0, 0); }} catch (_) {{ denied++; }}
                 try {{ __exactFsPathAsync('rmdir', {retained_directory:?}, '', 0, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactRename({existing:?}, {renamed:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactCopyFile({existing:?}, {copied:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactSymlink({existing:?}, {symlinked:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactLink({existing:?}, {hard_linked:?}); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('rename', {existing:?}, {renamed:?}, 0, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('copyfile', {existing:?}, {copied:?}, 0, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('symlink', {existing:?}, {symlinked:?}, 0, 0, 0); }} catch (_) {{ denied++; }}
+                try {{ __exactFsPathAsync('link', {existing:?}, {hard_linked:?}, 0, 0, 0); }} catch (_) {{ denied++; }}
                 return String(denied);
             }})()"#,
             existing = existing.to_str().unwrap(),
             absent = absent.to_str().unwrap(),
             absent_directory = absent_directory.to_str().unwrap(),
             retained_directory = retained_directory.to_str().unwrap(),
+            renamed = renamed.to_str().unwrap(),
+            copied = copied.to_str().unwrap(),
+            symlinked = symlinked.to_str().unwrap(),
+            hard_linked = hard_linked.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
 
-        assert_eq!(outcome.as_deref(), Some("16"));
+        assert_eq!(outcome.as_deref(), Some("24"));
         assert_eq!(std::fs::read(&existing).unwrap(), b"must survive");
         assert!(!absent.exists());
         assert!(!absent_directory.exists());
         assert!(retained_directory.is_dir());
+        assert!(!renamed.exists());
+        assert!(!copied.exists());
+        assert!(!symlinked.exists());
+        assert!(!hard_linked.exists());
 
         let async_script = format!(
             r#"globalThis.__armedDeniedAsyncMkdir = 'pending';
