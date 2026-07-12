@@ -1704,6 +1704,29 @@ describe("LLP 0021 WP1 source surface inventory", () => {
         first.find((row) => row.name === "global:Gadget.run").metadata
           .memberKinds,
       ).toContain("prototype-method");
+      expect(
+        first.find((row) => row.name === "global:Gadget").metadata.valueShape,
+      ).toBe("accessor");
+      expect(
+        first.find((row) => row.name === "global:Gadget.version").metadata
+          .valueShape,
+      ).toBe("data");
+      expect(
+        first.find((row) => row.name === "global:Gadget.create").metadata
+          .valueShape,
+      ).toBe("callable");
+      expect(
+        first.find((row) => row.name === "global:Gadget.ready").metadata
+          .valueShape,
+      ).toBe("accessor");
+      expect(
+        first.find((row) => row.name === "global:exact.runtime.version")
+          .metadata.valueShape,
+      ).toBe("data");
+      expect(
+        first.find((row) => row.name === "global:exact.runtime.info")
+          .metadata.valueShape,
+      ).toBe("callable");
     } finally {
       fs.rmSync(root, { force: true, recursive: true });
     }

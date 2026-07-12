@@ -103,6 +103,26 @@ struct NativePublicInvocation {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct GlobalReadSourceDescriptor {
+    kind: String,
+    source_key: String,
+    export_name: String,
+    global_name: String,
+    member_kinds: Vec<String>,
+    source_refs: Vec<String>,
+    value_shape: String,
+    access: GlobalReadAccess,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct GlobalReadAccess {
+    kind: String,
+    path: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BuiltinPublicInvocation {
     kind: String,
@@ -226,6 +246,10 @@ fn tagged_jcs_digest(value: &serde_json::Value) -> String {
         "sha256-{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest)
     )
+}
+
+fn is_sorted_set(values: &[String]) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 fn load_recipe_catalog(path: &std::path::Path) -> RecipeCatalog {
@@ -733,10 +757,24 @@ fn materialize_native_arguments(
         .collect()
 }
 
-fn native_invocation_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
+fn native_invocation_script(
+    invocation: &NativePublicInvocation,
+    arguments: &[serde_json::Value],
+) -> String {
+    if invocation.kind == "global-property-read" {
+        let descriptor: GlobalReadSourceDescriptor =
+            serde_json::from_value(invocation.source_descriptor.clone())
+                .expect("global read source descriptor must be typed");
+        return format!(
+            "JSON.stringify((function(){{var n={};var path={};var shape={};var value=globalThis;function lookup(receiver,key){{var owner=receiver;var depth=0;while(owner!==null){{var descriptor=Object.getOwnPropertyDescriptor(owner,key);if(descriptor)return {{descriptor:descriptor,depth:depth}};owner=Object.getPrototypeOf(owner);depth++;}}return null;}}try{{var ownerDepths=[];for(var i=0;i<path.length;i++){{var key=path[i];if(value===null||(typeof value!==\"object\"&&typeof value!==\"function\"))return {{kind:\"missing\",globalName:n,segment:key}};var found=lookup(value,key);if(!found)return {{kind:\"missing\",globalName:n,segment:key,available:Object.getOwnPropertyNames(value).slice(0,32)}};var propertyDescriptor=found.descriptor;ownerDepths.push(found.depth);if(i===path.length-1){{if(shape===\"accessor\"&&typeof propertyDescriptor.get!==\"function\")return {{kind:\"shape-mismatch\",globalName:n,expectedShape:shape}};if(shape===\"data\"&&(!(\"value\" in propertyDescriptor)||typeof propertyDescriptor.value===\"function\"))return {{kind:\"shape-mismatch\",globalName:n,expectedShape:shape,actualType:\"value\" in propertyDescriptor?typeof propertyDescriptor.value:\"absent\"}};}}value=value[key];}}return {{kind:\"return\",globalName:n,valueType:value===null?\"null\":typeof value,ownerDepths:ownerDepths,cleanup:\"none\"}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+            serde_json::to_string(&invocation.global_name).expect("serialize global read root"),
+            serde_json::to_string(&descriptor.access.path).expect("serialize global read path"),
+            serde_json::to_string(&descriptor.value_shape).expect("serialize global read shape")
+        );
+    }
     format!(
         "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"native-global-result\"){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
-        serde_json::to_string(global_name).expect("serialize native global"),
+        serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments")
     )
 }
@@ -768,6 +806,78 @@ fn observed_typed_values(
         .collect()
 }
 
+fn validate_global_read_descriptor(
+    recipe: &Recipe,
+    probe: &PublicSurfaceProbe,
+    invocation: &NativePublicInvocation,
+) {
+    // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+    // runtime evidence must remain bound to the exact source-derived path.
+    let descriptor: GlobalReadSourceDescriptor =
+        serde_json::from_value(invocation.source_descriptor.clone())
+            .expect("global read source descriptor must be typed");
+    assert_eq!(descriptor.kind, "global-property-read");
+    assert_eq!(descriptor.source_key, "shared_runtime");
+    assert_eq!(descriptor.global_name, invocation.global_name);
+    assert!(matches!(descriptor.value_shape.as_str(), "accessor" | "data"));
+    assert!(!descriptor.member_kinds.is_empty());
+    assert!(is_sorted_set(&descriptor.member_kinds));
+    assert!(!descriptor.source_refs.is_empty());
+    assert!(is_sorted_set(&descriptor.source_refs));
+    assert!(descriptor
+        .source_refs
+        .iter()
+        .all(|source_ref| source_ref.starts_with("packages/ibex-runtime-js/src/")));
+    assert_eq!(descriptor.access.kind, "source-proven-property-path");
+    assert_eq!(descriptor.access.path.join("."), descriptor.export_name);
+    assert_eq!(
+        descriptor.access.path.first().map(String::as_str),
+        Some(descriptor.global_name.as_str())
+    );
+    assert!(descriptor.access.path.iter().all(|segment| {
+        let mut chars = segment.chars();
+        chars.next().is_some_and(|first| {
+            (first == '_' || first == '$' || first.is_ascii_alphabetic())
+                && chars.all(|character| {
+                    character == '_'
+                        || character == '$'
+                        || character.is_ascii_alphanumeric()
+                })
+        })
+    }));
+    if descriptor.value_shape == "accessor" && descriptor.access.path.len() == 1 {
+        assert!(!descriptor
+            .source_refs
+            .iter()
+            .any(|source_ref| source_ref.contains("#defineLazyGlobal:")));
+    }
+    for forbidden in [
+        "dynamic-table",
+        "inherited",
+        "inherited-shape",
+        "instance-property",
+        "namespace-alias",
+        "namespace-prefix",
+        "prototype-accessor",
+        "prototype-assignment",
+        "prototype-method",
+    ] {
+        assert!(!descriptor.member_kinds.iter().any(|kind| kind == forbidden));
+    }
+    let expected_observed_key = if descriptor.export_name.starts_with('_') {
+        format!("native-op:{}", descriptor.export_name)
+    } else {
+        format!("native-op:global:{}", descriptor.export_name)
+    };
+    assert_eq!(probe.surface_observed_key, expected_observed_key);
+    assert_eq!(recipe.classification, "non-capability");
+    assert_eq!(recipe.scenario, "non-capability");
+    assert!(recipe.action_ids.is_empty());
+    assert!(invocation.arguments.is_empty());
+    assert!(invocation.required_floor.is_empty());
+    assert!(invocation.setup.is_empty());
+}
+
 fn validate_native_runtime_observation(
     recipe: &Recipe,
     probe: &PublicSurfaceProbe,
@@ -786,17 +896,24 @@ fn validate_native_runtime_observation(
         "public-surface-invocation"
     };
     assert_eq!(probe.kind, expected_probe_kind);
-    assert_eq!(invocation.kind, "native-global-function");
+    assert!(matches!(
+        invocation.kind.as_str(),
+        "native-global-function" | "global-property-read"
+    ));
     assert_eq!(
         invocation.source_descriptor_digest,
         tagged_value_digest(&invocation.source_descriptor),
         "{}: source-derived native descriptor digest drift",
         recipe.fixture_id
     );
-    assert_eq!(
-        probe.surface_observed_key,
-        format!("native-op:{}", invocation.global_name)
-    );
+    if invocation.kind == "global-property-read" {
+        validate_global_read_descriptor(recipe, probe, invocation);
+    } else {
+        assert_eq!(
+            probe.surface_observed_key,
+            format!("native-op:{}", invocation.global_name)
+        );
+    }
     assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
     assert_eq!(invocation.expected_action_ids, recipe.action_ids);
     assert_eq!(
@@ -812,7 +929,11 @@ fn validate_native_runtime_observation(
                 recipe.fixture_id
             );
             serde_json::json!({
-                "kind": "native-return",
+                "kind": if invocation.kind == "global-property-read" {
+                    "global-property-read"
+                } else {
+                    "native-return"
+                },
                 "bodyEntered": true,
             })
         }
@@ -1045,10 +1166,7 @@ async fn execute_native_public_recipe(
         "public native observer has no installed host"
     );
     let result = engine
-        .eval_immediate(&native_invocation_script(
-            &invocation.global_name,
-            &arguments,
-        ))
+        .eval_immediate(&native_invocation_script(invocation, &arguments))
         .await;
     let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
     let encoded = result

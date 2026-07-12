@@ -6914,6 +6914,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     refs,
     memberKinds = ["registration"],
     semanticRole,
+    valueShape,
   ) => {
     if (segments.length === 0) return;
     const exportName = segments.join(".");
@@ -6926,18 +6927,21 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         memberName: segments.length === 1 ? null : segments.slice(1).join("."),
         refs: new Set(),
         semanticRoles: new Set(),
+        valueShapes: new Set(),
       };
       facts.set(exportName, fact);
     }
     for (const ref of refs) fact.refs.add(ref);
     for (const kind of memberKinds) fact.memberKinds.add(kind);
     if (semanticRole) fact.semanticRoles.add(semanticRole);
+    if (valueShape) fact.valueShapes.add(valueShape);
   };
   const addPathFacts = (
     segments,
     refs,
     memberKinds = ["registration"],
     semanticRole,
+    valueShape,
   ) => {
     for (let length = 1; length <= segments.length; length += 1) {
       const prefixName = segments.slice(0, length).join(".");
@@ -6947,6 +6951,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         length === segments.length ? refs : refs.slice(0, 1),
         length === segments.length ? memberKinds : ["namespace-prefix"],
         semanticRole,
+        length === segments.length ? valueShape : undefined,
       );
     }
   };
@@ -7456,6 +7461,114 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     return [{ environment, node }];
   };
 
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report —
+  // public read probes may use only a source-proven value shape. A path whose
+  // authored definitions disagree, or whose type is any/unknown, deliberately
+  // remains unprobeable rather than relying on the loaded runtime to choose a
+  // convenient interpretation.
+  const directValueShape = (expression) => {
+    const node = tsUnwrapExpression(expression);
+    if (!node) return null;
+    if (
+      ts.isFunctionDeclaration(node) ||
+      ts.isFunctionExpression(node) ||
+      ts.isArrowFunction(node) ||
+      ts.isMethodDeclaration(node) ||
+      ts.isClassDeclaration(node) ||
+      ts.isClassExpression(node)
+    ) {
+      return "callable";
+    }
+    if (
+      ts.isObjectLiteralExpression(node) ||
+      ts.isArrayLiteralExpression(node) ||
+      ts.isNewExpression(node) ||
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node) ||
+      ts.isBigIntLiteral(node) ||
+      ts.isRegularExpressionLiteral(node) ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword ||
+      (ts.isIdentifier(node) &&
+        new Set(["undefined", "NaN", "Infinity"]).has(node.text))
+    ) {
+      return "data";
+    }
+    const type = checker.getTypeAtLocation(node);
+    const candidates = type.isUnionOrIntersection() ? type.types : [type];
+    const shapes = new Set();
+    for (const candidate of candidates) {
+      if (
+        (candidate.flags &
+          (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.Never)) !==
+        0
+      ) {
+        return null;
+      }
+      shapes.add(
+        candidate.getCallSignatures().length > 0 ||
+          candidate.getConstructSignatures().length > 0
+          ? "callable"
+          : "data",
+      );
+    }
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const resolvedValueShape = (expression, environment) => {
+    const candidates = resolveValueExpressions(expression, environment).map(
+      (resolved) => directValueShape(resolved.node),
+    );
+    if (candidates.length === 0 || candidates.some((shape) => !shape)) {
+      return null;
+    }
+    const shapes = new Set(candidates);
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+  const propertyValueShape = (property, environment) => {
+    if (ts.isMethodDeclaration(property)) return "callable";
+    if (ts.isGetAccessorDeclaration(property)) return "accessor";
+    if (ts.isSetAccessorDeclaration(property)) return null;
+    if (ts.isPropertyAssignment(property)) {
+      return resolvedValueShape(property.initializer, environment);
+    }
+    if (ts.isShorthandPropertyAssignment(property)) {
+      return resolvedValueShape(property.name, environment);
+    }
+    return null;
+  };
+  const descriptorValueShape = (descriptor, environment, sourcePath) => {
+    const node = tsUnwrapExpression(descriptor);
+    if (!node || !ts.isObjectLiteralExpression(node)) return null;
+    let accessor = false;
+    const values = [];
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) return null;
+      const names = propertyNames(property.name, environment, sourcePath);
+      if (names.includes("get")) {
+        if (
+          ts.isMethodDeclaration(property) ||
+          ts.isGetAccessorDeclaration(property) ||
+          (ts.isPropertyAssignment(property) &&
+            resolvedValueShape(property.initializer, environment) ===
+              "callable")
+        ) {
+          accessor = true;
+        } else {
+          return null;
+        }
+      }
+      if (names.includes("value") && ts.isPropertyAssignment(property)) {
+        values.push(resolvedValueShape(property.initializer, environment));
+      }
+    }
+    if (accessor && values.length > 0) return null;
+    if (accessor) return "accessor";
+    if (values.length === 0 || values.some((shape) => !shape)) return null;
+    const shapes = new Set(values);
+    return shapes.size === 1 ? [...shapes][0] : null;
+  };
+
   const classTargets = (expression) => {
     const node = tsUnwrapExpression(expression);
     if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
@@ -7540,7 +7653,13 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           ...installRefs,
           sourceSymbol(sourcePath, `${enclosingName(property)}.${name}`),
         ];
-        addPathFacts(segments, refs, [memberKind]);
+        addPathFacts(
+          segments,
+          refs,
+          [memberKind],
+          undefined,
+          propertyValueShape(property, environment),
+        );
         if (ts.isPropertyAssignment(property)) {
           for (const resolved of resolveValueExpressions(
             property.initializer,
@@ -7602,6 +7721,16 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
         [...baseSegments, name],
         [...installRefs, ref],
         inherited ? [memberKind, "inherited"] : [memberKind],
+        undefined,
+        ts.isMethodDeclaration(member)
+          ? "callable"
+          : ts.isGetAccessorDeclaration(member)
+            ? "accessor"
+            : ts.isSetAccessorDeclaration(member)
+              ? undefined
+              : member.initializer
+                ? resolvedValueShape(member.initializer, new Map())
+                : directValueShape(member),
       );
     }
     for (const augmentation of classAugmentations.get(classSymbol) ?? []) {
@@ -7623,6 +7752,8 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
             : "static-assignment",
           ...(inherited ? ["inherited"] : []),
         ],
+        undefined,
+        resolvedValueShape(augmentation.value, new Map()),
       );
     }
 
@@ -7776,6 +7907,8 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
               ),
             ],
             ["function-property"],
+            undefined,
+            resolvedValueShape(augmentation.value, new Map()),
           );
         }
         continue;
@@ -7901,6 +8034,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
     environment,
     node,
     memberKinds = ["registration"],
+    valueShapeOverride,
   ) => {
     const ref = authoredRef(node, `globals:${segments.join(".")}`);
     const dynamicTable = DYNAMIC_TABLE_MEMBER.test(segments.at(-1) ?? "");
@@ -7909,6 +8043,8 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       [ref],
       dynamicTable ? [...memberKinds, "dynamic-table"] : memberKinds,
       dynamicTable ? "host-object-overlay" : undefined,
+      valueShapeOverride ??
+        (value ? resolvedValueShape(value, environment) : undefined),
     );
     if (dynamicTable) return;
     if (value) {
@@ -8023,7 +8159,7 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
           const segments = [...base, name];
           recordRegistration(segments, values[0] ?? null, environment, call, [
             "define-property",
-          ]);
+          ], descriptorValueShape(descriptor, environment, sourcePath));
           for (const value of values.slice(1)) {
             collectRegisteredValueMembers(value, environment, segments, [
               authoredRef(call, `globals:${segments.join(".")}`),
@@ -8117,6 +8253,16 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
                     ? "define-properties"
                     : "object-assign",
                 ],
+                method === "defineProperties"
+                  ? descriptorValueShape(
+                      descriptor,
+                      resolvedLiteral.environment,
+                      sourcePath,
+                    )
+                  : propertyValueShape(
+                      property,
+                      resolvedLiteral.environment,
+                    ),
               );
               for (const value of values.slice(1)) {
                 collectRegisteredValueMembers(
@@ -8247,6 +8393,8 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
             aliasName.split("."),
             [...fact.refs, destination.ref],
             [...fact.memberKinds, "namespace-alias"],
+            undefined,
+            fact.valueShapes.size === 1 ? [...fact.valueShapes][0] : undefined,
           );
           aliasesChanged = true;
         }
@@ -8270,8 +8418,27 @@ export function scanSharedRuntimeGlobalSurfaces(repoRoot) {
       sourceKey: "shared_runtime",
       surfaceType: "global-api",
     };
+    const accessPath = fact.exportName.split(".");
+    const sourceProvesEveryAccessSegment = accessPath.every((_, index) => {
+      const prefix = facts.get(accessPath.slice(0, index + 1).join("."));
+      return (
+        prefix &&
+        [...prefix.memberKinds].some(
+          (kind) =>
+            !new Set([
+              "dynamic-table",
+              "inherited-shape",
+              "namespace-prefix",
+            ]).has(kind),
+        )
+      );
+    });
+    if (sourceProvesEveryAccessSegment)
+      metadata.publicReadAccessSourceProven = true;
     if (fact.semanticRoles.size > 0)
       metadata.semanticRoles = uniqueSorted(fact.semanticRoles);
+    if (fact.valueShapes.size === 1)
+      metadata.valueShape = [...fact.valueShapes][0];
     rows.push(makeSurface("native-op", name, sourceRefs, { metadata }));
   }
   const sortedRows = sortSurfaces(rows);

@@ -1106,6 +1106,18 @@ those three evidence files, the attestation, and generated publication
 artifacts. Until every required fixture genuinely passes, production startup
 refuses before project code on every target.
 
+Source-derived global reads are executable evidence only when the authored
+runtime graph proves a concrete access path, every path segment has an actual
+registration rather than a synthesized namespace prefix, and the final value
+is unambiguously data or an accessor. The loaded-engine probe resolves the
+source-proven property path, checks the final descriptor shape, performs the
+read, and requires zero legacy or typed authorization observations. Merely
+retrieving a function is never call evidence. Conditional namespace aliases,
+multi-installer globals, receiver-dependent prototype members, and lazy getters
+that may already have materialized a callable remain residual until they have a
+bounded call/setup recipe. This keeps inventory facts from becoming synthetic
+execution claims while permitting exact non-capability data reads to close.
+
 Acceptance:
 
 - Every authorable edge has positive, negative, wrong-principal, malformed,

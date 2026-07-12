@@ -590,6 +590,105 @@ function targetAbsenceObservation(recipe) {
   };
 }
 
+function globalReadCatalog() {
+  const recipe = {
+    fixtureId: "fixture.global.read.non-capability",
+    planDigest: "sha256-EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+    classification: "non-capability",
+    scenario: "non-capability",
+    edgeIds: ["edge.read"],
+    implementationBranchIds: ["edge.read.all"],
+    enforcementBranchIds: ["edge.read.all"],
+    actionIds: [],
+    terminalObservedKey: "native-op:global:Exact.version",
+    expectedObservation: {
+      kind: "enforcement-branch",
+      branchId: "edge.read.all",
+    },
+    route: {
+      surfaceObservedKeys: ["native-op:global:Exact.version"],
+      alternatives: [
+        {
+          terminalObservedKey: "native-op:global:Exact.version",
+          proofPaths: ["native-op:global:Exact.version"],
+        },
+      ],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey: "native-op:global:Exact.version",
+      command: ["ibex", "capsec-public-fixture", "fixture.global.read"],
+      invocation: {
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "global-property-read",
+        globalName: "Exact",
+        sourceDescriptor: {
+          kind: "global-property-read",
+          sourceKey: "shared_runtime",
+          exportName: "Exact.version",
+          globalName: "Exact",
+          memberKinds: ["object-property"],
+          sourceRefs: ["packages/ibex-runtime-js/src/bootstrap.ts#Exact.version"],
+          valueShape: "data",
+          access: {
+            kind: "source-proven-property-path",
+            path: ["Exact", "version"],
+          },
+        },
+        arguments: [],
+        requiredFloor: [],
+        setup: [],
+        expectedResult: "return",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.read"],
+        expectedActionIds: [],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+  recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+    recipe.publicSurfaceProbe.invocation.sourceDescriptor,
+  );
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes: [recipe],
+    summary: {
+      requiredFixtures: 1,
+      fullyExecutableFixtures: 1,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { "non-capability": 1 },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function globalReadObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      globalName: invocation.globalName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: { kind: "return", valueType: "string", ownerDepths: [0, 0] },
+      executionProof: { kind: "global-property-read", bodyEntered: true },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 describe("CapSec public-surface promotion evidence", () => {
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
@@ -780,6 +879,29 @@ describe("CapSec public-surface promotion evidence", () => {
         recipe,
         engineBinaryDigest: engine.binaryDigest,
         runtimeObservation: invented,
+        coverage,
+      }),
+    ).toThrow(/execution proof disagrees/);
+  });
+
+  test("accepts a source-bound global read and rejects function-return proof", () => {
+    const catalog = globalReadCatalog();
+    const recipe = catalog.recipes[0];
+    const observation = globalReadObservation(recipe);
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
+        coverage,
+      }),
+    ).not.toThrow();
+    observation.invocation.executionProof.kind = "native-return";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: observation,
         coverage,
       }),
     ).toThrow(/execution proof disagrees/);

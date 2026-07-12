@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(96);
+    expect(nativePublicFixtures).toHaveLength(193);
     expect(
       nativePublicFixtures
         .filter(
@@ -122,7 +122,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(22);
+    ).toHaveLength(119);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -548,6 +548,55 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.status !== "fully-executable",
       ),
     ).toHaveLength(21);
+  });
+
+  test("binds readable globals to exact source-derived paths and shapes", () => {
+    const recipe = recipes.recipes.find(
+      (candidate) =>
+        candidate.publicSurfaceProbe?.surfaceObservedKey ===
+        "native-op:__exactRuntime",
+    );
+    expect(recipe).toMatchObject({
+      classification: "non-capability",
+      scenario: "non-capability",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        surfaceObservedKey: "native-op:__exactRuntime",
+        invocation: {
+          invocationSchema: "ibex/capsec-native-global-invocation/1",
+          kind: "global-property-read",
+          globalName: "__exactRuntime",
+          arguments: [],
+          requiredFloor: [],
+          setup: [],
+          expectedResult: "return",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+          expectedActionIds: [],
+          sourceDescriptor: {
+            kind: "global-property-read",
+            sourceKey: "shared_runtime",
+            exportName: "__exactRuntime",
+            globalName: "__exactRuntime",
+            memberKinds: ["assignment"],
+            valueShape: "data",
+            access: {
+              kind: "source-proven-property-path",
+              path: ["__exactRuntime"],
+            },
+          },
+        },
+      },
+    });
+    expect(
+      recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceRefs,
+    ).toEqual([
+      "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:__exactRuntime",
+    ]);
+    expect(
+      recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest,
+    ).toMatch(/^sha256-/u);
   });
 
   test("binds nested native argument producers and exact absence probes", () => {

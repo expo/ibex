@@ -217,7 +217,9 @@ function validateRuntimeInvocation(observation, recipe) {
       `${recipe.fixtureId}: native runtime invocation`,
     );
     if (
-      invocation.kind !== "native-global-function" ||
+      !new Set(["global-property-read", "native-global-function"]).has(
+        invocation.kind,
+      ) ||
       invocation.globalName !== authored.globalName
     ) {
       throw new Error(
@@ -490,7 +492,12 @@ function validateRuntimeInvocation(observation, recipe) {
     );
     const expectedProof =
       authored.expectedResult === "return"
-        ? ["native-return", true]
+        ? [
+            authored.kind === "global-property-read"
+              ? "global-property-read"
+              : "native-return",
+            true,
+          ]
         : authored.expectedResult === "permission-denied"
           ? ["typed-permission-denial", true]
           : ["exact-global-absence", false];

@@ -814,6 +814,88 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactUdpSocket", nativeNoEffectTemplate(1, [literalArgument("udp4")])],
 ]);
 
+const GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS = new Set([
+  "dynamic-table",
+  "inherited",
+  "inherited-shape",
+  "instance-property",
+  "namespace-alias",
+  "namespace-prefix",
+  "prototype-accessor",
+  "prototype-assignment",
+  "prototype-method",
+]);
+
+function nativePublicReadDescriptor(surface) {
+  // @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — a
+  // readable inventory fact becomes a recipe only with an exact source path.
+  const metadata = surface?.metadata;
+  if (
+    metadata?.surfaceType !== "global-api" ||
+    metadata.sourceKey !== "shared_runtime" ||
+    metadata.publicReadAccessSourceProven !== true ||
+    !new Set(["accessor", "data"]).has(metadata.valueShape) ||
+    typeof metadata.exportName !== "string" ||
+    metadata.exportName.length === 0 ||
+    typeof metadata.globalName !== "string" ||
+    metadata.globalName.length === 0 ||
+    !Array.isArray(metadata.memberKinds) ||
+    metadata.memberKinds.length === 0 ||
+    canonicalJson(metadata.memberKinds) !==
+      canonicalJson(canonicalSet(metadata.memberKinds)) ||
+    metadata.memberKinds.some((kind) =>
+      GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS.has(kind),
+    ) ||
+    !Array.isArray(surface.sourceRefs) ||
+    surface.sourceRefs.length === 0 ||
+    !surface.sourceRefs.every((sourceRef) =>
+      sourceRef.startsWith("packages/ibex-runtime-js/src/"),
+    ) ||
+    canonicalJson(surface.sourceRefs) !==
+      canonicalJson(canonicalSet(surface.sourceRefs))
+  ) {
+    return null;
+  }
+  const path = metadata.exportName.split(".");
+  if (
+    path[0] !== metadata.globalName ||
+    path.some(
+      (segment) =>
+        !/^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(segment) ||
+        segment.includes("[[") ||
+        segment.includes("]]"),
+    )
+  ) {
+    return null;
+  }
+  if (
+    metadata.valueShape === "accessor" &&
+    path.length === 1 &&
+    surface.sourceRefs.some((sourceRef) =>
+      sourceRef.includes("#defineLazyGlobal:"),
+    )
+  ) {
+    // `defineLazyGlobal` self-replaces with its result. If startup has already
+    // materialized a callable, a later property read no longer executes the
+    // getter and cannot be counted as public-surface execution.
+    return null;
+  }
+  const expectedObservedKey = metadata.exportName.startsWith("_")
+    ? `native-op:${metadata.exportName}`
+    : `native-op:global:${metadata.exportName}`;
+  if (surface.observedKey !== expectedObservedKey) return null;
+  return {
+    kind: "global-property-read",
+    sourceKey: metadata.sourceKey,
+    exportName: metadata.exportName,
+    globalName: metadata.globalName,
+    memberKinds: [...metadata.memberKinds],
+    sourceRefs: [...surface.sourceRefs],
+    valueShape: metadata.valueShape,
+    access: { kind: "source-proven-property-path", path },
+  };
+}
+
 function bindNativeArgumentSources(argument, liveByObservedKey) {
   if (argument.kind !== "native-global-result") return clone(argument);
   const producer = liveByObservedKey.get(`native-op:${argument.globalName}`)
@@ -856,12 +938,70 @@ function nativePublicProbeForPlan({
   }
   const live = liveByObservedKey.get(surfaceObservedKey);
   const invocation = live?.metadata?.publicInvocation;
-  if (!invocation) {
+  const readDescriptor = targetAbsence
+    ? null
+    : nativePublicReadDescriptor(live);
+  if (!invocation && !readDescriptor) {
     return {
       probe: null,
       unavailableReason: targetAbsence
         ? "native-public-target-absence-source-invocation-unavailable"
         : "native-public-source-invocation-unavailable",
+    };
+  }
+  if (readDescriptor) {
+    if (
+      plan.classification !== "non-capability" ||
+      scenario !== "non-capability" ||
+      plan.actionIds.length !== 0
+    ) {
+      return {
+        probe: null,
+        unavailableReason: `native-public-${scenario}-scenario-not-authored`,
+      };
+    }
+    if (
+      route.alternatives.length !== 1 ||
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+      route.ambiguousCallees.length !== 0
+    ) {
+      return {
+        probe: null,
+        unavailableReason: "native-public-terminal-route-is-not-exact",
+      };
+    }
+    return {
+      unavailableReason: null,
+      probe: {
+        kind: "public-surface-invocation",
+        surfaceObservedKey,
+        command: [
+          "cargo",
+          "test",
+          "--bin",
+          "ibex",
+          "--features",
+          "capsec-conformance-observer",
+          "capsec_public_native_recipe_batch",
+          "--",
+          "--test-threads=1",
+        ],
+        invocation: {
+          invocationSchema: "ibex/capsec-native-global-invocation/1",
+          kind: "global-property-read",
+          globalName: readDescriptor.globalName,
+          sourceDescriptor: readDescriptor,
+          sourceDescriptorDigest: taggedDigest(readDescriptor),
+          arguments: [],
+          requiredFloor: [],
+          setup: [],
+          expectedResult: "return",
+          expectedTypedStages: [],
+          expectedTypedDecisionCount: 0,
+          allowedCoverageEdgeIds: clone(plan.edgeIds),
+          expectedActionIds: [],
+        },
+      },
     };
   }
   const structuralAbsenceArity = NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT.get(
