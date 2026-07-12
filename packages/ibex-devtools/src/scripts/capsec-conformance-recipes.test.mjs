@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(170);
+    expect(nativePublicFixtures).toHaveLength(173);
     expect(
       nativePublicFixtures
         .filter(
@@ -122,7 +122,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(126);
+    ).toHaveLength(129);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -336,11 +336,11 @@ describe("exact-target CapSec executable recipes", () => {
       expect(invocation.sourceDescriptorDigest).toMatch(/^sha256-/u);
       expect(invocation.expectedTypedStages).toEqual(
         recipe.scenario === "allow"
-          ? ["requested", "candidate", "commit", "repeat"]
+          ? ["requested", "candidate", "commit"]
           : ["requested"],
       );
       expect(invocation.expectedTypedDecisionCount).toBe(
-        recipe.scenario === "allow" ? 4 : 1,
+        recipe.scenario === "allow" ? 3 : 1,
       );
       expect(recipe.residualReasons).toEqual([]);
       expect(recipe.status).toBe("fully-executable");
@@ -803,6 +803,50 @@ describe("exact-target CapSec executable recipes", () => {
           value: 60_000,
         });
       }
+    }
+  });
+
+  test("creates and consumes owned loopback TCP handles outside observation", () => {
+    for (const globalName of [
+      "__exactTcpClose",
+      "__exactTcpReset",
+      "__exactTcpShutdown",
+    ]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        scenario: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            setup: [
+              { kind: "tcp-loopback-listener" },
+              {
+                kind: "tcp-loopback-client",
+                globalName: "__exactTcpConnect",
+                sourceDescriptor: {
+                  arity: 4,
+                  globalName: "__exactTcpConnect",
+                  kind: "native-global-function",
+                },
+              },
+            ],
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.arguments[0]).toEqual({
+        kind: "harness-loopback-client-handle",
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.setup[1].sourceDescriptorDigest,
+      ).toMatch(/^sha256-/u);
     }
   });
 

@@ -3599,6 +3599,75 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_network_release_calls_require_only_ownership() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let floor = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "tcp",
+                "host": {"kind": "ip", "address": "127.0.0.1"},
+                "port": {"kind": "exact", "value": port},
+                "peerClasses": ["loopback"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let (_reset, digest) = install_armed_test_host_at(None, false, false, false, vec![floor]);
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let setup = engine
+            .eval_immediate(&format!(
+                r#"(function() {{
+                  if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
+                  globalThis.__releaseClose = __exactTcpConnect('127.0.0.1', {port});
+                  globalThis.__releaseReset = __exactTcpConnect('127.0.0.1', {port});
+                  globalThis.__releaseShutdown = __exactTcpConnect('127.0.0.1', {port});
+                  return 'ready';
+                }})()"#
+            ))
+            .await
+            .unwrap();
+        assert_eq!(setup.as_deref(), Some("ready"));
+
+        let typed_before = crate::host::abi::installed_typed_decision_count();
+        let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.network.authority-release"
+        ));
+        let released = engine
+            .eval_immediate(
+                r#"(function() {
+                  __exactTcpClose(globalThis.__releaseClose);
+                  __exactTcpReset(globalThis.__releaseReset);
+                  __exactTcpClose(globalThis.__releaseReset);
+                  __exactTcpShutdown(globalThis.__releaseShutdown, 1);
+                  __exactTcpClose(globalThis.__releaseShutdown);
+                  return 'released';
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(released.as_deref(), Some("released"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "release must not consult the legacy oracle"
+        );
+        assert!(typed.is_empty(), "release must not emit a typed decision");
+        assert_eq!(
+            crate::host::abi::installed_legacy_authorization_check_count() - legacy_before,
+            0
+        );
+        assert_eq!(
+            crate::host::abi::installed_typed_decision_count() - typed_before,
+            0
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
         let _lock = hermes_engine_test_lock().lock().await;

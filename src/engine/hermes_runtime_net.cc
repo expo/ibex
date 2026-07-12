@@ -375,7 +375,8 @@ SocketEntry requireSocketHandle(
     int handle,
     const char* syscall,
     bool requireCapability = false,
-    bool allowPending = false) {
+    bool allowPending = false,
+    bool requireLiveAuthority = true) {
   SocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_socket_mutex);
@@ -391,6 +392,9 @@ SocketEntry requireSocketHandle(
   if (!isAllowAll()) {
     if (entry.owner != currentPrincipalId()) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
+    }
+    if (!requireLiveAuthority) {
+      return entry;
     }
     if (entry.typedConnect) {
       if (entry.typedPending) {
@@ -418,9 +422,11 @@ bool trySocketHandle(
     int handle,
     const char* syscall,
     SocketEntry& entry,
-    bool requireCapability = false) {
+    bool requireCapability = false,
+    bool requireLiveAuthority = true) {
   try {
-    entry = requireSocketHandle(runtime, handle, syscall, requireCapability);
+    entry = requireSocketHandle(
+        runtime, handle, syscall, requireCapability, false, requireLiveAuthority);
     return true;
   } catch (const facebook::jsi::JSError&) {
     return false;
@@ -428,7 +434,11 @@ bool trySocketHandle(
 }
 
 int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscall) {
-  SocketEntry entry = requireSocketHandle(runtime, handle, syscall, false, true);
+  // @ref LLP 0021#handles-dynamic-authority-and-generations — releasing an
+  // owned handle cannot widen authority and must remain possible after its
+  // positive grant is revoked.
+  SocketEntry entry =
+      requireSocketHandle(runtime, handle, syscall, false, true, false);
   std::lock_guard<std::mutex> lock(g_socket_mutex);
   auto it = g_socket_handles.find(handle);
   if (it == g_socket_handles.end()) {
@@ -1022,7 +1032,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
             else if (h == 2) how = SHUT_RDWR;
           }
           SocketEntry entry;
-          if (!trySocketHandle(runtime, handle, "__exactTcpShutdown", entry)) {
+          if (!trySocketHandle(
+                  runtime, handle, "__exactTcpShutdown", entry, false, false)) {
             return facebook::jsi::Value(0);
           }
           int fd = entry.fd;
@@ -1041,7 +1052,8 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           int handle = static_cast<int>(args[0].asNumber());
           SocketEntry entry;
-          if (!trySocketHandle(runtime, handle, "__exactTcpReset", entry)) {
+          if (!trySocketHandle(
+                  runtime, handle, "__exactTcpReset", entry, false, false)) {
             return facebook::jsi::Value(0);
           }
           int fd = entry.fd;

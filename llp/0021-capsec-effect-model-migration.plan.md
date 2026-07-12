@@ -399,6 +399,11 @@ Decision caches key at least action, canonical resource bytes, constrained
 principal set, effect owner, stage, vocabulary/registry/policy/armed-snapshot
 digests, and negative/dynamic/handle generations. Repeated and live operations
 must still obey their coverage edge's lifetime recheck contract.
+Authority-reducing release, reset, shutdown, and cancellation have no positive
+effect stage: they validate the retained object's runtime and principal owner
+but remain possible after its positive grant is revoked. Requiring a live
+positive lease to relinquish an owned resource can leak authority and violates
+the registry's `authority-release` non-capability classification.
 
 ### Canonicalization and digest domains
 

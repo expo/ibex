@@ -551,6 +551,17 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
 // arguments/setup whose effects the harness can own and reproduce.
 const literalArgument = (value) => ({ kind: "json-literal", value });
 const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
+const harnessLoopbackClientHandleArgument = () => ({
+  kind: "harness-loopback-client-handle",
+});
+const tcpLoopbackClientSetup = () => [
+  { kind: "tcp-loopback-listener" },
+  {
+    kind: "tcp-loopback-client",
+    globalName: "__exactTcpConnect",
+    requiredSourceArity: 4,
+  },
+];
 const nativeResultArgument = (
   globalName,
   requiredSourceArity,
@@ -666,14 +677,38 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
         { kind: "harness-loopback-listener-port" },
       ],
       expectedStages: {
-        allow: ["requested", "candidate", "commit", "repeat"],
+        allow: ["requested", "candidate", "commit"],
         deny: ["requested"],
       },
-      expectedDecisionCounts: { allow: 4, deny: 1 },
+      expectedDecisionCounts: { allow: 3, deny: 1 },
       expectedResults: { allow: "return", deny: "permission-denied" },
       requiredSourceArity: 4,
       setup: [{ kind: "tcp-loopback-listener" }],
     }),
+  ],
+  [
+    "__exactTcpClose",
+    nativeNoEffectTemplate(
+      1,
+      [harnessLoopbackClientHandleArgument()],
+      tcpLoopbackClientSetup(),
+    ),
+  ],
+  [
+    "__exactTcpReset",
+    nativeNoEffectTemplate(
+      1,
+      [harnessLoopbackClientHandleArgument()],
+      tcpLoopbackClientSetup(),
+    ),
+  ],
+  [
+    "__exactTcpShutdown",
+    nativeNoEffectTemplate(
+      2,
+      [harnessLoopbackClientHandleArgument(), literalArgument(1)],
+      tcpLoopbackClientSetup(),
+    ),
   ],
   ["__exactPerformanceNow", nativeNoEffectTemplate(0)],
   ["__exactPerformanceTimeOrigin", nativeNoEffectTemplate(0)],
@@ -1003,6 +1038,29 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   };
 }
 
+function bindNativeSetupSources(setup, liveByObservedKey) {
+  if (setup.kind !== "tcp-loopback-client") return clone(setup);
+  const producer = liveByObservedKey.get(
+    `native-op:${setup.globalName}`,
+  )?.metadata?.publicInvocation;
+  if (
+    !producer ||
+    producer.kind !== "native-global-function" ||
+    producer.arity !== setup.requiredSourceArity
+  ) {
+    throw new Error(
+      `native public setup producer descriptor drift: ${setup.globalName}`,
+    );
+  }
+  const sourceDescriptor = clone(producer);
+  return {
+    kind: setup.kind,
+    globalName: setup.globalName,
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+  };
+}
+
 function nativePublicProbeForPlan({
   plan,
   scenario,
@@ -1173,7 +1231,9 @@ function nativePublicProbeForPlan({
           bindNativeArgumentSources(argument, liveByObservedKey),
         ),
         requiredFloor: clone(template.requiredFloor ?? []),
-        setup: clone(template.setup),
+        setup: template.setup.map((setup) =>
+          bindNativeSetupSources(setup, liveByObservedKey),
+        ),
         expectedResult: template.expectedResults[scenario],
         expectedTypedStages: clone(template.expectedStages[scenario]),
         expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],

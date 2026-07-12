@@ -145,6 +145,7 @@ enum NativeProbeArgument {
         value: serde_json::Value,
     },
     HarnessNoopCallback,
+    HarnessLoopbackClientHandle,
     HarnessLoopbackAddress {
         family: String,
     },
@@ -180,6 +181,14 @@ enum NativeProbeSetup {
         #[serde(rename = "globalName")]
         global_name: String,
         arguments: Vec<serde_json::Value>,
+    },
+    TcpLoopbackClient {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
     },
     TcpLoopbackListener,
 }
@@ -674,13 +683,23 @@ fn install_native_public_test_host(
 
 fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{Reflect.apply(f,globalThis,{});return {{kind:\"return\",globalName:n}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{var value=Reflect.apply(f,globalThis,{});return {{kind:\"return\",globalName:n,value:typeof value===\"number\"?value:null}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(global_name).expect("serialize setup global"),
         serde_json::to_string(arguments).expect("serialize setup arguments")
     )
 }
 
-async fn run_native_setup(engine: &HermesEngine, invocation: &NativePublicInvocation) {
+#[derive(Default)]
+struct NativeSetupState {
+    tcp_loopback_client_handle: Option<f64>,
+}
+
+async fn run_native_setup(
+    engine: &HermesEngine,
+    invocation: &NativePublicInvocation,
+    listener_port: Option<u16>,
+) -> NativeSetupState {
+    let mut state = NativeSetupState::default();
     for setup in &invocation.setup {
         match setup {
             NativeProbeSetup::InvokeNativeGlobal {
@@ -699,18 +718,54 @@ async fn run_native_setup(engine: &HermesEngine, invocation: &NativePublicInvoca
                     "native public setup {global_name} failed: {result}"
                 );
             }
+            NativeProbeSetup::TcpLoopbackClient {
+                global_name,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                assert_eq!(global_name, "__exactTcpConnect");
+                assert_eq!(source_descriptor_digest, &tagged_value_digest(source_descriptor));
+                assert_eq!(source_descriptor["kind"], "native-global-function");
+                assert_eq!(source_descriptor["globalName"], global_name.as_str());
+                assert_eq!(source_descriptor["arity"], 4);
+                assert!(state.tcp_loopback_client_handle.is_none());
+                let port = listener_port
+                    .expect("loopback client setup requires an owned listener port");
+                let encoded = engine
+                    .eval_immediate(&setup_script(
+                        global_name,
+                        &[serde_json::json!("127.0.0.1"), serde_json::json!(port)],
+                    ))
+                    .await
+                    .expect("execute native loopback client setup")
+                    .expect("native loopback client setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native loopback client setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+                state.tcp_loopback_client_handle = Some(
+                    result["value"]
+                        .as_f64()
+                        .expect("native loopback client setup must return a numeric handle"),
+                );
+            }
             NativeProbeSetup::TcpLoopbackListener => {}
         }
     }
+    state
 }
 
 fn materialize_native_arguments(
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
+    setup_state: &NativeSetupState,
 ) -> Vec<serde_json::Value> {
     fn materialize(
         argument: &NativeProbeArgument,
         listener_port: Option<u16>,
+        setup_state: &NativeSetupState,
     ) -> serde_json::Value {
         match argument {
             NativeProbeArgument::JsonLiteral { value } => serde_json::json!({
@@ -719,6 +774,12 @@ fn materialize_native_arguments(
             }),
             NativeProbeArgument::HarnessNoopCallback => serde_json::json!({
                 "kind": "harness-noop-callback",
+            }),
+            NativeProbeArgument::HarnessLoopbackClientHandle => serde_json::json!({
+                "kind": "json-literal",
+                "value": setup_state
+                    .tcp_loopback_client_handle
+                    .expect("loopback client argument requires client setup"),
             }),
             NativeProbeArgument::HarnessLoopbackAddress { family } => {
                 assert_eq!(
@@ -760,7 +821,7 @@ fn materialize_native_arguments(
                     "globalName": global_name,
                     "arguments": arguments
                         .iter()
-                        .map(|nested| materialize(nested, listener_port))
+                        .map(|nested| materialize(nested, listener_port, setup_state))
                         .collect::<Vec<_>>(),
                 })
             }
@@ -796,7 +857,7 @@ fn materialize_native_arguments(
                     "sourceDescriptorDigest": source_descriptor_digest,
                     "arguments": arguments
                         .iter()
-                        .map(|nested| materialize(nested, listener_port))
+                        .map(|nested| materialize(nested, listener_port, setup_state))
                         .collect::<Vec<_>>(),
                 })
             }
@@ -806,7 +867,7 @@ fn materialize_native_arguments(
     invocation
         .arguments
         .iter()
-        .map(|argument| materialize(argument, listener_port))
+        .map(|argument| materialize(argument, listener_port, setup_state))
         .collect()
 }
 
@@ -826,7 +887,7 @@ fn native_invocation_script(
         );
     }
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};var producerResults=new Map();function invokeProducer(spec){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"harness-noop-callback\")return function(){{}};if(spec.kind===\"native-global-result\")return invokeProducer(spec);if(spec.kind===\"native-global-result-property\"){{var cacheKey=spec.sourceDescriptorDigest+\"\\n\"+JSON.stringify(spec.arguments);var result;if(producerResults.has(cacheKey))result=producerResults.get(cacheKey);else{{result=invokeProducer(spec);producerResults.set(cacheKey,result);}}if(result===null||(typeof result!==\"object\"&&typeof result!==\"function\")||!Object.prototype.hasOwnProperty.call(result,spec.property))throw new Error(\"native argument producer missing own property: \"+spec.property);return result[spec.property];}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}else if(n===\"__exactTcpClose\"&&typeof args[0]===\"number\"){{cleanup=\"consumed-tcp-handle\";}}else if((n===\"__exactTcpReset\"||n===\"__exactTcpShutdown\")&&typeof args[0]===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(args[0]);cleanup=\"closed-tcp-handle\";}}else if(n===\"setTimeout\"&&typeof globalThis.clearTimeout===\"function\"){{globalThis.clearTimeout(value);cleanup=\"cleared-timeout\";}}else if(n===\"setInterval\"&&typeof globalThis.clearInterval===\"function\"){{globalThis.clearInterval(value);cleanup=\"cleared-interval\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(&invocation.global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments")
     )
@@ -1198,7 +1259,6 @@ async fn execute_native_public_recipe(
         .native()
         .expect("native executor received a non-native invocation descriptor");
     assert_eq!(recipe.status, "fully-executable");
-    run_native_setup(engine, invocation).await;
     let needs_listener = invocation
         .setup
         .iter()
@@ -1217,7 +1277,8 @@ async fn execute_native_public_recipe(
     let listener_port = listener
         .as_ref()
         .map(|listener| listener.local_addr().unwrap().port());
-    let arguments = materialize_native_arguments(invocation, listener_port);
+    let setup_state = run_native_setup(engine, invocation, listener_port).await;
+    let arguments = materialize_native_arguments(invocation, listener_port, &setup_state);
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
