@@ -163,21 +163,24 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
-  test("authors node:os probes without hand-labeling a native terminal", () => {
-    const allow = recipes.recipes.find(
-      (recipe) =>
-        recipe.scenario === "allow" &&
-        recipe.route.surfaceObservedKeys.includes(
-          "builtin:export:node_os:cpus",
-        ),
+  test("authors every node:os effect scenario without hand-labeling a native terminal", () => {
+    const osRecipes = recipes.recipes.filter((recipe) =>
+      recipe.route.surfaceObservedKeys.includes(
+        "builtin:export:node_os:cpus",
+      ),
     );
-    const deny = recipes.recipes.find(
-      (recipe) =>
-        recipe.scenario === "deny" &&
-        recipe.route.surfaceObservedKeys.includes(
-          "builtin:export:node_os:cpus",
-        ),
+    expect(osRecipes.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]);
+    expect(osRecipes.every((recipe) => recipe.status === "fully-executable")).toBe(
+      true,
     );
+    const allow = osRecipes.find((recipe) => recipe.scenario === "allow");
+    const deny = osRecipes.find((recipe) => recipe.scenario === "deny");
     expect(allow.publicSurfaceProbe).toMatchObject({
       kind: "public-surface-invocation",
       surfaceObservedKey: "builtin:export:node_os:cpus",
@@ -197,6 +200,20 @@ describe("exact-target CapSec executable recipes", () => {
       expectedTypedDecisionCount: 1,
       expectedTypedStages: ["requested"],
     });
+    for (const scenario of [
+      "malformed",
+      "missing-attribution",
+      "wrong-principal",
+    ]) {
+      expect(
+        osRecipes.find((recipe) => recipe.scenario === scenario)
+          .publicSurfaceProbe.invocation,
+      ).toMatchObject({
+        expectedResult: "return",
+        expectedTypedDecisionCount: 2,
+        expectedTypedStages: ["requested", "commit"],
+      });
+    }
     expect(allow.publicSurfaceProbe.invocation.allowedCoverageEdgeIds).toEqual([
       "surface.native.op.exactgetcpucount.1k05aty",
     ]);

@@ -44,6 +44,14 @@ const OS_SYSTEM_INFO_EXPORTS = new Map(
   }),
 );
 
+const EFFECT_SCENARIOS = new Set([
+  "allow",
+  "deny",
+  "malformed",
+  "missing-attribution",
+  "wrong-principal",
+]);
+
 const BUILTIN_BATCH_COMMAND = Object.freeze([
   "cargo",
   "test",
@@ -93,7 +101,7 @@ export function authoredBuiltinPublicProbe({
 }) {
   if (
     plan.classification !== "effects" ||
-    !new Set(["allow", "deny"]).has(scenario) ||
+    !EFFECT_SCENARIOS.has(scenario) ||
     plan.actionIds.length !== 1 ||
     plan.actionIds[0] !== "sys:read" ||
     route.surfaceObservedKeys.length !== 1
@@ -122,6 +130,13 @@ export function authoredBuiltinPublicProbe({
   }
   allowedCoverageEdgeIds.sort();
 
+  // Malformed and attribution behavior is exercised by the fixture's typed
+  // adapter probe. The public half of the same fixture independently proves
+  // that the exact source export reaches a real typed terminal on the bound
+  // engine. Only the principal-denial scenario changes the public host policy;
+  // every other scenario receives the exact floor needed for that export.
+  const publicDenial = scenario === "deny";
+
   return {
     kind: "public-surface-invocation",
     surfaceObservedKey,
@@ -141,10 +156,10 @@ export function authoredBuiltinPublicProbe({
           resource: { kind: "system-info", name: systemInfoName },
         },
       ],
-      expectedResult: scenario === "allow" ? "return" : "permission-denied",
-      expectedTypedDecisionCount: scenario === "allow" ? 2 : 1,
+      expectedResult: publicDenial ? "permission-denied" : "return",
+      expectedTypedDecisionCount: publicDenial ? 1 : 2,
       expectedTypedStages:
-        scenario === "allow" ? ["requested", "commit"] : ["requested"],
+        publicDenial ? ["requested"] : ["requested", "commit"],
       allowedCoverageEdgeIds,
       expectedActionIds: ["sys:read"],
     },

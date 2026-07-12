@@ -894,9 +894,12 @@ The eight native OS-information functions used by public `node:os` now enter
 the same exact typed plane on every implementation target. Hostname, CPU,
 memory, uptime, user, load-average, and network-interface reads authorize both
 their generated requested and commit stages before invoking POSIX, Apple, or
-Windows APIs. Loaded-Hermes fixtures exercise all eight public exports in allow
-and principal-deny profiles and assert that neither path consults the legacy
-string oracle (ENG-24450).
+Windows APIs. Loaded-Hermes fixtures exercise all 18 public exports in every
+effect scenario. Allow, malformed, missing-attribution, and wrong-principal
+fixtures independently observe the public requested/commit route under its
+exact floor while their typed adapter cases exercise the scenario-specific
+semantic branch; principal-deny fixtures observe the public requested-stage
+denial. Neither path consults the legacy string oracle (ENG-24450).
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 

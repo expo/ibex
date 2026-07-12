@@ -38,9 +38,19 @@ struct RouteAlternative {
     terminal_observed_key: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PublicSurfaceProbe {
+    EffectBuiltin(EffectBuiltinPublicSurfaceProbe),
+    Other {
+        #[serde(flatten)]
+        _fields: BTreeMap<String, serde_json::Value>,
+    },
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct PublicSurfaceProbe {
+struct EffectBuiltinPublicSurfaceProbe {
     kind: String,
     surface_observed_key: String,
     command: Vec<String>,
@@ -166,10 +176,15 @@ fn builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
         .recipes
         .iter()
         .filter(|recipe| {
-            recipe.status == "fully-executable"
+            recipe.classification == "effects"
+                && recipe.status == "fully-executable"
                 && recipe.public_surface_probe.as_ref().is_some_and(|probe| {
-                    probe.invocation.invocation_schema
-                        == "ibex/capsec-builtin-export-invocation/1"
+                    matches!(
+                        probe,
+                        PublicSurfaceProbe::EffectBuiltin(probe)
+                            if probe.invocation.invocation_schema
+                                == "ibex/capsec-builtin-export-invocation/1"
+                    )
                 })
         })
         .collect()
@@ -208,7 +223,7 @@ fn typed_decision_values(
 
 fn validate_observation(
     recipe: &Recipe,
-    probe: &PublicSurfaceProbe,
+    probe: &EffectBuiltinPublicSurfaceProbe,
     invocation_result: &serde_json::Value,
     legacy_count: usize,
     typed_decisions: &[serde_json::Value],
@@ -216,7 +231,10 @@ fn validate_observation(
 ) -> String {
     let invocation = &probe.invocation;
     assert_eq!(recipe.classification, "effects");
-    assert!(matches!(recipe.scenario.as_str(), "allow" | "deny"));
+    assert!(matches!(
+        recipe.scenario.as_str(),
+        "allow" | "deny" | "malformed" | "missing-attribution" | "wrong-principal"
+    ));
     assert_eq!(probe.kind, "public-surface-invocation");
     assert!(!probe.command.is_empty());
     assert_eq!(
@@ -306,7 +324,8 @@ fn validate_observation(
                     .clone(),
             );
         }
-        let expected_outcome = if recipe.scenario == "deny" {
+        let public_denial = recipe.scenario == "deny";
+        let expected_outcome = if public_denial {
             "deny"
         } else {
             "allow"
@@ -322,7 +341,7 @@ fn validate_observation(
             recipe.fixture_id
         );
         let (expected_stratum, expected_reason, expected_source) =
-            if recipe.scenario == "deny" {
+            if public_denial {
                 (
                     "principal-denial",
                     "principal-denial",
@@ -365,10 +384,10 @@ async fn execute_recipe(
     terminal_by_edge: &BTreeMap<String, String>,
     engine_binary_digest: &str,
 ) -> serde_json::Value {
-    let probe = recipe
-        .public_surface_probe
-        .as_ref()
-        .expect("builtin recipe has no public probe");
+    let probe = match recipe.public_surface_probe.as_ref() {
+        Some(PublicSurfaceProbe::EffectBuiltin(probe)) => probe,
+        _ => panic!("builtin recipe has no effect-builtin public probe"),
+    };
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
         ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
@@ -444,8 +463,11 @@ async fn execute_isolated_recipe(
         recipe
             .public_surface_probe
             .as_ref()
-            .unwrap()
-            .invocation
+            .and_then(|probe| match probe {
+                PublicSurfaceProbe::EffectBuiltin(probe) => Some(&probe.invocation),
+                PublicSurfaceProbe::Other { .. } => None,
+            })
+            .expect("isolated recipe has no effect-builtin invocation")
             .required_authority
             .clone(),
     );
@@ -503,7 +525,7 @@ async fn capsec_public_builtin_recipe_batch() {
         .expect("canonicalize CapSec executable recipe catalog path");
     let catalog = load_catalog(&recipe_path);
     let recipes = builtin_recipes(&catalog);
-    assert_eq!(recipes.len(), 36, "expected the authored node:os recipe slice");
+    assert_eq!(recipes.len(), 90, "expected the authored node:os recipe slice");
     let _lock = hermes_engine_test_lock().lock().await;
     let identity_before = HermesEngine::loaded_engine_identity()
         .expect("attest exact loaded Hermes before builtin public recipes");
