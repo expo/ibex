@@ -218,6 +218,10 @@ struct NativeWebSocketCallbackContext {
 };
 
 extern "C" int32_t ex_host_is_allow_all(void);
+extern "C" int32_t ex_host_is_armed(void);
+extern "C" uint64_t ex_hermes_current_runtime_nonce(void);
+extern "C" int32_t ex_hermes_engine_mapped_object(uint64_t* out_device,
+                                                   uint64_t* out_inode);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_capability_no_follow_final(uint64_t module_id,
                                                             const char* capability);
@@ -522,6 +526,70 @@ void exactRegisterProcessIpcFd(int fd);
 void exactRegisterReceivedFdForCurrentPrincipal(int fd);
 bool exactConsumeTransferableFdForCurrentPrincipal(int fd);
 std::vector<uint64_t> exactCollectTypedPrincipalStack();
+
+// Closed tags shared with ex_host_authorize_typed_system_info_stack.  Never
+// accept a coverage edge or selector name from JavaScript as free-form text.
+enum class ExactSystemInfoSurface : uint32_t {
+  CpuCount = 0,
+  FreeMemory = 1,
+  Hostname = 2,
+  LoadAverage = 3,
+  NetworkInterfaces = 4,
+  TotalMemory = 5,
+  Uptime = 6,
+  UserInfo = 7,
+  CachedValue = 8,
+};
+
+enum class ExactSystemInfoName : uint32_t {
+  Architecture = 0,
+  CameraMetadata = 1,
+  Cpus = 2,
+  Cwd = 3,
+  Hostname = 4,
+  Language = 5,
+  LoadAverage = 6,
+  Locale = 7,
+  Memory = 8,
+  NetworkInterfaces = 9,
+  OsRelease = 10,
+  Platform = 11,
+  Screen = 12,
+  StoragePaths = 13,
+  Uptime = 14,
+  User = 15,
+};
+
+extern "C" int32_t ex_host_authorize_typed_system_info_stack(
+    uint64_t module_id,
+    const uint64_t* module_ids,
+    size_t module_ids_len,
+    uint32_t surface,
+    uint32_t info_name,
+    uint32_t stage);
+
+inline void exactRequireTypedSystemInfo(
+    facebook::jsi::Runtime& runtime,
+    ExactSystemInfoSurface surface,
+    ExactSystemInfoName name) {
+  if (ex_host_is_armed() != 1) return;
+  auto principals = exactCollectTypedPrincipalStack();
+  auto actor = currentPrincipalId();
+  // sys:read declares Requested and Commit.  Both decisions happen before
+  // the native reader crosses the information-disclosure barrier.
+  for (uint32_t stage = 0; stage <= 1; ++stage) {
+    if (ex_host_authorize_typed_system_info_stack(
+            actor,
+            principals.data(),
+            principals.size(),
+            static_cast<uint32_t>(surface),
+            static_cast<uint32_t>(name),
+            stage) != 1) {
+      throw facebook::jsi::JSError(runtime, "Permission denied: system information");
+    }
+  }
+}
+
 void exactCleanupRuntimeFileDescriptors(uint64_t runtimeNonce);
 void exactCleanupRuntimeSockets(uint64_t runtimeNonce);
 void exactCleanupRuntimeSqlite(uint64_t runtimeNonce);

@@ -3518,6 +3518,144 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(result["legacyObservations"], serde_json::json!([]));
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_os_reads_reach_their_exact_typed_native_gates() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let floors = ["cpus", "load-average", "network-interfaces", "user"]
+            .into_iter()
+            .map(|name| {
+                serde_json::json!({
+                    "cap": "sys:read",
+                    "resource": {"kind": "system-info", "name": name}
+                })
+            })
+            .collect();
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, floors, None, |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
+            });
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        assert!(
+            ibex_runtime::host::abi::begin_installed_conformance_observation(
+                "public.node-os.native-readers"
+            )
+        );
+        let value = engine
+            .eval_immediate(
+                "var os = require('node:os'); JSON.stringify([\
+                   os.cpus().length, os.loadavg().length,\
+                   Object.keys(os.networkInterfaces()).length,\
+                   typeof os.userInfo().username])",
+            )
+            .await
+            .unwrap();
+        assert!(value.is_some(), "public os calls must return normally");
+        let (legacy, observed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "rev2 paths must not consult the legacy plane"
+        );
+        assert_eq!(
+            observed.len(),
+            8,
+            "four reads must authorize two stages each"
+        );
+
+        let expected = [
+            ("surface.native.op.exactgetcpucount.1k05aty", "cpus"),
+            ("surface.native.op.exactgetloadavg.10t3k2t", "load-average"),
+            (
+                "surface.native.op.exactgetnetworkinterfaces.15q8n2j",
+                "network-interfaces",
+            ),
+            ("surface.native.op.exactgetuserinfo.027b1gs", "user"),
+        ];
+        for (index, (edge, name)) in expected.into_iter().enumerate() {
+            let requested = &observed[index * 2];
+            let committed = &observed[index * 2 + 1];
+            assert_eq!(
+                requested.terminal_branch_id,
+                "public.node-os.native-readers"
+            );
+            assert_eq!(
+                requested.decision_set.context.stage,
+                capsec_semantics::model::Stage::Requested
+            );
+            assert_eq!(
+                committed.decision_set.context.stage,
+                capsec_semantics::model::Stage::Commit
+            );
+            for decision in [requested, committed] {
+                assert_eq!(decision.gates.len(), 1);
+                assert_eq!(decision.gates[0].coverage_edge_id.as_str(), edge);
+                assert_eq!(decision.decision_set.effects[0].action.as_str(), "sys:read");
+                assert_eq!(
+                    serde_json::to_value(&decision.decision_set.effects[0].resource).unwrap()
+                        ["requested"]["name"],
+                    name
+                );
+                assert_eq!(
+                    decision.evidence.outcome,
+                    capsec_semantics::decision::DecisionOutcome::Allow
+                );
+            }
+        }
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn public_os_read_denial_stops_before_commit_and_data_access() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, vec![], None, |snapshot| {
+                snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
+                snapshot["principals"][0]["denials"] = serde_json::json!([{
+                    "cap": "sys:read",
+                    "resource": {"kind": "system-info", "name": "cpus"}
+                }]);
+            });
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        assert!(
+            ibex_runtime::host::abi::begin_installed_conformance_observation(
+                "public.node-os.cpus.denied"
+            )
+        );
+        let value = engine
+            .eval_immediate(
+                "try { require('node:os').cpus(); 'unexpected-allow' } \
+                 catch (error) { String(error && error.message || error) }",
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(
+            value, "unexpected-allow",
+            "the public read must throw before returning data"
+        );
+        let (legacy, observed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+        assert!(legacy.is_empty());
+        assert_eq!(observed.len(), 1, "denial must stop before Commit and read");
+        assert_eq!(
+            observed[0].decision_set.context.stage,
+            capsec_semantics::model::Stage::Requested
+        );
+        assert_eq!(
+            observed[0].gates[0].coverage_edge_id.as_str(),
+            "surface.native.op.exactgetcpucount.1k05aty"
+        );
+        assert_eq!(
+            observed[0].evidence.outcome,
+            capsec_semantics::decision::DecisionOutcome::Deny
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn concurrent_equal_digest_runtimes_claim_their_exact_installed_host() {
         let _lock = hermes_engine_test_lock().lock().await;

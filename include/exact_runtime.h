@@ -68,7 +68,6 @@ uint64_t ex_hermes_current_runtime_nonce(void);
 /// point. Consumers must pair it with a nonzero runtime nonce; zero is also the
 /// legitimate root principal.
 uint64_t ex_hermes_current_principal_id(void);
-
 /// Destroy a Hermes runtime and free all resources.
 void ex_hermes_destroy(ExactHermesRuntime* runtime);
 

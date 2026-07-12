@@ -3,29 +3,29 @@ var _arch = (typeof globalThis !== "undefined" && globalThis.process && globalTh
 var _processPriority = 0;
 
 function legacyStringValue(getter) {
-  var fn = function() {
-    return getter();
-  };
-  fn.toString = function() {
+  getter.toString = function() {
     var value = getter();
     if (value === undefined || value === null) return "";
     return String(value);
   };
-  fn.valueOf = fn.toString;
-  return fn;
+  getter.valueOf = getter.toString;
+  return getter;
 }
 
 function legacyNumberValue(getter) {
-  var fn = function() {
-    return getter();
-  };
-  fn.toString = function() {
+  getter.toString = function() {
     return String(getter());
   };
-  fn.valueOf = function() {
+  getter.valueOf = function() {
     return Number(getter());
   };
-  return fn;
+  return getter;
+}
+
+function authorizeSystemInfo(kind) {
+  if (typeof __exactAuthorizeSystemInfo === 'function') {
+    __exactAuthorizeSystemInfo(kind);
+  }
 }
 
 function androidPlatformVersion() {
@@ -43,9 +43,16 @@ function androidPlatformVersion() {
   return null;
 }
 
-function platform() { return _platform; }
-function arch() { return _arch; }
+function platform() {
+  authorizeSystemInfo(11);
+  return _platform;
+}
+function arch() {
+  authorizeSystemInfo(0);
+  return _arch;
+}
 function type() {
+  authorizeSystemInfo(11);
   if (_platform === "android") return "Android";
   if (_platform === "darwin") return "Darwin";
   if (_platform === "linux") return "Linux";
@@ -53,6 +60,7 @@ function type() {
   return "Unknown";
 }
 function release() {
+  authorizeSystemInfo(10);
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return androidVersion;
   if (typeof globalThis !== "undefined" && globalThis.process) {
@@ -61,12 +69,14 @@ function release() {
   return "0.0.0";
 }
 function homedir() {
+  authorizeSystemInfo(13);
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
     return globalThis.process.env.HOME || globalThis.process.env.USERPROFILE || "/";
   }
   return "/";
 }
 function tmpdir() {
+  authorizeSystemInfo(13);
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
     var tempPath =
       globalThis.process.env.TMPDIR ||
@@ -88,6 +98,7 @@ function hostname() {
   return "localhost";
 }
 function version() {
+  authorizeSystemInfo(10);
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return "Android " + androidVersion;
   if (typeof __exactGetOsVersion === 'function') {
@@ -98,9 +109,13 @@ function version() {
   }
   return release();
 }
-function machine() { return _arch; }
+function machine() {
+  authorizeSystemInfo(0);
+  return _arch;
+}
 function availableParallelism() {
-  return cpus().length > 0 ? cpus().length : 1;
+  var processors = cpus();
+  return processors.length > 0 ? processors.length : 1;
 }
 
 function _validatePid(pid) {
@@ -178,7 +193,10 @@ function uptime() {
   }
   return 1;
 }
-function endianness() { return "LE"; }
+function endianness() {
+  authorizeSystemInfo(0);
+  return "LE";
+}
 function networkInterfaces() {
   if (typeof __exactGetNetworkInterfaces === 'function') return __exactGetNetworkInterfaces();
   return {};
@@ -260,24 +278,39 @@ Object.freeze(constants.errno);
 Object.freeze(constants.priority);
 Object.freeze(constants);
 
+legacyStringValue(platform);
+legacyStringValue(arch);
+legacyStringValue(type);
+legacyStringValue(release);
+legacyStringValue(homedir);
+legacyStringValue(tmpdir);
+legacyStringValue(hostname);
+legacyNumberValue(totalmem);
+legacyNumberValue(freemem);
+legacyNumberValue(uptime);
+legacyStringValue(endianness);
+legacyStringValue(version);
+legacyStringValue(machine);
+legacyNumberValue(availableParallelism);
+
 module.exports = {
-  platform: legacyStringValue(platform),
-  arch: legacyStringValue(arch),
-  type: legacyStringValue(type),
-  release: legacyStringValue(release),
-  homedir: legacyStringValue(homedir),
-  tmpdir: legacyStringValue(tmpdir),
-  hostname: legacyStringValue(hostname),
+  platform: platform,
+  arch: arch,
+  type: type,
+  release: release,
+  homedir: homedir,
+  tmpdir: tmpdir,
+  hostname: hostname,
   cpus: cpus,
-  totalmem: legacyNumberValue(totalmem),
-  freemem: legacyNumberValue(freemem),
-  uptime: legacyNumberValue(uptime),
-  endianness: legacyStringValue(endianness),
+  totalmem: totalmem,
+  freemem: freemem,
+  uptime: uptime,
+  endianness: endianness,
   networkInterfaces: networkInterfaces,
   loadavg: loadavg,
-  version: legacyStringValue(version),
-  machine: legacyStringValue(machine),
-  availableParallelism: legacyNumberValue(availableParallelism),
+  version: version,
+  machine: machine,
+  availableParallelism: availableParallelism,
   getPriority: getPriority,
   setPriority: setPriority,
   userInfo: userInfoCompat,

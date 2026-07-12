@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cctype>
 #include <cstdint>
@@ -1603,6 +1604,32 @@ extern "C" void exactCleanupRuntimeSpawnedProcesses(uint64_t runtimeNonce) {
 void installOsInfoGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
+  auto authorizeSystemInfoFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAuthorizeSystemInfo"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: information kind required");
+        }
+        double raw = args[0].asNumber();
+        if (!std::isfinite(raw) || raw < 0 || raw > 15 || std::floor(raw) != raw) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: invalid information kind");
+        }
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::CachedValue,
+            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw)));
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactAuthorizeSystemInfo", std::move(authorizeSystemInfoFn));
+
   auto hostnameFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetHostname"),
@@ -1611,6 +1638,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Hostname, ExactSystemInfoName::Hostname);
         char name[MAX_COMPUTERNAME_LENGTH + 1] = {};
         DWORD len = sizeof(name);
         if (!GetComputerNameA(name, &len)) {
@@ -1624,10 +1653,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCpuCount"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::CpuCount, ExactSystemInfoName::Cpus);
         SYSTEM_INFO info;
         GetSystemInfo(&info);
         return facebook::jsi::Value(static_cast<double>(info.dwNumberOfProcessors));
@@ -1638,10 +1669,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetTotalMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::TotalMemory, ExactSystemInfoName::Memory);
         MEMORYSTATUSEX status;
         status.dwLength = sizeof(status);
         if (!GlobalMemoryStatusEx(&status)) return facebook::jsi::Value(0.0);
@@ -1653,10 +1686,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetFreeMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::FreeMemory, ExactSystemInfoName::Memory);
         MEMORYSTATUSEX status;
         status.dwLength = sizeof(status);
         if (!GlobalMemoryStatusEx(&status)) return facebook::jsi::Value(0.0);
@@ -1668,10 +1703,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetUptime"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Uptime, ExactSystemInfoName::Uptime);
         return facebook::jsi::Value(static_cast<double>(GetTickCount64()) / 1000.0);
       });
   rt.global().setProperty(rt, "__exactGetUptime", std::move(uptimeFn));
@@ -1684,6 +1721,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::UserInfo, ExactSystemInfoName::User);
         facebook::jsi::Object info(runtime);
         auto username = getenvString("USERNAME");
         auto homedir = getenvString("USERPROFILE");
@@ -1704,6 +1743,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::LoadAverage, ExactSystemInfoName::LoadAverage);
         facebook::jsi::Array result(runtime, 3);
         result.setValueAtIndex(runtime, 0, facebook::jsi::Value(0.0));
         result.setValueAtIndex(runtime, 1, facebook::jsi::Value(0.0));
@@ -1720,6 +1761,10 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::NetworkInterfaces,
+            ExactSystemInfoName::NetworkInterfaces);
         return facebook::jsi::Object(runtime);
       });
   rt.global().setProperty(rt, "__exactGetNetworkInterfaces", std::move(networkInterfacesFn));

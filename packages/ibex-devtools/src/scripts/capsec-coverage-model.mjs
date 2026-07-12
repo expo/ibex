@@ -55,6 +55,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactAppearanceState",
   "__exactAppendFile",
   "__exactArch",
+  "__exactAuthorizeSystemInfo",
   "__exactBrotliCompressSync",
   "__exactBrotliDecompressSync",
   "__exactBytesToUtf8String",
@@ -11573,7 +11574,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -12346,7 +12347,7 @@ function classifyConcreteSurface(surface) {
     return nonCapabilitySpec("runtime-bootstrap-state", "WP4");
   }
   if (
-    /getcpucount|getfreemem|gettotalmem|getloadavg|getuptime|getuserinfo|gethostname|getnetworkinterfaces|getscreeninfo|getprocessrss|getcwd|platformversion|osrelease|localesnapshot|androidstoragepaths|arch$|platform$|language$|locale$|^uptime$|cpuusage|memoryusage|getuid|getgid|getgroups/u.test(
+    /authorizesysteminfo|getcpucount|getfreemem|gettotalmem|getloadavg|getuptime|getuserinfo|gethostname|getnetworkinterfaces|getscreeninfo|getprocessrss|getcwd|platformversion|osrelease|localesnapshot|androidstoragepaths|arch$|platform$|language$|locale$|^uptime$|cpuusage|memoryusage|getuid|getgid|getgroups/u.test(
       name,
     )
   ) {

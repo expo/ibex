@@ -1,6 +1,7 @@
 #include "hermes_runtime_internal.h"
 
 #include <arpa/inet.h>
+#include <cmath>
 #include <cstdio>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -28,6 +29,32 @@
 void installOsInfoGlobals(ExactHermesRuntime* handle) {
   auto& rt = *handle->runtime;
 
+  auto authorizeSystemInfoFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactAuthorizeSystemInfo"),
+      1,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isNumber()) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: information kind required");
+        }
+        double raw = args[0].asNumber();
+        if (!std::isfinite(raw) || raw < 0 || raw > 15 || std::floor(raw) != raw) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactAuthorizeSystemInfo: invalid information kind");
+        }
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::CachedValue,
+            static_cast<ExactSystemInfoName>(static_cast<uint32_t>(raw)));
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(
+      rt, "__exactAuthorizeSystemInfo", std::move(authorizeSystemInfoFn));
+
   auto getHostnameFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetHostname"),
@@ -36,6 +63,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Hostname, ExactSystemInfoName::Hostname);
         char hostname[256];
         if (gethostname(hostname, sizeof(hostname)) != 0) {
           return facebook::jsi::Value(
@@ -50,10 +79,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetCpuCount"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::CpuCount, ExactSystemInfoName::Cpus);
 #if defined(__APPLE__)
         int cpuCount = 0;
         size_t cpuSize = sizeof(cpuCount);
@@ -73,10 +104,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetTotalMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::TotalMemory, ExactSystemInfoName::Memory);
 #if defined(__APPLE__)
         uint64_t memsize = 0;
         size_t memSizeLen = sizeof(memsize);
@@ -100,10 +133,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetFreeMem"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::FreeMemory, ExactSystemInfoName::Memory);
 #if defined(__APPLE__)
         vm_size_t vmPageSize;
         mach_msg_type_number_t vmCount = HOST_VM_INFO_COUNT;
@@ -134,10 +169,12 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactGetUptime"),
       0,
-      [](facebook::jsi::Runtime&,
+      [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::Uptime, ExactSystemInfoName::Uptime);
 #if defined(__APPLE__)
         struct timeval boottime;
         size_t btSize = sizeof(boottime);
@@ -168,6 +205,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::UserInfo, ExactSystemInfoName::User);
         facebook::jsi::Object info(runtime);
         uid_t uid = getuid();
         gid_t gid = getgid();
@@ -222,6 +261,8 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime, ExactSystemInfoSurface::LoadAverage, ExactSystemInfoName::LoadAverage);
         double loadavgArr[3] = {0.0, 0.0, 0.0};
 #if !defined(EXACT_PLATFORM_ANDROID)
         getloadavg(loadavgArr, 3);
@@ -242,6 +283,10 @@ void installOsInfoGlobals(ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        exactRequireTypedSystemInfo(
+            runtime,
+            ExactSystemInfoSurface::NetworkInterfaces,
+            ExactSystemInfoName::NetworkInterfaces);
         auto result = facebook::jsi::Object(runtime);
         struct ifaddrs* ifaddr = nullptr;
         if (getifaddrs(&ifaddr) == -1) {

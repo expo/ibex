@@ -1521,6 +1521,149 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     )
 }
 
+/// Authorize one declared stage of a reviewed native system-information read.
+/// Returns 1 for allow, 0 for deny, and -1 for malformed or unsupported input.
+///
+/// `surface` selects a closed native adapter/coverage-edge mapping.  The
+/// `info_name` tag is consulted only by the generic cached-value gate; native
+/// readers have an immutable resource kind in the table below.  This keeps
+/// JavaScript from supplying action ids or coverage-edge ids as strings.
+///
+/// # Safety
+/// `module_ids` must reference `module_ids_len` values for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_system_info_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    surface: u32,
+    info_name: u32,
+    stage: u32,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{Stage, SystemInfoName};
+
+    if module_ids.is_null() || module_ids_len == 0 || module_ids_len > 257 || stage > 1 {
+        return -1;
+    }
+    let decode_name = |tag| match tag {
+        0 => Some(SystemInfoName::Architecture),
+        1 => Some(SystemInfoName::CameraMetadata),
+        2 => Some(SystemInfoName::Cpus),
+        3 => Some(SystemInfoName::Cwd),
+        4 => Some(SystemInfoName::Hostname),
+        5 => Some(SystemInfoName::Language),
+        6 => Some(SystemInfoName::LoadAverage),
+        7 => Some(SystemInfoName::Locale),
+        8 => Some(SystemInfoName::Memory),
+        9 => Some(SystemInfoName::NetworkInterfaces),
+        10 => Some(SystemInfoName::OsRelease),
+        11 => Some(SystemInfoName::Platform),
+        12 => Some(SystemInfoName::Screen),
+        13 => Some(SystemInfoName::StoragePaths),
+        14 => Some(SystemInfoName::Uptime),
+        15 => Some(SystemInfoName::User),
+        _ => None,
+    };
+    let (operation_key, coverage_edge_id, name) = match surface {
+        0 => (
+            "get-cpu-count",
+            "surface.native.op.exactgetcpucount.1k05aty",
+            SystemInfoName::Cpus,
+        ),
+        1 => (
+            "get-free-memory",
+            "surface.native.op.exactgetfreemem.0dytp7m",
+            SystemInfoName::Memory,
+        ),
+        2 => (
+            "get-hostname",
+            "surface.native.op.exactgethostname.01gi6am",
+            SystemInfoName::Hostname,
+        ),
+        3 => (
+            "get-load-average",
+            "surface.native.op.exactgetloadavg.10t3k2t",
+            SystemInfoName::LoadAverage,
+        ),
+        4 => (
+            "get-network-interfaces",
+            "surface.native.op.exactgetnetworkinterfaces.15q8n2j",
+            SystemInfoName::NetworkInterfaces,
+        ),
+        5 => (
+            "get-total-memory",
+            "surface.native.op.exactgettotalmem.0ziuv9c",
+            SystemInfoName::Memory,
+        ),
+        6 => (
+            "get-uptime",
+            "surface.native.op.exactgetuptime.0ydqt27",
+            SystemInfoName::Uptime,
+        ),
+        7 => (
+            "get-user-info",
+            "surface.native.op.exactgetuserinfo.027b1gs",
+            SystemInfoName::User,
+        ),
+        8 => (
+            "authorize-cached-system-info",
+            "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+            match decode_name(info_name) {
+                Some(name) => name,
+                None => return -1,
+            },
+        ),
+        _ => return -1,
+    };
+    let stage = if stage == 0 {
+        Stage::Requested
+    } else {
+        Stage::Commit
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            let constrained_principals =
+                match capsec_semantics::model::canonicalize_principal_set(constrained_principals) {
+                    Ok(principals) => principals,
+                    Err(_) => return -1,
+                };
+            match host.authorize_typed_system_info_stage(
+                &module_id.to_string(),
+                operation_key,
+                coverage_edge_id,
+                constrained_principals,
+                name,
+                stage,
+            ) {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed system-information authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
 /// Authorize one staged fetch or raw-connect occurrence from an engine adapter.
 /// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
 ///

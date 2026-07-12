@@ -575,6 +575,79 @@ impl Host {
         self.evaluate_typed_decision(&set, &gates)
     }
 
+    /// Authorize one staged read of an explicit system-information kind.
+    ///
+    /// The native adapter supplies a closed, reviewed coverage-edge id and a
+    /// frame-derived principal set.  Callers cannot provide either value from
+    /// JavaScript as free-form text: the C ABI maps compact enum tags to both
+    /// before entering this method.
+    /// @ref LLP 0021#decision-staging-and-principal-semantics — system reads use
+    /// exact selectors and every declared stage is evaluated fail-closed.
+    pub fn authorize_typed_system_info_stage(
+        &self,
+        module_id: &str,
+        operation_key: &str,
+        coverage_edge_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        name: capsec_semantics::model::SystemInfoName,
+        stage: capsec_semantics::model::Stage,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::EffectGate;
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            OccurrenceResource, SelectorResource, StableId,
+        };
+
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "system-information read has no authenticated typed principal".into(),
+            )
+        })?;
+        if !constrained_principals.contains(&principal)
+            || !capsec_semantics::model::principal_set_is_canonical(&constrained_principals)
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "system-information principal stack is empty, noncanonical, or omits the actor"
+                    .into(),
+            ));
+        }
+        let requested = SelectorResource::SystemInfo { name };
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: capsec_semantics::model::NonEmptyString::new(format!(
+                "{operation_key}:{module_id}:{operation_resource}"
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(format!("{coverage_edge_id}.decision"))
+                .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals,
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: ActionId::new("sys:read").map_err(capsec_semantics::Error::InvalidModel)?,
+                effect_owner: principal,
+                resource: OccurrenceResource::SystemInfoOccurrence {
+                    requested: Box::new(requested),
+                },
+            }],
+        };
+        self.evaluate_typed_decision(
+            &set,
+            &[EffectGate {
+                coverage_edge_id: StableId::new(coverage_edge_id)
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                target_cell: self.target_cell(coverage_edge_id),
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn authorize_typed_fetch_stage(
         &self,
