@@ -221,7 +221,7 @@ function tamedEvaluatorProbe({
     metadata?.exportName !== surfaceName.slice("global:".length) ||
     typeof metadata.engineIdentityReviewId !== "string" ||
     typeof metadata.lockdownTamingDigest !== "string" ||
-    metadata.tamingEvidence !== "kLockdownJS" ||
+    metadata.tamingEvidence !== "lockdownJS" ||
     !Array.isArray(live.sourceRefs) ||
     live.sourceRefs.length === 0 ||
     edge?.id !== plan.edgeIds[0] ||

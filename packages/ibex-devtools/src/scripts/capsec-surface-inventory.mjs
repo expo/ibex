@@ -5387,14 +5387,14 @@ export function scanLegacyEvaluatorBootstrapInstallations(
     {
       functionName: "runLegacyCompatPolyfills",
       reviewedBodyDigest:
-        "sha256-f0c371ab201e34ece63d0ea9b4925c77ee2146135b54bd17b5db415b2d495ec8",
+        "sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea",
       scriptName: "compat-polyfills.js",
       sourceConstant: "COMPAT_POLYFILLS_SRC",
     },
     {
       functionName: "runLegacyProcessCompatFix",
       reviewedBodyDigest:
-        "sha256-131ac22716ce131fcec429def423a241881b4486317584c839e8f6c2fa03f025",
+        "sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045",
       scriptName: "process-compat-fix.js",
       sourceConstant: "PROCESS_COMPAT_FIX_SRC",
     },
@@ -9528,7 +9528,7 @@ const REVIEWED_REACHABLE_HERMES_EVALUATORS = [
   "eval",
 ];
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-8e6f277ae960175a3b0d16dd2276576f3be5e17c4e5a8d9cb9da47dc239096f8";
+  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 
 // These are reviewed reachability claims for exact checked-in artifact
 // identities, not a floating statement about Hermes releases. Source discovery
@@ -10031,34 +10031,91 @@ export function scanLockdownEvaluatorSurfaces(
 ) {
   const profiles = normalizedHermesEvaluatorProfiles(
     engineProfiles,
-    `${sourcePath}#kLockdownJS`,
+    `${sourcePath}#lockdownJS`,
   );
   const tokens = lexCpp(text, sourcePath);
-  let script = null;
+  const assignmentStarts = [];
   for (let index = 0; index < tokens.length; index += 1) {
     if (
-      tokens[index].type !== "identifier" ||
-      tokens[index].value !== "kLockdownJS"
+      tokens[index].type === "identifier" &&
+      tokens[index].value === "lockdownJS" &&
+      tokens[index + 1]?.value === "="
     )
-      continue;
-    for (
-      let cursor = index + 1;
-      cursor < Math.min(tokens.length, index + 8);
-      cursor += 1
-    ) {
-      if (tokens[cursor].type === "string") {
-        script = tokens[cursor].value;
-        break;
-      }
-    }
-    if (script !== null) break;
+      assignmentStarts.push(index);
   }
-  if (script === null)
-    throw new Error(`${sourcePath}#kLockdownJS: lockdown script is absent`);
+  if (assignmentStarts.length !== 1) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact lockdown script assignment`,
+    );
+  }
+  const assignmentStart = assignmentStarts[0];
+  if (
+    tokenSequenceCount(
+      tokens.map((token) => token.value),
+      ["std", "::", "string", "lockdownJS", "="],
+    ) !== 1
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact std::string declaration`,
+    );
+  }
+  let assignmentEnd = assignmentStart + 2;
+  while (
+    assignmentEnd < tokens.length &&
+    tokens[assignmentEnd].value !== ";"
+  ) {
+    assignmentEnd += 1;
+  }
+  if (assignmentEnd === tokens.length) {
+    throw new Error(`${sourcePath}#lockdownJS: unterminated script assignment`);
+  }
+  const assignmentTokens = tokens.slice(assignmentStart + 2, assignmentEnd);
+  const assignmentValues = assignmentTokens.map((token) => token.value);
+  const armedSelector = [
+    "+",
+    "(",
+    "handle",
+    "->",
+    "armed",
+    "?",
+    "true",
+    ":",
+    "false",
+    ")",
+    "+",
+  ];
+  const selectorIndex = tokenSequenceIndex(assignmentValues, armedSelector);
+  if (
+    tokenSequenceCount(assignmentValues, armedSelector) !== 1 ||
+    assignmentTokens[selectorIndex + 6]?.type !== "string" ||
+    assignmentTokens[selectorIndex + 8]?.type !== "string"
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected one exact handle->armed selector`,
+    );
+  }
+  const parts = assignmentTokens
+    .filter((token) => token.type === "string")
+    .map((token) => token.value);
+  if (
+    parts.length !== 4 ||
+    parts[1] !== "true" ||
+    parts[2] !== "false"
+  ) {
+    throw new Error(
+      `${sourcePath}#lockdownJS: expected exact armed and diagnostic script parts`,
+    );
+  }
+  // Reconstruct the production armed form. The diagnostic false form is not
+  // target evidence and cannot satisfy the fail-closed claim.
+  const script = `${parts[0]}true${parts[3]}`;
   const lockdownTamingDigest = `sha256-${sha256Hex(script)}`;
   const tokenValues = tokens.map((token) => token.value);
   for (const [label, sequence] of [
-    ["StringBuffer source", ["StringBuffer", ">", "(", "kLockdownJS", ")"]],
+    [
+      "StringBuffer source",
+      ["StringBuffer", ">", "(", "lockdownJS", ".", "c_str", "(", ")", ")"],
+    ],
     [
       "runtime evaluation",
       ["evaluateJavaScript", "(", "buffer", ",", "<lockdown>", ")"],
@@ -10066,7 +10123,7 @@ export function scanLockdownEvaluatorSurfaces(
   ]) {
     if (tokenSequenceCount(tokenValues, sequence) !== 1) {
       throw new Error(
-        `${sourcePath}#kLockdownJS: expected one exact ${label} route`,
+        `${sourcePath}#lockdownJS: expected one exact ${label} route`,
       );
     }
   }
@@ -10076,7 +10133,7 @@ export function scanLockdownEvaluatorSurfaces(
   );
 
   const names = new Set();
-  walkAst(parseJavaScript(script, `${sourcePath}#kLockdownJS`), (node) => {
+  walkAst(parseJavaScript(script, `${sourcePath}#lockdownJS`), (node) => {
     if (node.type !== "CallExpression" || node.callee?.type !== "Identifier")
       return;
     if (node.callee.name === "tameCtor") {
@@ -10094,7 +10151,7 @@ export function scanLockdownEvaluatorSurfaces(
     const reachable = new Set(reachableEvaluators);
     const tamed = new Set(tamedEvaluators);
     throw new Error(
-      `${sourcePath}#kLockdownJS: evaluator reachability/taming drift: untamed [${reachableEvaluators.filter((name) => !tamed.has(name)).join(", ")}]; tamed-but-unreachable [${tamedEvaluators.filter((name) => !reachable.has(name)).join(", ")}]`,
+      `${sourcePath}#lockdownJS: evaluator reachability/taming drift: untamed [${reachableEvaluators.filter((name) => !tamed.has(name)).join(", ")}]; tamed-but-unreachable [${tamedEvaluators.filter((name) => !reachable.has(name)).join(", ")}]`,
     );
   }
 
@@ -10103,7 +10160,7 @@ export function scanLockdownEvaluatorSurfaces(
     const applicableProfiles = profiles.filter((profile) =>
       profile.reachableEvaluators.includes(globalName),
     );
-    const tamingRef = sourceSymbol(sourcePath, `kLockdownJS:${globalName}`);
+    const tamingRef = sourceSymbol(sourcePath, `lockdownJS:${globalName}`);
     const branches = applicableProfiles.map((profile) => {
       const identityDigest = sha256Hex(
         JSON.stringify(canonicalReviewValue(profile.identity)),
@@ -10157,7 +10214,7 @@ export function scanLockdownEvaluatorSurfaces(
               : "intrinsic-constructor",
           sourceKey: "hermes_intrinsic_evaluators",
           surfaceType: "global-api",
-          tamingEvidence: "kLockdownJS",
+          tamingEvidence: "lockdownJS",
         },
       },
     );
@@ -11203,7 +11260,7 @@ function mergeHermesEvaluatorEvidence(existing, row, label) {
         claim.metadata.lockdownTamingDigest ?? "",
       ) ||
       typeof claim.metadata.reachability !== "string" ||
-      claim.metadata.tamingEvidence !== "kLockdownJS"
+      claim.metadata.tamingEvidence !== "lockdownJS"
     ) {
       throw new Error(
         `${label}: malformed Hermes evaluator evidence for ${claim.observedKey}`,
@@ -14838,7 +14895,7 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   fixedSurface(
     "startup",
     "lockdown-install",
-    fixedEvidence("cpp-data", "src/engine/hermes_runtime.cc", "kLockdownJS"),
+    fixedEvidence("cpp-data", "src/engine/hermes_runtime.cc", "lockdownJS"),
   ),
   fixedSurface(
     "startup",

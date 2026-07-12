@@ -51,13 +51,14 @@ const REVIEWED_TEST_EVALUATORS = [
 ];
 
 const LOCKDOWN_EVALUATOR_SOURCE = String.raw`
-  static const char* kLockdownJS = R"JS((function () {
+  std::string lockdownJS = std::string(R"JS((function () {
+    var failClosed = )JS") + (handle->armed ? "true" : "false") + R"JS(;
     tameCtor(Function.prototype, 'Function');
     tameCtor(getProto(function*(){}), 'GeneratorFunction');
     tameCtor(getProto(async function(){}), 'AsyncFunction');
     makeTamed('eval');
   })())JS";
-  auto buffer = std::make_shared<facebook::jsi::StringBuffer>(kLockdownJS);
+  auto buffer = std::make_shared<facebook::jsi::StringBuffer>(lockdownJS.c_str());
   runtime.evaluateJavaScript(buffer, "<lockdown>");
 `;
 
@@ -2327,14 +2328,14 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "compat-polyfills.js": {
         sourceRefs: [
           `${sourcePath}#runLegacyCompatPolyfills`,
-          `${sourcePath}#legacy-runner:runLegacyCompatPolyfills:sha256-f0c371ab201e34ece63d0ea9b4925c77ee2146135b54bd17b5db415b2d495ec8`,
+          `${sourcePath}#legacy-runner:runLegacyCompatPolyfills:sha256-85e5f64997c896a0b0fed5d1fdbb4903a17334b0e9a0bbe32c412ee13316e1ea`,
         ],
         targetVariants: ["android", "default"],
       },
       "process-compat-fix.js": {
         sourceRefs: [
           `${sourcePath}#runLegacyProcessCompatFix`,
-          `${sourcePath}#legacy-runner:runLegacyProcessCompatFix:sha256-131ac22716ce131fcec429def423a241881b4486317584c839e8f6c2fa03f025`,
+          `${sourcePath}#legacy-runner:runLegacyProcessCompatFix:sha256-12bb5a3515187a9fd26f1f68d053496d1c15353fd95c4c603f7674d6d7f27045`,
         ],
         targetVariants: ["android", "default"],
       },
@@ -2449,11 +2450,11 @@ describe("LLP 0021 WP1 source surface inventory", () => {
 
     for (const mutatedSource of [
       liveSource.replace(
-        "try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) {}",
+        "try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) { if (failClosed) throw e; }",
         "if (false) { tameCtor(getProto(async function(){}), 'AsyncFunction'); }",
       ),
       liveSource.replace(
-        "try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) {}",
+        "try { tameCtor(getProto(async function(){}), 'AsyncFunction'); } catch (e) { if (failClosed) throw e; }",
         "function neverCalled() { tameCtor(getProto(async function(){}), 'AsyncFunction'); }",
       ),
       liveSource.replace(
@@ -2483,13 +2484,33 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(() =>
       scanLockdownEvaluatorSurfaces(
         liveSource.replace(
-          "StringBuffer>(kLockdownJS)",
+          "StringBuffer>(lockdownJS.c_str())",
           'StringBuffer>("(function(){})()")',
         ),
         "src/engine/hermes_runtime.cc",
         profiles,
       ),
     ).toThrow(/exact StringBuffer source route/u);
+    expect(() =>
+      scanLockdownEvaluatorSurfaces(
+        liveSource.replace(
+          'var failClosed = )JS") + (handle->armed ? "true" : "false") + R"JS(;',
+          'var failClosed = )JS") + (handle->diagnostic ? "true" : "false") + R"JS(;',
+        ),
+        "src/engine/hermes_runtime.cc",
+        profiles,
+      ),
+    ).toThrow(/exact handle->armed selector/u);
+    expect(() =>
+      scanLockdownEvaluatorSurfaces(
+        liveSource.replace(
+          "std::string lockdownJS = std::string(",
+          'lockdownJS = "shadow";\n    std::string lockdownJS = std::string(',
+        ),
+        "src/engine/hermes_runtime.cc",
+        profiles,
+      ),
+    ).toThrow(/one exact lockdown script assignment/u);
   });
 
   test("loader branches are derived from JavaScript and Rust source", () => {
@@ -4076,7 +4097,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
     expect(
       first.globals.find((row) => row.name === "global:eval").sourceRefs,
-    ).toContain("src/engine/hermes_runtime.cc#kLockdownJS:eval");
+    ).toContain("src/engine/hermes_runtime.cc#lockdownJS:eval");
     expect(
       first.globals.find((row) => row.name === "global:Headers.append").metadata
         .branches,

@@ -1114,7 +1114,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.kind ===
             "closed-tamed-evaluator" &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.sourceMetadata
-            .tamingEvidence === "kLockdownJS" &&
+            .tamingEvidence === "lockdownJS" &&
           recipe.publicSurfaceProbe.invocation.sourceDescriptor.lockdownTamingDigest.startsWith(
             "sha256-",
           ),

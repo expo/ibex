@@ -153,7 +153,7 @@ const STARTUP_STAGES: [ExpectedStartupStage; 10] = [
     ExpectedStartupStage {
         surface_name: "lockdown-install",
         postcondition: "lockdown-installed",
-        source_ref: "src/engine/hermes_runtime.cc#kLockdownJS",
+        source_ref: "src/engine/hermes_runtime.cc#lockdownJS",
         required_facts: &[
             "lockdown-flag-pinned",
             "eval-tamed",

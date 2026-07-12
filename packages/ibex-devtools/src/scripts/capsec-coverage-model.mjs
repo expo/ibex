@@ -2807,9 +2807,9 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.87790c6a143328434dae2d2370018b8881123674203ea7aeb86c048308b4ed31";
+  "hermes-evaluators.7eb7b2d1b4d4a93f66c9374c431258868790c16e5bd43fb19fb3b0f42e16e1f1";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-8e6f277ae960175a3b0d16dd2276576f3be5e17c4e5a8d9cb9da47dc239096f8";
+  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([
   "android-maven",
   "source-patched",
@@ -11156,7 +11156,7 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST ||
       JSON.stringify(metadata.engineProfileIds) !==
         JSON.stringify(REVIEWED_HERMES_EVALUATOR_PROFILE_IDS) ||
-      metadata.tamingEvidence !== "kLockdownJS" ||
+      metadata.tamingEvidence !== "lockdownJS" ||
       metadata.reachability !== reviewedEvaluator.reachability ||
       !hasReviewedHermesEvaluatorBranches(metadata) ||
       !Array.isArray(metadata.moduleSpecifiers) ||

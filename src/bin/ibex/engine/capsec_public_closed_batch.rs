@@ -500,7 +500,7 @@ async fn execute_closed_tamed_evaluator(
         .is_some_and(|value| value.starts_with("sha256-") && value.len() == 71));
     assert_eq!(descriptor.source_metadata["evidenceType"], "hermes-evaluator-reachability");
     assert_eq!(descriptor.source_metadata["exportName"], global_name.as_str());
-    assert_eq!(descriptor.source_metadata["tamingEvidence"], "kLockdownJS");
+    assert_eq!(descriptor.source_metadata["tamingEvidence"], "lockdownJS");
     assert_eq!(
         descriptor.source_metadata["engineIdentityReviewId"],
         descriptor.engine_identity_review_id.as_deref().unwrap()

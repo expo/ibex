@@ -692,7 +692,7 @@ function completeStartupCatalog() {
     surfaceName: "lockdown-install",
     postcondition: "lockdown-installed",
     requiredFacts,
-    sourceRefs: ["src/engine/hermes_runtime.cc#kLockdownJS"],
+    sourceRefs: ["src/engine/hermes_runtime.cc#lockdownJS"],
     sourceMetadata: null,
     environment: null,
   };

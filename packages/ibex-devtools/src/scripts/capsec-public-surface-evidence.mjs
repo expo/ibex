@@ -96,7 +96,7 @@ const STARTUP_EXPECTATIONS = new Map(
     [
       "lockdown-install",
       "lockdown-installed",
-      "src/engine/hermes_runtime.cc#kLockdownJS",
+      "src/engine/hermes_runtime.cc#lockdownJS",
       ["lockdown-flag-pinned", "eval-tamed", "object-prototype-frozen"],
       null,
     ],

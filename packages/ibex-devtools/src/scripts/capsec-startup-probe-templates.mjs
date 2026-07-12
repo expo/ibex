@@ -71,7 +71,7 @@ const STARTUP_STAGES = new Map(
     {
       surfaceName: "lockdown-install",
       postcondition: "lockdown-installed",
-      sourceRef: "src/engine/hermes_runtime.cc#kLockdownJS",
+      sourceRef: "src/engine/hermes_runtime.cc#lockdownJS",
       requiredFacts: [
         "lockdown-flag-pinned",
         "eval-tamed",

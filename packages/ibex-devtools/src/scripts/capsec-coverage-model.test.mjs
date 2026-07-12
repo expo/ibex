@@ -45,7 +45,7 @@ const rules = JSON.parse(
 );
 const context = { definitions, rules };
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
-  "sha256-8e6f277ae960175a3b0d16dd2276576f3be5e17c4e5a8d9cb9da47dc239096f8";
+  "sha256-24b97353bd55850d5f66678ce6e2dc0787ea8057eb420f6ea9e6e5a50977e322";
 
 function surface(kind, name, metadata = undefined, sourceRefs = undefined) {
   return {
@@ -141,7 +141,7 @@ function hermesEvaluatorGlobal(globalName, metadata = {}) {
       engineProfileIds: ["android-maven", "source-patched", "windows-nuget"],
       installationBranches: branches,
       lockdownTamingDigest: REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST,
-      tamingEvidence: "kLockdownJS",
+      tamingEvidence: "lockdownJS",
       reachability,
       moduleSpecifiers: [],
       ...metadata,
