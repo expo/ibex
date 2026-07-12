@@ -110,9 +110,9 @@
           },
           "evidence": {
             "type": "object",
-            "required": ["evidenceSchema", "fixtureId", "command", "exitCode", "resultMarker"],
+            "required": ["evidenceSchema", "fixtureId", "command", "exitCode", "resultMarker", "planDigest", "engineBinaryDigest", "observation"],
             "properties": {
-              "evidenceSchema": { "const": "ibex/capsec-fixture-evidence/1" },
+              "evidenceSchema": { "const": "ibex/capsec-fixture-evidence/2" },
               "fixtureId": {
                 "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
               },
@@ -122,7 +122,41 @@
                 "items": { "type": "string", "minLength": 1 }
               },
               "exitCode": { "type": "integer" },
-              "resultMarker": { "type": "string", "minLength": 1 }
+              "resultMarker": { "type": "string", "minLength": 1 },
+              "planDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "engineBinaryDigest": {
+                "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/digest"
+              },
+              "observation": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": ["kind", "branchId", "result"],
+                    "properties": {
+                      "kind": { "const": "enforcement-branch" },
+                      "branchId": {
+                        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                      },
+                      "result": { "enum": ["passed", "failed"] }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "required": ["kind", "edgeId", "result"],
+                    "properties": {
+                      "kind": { "const": "target-absence" },
+                      "edgeId": {
+                        "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
+                      },
+                      "result": { "enum": ["passed", "failed"] }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              }
             },
             "additionalProperties": false
           }
@@ -138,6 +172,7 @@
         "required": [
           "edgeId",
           "implementationBranchIds",
+          "enforcementBranchIds",
           "status",
           "requiredFixtures",
           "passedFixtures",
@@ -149,6 +184,7 @@
             "$ref": "https://ibex.dev/capsec/schema/common.schema.json#/$defs/stableId"
           },
           "implementationBranchIds": { "$ref": "#/$defs/idSet" },
+          "enforcementBranchIds": { "$ref": "#/$defs/idSet" },
           "status": { "enum": ["conformant", "incomplete"] },
           "requiredFixtures": { "$ref": "#/$defs/idSet" },
           "passedFixtures": { "$ref": "#/$defs/idSet" },

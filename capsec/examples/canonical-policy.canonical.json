@@ -2,8 +2,8 @@
   "policySchema": "ibex/capsec-policy/1",
   "capsVocab": "ibex/capsec/1",
   "semanticCore": "capsec/semantics/1",
-  "vocabDigest": "sha256-7y5Y_XZ-jc9btJac0tv97dXTijY1eUzr94ROXS46wTQ",
-  "policyDigest": "sha256-3Ik_fzgOqJ9oCr81hyXpnD1StVTAMMtTVg_-UKvq5p0",
+  "vocabDigest": "sha256-OpxEBZzXGjLtnQ7JPQqCphg5fsM4BSsd1ZCsotaRncE",
+  "policyDigest": "sha256-a_dkZV7oLrHkGvNcul3V1ZbKGrVDCC5p2ghej3ENvzE",
   "purpose": "production",
   "mode": "enforce",
   "principals": [
@@ -130,5 +130,5 @@
       ]
     }
   ],
-  "registryDigest": "sha256-C0hFn6wjShiusQlFOcUZpYVSf8s9kGv_A2A7ACXoxm0"
+  "registryDigest": "sha256-9GWJFlfBPDfwPF696sPXzKLwYzt2hIx-SryBxLBUmb8"
 }

@@ -3,6 +3,7 @@ import {
   assertReportMayAdvertise,
   buildConformanceReport,
   executionBindingDigest,
+  fixtureExecutionPlan,
   fixtureCatalogForTarget,
   validateConformanceReportSemantics,
 } from "./capsec-conformance.mjs";
@@ -19,6 +20,7 @@ const implementation = {
     {
       edgeId: "edge.one",
       branchId: "edge.one.main",
+      enforcementBranchId: "edge.one.main",
       targetVariant: "all",
       targetApplicability: { kind: "all" },
       fixtureObligations: ["edge.one.main.closed"],
@@ -48,12 +50,23 @@ const sha = (value) =>
 const fixtureCatalogDigest = sha(
   fixtureCatalogForTarget({ coverage, implementation, target }),
 );
+const fixturePlan = fixtureExecutionPlan(
+  fixtureCatalogForTarget({ coverage, implementation, target }),
+  "edge.one.main.closed",
+);
 const passEvidence = {
-  evidenceSchema: "ibex/capsec-fixture-evidence/1",
+  evidenceSchema: "ibex/capsec-fixture-evidence/2",
   fixtureId: "edge.one.main.closed",
   command: ["bun", "test", "edge-one-closed.test.mjs"],
   exitCode: 0,
   resultMarker: "ibex-capsec-fixture:edge.one.main.closed:passed",
+  planDigest: sha(fixturePlan),
+  engineBinaryDigest: bindings.engine.binaryDigest,
+  observation: {
+    kind: "enforcement-branch",
+    branchId: "edge.one.main",
+    result: "passed",
+  },
 };
 const pass = {
   fixtureId: "edge.one.main.closed",
@@ -170,6 +183,40 @@ describe("capsec target conformance", () => {
         digestContract,
       }),
     ).toThrow(/binding/);
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [{
+          ...pass,
+          artifactDigest: sha({ ...pass.evidence, planDigest: `sha256-${"Z".repeat(43)}` }),
+          evidence: { ...pass.evidence, planDigest: `sha256-${"Z".repeat(43)}` },
+        }],
+        bindings,
+        digestContract,
+      }),
+    ).toThrow(/exact fixture plan/);
+    expect(() =>
+      buildConformanceReport({
+        coverage,
+        implementation,
+        target,
+        executions: [{
+          ...pass,
+          artifactDigest: sha({
+            ...pass.evidence,
+            observation: { ...pass.evidence.observation, branchId: "wrong.branch" },
+          }),
+          evidence: {
+            ...pass.evidence,
+            observation: { ...pass.evidence.observation, branchId: "wrong.branch" },
+          },
+        }],
+        bindings,
+        digestContract,
+      }),
+    ).toThrow(/observed branch\/result/);
     expect(() =>
       buildConformanceReport({
         coverage,

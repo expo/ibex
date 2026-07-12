@@ -1831,6 +1831,237 @@ export function scanStaticBuiltinExports(
     }
     definitions.push(definition);
   }
+  const qualifiedCallableDefinitions = new Map();
+  const addQualifiedCallable = (name, node) => {
+    if (!name || !node) return;
+    let definitions = qualifiedCallableDefinitions.get(name);
+    if (!definitions) {
+      definitions = [];
+      qualifiedCallableDefinitions.set(name, definitions);
+    }
+    definitions.push(node);
+  };
+  walkAst(program, (node) => {
+    if (
+      (node.type === "ClassDeclaration" || node.type === "ClassExpression") &&
+      node.id?.name
+    ) {
+      for (const method of node.body?.body ?? []) {
+        if (method.computed || method.key?.type !== "Identifier") continue;
+        addQualifiedCallable(`${node.id.name}.${method.key.name}`, method);
+      }
+      return;
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.operator === "=" &&
+      callbackFunction(node.right)
+    ) {
+      const method = directMemberName(node.left);
+      const owner = prototypeOwner(node.left?.object);
+      if (method && owner) addQualifiedCallable(`${owner}.${method}`, node.right);
+    }
+  });
+
+  const declaredIdentifiers = new Set();
+  const assignedIdentifiers = new Set();
+  walkAst(program, (node) => {
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier") {
+      declaredIdentifiers.add(node.id.name);
+    }
+    if (
+      (node.type === "FunctionDeclaration" ||
+        node.type === "ClassDeclaration") &&
+      node.id?.name
+    ) {
+      declaredIdentifiers.add(node.id.name);
+    }
+    if (
+      node.type === "AssignmentExpression" &&
+      node.left?.type === "Identifier"
+    ) {
+      assignedIdentifiers.add(node.left.name);
+    }
+    if (isJavaScriptFunctionNode(node)) {
+      for (const parameter of node.params ?? []) {
+        if (parameter?.type === "Identifier") declaredIdentifiers.add(parameter.name);
+      }
+    }
+  });
+  const globalObjectAliases = new Set(["globalThis"]);
+  let globalAliasChanged = true;
+  while (globalAliasChanged) {
+    globalAliasChanged = false;
+    walkAst(program, (node) => {
+      if (
+        node.type !== "VariableDeclarator" ||
+        node.id?.type !== "Identifier" ||
+        node.init?.type !== "Identifier" ||
+        !globalObjectAliases.has(node.init.name) ||
+        assignedIdentifiers.has(node.id.name) ||
+        globalObjectAliases.has(node.id.name)
+      ) {
+        return;
+      }
+      globalObjectAliases.add(node.id.name);
+      globalAliasChanged = true;
+    });
+  }
+  const isTerminalName = (name) =>
+    /^__(?:exact|native)[A-Za-z0-9_$]*$/u.test(name) ||
+    name === "__hostCall" ||
+    name === "__hostCallAsync";
+  const terminalReference = (expression) => {
+    if (expression?.type === "Identifier" && isTerminalName(expression.name)) {
+      return declaredIdentifiers.has(expression.name)
+        ? { ambiguity: `shadowed:${expression.name}` }
+        : { name: expression.name };
+    }
+    if (expression?.type !== "MemberExpression") return null;
+    const name = directMemberName(expression);
+    if (!name || !isTerminalName(name)) return null;
+    if (expression.computed) {
+      return { ambiguity: `computed-terminal:${name}` };
+    }
+    if (
+      expression.object?.type !== "Identifier" ||
+      !globalObjectAliases.has(expression.object.name)
+    ) {
+      return { ambiguity: `dynamic-terminal-receiver:${name}` };
+    }
+    return { name };
+  };
+  const terminalAliases = new Map();
+  walkAst(program, (node) => {
+    if (node.type !== "VariableDeclaration" || node.kind !== "const") return;
+    for (const declaration of node.declarations) {
+      if (
+        declaration.id?.type !== "Identifier" ||
+        assignedIdentifiers.has(declaration.id.name)
+      ) {
+        continue;
+      }
+      const reference = terminalReference(declaration.init);
+      if (reference?.name) terminalAliases.set(declaration.id.name, reference.name);
+    }
+  });
+
+  const staticEnforcementCall = (call) => {
+    if (call?.type !== "CallExpression") return null;
+    const alias =
+      call.callee?.type === "Identifier"
+        ? terminalAliases.get(call.callee.name)
+        : null;
+    const reference = alias ? { name: alias } : terminalReference(call.callee);
+    if (!reference) return null;
+    if (reference.ambiguity) return reference;
+    const name = reference.name;
+    if (name === "__hostCall" || name === "__hostCallAsync") {
+      const operation = call.arguments[0];
+      return operation?.type === "StringLiteral"
+        ? { name: `${name}:${operation.value}` }
+        : { ambiguity: `${name}:dynamic-operation` };
+    }
+    return { name };
+  };
+
+  const routeMemo = new Map();
+  const routeForCallable = (name, active = new Set()) => {
+    if (routeMemo.has(name)) return routeMemo.get(name);
+    if (active.has(name)) return { ambiguous: [], paths: [], terminals: [] };
+    const qualified = name.includes(".");
+    const definitions = qualified
+      ? (qualifiedCallableDefinitions.get(name) ?? [])
+      : (callableDefinitionsByName.get(name) ?? []).map((row) => row.node);
+    if (definitions.length !== 1) {
+      const result = {
+        ambiguous: definitions.length > 1 ? [name] : [],
+        paths: [],
+        terminals: [],
+      };
+      routeMemo.set(name, result);
+      return result;
+    }
+    const nextActive = new Set(active);
+    nextActive.add(name);
+    const owner = qualified ? name.slice(0, name.lastIndexOf(".")) : null;
+    const terminalNames = new Set();
+    const routePaths = new Set();
+    const directAmbiguities = new Set();
+    const calleeNames = new Set();
+    walkDirectFunctionBody(definitions[0], (node) => {
+      if (node.type !== "CallExpression") return;
+      const terminal = staticEnforcementCall(node);
+      if (terminal?.name) {
+        terminalNames.add(terminal.name);
+        routePaths.add(`${name} -> ${terminal.name}`);
+        return;
+      }
+      if (terminal?.ambiguity) {
+        directAmbiguities.add(terminal.ambiguity);
+        return;
+      }
+      if (node.callee?.type === "MemberExpression" && node.callee.computed) {
+        directAmbiguities.add("computed-call");
+        return;
+      }
+      if (node.callee?.type === "Identifier") {
+        calleeNames.add(node.callee.name);
+      } else if (
+        owner &&
+        node.callee?.type === "MemberExpression" &&
+        node.callee.object?.type === "ThisExpression"
+      ) {
+        const method = directMemberName(node.callee);
+        if (method) calleeNames.add(`${owner}.${method}`);
+      } else if (node.callee?.type === "MemberExpression") {
+        directAmbiguities.add(
+          `dynamic-call-receiver:${directMemberName(node.callee) ?? "computed"}`,
+        );
+      }
+    });
+    const ambiguous = new Set(directAmbiguities);
+    for (const callee of calleeNames) {
+      const route = routeForCallable(callee, nextActive);
+      for (const terminal of route.terminals) terminalNames.add(terminal);
+      for (const routePath of route.paths) {
+        routePaths.add(`${name} -> ${routePath}`);
+      }
+      for (const unresolved of route.ambiguous) ambiguous.add(unresolved);
+    }
+    const result = {
+      ambiguous: uniqueSorted(ambiguous),
+      paths: uniqueSorted(routePaths),
+      terminals: uniqueSorted(terminalNames),
+    };
+    routeMemo.set(name, result);
+    return result;
+  };
+
+  const routeForExport = (exportName) => {
+    const segments = exportName.split(".");
+    const rootName = segments[0];
+    const exactBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(exportName);
+    const rootBindings = bindings.get(ROOT_EXPORT_OBJECT)?.get(rootName);
+    const routes = [];
+    for (const localName of exactBindings ?? []) {
+      routes.push(routeForCallable(localName));
+    }
+    if (routes.length === 0 && segments.length > 1) {
+      const methodName = segments.at(-1);
+      for (const owner of rootBindings ?? []) {
+        routes.push(routeForCallable(`${owner}.${methodName}`));
+      }
+    }
+    const terminals = uniqueSorted(routes.flatMap((route) => route.terminals));
+    const ambiguous = uniqueSorted(routes.flatMap((route) => route.ambiguous));
+    const paths = uniqueSorted(
+      routes.flatMap((route) =>
+        route.paths.map((routePath) => `export:${exportName} -> ${routePath}`),
+      ),
+    );
+    return { ambiguous, paths, terminals };
+  };
 
   walkAst(program, (node) => {
     if (
@@ -3931,6 +4162,7 @@ export function scanStaticBuiltinExports(
   const rows = [];
   for (const [exportName, idioms] of facts.get(ROOT_EXPORT_OBJECT) ?? []) {
     const exportIdioms = uniqueSorted(idioms);
+    const enforcementRoute = routeForExport(exportName);
     const inheritedShape =
       exportName.includes("[[dynamic-table:inherited-") ||
       exportIdioms.some((idiom) =>
@@ -3941,6 +4173,12 @@ export function scanStaticBuiltinExports(
     const metadata = {
       exportIdioms,
       exportName,
+      enforcementRouteEvidence: {
+        ambiguousCallees: enforcementRoute.ambiguous,
+        kind: "static-builtin-call-graph",
+        paths: enforcementRoute.paths,
+        terminals: enforcementRoute.terminals,
+      },
       moduleSpecifiers: specifiers,
       sourceKey,
       sourceKind,

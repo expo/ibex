@@ -27,6 +27,7 @@ import {
   fixtureObligationsForBranch,
 } from "./capsec-fixture-obligations.mjs";
 import { applicableImplementationBranchIds } from "./capsec-target-branches.mjs";
+import { enforcementBranchIdentity } from "./capsec-coverage-model.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2480,6 +2481,13 @@ export function validateImplementationManifestSemantics(
   const implementationByBranchId = new Map(
     implementation.surfaces.map((row) => [row.branchId, row]),
   );
+  const implementationByObservedKey = new Map();
+  for (const row of implementation.surfaces) {
+    const rows = implementationByObservedKey.get(row.observedKey) ?? [];
+    rows.push(row);
+    implementationByObservedKey.set(row.observedKey, rows);
+  }
+  const enforcementKeys = new Map();
 
   const implementationEdgeIds = canonicalSetOrder(
     new Set(implementation.surfaces.map((row) => row.edgeId)),
@@ -2503,11 +2511,84 @@ export function validateImplementationManifestSemantics(
     }
     assertUnique(row.sourceRefs, `${label}.sourceRefs`);
     assertSorted(row.sourceRefs, `${label}.sourceRefs`);
+    assertUnique(row.enforcementRoute.proofPaths, `${label}.enforcementRoute.proofPaths`);
+    assertSorted(row.enforcementRoute.proofPaths, `${label}.enforcementRoute.proofPaths`);
+    assertUnique(row.enforcementRoute.proofSourceRefs, `${label}.enforcementRoute.proofSourceRefs`);
+    assertSorted(row.enforcementRoute.proofSourceRefs, `${label}.enforcementRoute.proofSourceRefs`);
+    assertUnique(row.enforcementRoute.sourceRefs, `${label}.enforcementRoute.sourceRefs`);
+    assertSorted(row.enforcementRoute.sourceRefs, `${label}.enforcementRoute.sourceRefs`);
+    if (
+      canonicalJson(row.enforcementRoute.proofSourceRefs) !==
+      canonicalJson(row.sourceRefs)
+    ) {
+      throw new Error(
+        `${label}: enforcement route source refs disagree with reviewed implementation refs`,
+      );
+    }
+    const enforcement = enforcementBranchIdentity(edge, row);
+    if (
+      row.enforcementBranchId !== enforcement.id ||
+      row.enforcementRoute.kind !== enforcement.routeKind
+    ) {
+      throw new Error(
+        `${label}: enforcement branch identity disagrees with exact source route and semantics`,
+      );
+    }
+    const priorEnforcementKey = enforcementKeys.get(enforcement.id);
+    if (
+      priorEnforcementKey !== undefined &&
+      priorEnforcementKey !== enforcement.key
+    ) {
+      throw new Error(
+        `${label}: enforcement branch id collision ${enforcement.id}`,
+      );
+    }
+    enforcementKeys.set(enforcement.id, enforcement.key);
+    if (row.enforcementRoute.kind === "static-builtin-call-graph") {
+      const terminalName = row.enforcementRoute.terminalObservedKey.replace(
+        /^native-op:/u,
+        "",
+      );
+      if (
+        !row.enforcementRoute.terminalObservedKey.startsWith("native-op:") ||
+        row.enforcementRoute.proofPaths.some(
+          (routePath) => !routePath.endsWith(` -> ${terminalName}`),
+        )
+      ) {
+        throw new Error(
+          `${label}: static route path does not terminate at the claimed native operation`,
+        );
+      }
+      const terminals = implementationByObservedKey.get(
+        row.enforcementRoute.terminalObservedKey,
+      ) ?? [];
+      const exactTerminal = terminals.filter(
+        (candidate) =>
+          candidate.enforcementBranchId === row.enforcementBranchId &&
+          canonicalJson(candidate.sourceRefs) ===
+            canonicalJson(row.enforcementRoute.sourceRefs),
+      );
+      if (exactTerminal.length !== 1) {
+        throw new Error(
+          `${label}: static route does not join exactly one terminal enforcement branch`,
+        );
+      }
+    } else if (
+      row.enforcementRoute.terminalObservedKey !== row.observedKey ||
+      canonicalJson(row.enforcementRoute.proofPaths) !==
+        canonicalJson([row.observedKey]) ||
+      canonicalJson(row.enforcementRoute.sourceRefs) !==
+        canonicalJson(row.sourceRefs)
+    ) {
+      throw new Error(
+        `${label}: local enforcement route must identify its own exact source branch`,
+      );
+    }
     assertUnique(row.fixtureObligations, `${label}.fixtureObligations`);
     assertSorted(row.fixtureObligations, `${label}.fixtureObligations`);
     const expectedFixtureObligations = fixtureObligationsForBranch(
       edge,
-      row.branchId,
+      row.enforcementBranchId,
     );
     if (
       canonicalJson(row.fixtureObligations) !==
@@ -2519,11 +2600,11 @@ export function validateImplementationManifestSemantics(
     }
     if (
       row.fixtureObligations.some(
-        (fixtureId) => !fixtureId.startsWith(`${row.branchId}.`),
+        (fixtureId) => !fixtureId.startsWith(`${row.enforcementBranchId}.`),
       )
     ) {
       throw new Error(
-        `${label}: fixture obligations are not scoped to implementation branch ${row.branchId}`,
+        `${label}: fixture obligations are not scoped to enforcement branch ${row.enforcementBranchId}`,
       );
     }
     const rows = implementationByEdgeId.get(row.edgeId) ?? [];
@@ -2558,6 +2639,7 @@ export function validateImplementationManifestSemantics(
     sourceRefs: "definitions-stubs-or-security-relevant-references",
     targetBranches: "source-derived-not-conformance-evidence",
     targetSelection: "exact-branch-ids-from-target-applicability",
+    fixtureDispatch: "enforcement-branch-ids-from-exact-source-and-semantics",
     promotionRule: "executed-fixtures-required",
   };
   if (
@@ -2686,6 +2768,9 @@ export function validateImplementationManifestSemantics(
     ),
     logicalSurfaces: new Set(
       implementation.surfaces.map((row) => row.observedKey),
+    ).size,
+    enforcementBranches: new Set(
+      implementation.surfaces.map((row) => row.enforcementBranchId),
     ).size,
     coverageEdges: coverage.edges.length,
     targetCells: targetCells.cells.length,

@@ -56,6 +56,8 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       expect(await runCapsecRegistryGenerator()).toEqual({
         coverageEdges: first.coverage.edges.length,
         targetCells: first.targetCells.cells.length,
+        enforcementBranches:
+          first.implementationManifest.counts.enforcementBranches,
         observedReferences:
           first.implementationManifest.counts.observedReferences,
         outputs: first.rendered.size,
@@ -107,7 +109,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
       expect(
         result.implementationManifest.surfaces.every((row) =>
           row.fixtureObligations.every((fixtureId) =>
-            fixtureId.startsWith(`${row.branchId}.`),
+            fixtureId.startsWith(`${row.enforcementBranchId}.`),
           ),
         ),
       ).toBe(true);
@@ -169,6 +171,13 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           .map((row) => row.branchId)
           .sort(),
       );
+      expect(result.binding.enforcementBranchIds).toEqual([
+        ...new Set(
+          result.implementationManifest.surfaces.map(
+            (row) => row.enforcementBranchId,
+          ),
+        ),
+      ].sort());
       expect(
         result.binding.implementationBranchIds.every(
           (branchId) => !branchId.includes("\u0000"),
@@ -225,6 +234,7 @@ describe("LLP 0021 WP1 capsec registry generator", () => {
           expect(Object.isFrozen(registry.actionIds)).toBe(true);
           expect(Object.isFrozen(registry.edgeIds)).toBe(true);
           expect(Object.isFrozen(registry.implementationBranchIds)).toBe(true);
+          expect(Object.isFrozen(registry.enforcementBranchIds)).toBe(true);
           expect(Object.isFrozen(registry.targetKeys)).toBe(true);
           expect(() => registry.actionIds.push("future:action")).toThrow();
         }

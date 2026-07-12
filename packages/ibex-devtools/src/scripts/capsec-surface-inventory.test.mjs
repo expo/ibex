@@ -764,6 +764,91 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
   });
 
+  test("builtin exports retain exact transitive routes to native enforcement calls", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function readImpl() { return globalThis.__exactReadFile('/tmp/input'); }
+        function read() { return readImpl(); }
+        function unrelated() { return __exactWriteFile('/tmp/output', 'x'); }
+        class Handle {
+          read() { return readImpl(); }
+        }
+        module.exports = { read, Handle };
+      `,
+      {
+        sourceKey: "node_routes",
+        sourcePath: "src/builtins/routes.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find((row) => row.name === `export:node_routes:${name}`).metadata
+        .enforcementRouteEvidence;
+    expect(evidence("read")).toEqual({
+      ambiguousCallees: [],
+      kind: "static-builtin-call-graph",
+      paths: [
+        "export:read -> read -> readImpl -> __exactReadFile",
+      ],
+      terminals: ["__exactReadFile"],
+    });
+    expect(evidence("Handle.read")).toEqual({
+      ambiguousCallees: [],
+      kind: "static-builtin-call-graph",
+      paths: [
+        "export:Handle.read -> Handle.read -> readImpl -> __exactReadFile",
+      ],
+      terminals: ["__exactReadFile"],
+    });
+    expect(evidence("read").terminals).not.toContain("__exactWriteFile");
+  });
+
+  test("builtin enforcement routes reject shadowed, computed, and dynamic call ambiguity", () => {
+    const rows = scanStaticBuiltinExports(
+      String.raw`
+        function shadowed(__exactReadFile) { return __exactReadFile(); }
+        function dynamicTerminal() { return service.__exactReadFile(); }
+        function computed() { return globalThis['__exactReadFile'](); }
+        const invokeRead = globalThis.__exactReadFile;
+        function aliased() { return invokeRead('/tmp/input'); }
+        class Reader {
+          go() { return this.run(); }
+          run() { return globalThis.__exactReadFile('/tmp/input'); }
+        }
+        class Writer {
+          run() { return globalThis.__exactWriteFile('/tmp/output', 'x'); }
+        }
+        function dynamicReceiver() { return service.run(); }
+        module.exports = {
+          shadowed, dynamicTerminal, computed, aliased,
+          Reader, Writer, dynamicReceiver
+        };
+      `,
+      {
+        sourceKey: "node_route_mutations",
+        sourcePath: "src/builtins/route-mutations.js",
+      },
+    );
+    const evidence = (name) =>
+      rows.find(
+        (row) => row.name === `export:node_route_mutations:${name}`,
+      ).metadata.enforcementRouteEvidence;
+    expect(evidence("shadowed").ambiguousCallees).toContain(
+      "shadowed:__exactReadFile",
+    );
+    expect(evidence("dynamicTerminal").ambiguousCallees).toContain(
+      "dynamic-terminal-receiver:__exactReadFile",
+    );
+    expect(evidence("computed").ambiguousCallees).toContain(
+      "computed-terminal:__exactReadFile",
+    );
+    expect(evidence("aliased").terminals).toEqual(["__exactReadFile"]);
+    expect(evidence("dynamicReceiver").ambiguousCallees).toContain(
+      "dynamic-call-receiver:run",
+    );
+    expect(evidence("Reader.go").terminals).toEqual(["__exactReadFile"]);
+    expect(evidence("Writer.run").terminals).toEqual(["__exactWriteFile"]);
+  });
+
   test("inherited CommonJS export shapes are enumerated or closed explicitly", () => {
     for (const source of [
       "module.exports = Object.create({ hidden() {} });",

@@ -5172,6 +5172,8 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_install_armed",
     "ex_host_is_allow_all",
     "ex_host_is_armed",
+    "ex_host_legacy_authorization_cacheable",
+    "ex_host_legacy_authorization_generation",
     "ex_host_log_event",
     "ex_host_matches_armed_snapshot_digest",
     "ex_host_module_resolve",
@@ -6651,6 +6653,65 @@ function stableComponent(value, fallback = "surface") {
     .replace(/^\.+|\.+$/gu, "")
     .replace(/\.{2,}/gu, ".");
   return component || fallback;
+}
+
+function enforcementSemanticShape(edge) {
+  if (edge.classification !== "effects") return null;
+  return {
+    classification: edge.classification,
+    effects: edge.effects,
+    principalSources: edge.principalSources,
+    effectOwnerSource: edge.effectOwnerSource,
+    gate: edge.gate,
+    effectMode: edge.effectMode,
+    logicalBranches: edge.logicalBranches,
+    lifetimeContract: edge.lifetimeContract,
+    barriers: edge.barriers,
+  };
+}
+
+/**
+ * Identify the actual source-backed effect boundary independently of the API
+ * alias that routes to it. Sharing is deliberately conservative: two rows
+ * collapse only when their exact reviewed source refs, target branch, backend,
+ * disposition, and complete semantic decision shape are identical.
+ */
+export function enforcementBranchIdentity(edge, branch) {
+  if (edge.classification !== "effects") {
+    return {
+      id: branch.branchId,
+      key: JSON.stringify(["surface-branch", branch.branchId]),
+      routeKind: "surface-branch",
+    };
+  }
+  const sourceRefs = canonicalStringSet(
+    branch.enforcementRoute?.sourceRefs ?? branch.sourceRefs ?? [],
+  );
+  const terminalObservedKey =
+    branch.enforcementRoute?.terminalObservedKey ??
+    `${edge.surface.kind}:${edge.surface.name}`;
+  const key = JSON.stringify({
+    terminalObservedKey,
+    sourceRefs,
+    targetVariant: branch.targetVariant,
+    targetApplicability: branch.targetApplicability,
+    backend: branch.backend ?? null,
+    implementationDisposition: branch.implementationDisposition ?? null,
+    stubDisposition: branch.stubDisposition ?? null,
+    semantics: enforcementSemanticShape(edge),
+  });
+  const anchor = stableComponent(sourceRefs[0] ?? "effect-boundary")
+    .slice(-64)
+    .replace(/^\.+/u, "") || "effect.boundary";
+  return {
+    id: validateStableId(
+      `enforcement.${anchor}.${fnv1a32(key)}`,
+      "enforcement branch id",
+    ),
+    key,
+    routeKind:
+      branch.enforcementRoute?.kind ?? "exact-source-and-semantics",
+  };
 }
 
 export function stableIdForSurface(surface) {
@@ -11364,7 +11425,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -12618,7 +12679,15 @@ export function expandImplementationBranches(surface, edge, specification) {
     const sourceRefs = canonicalStringSet(branch.sourceRefs ?? []);
     if (sourceRefs.length === 0)
       throw new Error(`${branchId}: branch has no sourceRefs`);
-    const fixtureObligations = fixtureObligationsForBranch(edge, branchId);
+    const enforcement = enforcementBranchIdentity(edge, {
+      ...branch,
+      branchId,
+      sourceRefs,
+    });
+    const fixtureObligations = fixtureObligationsForBranch(
+      edge,
+      enforcement.id,
+    );
     if (
       branch.fixtureObligations !== undefined &&
       JSON.stringify(canonicalStringSet(branch.fixtureObligations)) !==
@@ -12651,6 +12720,14 @@ export function expandImplementationBranches(surface, edge, specification) {
       edgeId: edge.id,
       observedKey: surface.observedKey,
       branchId,
+      enforcementBranchId: enforcement.id,
+      enforcementRoute: {
+        kind: enforcement.routeKind,
+        proofPaths: [surface.observedKey],
+        proofSourceRefs: sourceRefs,
+        sourceRefs,
+        terminalObservedKey: surface.observedKey,
+      },
       branchKind: branch.kind,
       targetVariant: branch.targetVariant,
       targetApplicability: branch.targetApplicability,
@@ -12771,6 +12848,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
   const prepared = prepareCoverageContext({ definitions, rules });
   const seenObservedKeys = new Set();
   const seenEdgeIds = new Map();
+  const surfaceByObservedKey = new Map();
   const edges = [];
   const implementationRows = [];
 
@@ -12785,6 +12863,7 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
       throw new Error(`duplicate observed surface ${observedKey}`);
     }
     seenObservedKeys.add(observedKey);
+    surfaceByObservedKey.set(observedKey, input);
     const classification = classifyObservedSurface(input, prepared);
     const priorObservedKey = seenEdgeIds.get(classification.edge.id);
     if (priorObservedKey) {
@@ -12802,6 +12881,84 @@ export function buildCoverageModel(surfaces, { definitions, rules }) {
     const edgeOrder = utf8Compare(left.edgeId, right.edgeId);
     return edgeOrder || utf8Compare(left.branchId, right.branchId);
   });
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const terminalRowsByObservedKey = new Map();
+  for (const row of implementationRows) {
+    const edge = edgeById.get(row.edgeId);
+    if (
+      edge.classification === "effects" &&
+      (edge.surface.kind === "native-op" || edge.surface.kind === "host-abi")
+    ) {
+      const rows = terminalRowsByObservedKey.get(row.observedKey) ?? [];
+      rows.push(row);
+      terminalRowsByObservedKey.set(row.observedKey, rows);
+    }
+  }
+  for (const row of implementationRows) {
+    const edge = edgeById.get(row.edgeId);
+    if (edge.classification !== "effects" || edge.surface.kind !== "builtin") {
+      continue;
+    }
+    const evidence = surfaceByObservedKey.get(row.observedKey)?.metadata
+      ?.enforcementRouteEvidence;
+    if (
+      evidence?.kind !== "static-builtin-call-graph" ||
+      evidence.ambiguousCallees?.length !== 0 ||
+      !Array.isArray(evidence.paths) ||
+      evidence.paths.length === 0 ||
+      evidence.terminals?.length !== 1
+    ) {
+      continue;
+    }
+    const terminalObservedKey = `native-op:${evidence.terminals[0]}`;
+    const candidates = (terminalRowsByObservedKey.get(terminalObservedKey) ?? [])
+      .filter((candidate) => {
+        const terminalEdge = edgeById.get(candidate.edgeId);
+        return (
+          JSON.stringify(enforcementSemanticShape(terminalEdge)) ===
+            JSON.stringify(enforcementSemanticShape(edge)) &&
+          candidate.targetVariant === row.targetVariant &&
+          JSON.stringify(candidate.targetApplicability) ===
+            JSON.stringify(row.targetApplicability) &&
+          (candidate.backend ?? null) === (row.backend ?? null) &&
+          (candidate.implementationDisposition ?? null) ===
+            (row.implementationDisposition ?? null) &&
+          (candidate.stubDisposition ?? null) === (row.stubDisposition ?? null)
+        );
+      });
+    if (candidates.length !== 1) continue;
+    const terminal = candidates[0];
+    row.enforcementRoute = {
+      kind: "static-builtin-call-graph",
+      proofPaths: canonicalStringSet(evidence.paths),
+      proofSourceRefs: [...row.sourceRefs],
+      sourceRefs: [...terminal.sourceRefs],
+      terminalObservedKey,
+    };
+    const enforcement = enforcementBranchIdentity(edge, row);
+    row.enforcementBranchId = enforcement.id;
+    row.fixtureObligations = fixtureObligationsForBranch(
+      edge,
+      enforcement.id,
+    );
+  }
+  const enforcementKeys = new Map();
+  for (const row of implementationRows) {
+    const edge = edgeById.get(row.edgeId);
+    const enforcement = enforcementBranchIdentity(edge, row);
+    if (enforcement.id !== row.enforcementBranchId) {
+      throw new Error(
+        `${row.branchId}: enforcement branch identity is not reproducible`,
+      );
+    }
+    const prior = enforcementKeys.get(enforcement.id);
+    if (prior !== undefined && prior !== enforcement.key) {
+      throw new Error(
+        `enforcement branch id collision ${enforcement.id}`,
+      );
+    }
+    enforcementKeys.set(enforcement.id, enforcement.key);
+  }
   const coverage = { coverageSchema: COVERAGE_SCHEMA, profile: PROFILE, edges };
   const definitionCoverage = buildDefinitionCoverage(
     prepared.definitions,

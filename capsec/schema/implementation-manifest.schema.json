@@ -21,11 +21,12 @@
     "status": { "const": "inventory-only-until-conformance" },
     "provenance": {
       "type": "object",
-      "required": ["sourceRefs", "targetBranches", "targetSelection", "promotionRule"],
+      "required": ["sourceRefs", "targetBranches", "targetSelection", "fixtureDispatch", "promotionRule"],
       "properties": {
         "sourceRefs": { "const": "definitions-stubs-or-security-relevant-references" },
         "targetBranches": { "const": "source-derived-not-conformance-evidence" },
         "targetSelection": { "const": "exact-branch-ids-from-target-applicability" },
+        "fixtureDispatch": { "const": "enforcement-branch-ids-from-exact-source-and-semantics" },
         "promotionRule": { "const": "executed-fixtures-required" }
       },
       "additionalProperties": false
@@ -37,10 +38,11 @@
     "outputs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/output" } },
     "counts": {
       "type": "object",
-      "required": ["observedReferences", "logicalSurfaces", "coverageEdges", "targetCells"],
+      "required": ["observedReferences", "logicalSurfaces", "enforcementBranches", "coverageEdges", "targetCells"],
       "properties": {
         "observedReferences": { "type": "integer", "minimum": 1 },
         "logicalSurfaces": { "type": "integer", "minimum": 1 },
+        "enforcementBranches": { "type": "integer", "minimum": 1 },
         "coverageEdges": { "type": "integer", "minimum": 1 },
         "targetCells": { "type": "integer", "minimum": 1 }
       },
@@ -71,6 +73,8 @@
         "edgeId",
         "observedKey",
         "branchId",
+        "enforcementBranchId",
+        "enforcementRoute",
         "branchKind",
         "targetVariant",
         "targetApplicability",
@@ -82,6 +86,40 @@
         "edgeId": { "$ref": "#/$defs/stableId" },
         "observedKey": { "type": "string", "pattern": "^[a-z0-9-]+:.+$" },
         "branchId": { "$ref": "#/$defs/stableId" },
+        "enforcementBranchId": { "$ref": "#/$defs/stableId" },
+        "enforcementRoute": {
+          "type": "object",
+          "required": ["kind", "proofPaths", "proofSourceRefs", "sourceRefs", "terminalObservedKey"],
+          "properties": {
+            "kind": { "enum": ["surface-branch", "exact-source-and-semantics", "static-builtin-call-graph"] },
+            "proofPaths": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "proofSourceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+#[-a-zA-Z0-9_.$:/<>\\[\\] ]+$"
+              }
+            },
+            "sourceRefs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[a-zA-Z0-9_./-]+#[-a-zA-Z0-9_.$:/<>\\[\\] ]+$"
+              }
+            },
+            "terminalObservedKey": { "type": "string", "pattern": "^[a-z0-9-]+:.+$" }
+          },
+          "additionalProperties": false
+        },
         "branchKind": { "enum": ["single", "alternative"] },
         "targetVariant": { "type": "string", "minLength": 1 },
         "targetApplicability": { "$ref": "#/$defs/targetApplicability" },

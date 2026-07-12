@@ -227,6 +227,7 @@ describe("LLP 0021 capsec contract", () => {
     for (const count of [
       "observedReferences",
       "logicalSurfaces",
+      "enforcementBranches",
       "coverageEdges",
       "targetCells",
     ]) {

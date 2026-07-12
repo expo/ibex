@@ -1154,11 +1154,13 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         ]),
       }),
     ]);
+    const enforcementBranchId =
+      classified.implementationRows[0].enforcementBranchId;
     expect(classified.implementationRows[0].fixtureObligations).toContain(
-      `${classified.implementationRows[0].branchId}.logical.read.branch-selection`,
+      `${enforcementBranchId}.logical.read.branch-selection`,
     );
     expect(classified.implementationRows[0].fixtureObligations).not.toContain(
-      `${classified.implementationRows[0].branchId}.conditional-refinement`,
+      `${enforcementBranchId}.conditional-refinement`,
     );
   });
 
@@ -3038,7 +3040,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(
       classified.implementationRows.every((row) =>
         row.fixtureObligations.every((fixtureId) =>
-          fixtureId.startsWith(`${row.branchId}.`),
+          fixtureId.startsWith(`${row.enforcementBranchId}.`),
         ),
       ),
     ).toBe(true);
@@ -3082,6 +3084,92 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         context,
       ),
     ).toThrow(/authored fixture obligations disagree with semantic derivation/);
+  });
+
+  test("shared source refs alone cannot collapse distinct callable boundaries", () => {
+    const sharedRef = ["src/engine/shared_network.cc#authorizeConnect"];
+    const sync = classifyObservedSurface(
+      surface("native-op", "__exactTcpConnect", undefined, sharedRef),
+      context,
+    ).implementationRows[0];
+    const asynchronous = classifyObservedSurface(
+      surface("native-op", "__exactTcpConnectStart", undefined, sharedRef),
+      context,
+    ).implementationRows[0];
+    expect(sync.branchId).not.toBe(asynchronous.branchId);
+    expect(sync.enforcementBranchId).not.toBe(asynchronous.enforcementBranchId);
+    expect(sync.fixtureObligations).not.toEqual(asynchronous.fixtureObligations);
+
+    const distinctSource = classifyObservedSurface(
+      surface("native-op", "__exactTcpConnectStart", undefined, [
+        "src/engine/other_network.cc#authorizeConnect",
+      ]),
+      context,
+    ).implementationRows[0];
+    expect(distinctSource.enforcementBranchId).not.toBe(sync.enforcementBranchId);
+  });
+
+  test("static builtin call routes join the exact native terminal and fail on mutation", () => {
+    const terminal = surface(
+      "native-op",
+      "__exactClipboardRead",
+      undefined,
+      ["src/engine/hermes_runtime_device.cc#__exactClipboardRead"],
+    );
+    const facade = (terminalName) =>
+      surface(
+        "builtin",
+        "export:exact_clipboard:readText",
+        {
+          surfaceType: "export",
+          sourceKey: "exact_clipboard",
+          exportName: "readText",
+          enforcementRouteEvidence: {
+            ambiguousCallees: [],
+            kind: "static-builtin-call-graph",
+            paths: [
+              `export:readText -> readText -> ${terminalName}`,
+            ],
+            terminals: [terminalName],
+          },
+        },
+        ["src/builtins/clipboard.js#exports:readText"],
+      );
+    const model = buildCoverageModel(
+      [facade("__exactClipboardRead"), terminal],
+      context,
+    );
+    const facadeRow = model.implementationRows.find(
+      (row) => row.observedKey === "builtin:export:exact_clipboard:readText",
+    );
+    const terminalRow = model.implementationRows.find(
+      (row) => row.observedKey === "native-op:__exactClipboardRead",
+    );
+    expect(facadeRow.enforcementBranchId).toBe(
+      terminalRow.enforcementBranchId,
+    );
+    expect(facadeRow.enforcementRoute).toEqual({
+      kind: "static-builtin-call-graph",
+      proofPaths: [
+        "export:readText -> readText -> __exactClipboardRead",
+      ],
+      proofSourceRefs: ["src/builtins/clipboard.js#exports:readText"],
+      sourceRefs: [
+        "src/engine/hermes_runtime_device.cc#__exactClipboardRead",
+      ],
+      terminalObservedKey: "native-op:__exactClipboardRead",
+    });
+
+    const mutated = buildCoverageModel(
+      [facade("__exactClipboardWrite"), terminal],
+      context,
+    ).implementationRows.find(
+      (row) => row.observedKey === "builtin:export:exact_clipboard:readText",
+    );
+    expect(mutated.enforcementBranchId).not.toBe(
+      terminalRow.enforcementBranchId,
+    );
+    expect(mutated.enforcementRoute.kind).toBe("exact-source-and-semantics");
   });
 
   test("native Fetch and WebSocket backend branches share exact network semantics", () => {

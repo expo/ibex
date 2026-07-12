@@ -20,10 +20,61 @@ const digest = (value) =>
     .update(typeof value === "string" ? value : canonicalJson(value), "utf8")
     .digest("base64url")}`;
 
-function validateExecutionEvidence(execution) {
+function fixturePlans(catalog) {
+  const plans = new Map();
+  const fixtureIds = canonicalSet(
+    catalog.flatMap((cell) => cell.requiredFixtures),
+  );
+  for (const fixtureId of fixtureIds) {
+    const cells = catalog.filter((cell) =>
+      cell.requiredFixtures.includes(fixtureId),
+    );
+    const edgeIds = canonicalSet(cells.map((cell) => cell.edgeId));
+    const implementationBranchIds = canonicalSet(
+      cells.flatMap((cell) => cell.implementationBranchIds),
+    );
+    const enforcementBranchIds = canonicalSet(
+      cells.flatMap((cell) => cell.enforcementBranchIds),
+    );
+    let expectedObservation;
+    if (enforcementBranchIds.length === 1) {
+      expectedObservation = {
+        kind: "enforcement-branch",
+        branchId: enforcementBranchIds[0],
+      };
+    } else if (
+      enforcementBranchIds.length === 0 &&
+      edgeIds.length === 1 &&
+      implementationBranchIds.length === 0
+    ) {
+      expectedObservation = { kind: "target-absence", edgeId: edgeIds[0] };
+    } else {
+      throw new Error(
+        `${fixtureId}: fixture plan does not identify exactly one observable enforcement branch`,
+      );
+    }
+    plans.set(fixtureId, {
+      fixtureId,
+      edgeIds,
+      implementationBranchIds,
+      enforcementBranchIds,
+      expectedObservation,
+    });
+  }
+  return plans;
+}
+
+export function fixtureExecutionPlan(catalog, fixtureId) {
+  return fixturePlans(catalog).get(fixtureId) ?? null;
+}
+
+function validateExecutionEvidence(
+  execution,
+  { plan, engineBinaryDigest },
+) {
   const evidence = execution.evidence;
   if (
-    evidence?.evidenceSchema !== "ibex/capsec-fixture-evidence/1" ||
+    evidence?.evidenceSchema !== "ibex/capsec-fixture-evidence/2" ||
     evidence.fixtureId !== execution.fixtureId ||
     !Array.isArray(evidence.command) || evidence.command.length === 0 ||
     !evidence.command.every((part) => typeof part === "string" && part.length > 0) ||
@@ -41,6 +92,21 @@ function validateExecutionEvidence(execution) {
       : null;
   if (!derivedOutcome || execution.outcome !== derivedOutcome) {
     throw new Error(`${execution.fixtureId}: outcome disagrees with executed evidence`);
+  }
+  if (evidence.planDigest !== digest(plan)) {
+    throw new Error(`${execution.fixtureId}: evidence does not bind the exact fixture plan`);
+  }
+  if (evidence.engineBinaryDigest !== engineBinaryDigest) {
+    throw new Error(`${execution.fixtureId}: evidence did not execute the bound engine artifact`);
+  }
+  const expectedObservation = {
+    ...plan.expectedObservation,
+    result: derivedOutcome,
+  };
+  if (canonicalJson(evidence.observation) !== canonicalJson(expectedObservation)) {
+    throw new Error(
+      `${execution.fixtureId}: observed branch/result disagrees with the fixture plan`,
+    );
   }
   if (execution.artifactDigest !== digest(evidence)) {
     throw new Error(`${execution.fixtureId}: artifact digest does not match fixture evidence`);
@@ -83,6 +149,9 @@ export function fixtureCatalogForTarget({ coverage, implementation, target }) {
     return {
       edgeId: edge.id,
       implementationBranchIds: canonicalSet(branchIds),
+      enforcementBranchIds: canonicalSet(
+        selected.map((row) => row.enforcementBranchId),
+      ),
       requiredFixtures: canonicalSet(
         selected.length === 0
           ? [absenceFixtureForTarget(edge.id, target)]
@@ -102,6 +171,7 @@ export function buildConformanceReport({
 }) {
   const catalog = fixtureCatalogForTarget({ coverage, implementation, target });
   const expected = new Set(catalog.flatMap((cell) => cell.requiredFixtures));
+  const plans = fixturePlans(catalog);
   const implementationManifestDigest = digest(implementation);
   const fixtureCatalogDigest = digest(catalog);
   const completeBindings = {
@@ -131,7 +201,10 @@ export function buildConformanceReport({
         `${execution.fixtureId}: execution lacks executor or artifact digest`,
       );
     }
-    validateExecutionEvidence(execution);
+    validateExecutionEvidence(execution, {
+      plan: plans.get(execution.fixtureId),
+      engineBinaryDigest: bindings.engine.binaryDigest,
+    });
     if (execution.bindingDigest !== requiredBindingDigest) {
       throw new Error(
         `${execution.fixtureId}: execution binding does not match report inputs`,

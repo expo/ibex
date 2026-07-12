@@ -189,6 +189,9 @@ function renderRustBinding(binding) {
   const branches = binding.implementationBranchIds
     .map((id) => `    ${quoteRust(id)},`)
     .join("\n");
+  const enforcementBranches = binding.enforcementBranchIds
+    .map((id) => `    ${quoteRust(id)},`)
+    .join("\n");
   const targets = binding.targetKeys
     .map((id) => `    ${quoteRust(id)},`)
     .join("\n");
@@ -223,6 +226,11 @@ ${branches}
 ];
 
 #[rustfmt::skip]
+pub const CAPSEC_ENFORCEMENT_BRANCH_IDS: &[&str] = &[
+${enforcementBranches}
+];
+
+#[rustfmt::skip]
 pub const CAPSEC_TARGET_KEYS: &[&str] = &[
 ${targets}
 ];
@@ -241,6 +249,7 @@ mod tests {
         assert!(!CAPSEC_ACTION_IDS.is_empty());
         assert!(!CAPSEC_COVERAGE_EDGE_IDS.is_empty());
         assert!(!CAPSEC_IMPLEMENTATION_BRANCH_IDS.is_empty());
+        assert!(!CAPSEC_ENFORCEMENT_BRANCH_IDS.is_empty());
         assert!(!CAPSEC_TARGET_KEYS.is_empty());
         assert!(!CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES.is_empty());
         assert!(CAPSEC_ACTION_IDS.windows(2).all(|rows| rows[0] < rows[1]));
@@ -248,6 +257,9 @@ mod tests {
             .windows(2)
             .all(|rows| rows[0] < rows[1]));
         assert!(CAPSEC_IMPLEMENTATION_BRANCH_IDS
+            .windows(2)
+            .all(|rows| rows[0] < rows[1]));
+        assert!(CAPSEC_ENFORCEMENT_BRANCH_IDS
             .windows(2)
             .all(|rows| rows[0] < rows[1]));
         assert!(CAPSEC_TARGET_KEYS.windows(2).all(|rows| rows[0] < rows[1]));
@@ -265,6 +277,9 @@ function renderCxxBinding(binding) {
     .join("\n");
   const edges = binding.edgeIds.map((id) => `    ${quoteCxx(id)},`).join("\n");
   const branches = binding.implementationBranchIds
+    .map((id) => `    ${quoteCxx(id)},`)
+    .join("\n");
+  const enforcementBranches = binding.enforcementBranchIds
     .map((id) => `    ${quoteCxx(id)},`)
     .join("\n");
   const targets = binding.targetKeys
@@ -290,6 +305,9 @@ ${edges}
 inline constexpr const char* kImplementationBranchIds[] = {
 ${branches}
 };
+inline constexpr const char* kEnforcementBranchIds[] = {
+${enforcementBranches}
+};
 inline constexpr const char* kTargetKeys[] = {
 ${targets}
 };
@@ -298,6 +316,8 @@ inline constexpr std::size_t kCoverageEdgeCount =
     sizeof(kCoverageEdgeIds) / sizeof(kCoverageEdgeIds[0]);
 inline constexpr std::size_t kImplementationBranchCount =
     sizeof(kImplementationBranchIds) / sizeof(kImplementationBranchIds[0]);
+inline constexpr std::size_t kEnforcementBranchCount =
+    sizeof(kEnforcementBranchIds) / sizeof(kEnforcementBranchIds[0]);
 inline constexpr std::size_t kTargetCellCount = sizeof(kTargetKeys) / sizeof(kTargetKeys[0]);
 
 }  // namespace ibex::capsec_generated
@@ -316,12 +336,14 @@ export const CAPSEC_REGISTRY = Object.freeze({
   actionIds: Object.freeze(${JSON.stringify(binding.actionIds, null, 2)} as const),
   edgeIds: Object.freeze(${JSON.stringify(binding.edgeIds, null, 2)} as const),
   implementationBranchIds: Object.freeze(${JSON.stringify(binding.implementationBranchIds, null, 2)} as const),
+  enforcementBranchIds: Object.freeze(${JSON.stringify(binding.enforcementBranchIds, null, 2)} as const),
   targetKeys: Object.freeze(${JSON.stringify(binding.targetKeys, null, 2)} as const),
 } as const);
 
 export type CapsecActionId = (typeof CAPSEC_REGISTRY.actionIds)[number];
 export type CapsecCoverageEdgeId = (typeof CAPSEC_REGISTRY.edgeIds)[number];
 export type CapsecImplementationBranchId = (typeof CAPSEC_REGISTRY.implementationBranchIds)[number];
+export type CapsecEnforcementBranchId = (typeof CAPSEC_REGISTRY.enforcementBranchIds)[number];
 export type CapsecTargetKey = (typeof CAPSEC_REGISTRY.targetKeys)[number];
 `;
 }
@@ -336,6 +358,7 @@ const CAPSEC_REGISTRY = ${JSON.stringify(binding, null, 2)};
 Object.freeze(CAPSEC_REGISTRY.actionIds);
 Object.freeze(CAPSEC_REGISTRY.edgeIds);
 Object.freeze(CAPSEC_REGISTRY.implementationBranchIds);
+Object.freeze(CAPSEC_REGISTRY.enforcementBranchIds);
 Object.freeze(CAPSEC_REGISTRY.targetKeys);
 Object.freeze(CAPSEC_REGISTRY);
 
@@ -354,6 +377,7 @@ function renderIdsSchema(binding) {
       actionId: { enum: binding.actionIds },
       coverageEdgeId: { enum: binding.edgeIds },
       implementationBranchId: { enum: binding.implementationBranchIds },
+      enforcementBranchId: { enum: binding.enforcementBranchIds },
       targetKey: { enum: binding.targetKeys },
     },
   });
@@ -377,7 +401,7 @@ function renderSurfaceDocs(coverage, implementationRows) {
     "",
     "This table is review output. The JSON registries and observed source-surface manifest are authoritative.",
     "",
-    "| Edge | Surface | Classification | Effect mode | Actions | Owner | Implementation branches | Observed source references |",
+    "| Edge | Surface | Classification | Effect mode | Actions | Owner | Surface branch → enforcement branch | Observed source references |",
     "|---|---|---|---|---|---|---|---|",
   ];
   for (const edge of coverage.edges) {
@@ -391,7 +415,7 @@ function renderSurfaceDocs(coverage, implementationRows) {
     const branches = implementations
       .map(
         (row) =>
-          `${row.branchId} [${row.targetVariant}${row.backend ? `/${row.backend}` : ""}]`,
+          `${row.branchId} → ${row.enforcementBranchId} [${row.targetVariant}${row.backend ? `/${row.backend}` : ""}]`,
       )
       .sort(compareText);
     lines.push(
@@ -503,6 +527,9 @@ function buildBinding(
     .map((row) => row.branchId)
     .sort(compareText);
   assertUnique(implementationBranchIds, "implementation branch ids");
+  const enforcementBranchIds = [
+    ...new Set(implementationRows.map((row) => row.enforcementBranchId)),
+  ].sort(compareText);
   const targetKeys = targetCells.cells
     .map((cell) =>
       canonicalJson([cell.edgeId, cell.target.triple, cell.target.features]),
@@ -522,6 +549,7 @@ function buildBinding(
     actionIds,
     edgeIds,
     implementationBranchIds,
+    enforcementBranchIds,
     targetKeys,
     closedEnvironmentNames,
   };
@@ -650,6 +678,7 @@ export async function renderCapsecRegistry() {
       sourceRefs: "definitions-stubs-or-security-relevant-references",
       targetBranches: "source-derived-not-conformance-evidence",
       targetSelection: "exact-branch-ids-from-target-applicability",
+      fixtureDispatch: "enforcement-branch-ids-from-exact-source-and-semantics",
       promotionRule: "executed-fixtures-required",
     },
     sourceDatasets: [
@@ -671,6 +700,9 @@ export async function renderCapsecRegistry() {
       ),
       logicalSurfaces: new Set(implementationRows.map((row) => row.observedKey))
         .size,
+      enforcementBranches: new Set(
+        implementationRows.map((row) => row.enforcementBranchId),
+      ).size,
       coverageEdges: coverage.edges.length,
       targetCells: targetCells.cells.length,
     },
@@ -731,6 +763,8 @@ export async function runCapsecRegistryGenerator({ write = false } = {}) {
   return {
     coverageEdges: result.coverage.edges.length,
     targetCells: result.targetCells.cells.length,
+    enforcementBranches:
+      result.implementationManifest.counts.enforcementBranches,
     observedReferences: result.implementationManifest.counts.observedReferences,
     outputs: result.rendered.size,
   };
@@ -746,7 +780,7 @@ if (path.resolve(process.argv[1] ?? "") === __filename) {
   try {
     const counts = await runCapsecRegistryGenerator({ write });
     console.log(
-      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
+      `${write ? "Generated" : "Validated"} capsec registry: ${counts.coverageEdges} coverage edges, ${counts.enforcementBranches} enforcement branches, ${counts.targetCells} target cells, ${counts.observedReferences} observed source references, ${counts.outputs} outputs.`,
     );
   } catch (error) {
     console.error(`error: ${error.message}`);
