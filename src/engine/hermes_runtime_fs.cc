@@ -1779,7 +1779,7 @@ static FsAsyncResult fsReadFileArmedWork(
   RepeatedFsAuthorizationLease authorizationLease;
   while (true) {
     if (authorizeRepeatedFsWithLease(
-            authorizationLease, principal, path.c_str(), 2, 2, *parent, *fd, 1,
+            authorizationLease, principal, path.c_str(), 2, 2, *parent, fd, 1,
             0, presented) != 1) {
       return fsAsyncError(EACCES, "read", path);
     }
@@ -2640,7 +2640,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           RepeatedFsAuthorizationLease authorizationLease;
           while (true) {
             if (authorizeRepeatedFsWithLease(
-                    authorizationLease, principal, path.c_str(), 1, 2, parentRaw,
+                    authorizationLease, principal, path.c_str(), 1, 2, *parent,
                     fdRaw, 1, 0, presented) != 1) {
               throw facebook::jsi::JSError(runtime, "Permission denied");
             }
@@ -3293,7 +3293,6 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
-        const uint64_t principal = currentPrincipalId();
 
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;

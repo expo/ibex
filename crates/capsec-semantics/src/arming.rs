@@ -992,12 +992,7 @@ mod tests {
             "locator": "other-lib@1.0.0"
         });
         value["principals"].as_array_mut().unwrap().push(second);
-        let digest = compute_domain_digest(
-            ARMED_SNAPSHOT_DOMAIN,
-            &value,
-            &["armedSnapshotDigest".to_string()],
-        )
-        .unwrap();
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
         value["armedSnapshotDigest"] = Value::String(digest);
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
