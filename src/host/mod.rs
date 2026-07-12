@@ -2180,21 +2180,20 @@ fn fd_descends_from_object(
 fn authenticated_target_cells(
     snapshot: &capsec_semantics::arming::ArmedSnapshot,
 ) -> capsec_semantics::Result<BTreeMap<String, capsec_semantics::decision::TargetCellDisposition>> {
-    use capsec_semantics::decision::TargetCellDisposition;
-    use capsec_semantics::Error;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine as _;
+    use capsec_semantics::decision::TargetCellDisposition;
+    use capsec_semantics::Error;
     use sha2::{Digest as _, Sha256};
 
     let cells_text = crate::capsec_registry_generated::CAPSEC_TARGET_CELLS_JSON;
     let cells: serde_json::Value = serde_json::from_str(cells_text)
-    .map_err(|error| Error::InvalidModel(format!("invalid checked target cells: {error}")))?;
-    let advertisements: serde_json::Value = serde_json::from_str(
-        crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON,
-    )
-    .map_err(|error| {
-        Error::InvalidModel(format!("invalid checked target advertisements: {error}"))
-    })?;
+        .map_err(|error| Error::InvalidModel(format!("invalid checked target cells: {error}")))?;
+    let advertisements: serde_json::Value =
+        serde_json::from_str(crate::capsec_registry_generated::CAPSEC_TARGET_ADVERTISEMENTS_JSON)
+            .map_err(|error| {
+            Error::InvalidModel(format!("invalid checked target advertisements: {error}"))
+        })?;
     let target_cells_digest = format!(
         "sha256-{}",
         URL_SAFE_NO_PAD.encode(Sha256::digest(cells_text.as_bytes()))
@@ -2231,10 +2230,10 @@ fn authenticated_target_cells(
                         .pointer("/target/triple")
                         .and_then(serde_json::Value::as_str)
                         == Some(target.as_str())
-                    && candidate
-                        .pointer("/target/features")
-                        .and_then(serde_json::Value::as_array)
-                        == Some(&feature_values)
+                        && candidate
+                            .pointer("/target/features")
+                            .and_then(serde_json::Value::as_array)
+                            == Some(&feature_values)
                 })
                 .collect::<Vec<_>>()
         })

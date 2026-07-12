@@ -3661,20 +3661,12 @@ fn bundle_cache_key(entry: &Path, bundle_format: BundleFormat) -> Result<String>
     // Resolve with the same truthiness parse the engine uses (ENG-22634), and
     // key the cache on that resolved bool so a compartmentalized bundle can never
     // be reused for a non-compartment run (or vice versa).
-    digest_field(
-        &mut hasher,
-        "compartments",
-        b"1",
-    );
+    digest_field(&mut hasher, "compartments", b"1");
     // @ref LLP 0013#mechanism-3 — per-package chunking changes the output shape
     // (multiple chunk files), so it must key distinctly from a flat bundle. Use
     // the same truthiness parse as the other two read sites so `=0` is a real
     // opt-out and the cache key agrees with what the bundler actually emitted.
-    digest_field(
-        &mut hasher,
-        "per-package-chunks",
-        b"1",
-    );
+    digest_field(&mut hasher, "per-package-chunks", b"1");
     let canonical_entry = std::fs::canonicalize(entry)
         .with_context(|| format!("Failed to resolve bundle entry {}", entry.display()))?;
     let canonical_entry_utf8 = canonical_entry.to_str().ok_or_else(|| {
