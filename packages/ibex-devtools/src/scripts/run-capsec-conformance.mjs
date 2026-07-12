@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+// @ref LLP 0021#wp10--prove-targets-and-publish-the-conformance-report — target
+// promotion binds public execution to one clean source tree and exact engine.
+
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,7 +22,11 @@ import {
 } from "./capsec-public-surface-evidence.mjs";
 import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
 import { runObservedCommand } from "./capsec-command-evidence.mjs";
-import { canonicalJson, readJsonStrict } from "./capsec-contract.mjs";
+import {
+  canonicalJson,
+  parseJsonStrict,
+  readJsonStrict,
+} from "./capsec-contract.mjs";
 import {
   engineLoaderEnvironment,
   validateLoadedEngineIdentity,
@@ -72,10 +79,60 @@ const publicSurfaceEvidenceInputPath = option("--public-surface-evidence");
 const taggedDigest = (bytes) =>
   `sha256-${crypto.createHash("sha256").update(bytes).digest("base64url")}`;
 const git = (...gitArgs) => execFileSync("git", gitArgs, { cwd: repoRoot });
+const ownedByCurrentUser = (metadata) =>
+  typeof process.getuid !== "function" || metadata.uid === process.getuid();
+
+function readOwnedJson(filePath, label) {
+  const pathMetadata = fs.lstatSync(filePath);
+  if (
+    pathMetadata.isSymbolicLink() ||
+    !pathMetadata.isFile() ||
+    pathMetadata.nlink !== 1 ||
+    !ownedByCurrentUser(pathMetadata)
+  ) {
+    throw new Error(`${label}: evidence must be an owned regular file`);
+  }
+  let descriptor;
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0),
+    );
+    const opened = fs.fstatSync(descriptor);
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      !ownedByCurrentUser(opened) ||
+      opened.dev !== pathMetadata.dev ||
+      opened.ino !== pathMetadata.ino
+    ) {
+      throw new Error(`${label}: evidence identity changed while opening`);
+    }
+    const bytes = fs.readFileSync(descriptor);
+    const current = fs.lstatSync(filePath);
+    if (
+      current.isSymbolicLink() ||
+      !current.isFile() ||
+      current.nlink !== 1 ||
+      !ownedByCurrentUser(current) ||
+      current.dev !== opened.dev ||
+      current.ino !== opened.ino
+    ) {
+      throw new Error(`${label}: evidence identity changed while reading`);
+    }
+    return parseJsonStrict(bytes, label);
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
 
 if (!fs.existsSync(engineArtifactPath)) {
   throw new Error(`bound runtime engine artifact not found: ${engineArtifactPath}`);
 }
+const initialSourceRevision = git("rev-parse", "HEAD").toString("utf8").trim();
+const initialSourceTree = git("rev-parse", "HEAD^{tree}")
+  .toString("utf8")
+  .trim();
 if (git("status", "--porcelain").toString("utf8").trim()) {
   throw new Error("conformance execution requires a clean committed source tree");
 }
@@ -85,8 +142,28 @@ const rules = readJsonStrict(
 const target = rules.initialProfile.candidateTargets[0];
 if (!target) throw new Error("no candidate target is declared");
 
-const evidenceDirectory = path.join(path.dirname(outputPath), "capsec-suite-evidence");
-fs.mkdirSync(evidenceDirectory, { recursive: true });
+const evidenceRoot = path.join(repoRoot, "target");
+if (!fs.existsSync(evidenceRoot)) fs.mkdirSync(evidenceRoot, { mode: 0o700 });
+const evidenceRootMetadata = fs.lstatSync(evidenceRoot);
+if (
+  evidenceRootMetadata.isSymbolicLink() ||
+  !evidenceRootMetadata.isDirectory()
+) {
+  throw new Error("conformance evidence root must be a real directory");
+}
+const realEvidenceRoot = fs.realpathSync(evidenceRoot);
+const evidenceRootRelative = path.relative(repoRoot, realEvidenceRoot);
+if (
+  evidenceRootRelative.startsWith(`..${path.sep}`) ||
+  evidenceRootRelative === ".." ||
+  path.isAbsolute(evidenceRootRelative)
+) {
+  throw new Error("conformance evidence root escapes the checkout");
+}
+const evidenceDirectory = fs.mkdtempSync(
+  path.join(realEvidenceRoot, "capsec-suite-evidence-"),
+);
+fs.chmodSync(evidenceDirectory, 0o700);
 const engineBinaryDigest = taggedDigest(fs.readFileSync(engineArtifactPath));
 const engineIdentityPath = path.join(
   evidenceDirectory,
@@ -103,7 +180,6 @@ const exactEngineEnvironment = {
   IBEX_FAIL_ON_STALE_VENDORED: "1",
 };
 const runEngineAttestation = (id, identityPath) => {
-  fs.rmSync(identityPath, { force: true });
   return runObservedCommand({
     id,
     command: "cargo",
@@ -127,7 +203,10 @@ const runEngineAttestation = (id, identityPath) => {
 const commandEvidence = [
   runEngineAttestation("exact-loaded-engine-attestation", engineIdentityPath),
 ];
-const loadedEngineIdentity = readJsonStrict(engineIdentityPath);
+const loadedEngineIdentity = readOwnedJson(
+  engineIdentityPath,
+  "loaded engine identity",
+);
 const engineBinding = validateLoadedEngineIdentity({
   identity: loadedEngineIdentity,
   canonicalArtifactPath: fs.realpathSync(engineArtifactPath),
@@ -162,7 +241,10 @@ execFileSync(
   ],
   { cwd: repoRoot, stdio: "inherit" },
 );
-const recipeCatalog = readJsonStrict(recipeCatalogPath);
+const recipeCatalog = readOwnedJson(
+  recipeCatalogPath,
+  "executable recipe catalog",
+);
 commandEvidence.push(
   runObservedCommand({
     id: "exact-hermes-typed-adapter-recipes",
@@ -187,7 +269,10 @@ commandEvidence.push(
     },
   }),
 );
-const adapterEvidence = readJsonStrict(adapterEvidencePath);
+const adapterEvidence = readOwnedJson(
+  adapterEvidencePath,
+  "typed adapter evidence",
+);
 if (
   adapterEvidence.adapterEvidenceSchema !==
     "ibex/capsec-adapter-probe-evidence/1" ||
@@ -205,7 +290,7 @@ if (
     "typed adapter evidence is stale, incomplete, or from another loaded engine",
   );
 }
-fs.mkdirSync(publicBatchEvidenceDirectory, { recursive: true });
+fs.mkdirSync(publicBatchEvidenceDirectory, { mode: 0o700 });
 const publicRecipeCommands = new Map();
 for (const recipe of recipeCatalog.recipes) {
   if (recipe.status !== "fully-executable") continue;
@@ -229,7 +314,6 @@ for (const { command, fixtureIds } of publicRecipeCommands.values()) {
     publicBatchEvidenceDirectory,
     `${batchId}.json`,
   );
-  fs.rmSync(batchOutputPath, { force: true });
   commandEvidence.push(
     runObservedCommand({
       id: batchId,
@@ -244,7 +328,7 @@ for (const { command, fixtureIds } of publicRecipeCommands.values()) {
       },
     }),
   );
-  const batch = readJsonStrict(batchOutputPath);
+  const batch = readOwnedJson(batchOutputPath, `${batchId} evidence`);
   publicBatches.push({ batch, expectedFixtureIds: fixtureIds });
 }
 const publicExecutions = mergePublicBatchExecutions({
@@ -267,9 +351,23 @@ commandEvidence.push(
     engineIdentityAfterPath,
   ),
 );
-const loadedEngineIdentityAfter = readJsonStrict(engineIdentityAfterPath);
+const loadedEngineIdentityAfter = readOwnedJson(
+  engineIdentityAfterPath,
+  "post-suite loaded engine identity",
+);
 if (canonicalJson(loadedEngineIdentityAfter) !== canonicalJson(loadedEngineIdentity)) {
   throw new Error("loaded engine identity changed across conformance execution");
+}
+const finalSourceRevision = git("rev-parse", "HEAD").toString("utf8").trim();
+const finalSourceTree = git("rev-parse", "HEAD^{tree}").toString("utf8").trim();
+if (
+  git("status", "--porcelain").toString("utf8").trim() ||
+  finalSourceRevision !== initialSourceRevision ||
+  finalSourceTree !== initialSourceTree
+) {
+  throw new Error(
+    "conformance suites changed the committed source revision or working tree",
+  );
 }
 
 const coverage = readJsonStrict(
@@ -302,8 +400,8 @@ const implementationManifestDigest = taggedDigest(
 const canonicalDigest = (value) =>
   taggedDigest(Buffer.from(canonicalJson(value), "utf8"));
 const bindings = {
-  sourceRevision: git("rev-parse", "HEAD").toString("utf8").trim(),
-  sourceTreeDigest: taggedDigest(git("rev-parse", "HEAD^{tree}")),
+  sourceRevision: initialSourceRevision,
+  sourceTreeDigest: taggedDigest(Buffer.from(`${initialSourceTree}\n`, "utf8")),
   engine: engineBinding,
   vocabularyDigest,
   registryDigest,

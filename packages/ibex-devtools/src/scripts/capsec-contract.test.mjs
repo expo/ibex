@@ -25,6 +25,7 @@ import {
   computeDomainDigest,
   invalidFixtureNames,
   loadAndValidateContract as loadAndValidateContractUncached,
+  parseJsonStrict,
   renderLegacyReconciliation,
   runContractCheck,
   validateArmedSnapshotSemantics,
@@ -97,6 +98,15 @@ describe("LLP 0021 capsec contract", () => {
     expect(() =>
       assertNoDuplicateJsonKeys('{"a":1,"\\u0061":2}', "inline"),
     ).toThrow(/duplicate JSON object key "a"/);
+  });
+
+  test("strict byte parsing rejects duplicate decoded JSON keys", () => {
+    expect(() =>
+      parseJsonStrict(Buffer.from('{"a":1,"\\u0061":2}', "utf8"), "inline"),
+    ).toThrow(/inline: duplicate JSON object key "a"/);
+    expect(parseJsonStrict(Buffer.from('{"a":1}', "utf8"), "inline")).toEqual({
+      a: 1,
+    });
   });
 
   test("schema-declared sets must use canonical order", () => {

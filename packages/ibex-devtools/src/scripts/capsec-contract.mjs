@@ -321,11 +321,10 @@ export function assertNoDuplicateJsonKeys(text, label = "<json>") {
   }
 }
 
-export function readJsonStrict(filePath) {
-  const label = path.relative(repoRoot, filePath);
+export function parseJsonStrict(bytes, label = "<json>") {
   let text;
   try {
-    text = fatalUtf8Decoder.decode(fs.readFileSync(filePath));
+    text = fatalUtf8Decoder.decode(bytes);
   } catch (error) {
     throw new Error(`${label}: invalid UTF-8: ${error.message}`);
   }
@@ -334,6 +333,11 @@ export function readJsonStrict(filePath) {
   assertIJson(value, label);
   assertCanonicalBinaryEncodings(value, label);
   return value;
+}
+
+export function readJsonStrict(filePath) {
+  const label = path.relative(repoRoot, filePath);
+  return parseJsonStrict(fs.readFileSync(filePath), label);
 }
 
 function readConfinedGeneratedJson(filePath, label) {
