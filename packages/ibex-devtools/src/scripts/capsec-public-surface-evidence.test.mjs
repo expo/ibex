@@ -4,6 +4,7 @@ import {
   assertPublicSurfaceExecutionComplete,
   buildPublicFixtureEvidence,
   buildPublicSurfaceExecutionArtifact,
+  mergePublicBatchExecutions,
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
 import {
@@ -186,6 +187,51 @@ function completeArtifact(catalog = completeCatalog()) {
 }
 
 describe("CapSec public-surface promotion evidence", () => {
+  test("merges only exact, engine-bound public fixture batches", () => {
+    const catalog = completeCatalog();
+    const execution = buildPublicFixtureEvidence({
+      recipe: catalog.recipes[0],
+      engineBinaryDigest: engine.binaryDigest,
+      runtimeObservation: runtimeObservation(catalog.recipes[0]),
+      coverage,
+    });
+    const batch = {
+      publicBatchEvidenceSchema: "ibex/capsec-public-batch-evidence/1",
+      recipeCatalogDigest: catalog.recipeCatalogDigest,
+      loadedEngineIdentity: engine,
+      executions: [execution],
+    };
+    expect(
+      mergePublicBatchExecutions({
+        batches: [
+          { batch, expectedFixtureIds: [catalog.recipes[0].fixtureId] },
+        ],
+        recipeCatalog: catalog,
+        loadedEngineIdentity: engine,
+      }),
+    ).toEqual([execution]);
+
+    expect(() =>
+      mergePublicBatchExecutions({
+        batches: [
+          { batch, expectedFixtureIds: [catalog.recipes[0].fixtureId] },
+          { batch, expectedFixtureIds: [catalog.recipes[0].fixtureId] },
+        ],
+        recipeCatalog: catalog,
+        loadedEngineIdentity: engine,
+      }),
+    ).toThrow(/duplicate public execution/);
+    expect(() =>
+      mergePublicBatchExecutions({
+        batches: [{ batch: { ...batch, executions: [] }, expectedFixtureIds: [
+          catalog.recipes[0].fixtureId,
+        ] }],
+        recipeCatalog: catalog,
+        loadedEngineIdentity: engine,
+      }),
+    ).toThrow(/missing, duplicates, or adds/);
+  });
+
   test("accepts one exact public invocation for every complete recipe", () => {
     const catalog = completeCatalog();
     const artifact = completeArtifact(catalog);

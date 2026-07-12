@@ -14,6 +14,7 @@ import { assertRecipeCatalogComplete } from "./capsec-conformance-recipes.mjs";
 import {
   assertPublicSurfaceExecutionComplete,
   buildPublicSurfaceExecutionArtifact,
+  mergePublicBatchExecutions,
   validatePublicSurfaceExecutionArtifact,
 } from "./capsec-public-surface-evidence.mjs";
 import { CONFORMANCE_COMMANDS } from "./capsec-conformance-matrix.mjs";
@@ -145,6 +146,10 @@ const publicSurfaceEvidencePath = path.join(
   evidenceDirectory,
   "public-surface-executions.json",
 );
+const publicBatchEvidenceDirectory = path.join(
+  evidenceDirectory,
+  "public-fixture-batches",
+);
 execFileSync(
   process.execPath,
   [
@@ -200,6 +205,53 @@ if (
     "typed adapter evidence is stale, incomplete, or from another loaded engine",
   );
 }
+fs.mkdirSync(publicBatchEvidenceDirectory, { recursive: true });
+const publicRecipeCommands = new Map();
+for (const recipe of recipeCatalog.recipes) {
+  if (recipe.status !== "fully-executable") continue;
+  const command = recipe.publicSurfaceProbe?.command;
+  if (!Array.isArray(command) || command.length === 0) {
+    throw new Error(`${recipe.fixtureId}: fully executable recipe has no command`);
+  }
+  const key = canonicalJson(command);
+  const entry = publicRecipeCommands.get(key) ?? { command, fixtureIds: [] };
+  entry.fixtureIds.push(recipe.fixtureId);
+  publicRecipeCommands.set(key, entry);
+}
+const publicBatches = [];
+let publicBatchIndex = 0;
+for (const { command, fixtureIds } of publicRecipeCommands.values()) {
+  const batchId = `public-fixtures-${String(publicBatchIndex).padStart(3, "0")}-${taggedDigest(
+    Buffer.from(canonicalJson(command), "utf8"),
+  ).slice(7, 19)}`;
+  publicBatchIndex += 1;
+  const batchOutputPath = path.join(
+    publicBatchEvidenceDirectory,
+    `${batchId}.json`,
+  );
+  fs.rmSync(batchOutputPath, { force: true });
+  commandEvidence.push(
+    runObservedCommand({
+      id: batchId,
+      command: command[0],
+      args: command.slice(1),
+      cwd: repoRoot,
+      evidenceDirectory,
+      env: {
+        ...exactEngineEnvironment,
+        IBEX_CAPSEC_RECIPE_CATALOG: recipeCatalogPath,
+        IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT: batchOutputPath,
+      },
+    }),
+  );
+  const batch = readJsonStrict(batchOutputPath);
+  publicBatches.push({ batch, expectedFixtureIds: fixtureIds });
+}
+const publicExecutions = mergePublicBatchExecutions({
+  batches: publicBatches,
+  recipeCatalog,
+  loadedEngineIdentity,
+});
 commandEvidence.push(...CONFORMANCE_COMMANDS.map(([id, command, commandArgs]) =>
   runObservedCommand({
     id,
@@ -257,12 +309,20 @@ const bindings = {
   registryDigest,
   implementationManifestDigest,
 };
-let publicSurfaceEvidence;
+const publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
+  recipeCatalog,
+  sourceRevision: bindings.sourceRevision,
+  sourceTreeDigest: bindings.sourceTreeDigest,
+  target,
+  engine: bindings.engine,
+  coverage,
+  executions: publicExecutions,
+});
 if (publicSurfaceEvidenceInputPath) {
-  publicSurfaceEvidence = readJsonStrict(
+  const suppliedEvidence = readJsonStrict(
     path.resolve(repoRoot, publicSurfaceEvidenceInputPath),
   );
-  validatePublicSurfaceExecutionArtifact(publicSurfaceEvidence, {
+  validatePublicSurfaceExecutionArtifact(suppliedEvidence, {
     recipeCatalog,
     target,
     sourceRevision: bindings.sourceRevision,
@@ -270,16 +330,11 @@ if (publicSurfaceEvidenceInputPath) {
     engine: bindings.engine,
     coverage,
   });
-} else {
-  publicSurfaceEvidence = buildPublicSurfaceExecutionArtifact({
-    recipeCatalog,
-    sourceRevision: bindings.sourceRevision,
-    sourceTreeDigest: bindings.sourceTreeDigest,
-    target,
-    engine: bindings.engine,
-    coverage,
-    executions: [],
-  });
+  if (canonicalJson(suppliedEvidence) !== canonicalJson(publicSurfaceEvidence)) {
+    throw new Error(
+      "supplied public evidence differs from the evidence executed by this runner",
+    );
+  }
 }
 fs.writeFileSync(
   publicSurfaceEvidencePath,

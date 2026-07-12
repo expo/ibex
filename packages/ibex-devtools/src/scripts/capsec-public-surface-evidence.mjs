@@ -45,6 +45,77 @@ export function computePublicSurfaceExecutionDigest(artifact) {
   return taggedDigest(payload);
 }
 
+export function mergePublicBatchExecutions({
+  batches,
+  recipeCatalog,
+  loadedEngineIdentity,
+}) {
+  if (!Array.isArray(batches)) {
+    throw new Error("public fixture batches must be an array");
+  }
+  const knownFixtures = new Set(
+    recipeCatalog.recipes.map((recipe) => recipe.fixtureId),
+  );
+  const seen = new Set();
+  const executions = [];
+  for (const [index, entry] of batches.entries()) {
+    exactKeys(
+      entry,
+      ["batch", "expectedFixtureIds"],
+      `public fixture batch binding ${index}`,
+    );
+    const { batch, expectedFixtureIds } = entry;
+    exactKeys(
+      batch,
+      [
+        "publicBatchEvidenceSchema",
+        "recipeCatalogDigest",
+        "loadedEngineIdentity",
+        "executions",
+      ],
+      `public fixture batch ${index}`,
+    );
+    if (
+      batch.publicBatchEvidenceSchema !==
+        "ibex/capsec-public-batch-evidence/1" ||
+      batch.recipeCatalogDigest !== recipeCatalog.recipeCatalogDigest ||
+      canonicalJson(batch.loadedEngineIdentity) !==
+        canonicalJson(loadedEngineIdentity) ||
+      !Array.isArray(batch.executions) ||
+      !Array.isArray(expectedFixtureIds) ||
+      new Set(expectedFixtureIds).size !== expectedFixtureIds.length ||
+      expectedFixtureIds.some((fixtureId) => !knownFixtures.has(fixtureId))
+    ) {
+      throw new Error(`public fixture batch ${index} is stale or malformed`);
+    }
+    const observedFixtureIds = batch.executions.map(
+      (execution) => execution?.fixtureId,
+    );
+    if (
+      observedFixtureIds.some((fixtureId) => typeof fixtureId !== "string") ||
+      new Set(observedFixtureIds).size !== observedFixtureIds.length ||
+      canonicalJson([...observedFixtureIds].sort(compareText)) !==
+        canonicalJson([...expectedFixtureIds].sort(compareText))
+    ) {
+      throw new Error(
+        `public fixture batch ${index} is missing, duplicates, or adds fixtures`,
+      );
+    }
+    for (const execution of batch.executions) {
+      if (seen.has(execution.fixtureId)) {
+        throw new Error(
+          `${execution.fixtureId}: duplicate public execution across batch commands`,
+        );
+      }
+      seen.add(execution.fixtureId);
+      executions.push(structuredClone(execution));
+    }
+  }
+  return executions.sort((left, right) =>
+    compareText(left.fixtureId, right.fixtureId),
+  );
+}
+
 function executionSummary(recipeCatalog, executions) {
   return {
     requiredFixtures: recipeCatalog.summary.requiredFixtures,
