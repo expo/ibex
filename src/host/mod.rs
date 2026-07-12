@@ -2544,7 +2544,7 @@ fn validate_snapshot_root_bindings(
     snapshot: &capsec_semantics::arming::ArmedSnapshot,
 ) -> capsec_semantics::Result<()> {
     let bindings = snapshot.root_bindings()?;
-    for binding in &bindings {
+    for binding in bindings {
         validate_armed_binding_object(binding)?;
     }
     for principal in snapshot
