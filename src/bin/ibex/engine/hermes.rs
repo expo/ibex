@@ -2573,6 +2573,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                 var existing = __exactFsOpen({existing:?}, 'w');
                 __exactFsWrite(existing, 'new', -1);
                 __exactFsClose(existing);
@@ -2748,6 +2749,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactFsOpen({existing:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({absent:?}, 'w'); }} catch (_) {{ denied++; }}
@@ -2839,6 +2841,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactStat({file:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactReaddir({directory:?}); }} catch (_) {{ denied++; }}
@@ -2888,6 +2891,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactFsOpen({parent_escape:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({final_escape:?}, 'w'); }} catch (_) {{ denied++; }}
@@ -3177,6 +3181,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
+                if (typeof __exactEnsureFs === 'function') __exactEnsureFs();
                 function b2s(a) {{ return String.fromCharCode.apply(null, a); }}
                 // The POSIX fs bridge is installed lazily on first use.
                 var fd = __exactFsOpen({path_str:?}, 'r');
