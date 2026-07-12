@@ -308,9 +308,20 @@ StringDecoder.prototype[Symbol.toPrimitive] = function() {
   return 'StringDecoder';
 };
 
-StringDecoder.prototype.toString = function() {
+var stringDecoderToString = function() {
   return '[object StringDecoder]';
 };
+StringDecoder.prototype.toString = stringDecoderToString;
+// Lazy builtin evaluation runs after primordial prototypes are locked down.
+// Define the own override directly so Object.prototype.toString being
+// non-writable cannot make the sloppy assignment above disappear.
+// @ref LLP 0013#mechanism-1-lockdown — locked intrinsics remain shared.
+Object.defineProperty(StringDecoder.prototype, 'toString', {
+  value: stringDecoderToString,
+  writable: true,
+  configurable: true,
+  enumerable: true
+});
 
 module.exports = StringDecoder;
 module.exports.StringDecoder = StringDecoder;

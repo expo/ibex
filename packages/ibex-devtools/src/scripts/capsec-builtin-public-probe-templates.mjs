@@ -273,7 +273,134 @@ const ROOT_CALL_SPECS = Object.freeze({
     ),
     unescape: rootCall([jsonArgument("ibex%20probe")], "string"),
   }),
+  node_string_decoder: Object.freeze({
+    default: constructTarget([jsonArgument("utf8")]),
+    StringDecoder: constructTarget([jsonArgument("utf8")]),
+    "StringDecoder.end": constructedOwner(
+      "StringDecoder",
+      [bufferArgument([0x69, 0x62, 0x65, 0x78])],
+      "string",
+      [jsonArgument("utf8")],
+    ),
+    "StringDecoder.fillLast": constructedOwner(
+      "StringDecoder",
+      [bufferArgument([0x69])],
+      "string",
+      [jsonArgument("utf8")],
+    ),
+    "StringDecoder.text": constructedOwner(
+      "StringDecoder",
+      [bufferArgument([0x69, 0x62, 0x65, 0x78]), jsonArgument(0)],
+      "string",
+      [jsonArgument("utf8")],
+    ),
+    "StringDecoder.toString": constructedOwner(
+      "StringDecoder",
+      [],
+      "string",
+      [jsonArgument("utf8")],
+    ),
+    "StringDecoder.write": constructedOwner(
+      "StringDecoder",
+      [bufferArgument([0x69, 0x62, 0x65, 0x78])],
+      "string",
+      [jsonArgument("utf8")],
+    ),
+  }),
   node_stream: STREAM_ROOT_CALL_SPECS,
+  node_url: Object.freeze({
+    fileURLToPath: rootCall(
+      [jsonArgument("file:///tmp/ibex")],
+      "string",
+    ),
+    format: rootCall(
+      [
+        jsonArgument({
+          protocol: "https:",
+          slashes: true,
+          hostname: "example.test",
+          pathname: "/ibex",
+          search: "?probe=1",
+          hash: "#bounded",
+        }),
+      ],
+      "string",
+    ),
+    parse: rootCall([jsonArgument("https://example.test/ibex")], "object"),
+    pathToFileURL: rootCall([jsonArgument("/tmp/ibex")], "object"),
+    resolve: rootCall(
+      [
+        jsonArgument("https://example.test/base/"),
+        jsonArgument("../ibex"),
+      ],
+      "string",
+    ),
+    resolveObject: rootCall(
+      [
+        jsonArgument("https://example.test/base/"),
+        jsonArgument("../ibex"),
+      ],
+      "object",
+    ),
+    Url: constructTarget([]),
+    "Url.resolveObject": constructedOwner(
+      "Url",
+      [jsonArgument("https://example.test/ibex")],
+      "object",
+    ),
+    urlToHttpOptions: rootCall(
+      [
+        jsonArgument({
+          protocol: "https:",
+          hostname: "example.test",
+          pathname: "/ibex",
+          search: "?probe=1",
+          hash: "#bounded",
+          href: "https://example.test/ibex?probe=1#bounded",
+          port: "443",
+          username: "",
+          password: "",
+        }),
+      ],
+      "object",
+    ),
+  }),
+  node_util: Object.freeze({
+    _extend: rootCall(
+      [jsonArgument({ a: 1 }), jsonArgument({ b: 2 })],
+      "object",
+    ),
+    callbackify: rootCall([noopArgument()], "function"),
+    deprecate: rootCall(
+      [noopArgument(), jsonArgument("ibex bounded probe")],
+      "function",
+    ),
+    format: rootCall(
+      [jsonArgument("%s:%d"), jsonArgument("ibex"), jsonArgument(1)],
+      "string",
+    ),
+    formatWithOptions: rootCall(
+      [jsonArgument({}), jsonArgument("%s"), jsonArgument("ibex")],
+      "string",
+    ),
+    getSystemErrorName: rootCall([jsonArgument(-2)], "string"),
+    inherits: rootCall([noopArgument(), noopArgument()], "undefined"),
+    inspect: rootCall([jsonArgument({ ibex: true })], "string"),
+    isDeepStrictEqual: rootCall(
+      [jsonArgument({ ibex: [1] }), jsonArgument({ ibex: [1] })],
+      "boolean",
+    ),
+    parseArgs: rootCall(
+      [
+        jsonArgument({
+          args: ["--probe", "ibex"],
+          options: { probe: { type: "string" } },
+        }),
+      ],
+      "object",
+    ),
+    promisify: rootCall([noopArgument()], "function"),
+  }),
   node_punycode: Object.freeze({
     decode: rootCall([jsonArgument("maana-pta")], "string"),
     encode: rootCall([jsonArgument("mañana")], "string"),
@@ -941,6 +1068,9 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",
   node_stream: "node-stream-bounded-v1",
+  node_string_decoder: "node-string-decoder-bounded-v1",
+  node_url: "node-url-pure-v1",
+  node_util: "node-util-pure-v1",
   node_zlib: "node-zlib-bounded-v1",
 });
 

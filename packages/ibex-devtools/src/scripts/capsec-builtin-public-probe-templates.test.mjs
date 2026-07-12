@@ -266,6 +266,64 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("authors bounded string decoder, URL, and util calls", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_string_decoder",
+        exportName: "StringDecoder.write",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:string_decoder", "string_decoder"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-string-decoder-bounded-v1",
+        arguments: [{ kind: "buffer", bytes: [0x69, 0x62, 0x65, 0x78] }],
+        setup: {
+          kind: "constructed-owner",
+          ownerExportName: "StringDecoder",
+          constructorArguments: [{ kind: "json", value: "utf8" }],
+        },
+        bodyEntryProof: { resultType: "string" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_url",
+        exportName: "resolve",
+        exportIdioms: ["module-exports-object"],
+        moduleSpecifiers: ["node:url", "url"],
+        valueShape: "callable",
+      })?.invocation.bodyEntryProof.resultType,
+    ).toBe("string");
+    expect(
+      probeFor({
+        sourceKey: "node_util",
+        exportName: "parseArgs",
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["node:util", "util"],
+        valueShape: "callable",
+      })?.invocation.arguments,
+    ).toEqual([
+      {
+        kind: "json",
+        value: {
+          args: ["--probe", "ibex"],
+          options: { probe: { type: "string" } },
+        },
+      },
+    ]);
+    expect(
+      probeFor({
+        sourceKey: "node_string_decoder",
+        exportName: "default.write",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:string_decoder", "string_decoder"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({

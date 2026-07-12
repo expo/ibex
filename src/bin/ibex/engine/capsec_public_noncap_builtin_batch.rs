@@ -501,6 +501,9 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_punycode" => Some("node-punycode-pure-v1"),
         "node_querystring" => Some("node-querystring-pure-v1"),
         "node_stream" => Some("node-stream-bounded-v1"),
+        "node_string_decoder" => Some("node-string-decoder-bounded-v1"),
+        "node_url" => Some("node-url-pure-v1"),
+        "node_util" => Some("node-util-pure-v1"),
         "node_zlib" => Some("node-zlib-bounded-v1"),
         _ => None,
     }

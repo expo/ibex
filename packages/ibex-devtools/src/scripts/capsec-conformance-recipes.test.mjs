@@ -444,6 +444,9 @@ describe("exact-target CapSec executable recipes", () => {
         "node_punycode",
         "node_querystring",
         "node_stream",
+        "node_string_decoder",
+        "node_url",
+        "node_util",
         "node_zlib",
       ]),
     );

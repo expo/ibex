@@ -151,7 +151,11 @@
       return new Uint8Array(argument.bytes);
     }
     if (argument.kind === "buffer") {
-      return moduleValue.Buffer.from(argument.bytes);
+      var BufferOwner = moduleValue.Buffer || globalThis.Buffer;
+      if (!BufferOwner || typeof BufferOwner.from !== "function") {
+        throw new TypeError("missing authored builtin Buffer owner");
+      }
+      return BufferOwner.from(argument.bytes);
     }
     if (argument.kind === "bigint") {
       return BigInt(argument.value);
