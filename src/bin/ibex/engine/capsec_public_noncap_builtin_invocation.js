@@ -96,6 +96,39 @@
     return { value: value };
   }
 
+  function createStreamInstance(moduleValue, ownerExportName, ended) {
+    var owner =
+      ownerExportName === "default"
+        ? moduleValue
+        : moduleValue[ownerExportName];
+    if (typeof owner !== "function") {
+      throw new TypeError("missing authored stream owner");
+    }
+    var options = {};
+    if (ownerExportName === "Readable" || ownerExportName === "Duplex") {
+      options.read = function () {};
+    }
+    if (ownerExportName === "Writable" || ownerExportName === "Duplex") {
+      options.write = function (chunk, encoding, callback) {
+        callback();
+      };
+    }
+    if (ownerExportName === "Transform") {
+      options.transform = function (chunk, encoding, callback) {
+        callback(null, chunk);
+      };
+    }
+    var constructorArguments =
+      ownerExportName === "Stream" || ownerExportName === "default"
+        ? []
+        : [options];
+    var instance = Reflect.construct(owner, constructorArguments);
+    if (ended && typeof instance.push === "function") {
+      instance.push(null);
+    }
+    return instance;
+  }
+
   function materialize(argument, moduleValue, bindings) {
     if (!argument || typeof argument.kind !== "string") {
       throw new TypeError("invalid authored builtin argument");
@@ -128,6 +161,26 @@
         throw new TypeError("missing authored builtin setup value");
       }
       return bindings[argument.name];
+    }
+    if (argument.kind === "constant-function") {
+      return function () {
+        return argument.value;
+      };
+    }
+    if (argument.kind === "first-argument-function") {
+      return function (value) {
+        return value;
+      };
+    }
+    if (argument.kind === "stream-instance") {
+      return createStreamInstance(
+        moduleValue,
+        argument.ownerExportName,
+        argument.ended,
+      );
+    }
+    if (argument.kind === "abort-signal") {
+      return new AbortController().signal;
     }
     if (argument.kind === "zlib-input") {
       if (argument.ownerExportName === "Inflate") {
@@ -265,6 +318,13 @@
           expectedNativeStream: true,
         });
       }
+      dispatchKind = "prototype-call";
+    } else if (setup.kind === "stream-owner") {
+      receiver = createStreamInstance(
+        moduleValue,
+        setup.ownerExportName,
+        setup.endedInput,
+      );
       dispatchKind = "prototype-call";
     } else {
       return failure("unsupported-setup", { setupKind: setup.kind });

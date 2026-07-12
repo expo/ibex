@@ -443,6 +443,7 @@ describe("exact-target CapSec executable recipes", () => {
         "node_path",
         "node_punycode",
         "node_querystring",
+        "node_stream",
         "node_zlib",
       ]),
     );

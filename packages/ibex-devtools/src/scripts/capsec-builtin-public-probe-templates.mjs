@@ -58,6 +58,17 @@ const uint8ArrayArgument = (bytes) => ({ kind: "uint8-array", bytes });
 const bufferArgument = (bytes) => ({ kind: "buffer", bytes });
 const bigintArgument = (value) => ({ kind: "bigint", value: String(value) });
 const setupValueArgument = (name) => ({ kind: "setup-value", name });
+const constantFunctionArgument = (value) => ({
+  kind: "constant-function",
+  value,
+});
+const firstArgumentFunction = () => ({ kind: "first-argument-function" });
+const streamInstanceArgument = (ownerExportName, ended = false) => ({
+  kind: "stream-instance",
+  ownerExportName,
+  ended,
+});
+const abortSignalArgument = () => ({ kind: "abort-signal" });
 const zlibInputArgument = (ownerExportName) => ({
   kind: "zlib-input",
   ownerExportName,
@@ -155,6 +166,75 @@ function zlibRootCallSpecs() {
 
 const ZLIB_ROOT_CALL_SPECS = zlibRootCallSpecs();
 
+const STREAM_OWNER_NAMES = Object.freeze([
+  "Duplex",
+  "PassThrough",
+  "Readable",
+  "Stream",
+  "Transform",
+  "Writable",
+  "default",
+]);
+const STREAM_OWNER_SET = new Set(STREAM_OWNER_NAMES);
+const STREAM_READABLE_OWNER_SET = new Set([
+  "Duplex",
+  "PassThrough",
+  "Readable",
+  "Transform",
+]);
+
+function streamRootCallSpecs() {
+  const specs = Object.create(null);
+  for (const ownerExportName of STREAM_OWNER_NAMES) {
+    specs[ownerExportName] = constructTarget([]);
+  }
+  specs.addAbortSignal = rootCall(
+    [abortSignalArgument(), streamInstanceArgument("Readable")],
+    "object",
+  );
+  specs.addAbortSignalNoValidate = rootCall(
+    [abortSignalArgument(), streamInstanceArgument("Readable")],
+    "object",
+  );
+  // compose() owns a live pipeline after it returns. A one-shot invocation
+  // cannot prove that the asynchronous pipeline was drained and cleaned up,
+  // so leave it residual instead of leaking work into later probes.
+  specs.destroy = rootCall(
+    // The one-argument form intentionally injects an asynchronously-emitted
+    // AbortError. Passing an explicit null exercises the same source body
+    // without leaving an error event behind after the probe returns.
+    [streamInstanceArgument("Readable"), jsonArgument(null)],
+    "object",
+  );
+  specs.duplexPair = rootCall([], "object");
+  specs.finished = rootCall(
+    [streamInstanceArgument("Readable", true), noopArgument()],
+    "function",
+  );
+  for (const exportName of [
+    "isDisturbed",
+    "isErrored",
+    "isReadable",
+    "isWritable",
+  ]) {
+    specs[exportName] = rootCall(
+      [streamInstanceArgument("Readable")],
+      "boolean",
+    );
+  }
+  specs.pipeline = rootCall(
+    [
+      streamInstanceArgument("Readable", true),
+      streamInstanceArgument("PassThrough"),
+      noopArgument(),
+    ],
+    "object",
+  );
+  return Object.freeze(specs);
+}
+
+const STREAM_ROOT_CALL_SPECS = streamRootCallSpecs();
+
 // These tables are deliberately keyed by the scanner's sourceKey and exact
 // exportName. They are an allowlist derived from the corresponding builtin
 // source, not a generic "call every function" mechanism.
@@ -193,6 +273,7 @@ const ROOT_CALL_SPECS = Object.freeze({
     ),
     unescape: rootCall([jsonArgument("ibex%20probe")], "string"),
   }),
+  node_stream: STREAM_ROOT_CALL_SPECS,
   node_punycode: Object.freeze({
     decode: rootCall([jsonArgument("maana-pta")], "string"),
     encode: rootCall([jsonArgument("mañana")], "string"),
@@ -641,6 +722,217 @@ function zlibPrototypeSpec(exportName) {
   return null;
 }
 
+function streamOwnerCall(
+  ownerExportName,
+  arguments_,
+  resultType,
+  endedInput = false,
+) {
+  return callSpec(
+    {
+      kind: "stream-owner",
+      ownerExportName,
+      endedInput,
+    },
+    arguments_,
+    resultType,
+  );
+}
+
+function streamPrototypeSpec(exportName) {
+  const segments = exportName.split(".");
+  if (segments.length !== 2 || !STREAM_OWNER_SET.has(segments[0])) return null;
+  const [ownerExportName, methodName] = segments;
+  // node:stream is itself the default Stream export; it does not expose a
+  // `default.prototype` property at runtime. The inventory's module-value
+  // alias is exact for the root constructor but not for prototype traversal.
+  if (ownerExportName === "default") return null;
+  // Duplex copies Writable prototype descriptors dynamically. Until that
+  // copy idiom is represented by the inventory, its inherited _undestroy
+  // descriptor would deliberately fail the exact own/inherited access check.
+  if (ownerExportName === "Duplex" && methodName === "_undestroy") return null;
+  if (methodName === "constructor") return constructTarget([]);
+  if (methodName === "_close") {
+    return streamOwnerCall(ownerExportName, [jsonArgument(true)], "undefined");
+  }
+  if (methodName === "_emitClose" || methodName === "_undestroy") {
+    return streamOwnerCall(ownerExportName, [], "undefined");
+  }
+  if (methodName === "destroy") {
+    return streamOwnerCall(ownerExportName, [], "object");
+  }
+  if (methodName === "pipe") {
+    if (ownerExportName === "Writable") return null;
+    return streamOwnerCall(
+      ownerExportName,
+      [streamInstanceArgument("Writable")],
+      "object",
+    );
+  }
+  if (methodName === "unpipe") {
+    return streamOwnerCall(ownerExportName, [], "object");
+  }
+  if (STREAM_READABLE_OWNER_SET.has(ownerExportName)) {
+    if (
+      new Set([
+        "_emitReadableIfNeeded",
+        "_read",
+        "_readFromSource",
+        "_syncReadableState",
+      ]).has(methodName)
+    ) {
+      const arguments_ = new Set(["_read", "_readFromSource"]).has(methodName)
+        ? [jsonArgument(0)]
+        : [];
+      return streamOwnerCall(ownerExportName, arguments_, "undefined");
+    }
+    if (methodName === "_updateReadableLength") {
+      return streamOwnerCall(ownerExportName, [jsonArgument(0)], "undefined");
+    }
+    // Like the root helper, the prototype compose() call leaves an
+    // asynchronously-owned pipeline behind after its normal return.
+    if (methodName === "compose") return null;
+    if (methodName === "drop") {
+      return streamOwnerCall(ownerExportName, [jsonArgument(0)], "object");
+    }
+    if (methodName === "emit") {
+      return streamOwnerCall(
+        ownerExportName,
+        [jsonArgument("ibex")],
+        "boolean",
+      );
+    }
+    if (methodName === "filter") {
+      return streamOwnerCall(
+        ownerExportName,
+        [constantFunctionArgument(true)],
+        "object",
+      );
+    }
+    if (methodName === "flatMap") {
+      return streamOwnerCall(
+        ownerExportName,
+        [constantFunctionArgument([])],
+        "object",
+      );
+    }
+    if (methodName === "forEach") {
+      return streamOwnerCall(ownerExportName, [noopArgument()], "object", true);
+    }
+    if (methodName === "isPaused") {
+      return streamOwnerCall(ownerExportName, [], "boolean");
+    }
+    if (methodName === "iterator") {
+      return streamOwnerCall(ownerExportName, [], "object");
+    }
+    if (methodName === "map") {
+      return streamOwnerCall(
+        ownerExportName,
+        [constantFunctionArgument("ibex")],
+        "object",
+      );
+    }
+    if (methodName === "on") {
+      return streamOwnerCall(
+        ownerExportName,
+        [jsonArgument("ibex"), noopArgument()],
+        "object",
+      );
+    }
+    if (methodName === "pause") {
+      return streamOwnerCall(ownerExportName, [], "object");
+    }
+    if (methodName === "push" || methodName === "unshift") {
+      return streamOwnerCall(ownerExportName, [jsonArgument("")], "boolean");
+    }
+    if (methodName === "read") {
+      return streamOwnerCall(ownerExportName, [jsonArgument(0)], "null");
+    }
+    if (methodName === "reduce") {
+      return streamOwnerCall(
+        ownerExportName,
+        [firstArgumentFunction(), jsonArgument(0)],
+        "object",
+        true,
+      );
+    }
+    if (methodName === "resume") {
+      return streamOwnerCall(ownerExportName, [], "object", true);
+    }
+    if (methodName === "setEncoding") {
+      return streamOwnerCall(ownerExportName, [jsonArgument("utf8")], "object");
+    }
+    if (methodName === "some" || methodName === "find") {
+      return streamOwnerCall(
+        ownerExportName,
+        [constantFunctionArgument(false)],
+        "object",
+        true,
+      );
+    }
+    if (methodName === "every") {
+      return streamOwnerCall(
+        ownerExportName,
+        [constantFunctionArgument(true)],
+        "object",
+        true,
+      );
+    }
+    if (methodName === "take") {
+      return streamOwnerCall(ownerExportName, [jsonArgument(1)], "object");
+    }
+    if (methodName === "toArray") {
+      return streamOwnerCall(ownerExportName, [], "object", true);
+    }
+    if (methodName === "wrap") {
+      return streamOwnerCall(
+        ownerExportName,
+        [streamInstanceArgument("Readable", true)],
+        "object",
+      );
+    }
+  }
+  if (methodName === "_transform" && ownerExportName === "PassThrough") {
+    return streamOwnerCall(
+      ownerExportName,
+      [jsonArgument("ibex"), jsonArgument("utf8"), noopArgument()],
+      "undefined",
+    );
+  }
+  if (
+    methodName === "_write" &&
+    new Set(["PassThrough", "Transform"]).has(ownerExportName)
+  ) {
+    return streamOwnerCall(
+      ownerExportName,
+      [jsonArgument("ibex"), jsonArgument("utf8"), noopArgument()],
+      "undefined",
+    );
+  }
+  if (ownerExportName === "Writable") {
+    if (methodName === "_flushWriteQueue") {
+      return streamOwnerCall(ownerExportName, [], "undefined");
+    }
+    if (methodName === "cork" || methodName === "uncork") {
+      return streamOwnerCall(ownerExportName, [], "undefined");
+    }
+    if (methodName === "end") {
+      return streamOwnerCall(ownerExportName, [noopArgument()], "object");
+    }
+    if (methodName === "setDefaultEncoding") {
+      return streamOwnerCall(ownerExportName, [jsonArgument("utf8")], "object");
+    }
+    if (methodName === "write") {
+      return streamOwnerCall(
+        ownerExportName,
+        [jsonArgument("ibex"), noopArgument()],
+        "boolean",
+      );
+    }
+  }
+  return null;
+}
+
 const CALL_TEMPLATE_IDS = Object.freeze({
   node_assert: "node-assert-bounded-v1",
   node_buffer: "node-buffer-bounded-v1",
@@ -648,6 +940,7 @@ const CALL_TEMPLATE_IDS = Object.freeze({
   node_path: "node-path-pure-v1",
   node_punycode: "node-punycode-pure-v1",
   node_querystring: "node-querystring-pure-v1",
+  node_stream: "node-stream-bounded-v1",
   node_zlib: "node-zlib-bounded-v1",
 });
 
@@ -667,6 +960,9 @@ function callTemplateFor(descriptor) {
   if (!spec && descriptor.sourceKey === "node_zlib") {
     spec = zlibPrototypeSpec(descriptor.exportName);
   }
+  if (!spec && descriptor.sourceKey === "node_stream") {
+    spec = streamPrototypeSpec(descriptor.exportName);
+  }
   const templateId = ownValue(CALL_TEMPLATE_IDS, descriptor.sourceKey);
   if (!spec || !templateId) return null;
 
@@ -683,6 +979,7 @@ function callTemplateFor(descriptor) {
         "construct-target",
         "constructed-owner",
         "zlib-owner",
+        "stream-owner",
       ]).has(setupKind)) ||
     (!prototypeAccess &&
       !new Set(["construct-target", "root-call"]).has(setupKind))

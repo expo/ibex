@@ -271,6 +271,13 @@ fn is_zlib_owner(value: &str) -> bool {
     )
 }
 
+fn is_stream_owner(value: &str) -> bool {
+    matches!(
+        value,
+        "Duplex" | "PassThrough" | "Readable" | "Stream" | "Transform" | "Writable" | "default"
+    )
+}
+
 fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: bool) {
     let object = argument
         .as_object()
@@ -288,6 +295,32 @@ fn validate_authored_argument(argument: &serde_json::Value, allow_setup_value: b
         }
         "noop-function" | "event-emitter" => {
             assert_object_keys(argument, &["kind"], "authored special argument");
+        }
+        "constant-function" => {
+            assert_object_keys(
+                argument,
+                &["kind", "value"],
+                "constant function argument",
+            );
+            assert!(
+                serde_json::to_vec(&object["value"]).unwrap().len() <= 1024,
+                "constant function result is unbounded"
+            );
+        }
+        "first-argument-function" | "abort-signal" => {
+            assert_object_keys(argument, &["kind"], "authored function/signal argument");
+        }
+        "stream-instance" => {
+            assert_object_keys(
+                argument,
+                &["ended", "kind", "ownerExportName"],
+                "stream instance argument",
+            );
+            let owner = object["ownerExportName"]
+                .as_str()
+                .expect("stream argument owner must be text");
+            assert!(is_stream_owner(owner));
+            assert!(object["ended"].is_boolean());
         }
         "throwing-function" => {
             assert_object_keys(
@@ -436,6 +469,21 @@ fn validate_call_setup(invocation: &BuiltinInvocation, descriptor: &BuiltinSourc
             assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
             assert!(setup["ensureNativeStream"].is_boolean());
         }
+        "stream-owner" => {
+            assert_object_keys(
+                &invocation.setup,
+                &["endedInput", "kind", "ownerExportName"],
+                "stream owner setup",
+            );
+            assert!(prototype);
+            assert_eq!(descriptor.source_key, "node_stream");
+            let owner = setup["ownerExportName"]
+                .as_str()
+                .expect("stream owner name must be text");
+            assert!(is_stream_owner(owner));
+            assert_eq!(descriptor.access.path.first().map(String::as_str), Some(owner));
+            assert!(setup["endedInput"].is_boolean());
+        }
         other => panic!("unsupported authored builtin setup kind {other}"),
     }
     assert!(invocation.arguments.len() <= 8);
@@ -452,6 +500,7 @@ fn expected_template_id(source_key: &str) -> Option<&'static str> {
         "node_path" => Some("node-path-pure-v1"),
         "node_punycode" => Some("node-punycode-pure-v1"),
         "node_querystring" => Some("node-querystring-pure-v1"),
+        "node_stream" => Some("node-stream-bounded-v1"),
         "node_zlib" => Some("node-zlib-bounded-v1"),
         _ => None,
     }
@@ -540,7 +589,7 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
         assert_eq!(proof.kind, "normal-return-from-source-call");
         assert!(matches!(
             proof.result_type.as_str(),
-            "bigint" | "boolean" | "function" | "number" | "object" | "string" | "undefined"
+            "bigint" | "boolean" | "function" | "null" | "number" | "object" | "string" | "undefined"
         ));
         validate_call_setup(invocation, &descriptor);
     }

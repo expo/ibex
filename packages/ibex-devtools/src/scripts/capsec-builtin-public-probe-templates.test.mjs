@@ -200,6 +200,72 @@ describe("source-bound builtin public probes", () => {
     ).toBeNull();
   });
 
+  test("authors configured stream receivers but leaves throwing base methods residual", () => {
+    expect(
+      probeFor({
+        sourceKey: "node_stream",
+        exportName: "Readable.read",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:stream", "stream"],
+        valueShape: "callable",
+      }),
+    ).toMatchObject({
+      invocation: {
+        templateId: "node-stream-bounded-v1",
+        arguments: [{ kind: "json", value: 0 }],
+        setup: {
+          kind: "stream-owner",
+          ownerExportName: "Readable",
+          endedInput: false,
+        },
+        bodyEntryProof: { resultType: "null" },
+      },
+    });
+    expect(
+      probeFor({
+        sourceKey: "node_stream",
+        exportName: "compose",
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["node:stream", "stream"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_stream",
+        exportName: "destroy",
+        exportIdioms: ["member-assignment"],
+        moduleSpecifiers: ["node:stream", "stream"],
+        valueShape: "callable",
+      })?.invocation.arguments,
+    ).toEqual([
+      {
+        kind: "stream-instance",
+        ownerExportName: "Readable",
+        ended: false,
+      },
+      { kind: "json", value: null },
+    ]);
+    expect(
+      probeFor({
+        sourceKey: "node_stream",
+        exportName: "default.destroy",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:stream", "stream"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+    expect(
+      probeFor({
+        sourceKey: "node_stream",
+        exportName: "Writable._write",
+        exportIdioms: ["exported-constructor-prototype"],
+        moduleSpecifiers: ["node:stream", "stream"],
+        valueShape: "callable",
+      }),
+    ).toBeNull();
+  });
+
   test("leaves un-authored callable families and throwing-only calls residual", () => {
     expect(
       probeFor({
