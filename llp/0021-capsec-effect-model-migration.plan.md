@@ -691,7 +691,10 @@ uses per-run nonces, rejects every generated closed startup control, and binds
 an immutable Host context to each runtime. The old unarmed constructor is
 non-executable. Package principals are stamped only after exact locator,
 resolved root, and whole-tree integrity verification; package-to-root imports
-require an exact authenticated graph edge.
+require an exact authenticated graph edge. Default project-root discovery
+selects only a canonical ancestor containing `package.json`; a manifestless
+entry must receive an explicit trusted `--project-root` and otherwise refuses
+before policy construction or project evaluation.
 
 Implementation update (2026-07-12): canonical policy now carries the exact
 registry digest as well as vocabulary identity. Production strictly

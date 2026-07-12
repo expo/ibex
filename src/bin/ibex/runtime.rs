@@ -2110,8 +2110,17 @@ fn observed_arming_identity(
     Ok(supplied)
 }
 
+/// Select the one project root whose object identity will be bound into the
+/// generated armed snapshot. Discovery requires an authenticated manifest
+/// ancestor; package-less layouts need an explicit trusted launcher input.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 fn authenticated_project_root(cli: &Cli, entry: Option<&str>) -> Result<std::path::PathBuf> {
-    let entry_path = entry.and_then(|entry| std::fs::canonicalize(entry).ok());
+    let entry_path = entry
+        .map(|entry| {
+            std::fs::canonicalize(entry)
+                .with_context(|| format!("failed to authenticate entry path {entry}"))
+        })
+        .transpose()?;
     if let Some(explicit) = cli.project_root.as_deref() {
         let root = std::fs::canonicalize(explicit).with_context(|| {
             format!("failed to authenticate project root {}", explicit.display())
@@ -2147,7 +2156,9 @@ fn authenticated_project_root(cli: &Cli, entry: Option<&str>) -> Result<std::pat
         };
         cursor = parent.to_path_buf();
     }
-    Ok(std::fs::canonicalize(start)?)
+    anyhow::bail!(
+        "no authenticated project root: pass --project-root or place the entry beneath a package.json"
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -5175,6 +5186,45 @@ mod tests {
     }
 
     #[test]
+    fn authenticated_project_root_requires_explicit_or_manifest_backed_root() {
+        let manifestless = tempdir().unwrap();
+        let entry = manifestless.path().join("src/app.js");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(&entry, "console.log('manifestless');\n").unwrap();
+        let implicit = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        let error = authenticated_project_root(&implicit, implicit.file.as_deref()).unwrap_err();
+        assert!(
+            error.to_string().contains("no authenticated project root"),
+            "unexpected refusal: {error:#}"
+        );
+
+        let explicit = Cli::parse_from([
+            "ibex",
+            "--project-root",
+            manifestless.path().to_str().unwrap(),
+            entry.to_str().unwrap(),
+        ]);
+        assert_eq!(
+            authenticated_project_root(&explicit, explicit.file.as_deref()).unwrap(),
+            std::fs::canonicalize(manifestless.path()).unwrap()
+        );
+    }
+
+    #[test]
+    fn authenticated_project_root_discovers_manifest_above_src_entry() {
+        let project = tempdir().unwrap();
+        let entry = project.path().join("src/app.js");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(project.path().join("package.json"), "{\"name\":\"app\"}\n").unwrap();
+        std::fs::write(&entry, "console.log('src entry');\n").unwrap();
+        let cli = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        assert_eq!(
+            authenticated_project_root(&cli, cli.file.as_deref()).unwrap(),
+            std::fs::canonicalize(project.path()).unwrap()
+        );
+    }
+
+    #[test]
     fn authenticated_packages_reject_duplicate_locator_with_one_drifted_copy() {
         let project = tempdir().unwrap();
         let first = project.path().join("node_modules/dup");
@@ -5603,8 +5653,12 @@ mod tests {
             .lock()
             .await;
         let _env = ProductionEnvGuard::capture();
-        let auto = Cli::parse_from(["ibex", "app.ts"]);
-        let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", "app.ts"]);
+        let project = tempdir().unwrap();
+        let entry = project.path().join("app.ts");
+        std::fs::write(project.path().join("package.json"), "{\"name\":\"app\"}\n").unwrap();
+        std::fs::write(&entry, "1 + 1\n").unwrap();
+        let auto = Cli::parse_from(["ibex", entry.to_str().unwrap()]);
+        let explicit = Cli::parse_from(["ibex", "--capsec", "enforce", entry.to_str().unwrap()]);
         let auto_error = build_host(&auto)
             .err()
             .expect("default enforce must refuse an unadvertised target");
@@ -5628,6 +5682,11 @@ mod tests {
         let _env = ProductionEnvGuard::capture();
         let directory = tempdir().unwrap();
         let entry = directory.path().join("app.ts");
+        std::fs::write(
+            directory.path().join("package.json"),
+            "{\"name\":\"test-app\"}\n",
+        )
+        .unwrap();
         std::fs::write(&entry, "1 + 1").unwrap();
         let package_root = directory.path().join("node_modules/image-lib");
         std::fs::create_dir_all(&package_root).unwrap();

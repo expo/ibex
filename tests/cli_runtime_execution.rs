@@ -25,6 +25,11 @@ fn repo_root() -> PathBuf {
 }
 
 fn hermesc_path() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("HERMESC").map(PathBuf::from) {
+        if path.is_file() {
+            return std::fs::canonicalize(path).ok();
+        }
+    }
     let tools = repo_root().join("tools").join("hermes");
     let arch = match std::env::consts::ARCH {
         "x86_64" => "x64",
@@ -36,7 +41,11 @@ fn hermesc_path() -> Option<PathBuf> {
         tools.join(format!("hermesc-{}-{}", std::env::consts::OS, arch)),
     ]
     .into_iter()
-    .find(|p| p.exists())
+    .find_map(|path| {
+        path.is_file()
+            .then(|| std::fs::canonicalize(path).ok())
+            .flatten()
+    })
 }
 
 /// Run an entry through `ibex capsec audit`, isolated: an empty PATH dir (no
@@ -58,6 +67,30 @@ async fn run_ibex_isolated(home: &Path, entry: &Path) -> std::process::Output {
         .env_remove("IBEX_NO_BYTECODE")
         .env_remove("EX_NO_BYTECODE")
         .env_remove("EXACT_COMPAT_TEST");
+    if let Some(compiler) = hermesc_path() {
+        // `HERMESC` is a build/test-harness convention and may name a compiler
+        // with any basename. Runtime discovery intentionally accepts only
+        // authenticated install-layout names, so provision the selected bytes
+        // under that closed spelling and point the child at the explicit
+        // trusted directory. This keeps the regression non-vacuous without
+        // teaching production discovery to execute an arbitrary environment
+        // path.
+        let compiler_dir = home.join("authenticated-hermes-tools");
+        std::fs::create_dir_all(&compiler_dir).expect("create staged Hermes tool directory");
+        let staged = compiler_dir.join(if cfg!(windows) {
+            "hermesc.exe"
+        } else {
+            "hermesc"
+        });
+        std::fs::copy(&compiler, &staged).expect("stage selected Hermes compiler");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o700))
+                .expect("make staged Hermes compiler executable");
+        }
+        cmd.env("IBEX_HERMES_TOOL_DIR", compiler_dir);
+    }
     timeout(Duration::from_secs(60), cmd.output())
         .await
         .expect("ibex capsec audit timed out")
@@ -189,12 +222,17 @@ async fn cli_runtime_tla_shim_preserves_sourcemap_marker_in_string_literals() {
 /// program's side effects must not run a second time via the JS-source
 /// fallback, and the still-valid `.hbc` cache must survive (and be reused on
 /// the next run).
+#[cfg(not(windows))]
 #[tokio::test]
 async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
-    if hermesc_path().is_none() {
-        eprintln!("skipping: hermesc not found under tools/hermes");
-        return;
-    }
+    let compiler = hermesc_path().expect(
+        "this supported bytecode profile requires HERMESC or an authenticated tools/hermes compiler",
+    );
+    assert!(
+        compiler.is_file(),
+        "Hermes compiler is not a file: {}",
+        compiler.display()
+    );
     let dir = tempfile::tempdir().expect("tempdir");
 
     let entry = dir.path().join("t.js");
@@ -246,12 +284,110 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
                             || (path.is_dir() && contains_hbc(&path))
                     })
             }
-            if !contains_hbc(dir.path()) {
-                eprintln!(
-                    "skipping second bytecode run: runtime/compiler bytecode cache unavailable"
-                );
-                return;
-            }
+            assert!(
+                contains_hbc(dir.path()),
+                "supported bytecode profile did not publish an HBC cache artifact"
+            );
         }
     }
+}
+
+/// ENG-24256: prove the retry boundary with an irreversible network effect,
+/// not only stdout or a local file. A synchronous curl subprocess makes one
+/// real loopback HTTP request before the user-controlled magic-text throw. If
+/// Ibex mistakes that throw for an HBC load rejection, source fallback sends a
+/// second request to the listener.
+#[cfg(unix)]
+#[tokio::test]
+async fn cli_runtime_bytecode_magic_throw_sends_one_loopback_request() {
+    use std::io::{Read, Write};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let compiler = hermesc_path().expect(
+        "this supported bytecode profile requires HERMESC or an authenticated tools/hermes compiler",
+    );
+    assert!(
+        compiler.is_file(),
+        "Hermes compiler is not a file: {}",
+        compiler.display()
+    );
+    let curl = Path::new("/usr/bin/curl");
+    assert!(
+        curl.is_file(),
+        "loopback side-effect regression requires /usr/bin/curl"
+    );
+
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind loopback listener");
+    listener
+        .set_nonblocking(true)
+        .expect("make loopback listener nonblocking");
+    let port = listener.local_addr().unwrap().port();
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let stop = Arc::new(AtomicBool::new(false));
+    let server_count = Arc::clone(&request_count);
+    let server_stop = Arc::clone(&stop);
+    let server = std::thread::spawn(move || {
+        while !server_stop.load(Ordering::Acquire) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut request = Vec::new();
+                    let mut chunk = [0u8; 1024];
+                    while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                        let read = stream.read(&mut chunk).expect("read loopback request");
+                        if read == 0 {
+                            break;
+                        }
+                        request.extend_from_slice(&chunk[..read]);
+                    }
+                    if request.starts_with(b"GET /effect ") {
+                        server_count.fetch_add(1, Ordering::AcqRel);
+                    }
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .expect("write loopback response");
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                Err(error) => panic!("loopback accept failed: {error}"),
+            }
+        }
+    });
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let entry = dir.path().join("network-side-effect.js");
+    std::fs::write(
+        &entry,
+        format!(
+            "var cp=require('child_process'); cp.execFileSync('/usr/bin/curl', ['--silent','--show-error','--max-time','5','http://127.0.0.1:{port}/effect'], {{stdio:'ignore'}}); throw new Error('Compiling JS failed: network-side-effect throw');\n"
+        ),
+    )
+    .expect("write network side-effect entry");
+
+    let output = run_ibex_isolated(dir.path(), &entry).await;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    stop.store(true, Ordering::Release);
+    server.join().expect("join loopback server");
+
+    assert!(
+        !output.status.success(),
+        "magic-text user throw must fail the run\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Compiling JS failed: network-side-effect throw"),
+        "user exception must propagate\nstderr: {stderr}"
+    );
+    assert_eq!(
+        request_count.load(Ordering::Acquire),
+        1,
+        "the loopback network side effect must execute exactly once\nstdout: {stdout}\nstderr: {stderr}"
+    );
 }

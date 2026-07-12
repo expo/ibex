@@ -86,8 +86,9 @@ pub struct Cli {
     pub policy: Option<PathBuf>,
 
     /// Trusted project root. When omitted, Ibex selects the nearest ancestor
-    /// containing package.json (falling back to the entry directory/current
-    /// directory for package-less projects).
+    /// containing package.json. Package-less projects must name the trusted
+    /// root explicitly so an arbitrary entry directory is never promoted to
+    /// root authority.
     #[arg(long, value_name = "DIR")]
     pub project_root: Option<PathBuf>,
 

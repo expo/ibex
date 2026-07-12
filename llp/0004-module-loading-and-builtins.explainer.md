@@ -53,9 +53,14 @@ reviewed authority.
 `Host::resolve_module_meta` applies the same requester, import-edge, logical
 `fs:list`/`fs:read`, root-object, and integrity checks but stops before
 `load_source`, returning only path and authenticated package metadata.
-`resolve_module` is `resolve_module_meta` plus source loading. This backs every
-`require.resolve` route without turning metadata-only lookup into an import or
-filesystem-disclosure bypass.
+Full module resolution shares its requester/graph/root authentication and then
+uses the executable source-loading path. The metadata-only path backs every
+`require.resolve` route without turning lookup into an import or
+filesystem-disclosure bypass: it authorizes `fs:list` at
+requested before resolver probing, then binds the canonical final and parent
+objects at discovery and authorizes `fs:read` at commit and repeat before
+returning the path. Cache-hot lookups repeat all four stages, and a symlink is
+classified by its canonical target binding rather than its lexical spelling.
 
 ### The oxc_resolver configuration
 

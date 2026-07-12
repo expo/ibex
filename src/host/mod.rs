@@ -1948,7 +1948,8 @@ impl Host {
         specifier: &str,
         referrer: Option<&std::path::Path>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta = self.resolve_module_meta_for_principal(specifier, referrer, None)?;
+        let meta =
+            self.resolve_module_meta_for_principal_inner(specifier, referrer, None, false)?;
         self.load_authenticated_module_source(meta)
     }
 
@@ -1958,8 +1959,12 @@ impl Host {
         referrer: Option<&std::path::Path>,
         requester_module_id: Option<&str>,
     ) -> anyhow::Result<ResolvedModule> {
-        let meta =
-            self.resolve_module_meta_for_principal(specifier, referrer, requester_module_id)?;
+        let meta = self.resolve_module_meta_for_principal_inner(
+            specifier,
+            referrer,
+            requester_module_id,
+            false,
+        )?;
         self.load_authenticated_module_source(meta)
     }
 
@@ -2069,6 +2074,16 @@ impl Host {
         referrer: Option<&std::path::Path>,
         requester_module_id: Option<&str>,
     ) -> anyhow::Result<ResolvedModule> {
+        self.resolve_module_meta_for_principal_inner(specifier, referrer, requester_module_id, true)
+    }
+
+    fn resolve_module_meta_for_principal_inner(
+        &self,
+        specifier: &str,
+        referrer: Option<&std::path::Path>,
+        requester_module_id: Option<&str>,
+        authorize_path_disclosure: bool,
+    ) -> anyhow::Result<ResolvedModule> {
         if self.unarmed_closed {
             anyhow::bail!("unarmed host cannot resolve executable modules");
         }
@@ -2104,24 +2119,50 @@ impl Host {
                 referrer,
                 self.module_loader.is_builtin_specifier(specifier),
             )?;
-            Some((snapshot, root_principal, requester, plan))
+            let requester_key = requester_module_id
+                .map(str::to_owned)
+                .or_else(|| requester.is_root().then(|| "0".to_owned()));
+            Some((snapshot, root_principal, requester, requester_key, plan))
         } else {
             None
         };
+
+        if authorize_path_disclosure {
+            if let Some((_, _, _, requester_key, plan)) = armed_resolution.as_ref() {
+                if let Some(requested_path) = plan.requested_path() {
+                    let requester_key = requester_key.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "module metadata disclosure has no authenticated requester identity"
+                        )
+                    })?;
+                    self.authorize_require_resolve_stage(
+                        requester_key,
+                        requested_path,
+                        capsec_semantics::model::Stage::Requested,
+                        true,
+                        None,
+                        None,
+                        None,
+                    )?;
+                }
+            }
+        }
 
         // No filesystem/package-manifest probing is allowed before the armed
         // preflight above authenticates the requester and constrains the
         // lexical target to a bound root or exact graph edge. In particular,
         // require.resolve must not reveal existent-vs-missing unauthorized
         // targets through resolver errors or timing.
-        let mut meta = match armed_resolution.as_ref().map(|(_, _, _, plan)| plan) {
+        let mut meta = match armed_resolution.as_ref().map(|(_, _, _, _, plan)| plan) {
             Some(ArmedModuleResolution::BoundPackage { name, root }) => self
                 .module_loader
                 .resolve_meta_from_bound_package(specifier, name, root)?,
             _ => self.module_loader.resolve_meta(specifier, referrer)?,
         };
         if let Some(path) = meta.path.as_ref() {
-            if let Some((snapshot, root_principal, requester, _)) = armed_resolution.as_ref() {
+            if let Some((snapshot, root_principal, requester, requester_key, plan)) =
+                armed_resolution.as_ref()
+            {
                 let canonical = std::fs::canonicalize(path).with_context(|| {
                     format!("failed to authenticate module path {}", path.display())
                 })?;
@@ -2192,6 +2233,18 @@ impl Host {
                         }
                     }
                 }
+                if authorize_path_disclosure {
+                    let requester_key = requester_key.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "module metadata disclosure has no authenticated requester identity"
+                        )
+                    })?;
+                    self.authorize_require_resolve_path(
+                        requester_key,
+                        plan.requested_path(),
+                        &canonical,
+                    )?;
+                }
                 meta.path = Some(canonical);
             } else {
                 let cap = format!("fs:read:{}", path.to_string_lossy());
@@ -2201,6 +2254,146 @@ impl Host {
             }
         }
         Ok(meta)
+    }
+
+    /// Gate an armed metadata-only module resolution through the typed
+    /// filesystem plane before the resolved path is returned to JavaScript.
+    /// The preflight requested stage runs before resolver probing; discovery,
+    /// commit, and repeat bind the final canonical object and ensure a repeated
+    /// `require.resolve` cannot bypass current authority through loader caches.
+    /// @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces
+    fn authorize_require_resolve_path(
+        &self,
+        requester_module_id: &str,
+        preflight_path: Option<&std::path::Path>,
+        canonical_path: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        if preflight_path != Some(canonical_path) {
+            self.authorize_require_resolve_stage(
+                requester_module_id,
+                canonical_path,
+                capsec_semantics::model::Stage::Requested,
+                true,
+                None,
+                None,
+                None,
+            )?;
+        }
+
+        let parent = canonical_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("resolved module has no parent directory"))?;
+        let parent_object = object_identity_for_host_path(parent)?;
+        let final_object = object_identity_for_host_path(canonical_path)?;
+        self.authorize_require_resolve_stage(
+            requester_module_id,
+            canonical_path,
+            capsec_semantics::model::Stage::Discovery,
+            true,
+            Some(parent),
+            Some(parent_object.clone()),
+            Some(final_object.clone()),
+        )?;
+
+        let retained_handle = capsec_semantics::model::NonEmptyString::new(format!(
+            "module-resolution:{}:{}",
+            final_object.volume.as_str(),
+            final_object.file.as_str()
+        ))
+        .map_err(capsec_semantics::Error::InvalidModel)?;
+        self.authorize_require_resolve_stage_with_handle(
+            requester_module_id,
+            canonical_path,
+            capsec_semantics::model::Stage::Commit,
+            false,
+            Some(parent),
+            Some(parent_object.clone()),
+            Some(final_object.clone()),
+            Some(retained_handle.clone()),
+        )?;
+
+        let repeated_parent = object_identity_for_host_path(parent)?;
+        let repeated_final = object_identity_for_host_path(canonical_path)?;
+        if repeated_parent != parent_object || repeated_final != final_object {
+            anyhow::bail!("module metadata object changed during authorization");
+        }
+        self.authorize_require_resolve_stage_with_handle(
+            requester_module_id,
+            canonical_path,
+            capsec_semantics::model::Stage::Repeat,
+            false,
+            Some(parent),
+            Some(repeated_parent),
+            Some(repeated_final),
+            Some(retained_handle),
+        )
+    }
+
+    fn authorize_require_resolve_stage(
+        &self,
+        requester_module_id: &str,
+        path: &std::path::Path,
+        stage: capsec_semantics::model::Stage,
+        disclosure_only: bool,
+        resolved_parent: Option<&std::path::Path>,
+        parent_object: Option<capsec_semantics::model::ObjectIdentity>,
+        final_object: Option<capsec_semantics::model::ObjectIdentity>,
+    ) -> anyhow::Result<()> {
+        self.authorize_require_resolve_stage_with_handle(
+            requester_module_id,
+            path,
+            stage,
+            disclosure_only,
+            resolved_parent,
+            parent_object,
+            final_object,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn authorize_require_resolve_stage_with_handle(
+        &self,
+        requester_module_id: &str,
+        path: &std::path::Path,
+        stage: capsec_semantics::model::Stage,
+        disclosure_only: bool,
+        resolved_parent: Option<&std::path::Path>,
+        parent_object: Option<capsec_semantics::model::ObjectIdentity>,
+        final_object: Option<capsec_semantics::model::ObjectIdentity>,
+        retained_handle: Option<capsec_semantics::model::NonEmptyString>,
+    ) -> anyhow::Result<()> {
+        use capsec_semantics::decision::DecisionOutcome;
+
+        let principal = self
+            .typed_principal_for_module(requester_module_id)
+            .ok_or_else(|| anyhow::anyhow!("module metadata requester is not authenticated"))?;
+        let decision = self.authorize_typed_fs_open_stage(
+            requester_module_id,
+            "loader-require-resolve",
+            "surface.loader.require.resolve.12c9l9i",
+            vec![principal],
+            path,
+            stage,
+            capsec_semantics::model::ObjectState::Existing,
+            capsec_semantics::model::FollowMode::FollowFinal,
+            disclosure_only,
+            resolved_parent,
+            !disclosure_only,
+            false,
+            parent_object,
+            final_object,
+            retained_handle,
+            Vec::new(),
+        )?;
+        if matches!(
+            decision.outcome,
+            DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+        ) {
+            Ok(())
+        } else {
+            anyhow::bail!("module metadata disclosure denied by typed filesystem policy")
+        }
     }
 }
 
@@ -2229,11 +2422,22 @@ fn lexical_absolute_path(path: &std::path::Path) -> anyhow::Result<std::path::Pa
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ArmedModuleResolution {
-    Generic,
+    Generic {
+        requested_path: Option<std::path::PathBuf>,
+    },
     BoundPackage {
         name: String,
         root: std::path::PathBuf,
     },
+}
+
+impl ArmedModuleResolution {
+    fn requested_path(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::Generic { requested_path } => requested_path.as_deref(),
+            Self::BoundPackage { root, .. } => Some(root.as_path()),
+        }
+    }
 }
 
 fn preflight_armed_module_resolution(
@@ -2259,7 +2463,9 @@ fn preflight_armed_module_resolution(
         let components = host_path_components(&referrer)?;
         let binding = snapshot.root_binding_for_host_components(requester, &components)?;
         validate_armed_binding_object(&binding)?;
-        return Ok(ArmedModuleResolution::Generic);
+        return Ok(ArmedModuleResolution::Generic {
+            requested_path: Some(host_path_from_binding(&binding)?),
+        });
     }
 
     if !is_module_path_specifier(specifier) {
@@ -2267,7 +2473,9 @@ fn preflight_armed_module_resolution(
             anyhow::bail!("Import denied by authenticated package graph");
         }
         if builtin {
-            return Ok(ArmedModuleResolution::Generic);
+            return Ok(ArmedModuleResolution::Generic {
+                requested_path: None,
+            });
         }
         let requested_name = package_name_from_specifier(specifier);
         let candidates = imports
@@ -2335,7 +2543,9 @@ fn preflight_armed_module_resolution(
             anyhow::bail!("Import denied by authenticated package graph");
         }
     }
-    Ok(ArmedModuleResolution::Generic)
+    Ok(ArmedModuleResolution::Generic {
+        requested_path: Some(target),
+    })
 }
 
 fn normalize_host_path_for_binding(
@@ -3990,6 +4200,158 @@ mod tests {
                 "{specifier}"
             );
         }
+    }
+
+    #[test]
+    fn armed_require_resolve_runs_typed_list_and_read_stages_on_every_lookup() {
+        use capsec_semantics::model::Stage;
+
+        let root = test_project_root();
+        let fixture = root.join("resolve-meta-eng24234");
+        std::fs::create_dir_all(&fixture).unwrap();
+        let referrer = root.join("entry-eng24234.js");
+        let target = fixture.join("target.js");
+        std::fs::write(&referrer, "module.exports = 1;\n").unwrap();
+        std::fs::write(&target, "module.exports = 2;\n").unwrap();
+
+        let host = example_armed_host();
+        host.begin_conformance_observation("enforcement.test.require-resolve");
+        for _ in 0..2 {
+            let resolved = host
+                .resolve_module_meta_for_principal(
+                    "./resolve-meta-eng24234/target.js",
+                    Some(&referrer),
+                    Some("0"),
+                )
+                .unwrap();
+            assert_eq!(resolved.path.as_deref(), Some(target.as_path()));
+            assert!(resolved.source.is_none());
+        }
+        let observed = host.take_typed_conformance_observations();
+        assert_eq!(
+            observed.len(),
+            8,
+            "each lookup, including the cache-hot lookup, must run four stages"
+        );
+        for lookup in observed.chunks_exact(4) {
+            assert_eq!(
+                lookup
+                    .iter()
+                    .map(|row| row.decision_set.context.stage)
+                    .collect::<Vec<_>>(),
+                vec![
+                    Stage::Requested,
+                    Stage::Discovery,
+                    Stage::Commit,
+                    Stage::Repeat
+                ]
+            );
+            for (index, row) in lookup.iter().enumerate() {
+                assert!(row.gates.iter().all(|gate| {
+                    gate.coverage_edge_id.as_str() == "surface.loader.require.resolve.12c9l9i"
+                }));
+                let actions = row
+                    .decision_set
+                    .effects
+                    .iter()
+                    .map(|effect| effect.action.as_str())
+                    .collect::<Vec<_>>();
+                assert_eq!(actions, vec![if index < 2 { "fs:list" } else { "fs:read" }]);
+            }
+        }
+
+        let denied = example_armed_host_with(|value| {
+            value["principals"][0]["denials"] = serde_json::json!([{
+                "cap": "fs:read",
+                "resource": {
+                    "kind": "path-tree",
+                    "path": {
+                        "root": "project",
+                        "components": [
+                            {"encoding": "utf8", "value": "resolve-meta-eng24234"}
+                        ]
+                    }
+                }
+            }]);
+        });
+        let error = denied
+            .resolve_module_meta_for_principal(
+                "./resolve-meta-eng24234/target.js",
+                Some(&referrer),
+                Some("0"),
+            )
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("module metadata disclosure denied"),
+            "unexpected typed denial: {error:#}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn armed_require_resolve_canonicalizes_in_root_symlinks_and_refuses_escapes() {
+        use std::os::unix::fs::symlink;
+
+        let root = test_project_root();
+        let fixture = root.join("resolve-meta-symlink-eng24234");
+        std::fs::create_dir_all(&fixture).unwrap();
+        let referrer = root.join("entry-symlink-eng24234.js");
+        let target = fixture.join("target.js");
+        let in_root_link = fixture.join("in-root.js");
+        let outside_link = fixture.join("outside.js");
+        std::fs::write(&referrer, "module.exports = 1;\n").unwrap();
+        std::fs::write(&target, "module.exports = 2;\n").unwrap();
+        let _ = std::fs::remove_file(&in_root_link);
+        let _ = std::fs::remove_file(&outside_link);
+        symlink(&target, &in_root_link).unwrap();
+
+        let host = example_armed_host();
+        host.begin_conformance_observation("enforcement.test.require-resolve-symlink");
+        let resolved = host
+            .resolve_module_meta_for_principal(
+                "./resolve-meta-symlink-eng24234/in-root.js",
+                Some(&referrer),
+                Some("0"),
+            )
+            .unwrap();
+        assert_eq!(resolved.path.as_deref(), Some(target.as_path()));
+        let observed = host.take_typed_conformance_observations();
+        assert_eq!(observed.len(), 5);
+        assert_eq!(
+            observed
+                .iter()
+                .map(|row| row.decision_set.context.stage)
+                .collect::<Vec<_>>(),
+            vec![
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::Stage::Requested,
+                capsec_semantics::model::Stage::Discovery,
+                capsec_semantics::model::Stage::Commit,
+                capsec_semantics::model::Stage::Repeat,
+            ]
+        );
+
+        let outside = tempfile::tempdir().unwrap();
+        let outside_target = outside.path().join("secret.js");
+        std::fs::write(&outside_target, "module.exports = 'secret';\n").unwrap();
+        symlink(&outside_target, &outside_link).unwrap();
+        host.begin_conformance_observation("enforcement.test.require-resolve-escape");
+        assert!(host
+            .resolve_module_meta_for_principal(
+                "./resolve-meta-symlink-eng24234/outside.js",
+                Some(&referrer),
+                Some("0"),
+            )
+            .is_err());
+        let escaped = host.take_typed_conformance_observations();
+        assert!(escaped.iter().all(|row| {
+            !matches!(
+                row.decision_set.context.stage,
+                capsec_semantics::model::Stage::Commit | capsec_semantics::model::Stage::Repeat
+            )
+        }));
     }
 
     #[test]
