@@ -2336,6 +2336,9 @@ mod tests {
                 if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
                 __exactTcpClose(socket);
                 var pending = __exactTcpConnectStart('127.0.0.1', {port});
+                var pendingDenied = false;
+                try {{ __exactTcpWrite(pending, 'z'); }} catch (_) {{ pendingDenied = true; }}
+                if (!pendingDenied) throw new Error('pending socket gained write authority');
                 var connected = false;
                 for (var attempt = 0; attempt < 10000; attempt++) {{
                   if (__exactTcpConnectPoll(pending) === 1) {{ connected = true; break; }}
