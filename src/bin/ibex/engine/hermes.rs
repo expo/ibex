@@ -3535,6 +3535,49 @@ cp \"$input\" \"$out\"\n";
         runtime.shutdown();
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_random_bytes_is_a_zero_decision_non_capability() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let typed_before = crate::host::abi::installed_typed_decision_count();
+        let legacy_before = crate::host::abi::installed_legacy_authorization_check_count();
+        assert!(crate::host::abi::begin_installed_conformance_observation(
+            "surface.native.op.exactrandombytes.non-capability"
+        ));
+        let outcome = engine
+            .eval_immediate(
+                r#"(function() {
+                  var bytes = __exactRandomBytes(16);
+                  return String(bytes instanceof Uint8Array) + '/' + String(bytes.byteLength);
+                })()"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(outcome.as_deref(), Some("true/16"));
+
+        let (legacy, typed) = crate::host::abi::take_installed_conformance_observations();
+        assert!(
+            legacy.is_empty(),
+            "random bytes must not consult the legacy oracle"
+        );
+        assert!(
+            typed.is_empty(),
+            "random bytes must not emit a typed decision"
+        );
+        assert_eq!(
+            crate::host::abi::installed_legacy_authorization_check_count() - legacy_before,
+            0
+        );
+        assert_eq!(
+            crate::host::abi::installed_typed_decision_count() - typed_before,
+            0
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn armed_host_call_abi_rejects_post_lockdown_install_and_resolution() {
         let _lock = hermes_engine_test_lock().lock().await;

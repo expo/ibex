@@ -1841,9 +1841,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
         if (count == 0 || !args[0].isNumber()) {
           return facebook::jsi::Value::undefined();
         }
-        if (!checkCapability("crypto:random")) {
-          throw facebook::jsi::JSError(runtime, "Permission denied");
-        }
+        // @ref LLP 0021#typed-resources-and-initial-vocabulary — ordinary
+        // cryptographic randomness is computation, not external authority.
+        // The retired legacy token was always allowed and must not survive as
+        // an armed-runtime authorization check.
         auto len = static_cast<size_t>(args[0].asNumber());
         std::vector<uint8_t> data(len);
         if (len > 0) {
