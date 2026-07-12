@@ -490,11 +490,49 @@ function completeClosedCliCatalog() {
   return catalog;
 }
 
+function completeClosedLoaderCatalog() {
+  const catalog = structuredClone(completeClosedCatalog());
+  const recipe = catalog.recipes[0];
+  const sourceDescriptor = {
+    kind: "closed-loader-executable-kind",
+    loaderKind: "native-addon",
+    extension: ".node",
+    sourceRefs: ["src/module_loader/mod.rs#kind:native-addon"],
+    sourceMetadata: {
+      evidenceType: "loader-kind-branch",
+      loaderKind: "native-addon",
+      occurrenceCount: 1,
+    },
+  };
+  recipe.fixtureId = "fixture.loader.native-addon.closed";
+  recipe.terminalObservedKey = "loader:kind:native-addon";
+  recipe.route.surfaceObservedKeys = [recipe.terminalObservedKey];
+  recipe.route.alternatives[0].terminalObservedKey =
+    recipe.terminalObservedKey;
+  recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
+  Object.assign(recipe.publicSurfaceProbe.invocation, {
+    surfaceKind: "loader",
+    surfaceName: "kind:native-addon",
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+    operation: {
+      kind: "loader-executable-file",
+      loaderKind: "native-addon",
+      extension: ".node",
+      rejectionFragment: "Native addons are closed",
+    },
+  });
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
 function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
   const invocation = recipe.publicSurfaceProbe.invocation;
   const errorMessage =
     invocation.operation.kind === "cli-control"
       ? invocation.operation.expectedRejectionFragments.join("; ")
+      : invocation.operation.kind === "loader-executable-file"
+        ? invocation.operation.rejectionFragment
       : "production capability startup rejects closed environment controls: EX_SKIP_STARTUP_MODULE_LOADER";
   return {
     observationSchema: "ibex/capsec-runtime-public-observation/1",
@@ -512,7 +550,8 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
         mechanism: invocation.operation.kind,
         errorName: "ClosedSurface",
         errorMessage,
-        engineExecuted: false,
+        engineExecuted:
+          invocation.operation.kind === "loader-executable-file",
         projectCodeExecuted,
       },
     },
@@ -1028,6 +1067,49 @@ describe("CapSec public-surface promotion evidence", () => {
         coverage,
       }),
     ).toThrow(/wrong rejection/);
+  });
+
+  test("accepts executable-loader closure only after the loaded engine rejects it", () => {
+    const catalog = completeClosedLoaderCatalog();
+    const recipe = catalog.recipes[0];
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(recipe),
+        coverage,
+      }),
+    ).not.toThrow();
+    const wrongRejection = closedRuntimeObservation(recipe);
+    wrongRejection.invocation.result.errorMessage = "generic syntax error";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: wrongRejection,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed at resolution/);
+    const noEngine = closedRuntimeObservation(recipe);
+    noEngine.invocation.result.engineExecuted = false;
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: noEngine,
+        coverage,
+      }),
+    ).toThrow(/did not fail closed at resolution/);
+    const mismatchedKind = structuredClone(recipe);
+    mismatchedKind.publicSurfaceProbe.invocation.operation.extension = ".wasm";
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe: mismatchedKind,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: closedRuntimeObservation(mismatchedKind),
+        coverage,
+      }),
+    ).toThrow(/did not fail closed at resolution/);
   });
 
   test("accepts exact source-bound target absence and rejects invented entry proof", () => {

@@ -791,6 +791,36 @@ function validateRuntimeInvocation(observation, recipe) {
         `${recipe.fixtureId}: evaluator was not closed by the reviewed loaded-engine taming path`,
       );
     }
+    const loaderExecutableExpectation = new Map([
+      [
+        "native-addon",
+        { extension: ".node", rejectionFragment: "Native addons are closed" },
+      ],
+      [
+        "wasm",
+        {
+          extension: ".wasm",
+          rejectionFragment: "WebAssembly modules are closed",
+        },
+      ],
+    ]).get(authored.operation?.loaderKind);
+    if (
+      authored.operation?.kind === "loader-executable-file" &&
+      (invocation.result.engineExecuted !== true ||
+        authored.surfaceKind !== "loader" ||
+        loaderExecutableExpectation === undefined ||
+        authored.operation.extension !==
+          loaderExecutableExpectation.extension ||
+        authored.operation.rejectionFragment !==
+          loaderExecutableExpectation.rejectionFragment ||
+        !invocation.result.errorMessage.includes(
+          authored.operation.rejectionFragment,
+        ))
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: executable loader kind did not fail closed at resolution`,
+      );
+    }
   } else if (authored.expectedResult === "invariant-passed") {
     if (!callbackInvariant) {
       throw new Error(`${recipe.fixtureId}: non-callback probe claimed an invariant result`);

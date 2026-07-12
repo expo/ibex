@@ -23,7 +23,7 @@ struct Recipe {
     expected_observation: serde_json::Value,
     route: PublicRoute,
     status: String,
-    public_surface_probe: Option<PublicSurfaceProbe>,
+    public_surface_probe: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -674,13 +674,30 @@ fn validate_probe(recipe: &Recipe, probe: &PublicSurfaceProbe) {
     validate_probe_binding(recipe, probe, invocation);
 }
 
+fn public_probe(recipe: &Recipe) -> Option<PublicSurfaceProbe> {
+    let value = recipe.public_surface_probe.as_ref()?;
+    let schema = value["invocation"]["invocationSchema"].as_str()?;
+    if !matches!(
+        schema,
+        "ibex/capsec-builtin-export-invocation/1"
+            | "ibex/capsec-builtin-call-invocation/1"
+            | "ibex/capsec-builtin-module-import-invocation/1"
+    ) {
+        return None;
+    }
+    Some(
+        serde_json::from_value(value.clone())
+            .expect("selected non-capability import probe must match its typed schema"),
+    )
+}
+
 fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
     catalog
         .recipes
         .iter()
         .filter(|recipe| {
             recipe.status == "fully-executable"
-                && recipe.public_surface_probe.as_ref().is_some_and(|probe| {
+                && public_probe(recipe).as_ref().is_some_and(|probe| {
                     matches!(
                         (
                             probe.invocation.invocation_schema.as_str(),
@@ -699,7 +716,7 @@ fn noncap_builtin_recipes(catalog: &RecipeCatalog) -> Vec<&Recipe> {
                     )
                 })
         })
-        .inspect(|recipe| validate_probe(recipe, recipe.public_surface_probe.as_ref().unwrap()))
+        .inspect(|recipe| validate_probe(recipe, &public_probe(recipe).unwrap()))
         .collect()
 }
 
@@ -717,9 +734,7 @@ async fn execute_recipe(
     recipe: &Recipe,
     engine_binary_digest: &str,
 ) -> std::result::Result<serde_json::Value, String> {
-    let probe = recipe
-        .public_surface_probe
-        .as_ref()
+    let probe = public_probe(recipe)
         .expect("builtin recipe has no public probe");
     let session_id = format!("public-observation:{}", recipe.plan_digest);
     assert!(
@@ -834,13 +849,7 @@ async fn capsec_public_noncap_builtin_recipe_batch() {
     let builtin_imports = recipes
         .iter()
         .map(|recipe| {
-            recipe
-                .public_surface_probe
-                .as_ref()
-                .unwrap()
-                .invocation
-                .module_specifier
-                .clone()
+            public_probe(recipe).unwrap().invocation.module_specifier
         })
         .collect::<BTreeSet<_>>()
         .into_iter()

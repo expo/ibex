@@ -909,6 +909,12 @@ deny set for `async_hooks`, `inspector`, `vm`, `wasi`, and `worker_threads`
 otherwise authenticated snapshot cannot re-enable those runtime-inspection,
 VM, WASI, or worker escape surfaces; ordinary typed builtins such as `node:fs`
 remain governed by the snapshot import policy.
+On-disk `.node` native-addon and `.wasm` module candidates now refuse in the
+native resolver before their bytes are read into the JavaScript compilation
+path. Exact loaded-engine fixtures use valid JavaScript payloads under both
+extensions and require the resolver-specific refusal while proving the payload
+marker never executes; both the public loader-kind facet and its compatibility
+module facet bind to that same runtime-derived denial.
 The eight native OS-information functions used by public `node:os` now enter
 the same exact typed plane on every implementation target. Hostname, CPU,
 memory, uptime, user, load-average, and network-interface reads authorize both

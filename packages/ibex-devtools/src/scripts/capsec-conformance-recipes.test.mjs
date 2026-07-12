@@ -657,6 +657,37 @@ describe("exact-target CapSec executable recipes", () => {
     expect(moduleLoader.residualReasons).toEqual([]);
   });
 
+  test("binds executable loader kinds to real fail-closed file imports", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
+        "loader-executable-file",
+    );
+    expect(rows).toHaveLength(4);
+    expect(
+      rows.map((recipe) => [
+        recipe.publicSurfaceProbe.invocation.operation.loaderKind,
+        recipe.publicSurfaceProbe.invocation.operation.extension,
+      ]),
+    ).toEqual([
+      ["native-addon", ".node"],
+      ["wasm", ".wasm"],
+      ["native-addon", ".node"],
+      ["wasm", ".wasm"],
+    ]);
+    expect(
+      rows.every(
+        (recipe) =>
+          recipe.status === "fully-executable" &&
+          recipe.classification === "closed" &&
+          recipe.scenario === "closed" &&
+          recipe.residualReasons.length === 0 &&
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
+            0,
+      ),
+    ).toBe(true);
+  });
+
   test("imports every exact non-capability builtin module alias", () => {
     const imports = recipes.recipes.filter(
       (recipe) =>

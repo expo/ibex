@@ -893,11 +893,32 @@ impl ModuleLoader {
         };
 
         let full_path = resolution.full_path().to_path_buf();
+        // Oxc reports addon/Wasm candidates inconsistently across direct-file
+        // and package resolution (a direct `.node` file can arrive as
+        // CommonJS). The filename is therefore an independent fail-closed
+        // guard, including case-folded spellings on case-insensitive targets.
+        if let Some(extension) = full_path.extension().and_then(|value| value.to_str()) {
+            if extension.eq_ignore_ascii_case("node") {
+                anyhow::bail!("Native addons are closed in the CapSec profile");
+            }
+            if extension.eq_ignore_ascii_case("wasm") {
+                anyhow::bail!("WebAssembly modules are closed in the CapSec profile");
+            }
+        }
         let mut kind = match resolution.module_type() {
             Some(ModuleType::Module) => ModuleKind::Esm,
             Some(ModuleType::CommonJs) => ModuleKind::CommonJs,
             Some(ModuleType::Json) => ModuleKind::Json,
-            Some(ModuleType::Wasm) | Some(ModuleType::Addon) => ModuleKind::CommonJs,
+            // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces —
+            // unsupported executable loader kinds refuse before their bytes
+            // enter the JavaScript compiler. Treating an addon or Wasm payload
+            // as CommonJS lets a text file with a privileged extension execute.
+            Some(ModuleType::Wasm) => {
+                anyhow::bail!("WebAssembly modules are closed in the CapSec profile")
+            }
+            Some(ModuleType::Addon) => {
+                anyhow::bail!("Native addons are closed in the CapSec profile")
+            }
             None => ModuleKind::CommonJs,
         };
         // Force JSON kind for .json files regardless of what OXC reports,
@@ -2533,6 +2554,30 @@ mod tests {
             .path
             .unwrap()
             .ends_with("node_modules/demo-pkg/index.js"));
+    }
+
+    #[test]
+    fn executable_extension_modules_fail_closed_before_source_loading() {
+        let dir = tempdir().unwrap();
+        let entry = dir.path().join("entry.js");
+        std::fs::write(&entry, "module.exports = true;").unwrap();
+        for (name, expected) in [
+            ("payload.node", "Native addons are closed"),
+            ("payload.NODE", "Native addons are closed"),
+            ("payload.wasm", "WebAssembly modules are closed"),
+            ("payload.WASM", "WebAssembly modules are closed"),
+        ] {
+            // Deliberately valid JavaScript: the regression was that the
+            // resolver relabeled these executable kinds as CommonJS.
+            std::fs::write(dir.path().join(name), "globalThis.pwned = true;").unwrap();
+            let error = test_loader()
+                .resolve(&format!("./{name}"), Some(&entry))
+                .expect_err("unsupported executable module kind resolved as JavaScript");
+            assert!(
+                error.to_string().contains(expected),
+                "unexpected {name} refusal: {error:#}"
+            );
+        }
     }
 
     #[test]

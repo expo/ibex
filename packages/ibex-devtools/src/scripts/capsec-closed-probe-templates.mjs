@@ -441,6 +441,80 @@ function startupEnvironmentProbe({
   };
 }
 
+function loaderExecutableKindProbe({
+  plan,
+  route,
+  liveByObservedKey,
+  coverageByObservedKey,
+}) {
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    route.alternatives.length !== 1 ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return null;
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  if (!surfaceObservedKey.startsWith("loader:")) return null;
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const edge = coverageByObservedKey.get(surfaceObservedKey);
+  const metadataKind =
+    live?.metadata?.evidenceType === "loader-kind-branch"
+      ? live.metadata.loaderKind
+      : null;
+  const fixedKind = live?.name?.endsWith("-module")
+    ? live.name.slice(0, -"-module".length)
+    : null;
+  const loaderKind = metadataKind ?? fixedKind;
+  if (
+    !new Set(["native-addon", "wasm"]).has(loaderKind) ||
+    live?.kind !== "loader" ||
+    !Array.isArray(live.sourceRefs) ||
+    live.sourceRefs.length === 0 ||
+    edge?.id !== plan.edgeIds[0] ||
+    edge.classification !== "closed" ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey
+  ) {
+    return null;
+  }
+  const extension = loaderKind === "native-addon" ? ".node" : ".wasm";
+  const rejectionFragment =
+    loaderKind === "native-addon"
+      ? "Native addons are closed"
+      : "WebAssembly modules are closed";
+  const sourceDescriptor = {
+    kind: "closed-loader-executable-kind",
+    loaderKind,
+    extension,
+    sourceRefs: structuredClone(live.sourceRefs),
+    sourceMetadata: structuredClone(live.metadata ?? null),
+  };
+  return {
+    kind: "public-surface-invocation",
+    surfaceObservedKey,
+    command: [...CLOSED_BATCH_COMMAND],
+    invocation: {
+      invocationSchema: "ibex/capsec-closed-surface-invocation/1",
+      kind: "closed-surface",
+      surfaceKind: "loader",
+      surfaceName: live.name,
+      sourceDescriptor,
+      sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+      operation: {
+        kind: "loader-executable-file",
+        loaderKind,
+        extension,
+        rejectionFragment,
+      },
+      expectedResult: "closed",
+      expectedTypedDecisionCount: 0,
+      expectedTypedStages: [],
+      allowedCoverageEdgeIds: [],
+      expectedActionIds: [],
+    },
+  };
+}
+
 export function authoredClosedPublicProbe(options) {
   const { plan, scenario } = options;
   if (
@@ -455,7 +529,8 @@ export function authoredClosedPublicProbe(options) {
   return (
     startupEnvironmentProbe(options) ??
     cliControlProbe(options) ??
-    tamedEvaluatorProbe(options)
+    tamedEvaluatorProbe(options) ??
+    loaderExecutableKindProbe(options)
   );
 }
 
