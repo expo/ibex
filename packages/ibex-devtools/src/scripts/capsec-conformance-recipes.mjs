@@ -387,12 +387,275 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
   };
 }
 
+// Public native probes are intentionally opt-in. Source discovery proves the
+// installed global and declared JSI arity; this registry supplies only bounded
+// arguments/setup whose effects the harness can own and reproduce.
+const literalArgument = (value) => ({ kind: "json-literal", value });
+const nativeNoEffectTemplate = (
+  requiredSourceArity,
+  argumentsList = [],
+  setup = [],
+) =>
+  Object.freeze({
+    actionIds: [],
+    arguments: argumentsList,
+    expectedDecisionCounts: { "non-capability": 0 },
+    expectedResults: { "non-capability": "return" },
+    expectedStages: { "non-capability": [] },
+    requiredSourceArity,
+    setup,
+  });
+
+// Structural lockdown eagerly invokes these installers and then deletes the
+// globals before user code can run. Their source registrations are real, but a
+// post-load public harness must report them as unavailable rather than claiming
+// that a pre-lockdown implementation detail remains callable.
+const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Set([
+  "__exactEnsureChildProcess",
+  "__exactEnsureDns",
+  "__exactEnsureFormData",
+  "__exactEnsureFs",
+  "__exactEnsureHttp",
+  "__exactEnsureNet",
+  "__exactEnsureSqlite",
+  "__exactEnsureStreamEnhance",
+  "__exactEnsureWebCrypto",
+  "__exactEnsureWebStorage",
+]);
+
+export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
+  [
+    "__exactTcpConnect",
+    Object.freeze({
+      actionIds: ["network:connect"],
+      arguments: [
+        { kind: "harness-loopback-address", family: "ipv4" },
+        { kind: "harness-loopback-listener-port" },
+      ],
+      expectedStages: {
+        allow: ["requested", "candidate", "commit", "repeat"],
+        deny: ["requested"],
+      },
+      expectedDecisionCounts: { allow: 4, deny: 1 },
+      expectedResults: { allow: "return", deny: "permission-denied" },
+      requiredSourceArity: 4,
+      setup: [{ kind: "tcp-loopback-listener" }],
+    }),
+  ],
+  ["__exactPerformanceNow", nativeNoEffectTemplate(0)],
+  ["__exactPerformanceTimeOrigin", nativeNoEffectTemplate(0)],
+  ["__exactSignalNumbers", nativeNoEffectTemplate(0)],
+  [
+    "__exactAesCbcEncrypt",
+    nativeNoEffectTemplate(3, [
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactAesCtrEncrypt",
+    nativeNoEffectTemplate(3, [
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactAesGcmEncrypt",
+    nativeNoEffectTemplate(5, [
+      literalArgument("0123456789abcdef"),
+      literalArgument("fixture-iv12"),
+      literalArgument("ibex"),
+      literalArgument("fixture-aad"),
+      literalArgument(128),
+    ]),
+  ],
+  [
+    "__exactBrotliCompressSync",
+    nativeNoEffectTemplate(2, [literalArgument("ibex"), literalArgument(4)]),
+  ],
+  [
+    "__exactBytesToUtf8String",
+    nativeNoEffectTemplate(1, [literalArgument("ibex")]),
+  ],
+  [
+    "__exactDeflateSync",
+    nativeNoEffectTemplate(4, [
+      literalArgument("ibex"),
+      literalArgument(6),
+      literalArgument(0),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactHashSync",
+    nativeNoEffectTemplate(2, [
+      literalArgument("sha256"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactHashRaw",
+    nativeNoEffectTemplate(2, [
+      literalArgument("sha256"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactHmacSync",
+    nativeNoEffectTemplate(3, [
+      literalArgument("sha256"),
+      literalArgument("fixture-key"),
+      literalArgument("ibex"),
+    ]),
+  ],
+  [
+    "__exactHkdf",
+    nativeNoEffectTemplate(5, [
+      literalArgument("sha256"),
+      literalArgument("fixture-ikm"),
+      literalArgument("fixture-salt"),
+      literalArgument("fixture-info"),
+      literalArgument(16),
+    ]),
+  ],
+  [
+    "__exactPbkdf2",
+    nativeNoEffectTemplate(5, [
+      literalArgument("fixture-password"),
+      literalArgument("fixture-salt"),
+      literalArgument(2),
+      literalArgument(16),
+      literalArgument("sha256"),
+    ]),
+  ],
+  [
+    "__exactScryptSync",
+    nativeNoEffectTemplate(6, [
+      literalArgument("fixture-password"),
+      literalArgument("fixture-salt"),
+      literalArgument(16),
+      literalArgument(1),
+      literalArgument(1),
+      literalArgument(16),
+    ]),
+  ],
+  [
+    "__exactStringToUtf8Bytes",
+    nativeNoEffectTemplate(1, [literalArgument("ibex")]),
+  ],
+]);
+
+function nativePublicProbeForPlan({
+  plan,
+  scenario,
+  route,
+  liveByObservedKey,
+}) {
+  if (plan.expectedObservation.kind === "target-absence") {
+    return { probe: null, unavailableReason: null };
+  }
+  if (
+    route.surfaceObservedKeys.length !== 1 ||
+    !route.surfaceObservedKeys[0].startsWith("native-op:")
+  ) {
+    return { probe: null, unavailableReason: null };
+  }
+  const surfaceObservedKey = route.surfaceObservedKeys[0];
+  const live = liveByObservedKey.get(surfaceObservedKey);
+  const invocation = live?.metadata?.publicInvocation;
+  if (!invocation) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-source-invocation-unavailable",
+    };
+  }
+  if (NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT.has(invocation.globalName)) {
+    return {
+      probe: null,
+      unavailableReason:
+        "native-public-global-removed-by-structural-lockdown",
+    };
+  }
+  const template = NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName);
+  if (!template) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-arguments-not-authored",
+    };
+  }
+  if (
+    !Object.hasOwn(template.expectedStages, scenario) ||
+    !Object.hasOwn(template.expectedDecisionCounts, scenario) ||
+    !Object.hasOwn(template.expectedResults, scenario)
+  ) {
+    return {
+      probe: null,
+      unavailableReason: `native-public-${scenario}-scenario-not-authored`,
+    };
+  }
+  if (
+    invocation.arity !== template.requiredSourceArity ||
+    canonicalJson(plan.actionIds) !== canonicalJson(template.actionIds)
+  ) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-source-descriptor-drift",
+    };
+  }
+  if (
+    route.alternatives.length !== 1 ||
+    route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+    route.ambiguousCallees.length !== 0
+  ) {
+    return {
+      probe: null,
+      unavailableReason: "native-public-terminal-route-is-not-exact",
+    };
+  }
+  const sourceDescriptor = clone(invocation);
+  return {
+    unavailableReason: null,
+    probe: {
+      kind: "public-surface-invocation",
+      surfaceObservedKey,
+      command: [
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--features",
+        "capsec-conformance-observer",
+        "capsec_public_native_recipe_batch",
+        "--",
+        "--test-threads=1",
+      ],
+      invocation: {
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: invocation.globalName,
+        sourceDescriptor,
+        sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+        arguments: clone(template.arguments),
+        setup: clone(template.setup),
+        expectedResult: template.expectedResults[scenario],
+        expectedTypedStages: clone(template.expectedStages[scenario]),
+        expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
+        allowedCoverageEdgeIds: clone(plan.edgeIds),
+        expectedActionIds: clone(plan.actionIds),
+      },
+    },
+  };
+}
+
 function residualReasons({
   plan,
   scenario,
   adapterProbe,
   adapterUnavailableReason,
   publicSurfaceProbe,
+  publicSurfaceUnavailableReason,
   route,
 }) {
   const reasons = [];
@@ -401,16 +664,22 @@ function residualReasons({
     return reasons;
   } else if (!publicSurfaceProbe) {
     reasons.push("public-surface-invocation-not-authored");
+    if (publicSurfaceUnavailableReason) {
+      reasons.push(publicSurfaceUnavailableReason);
+    }
   }
   if (plan.classification === "closed") {
     reasons.push("closed-surface-denial-probe-not-authored");
-  } else if (plan.classification === "non-capability") {
+  } else if (
+    plan.classification === "non-capability" &&
+    !publicSurfaceProbe
+  ) {
     if (scenario === "non-capability") {
       reasons.push("non-capability-no-decision-probe-not-authored");
     } else {
       reasons.push(`callback-invariant-${scenario}-probe-not-authored`);
     }
-  } else if (!adapterProbe) {
+  } else if (plan.classification === "effects" && !adapterProbe) {
     if (plan.actionIds.length === 0) {
       reasons.push(`conditional-${scenario}-probe-not-authored`);
     } else if (scenario === "branch-selection" || scenario === "malformed-branch-facts") {
@@ -501,19 +770,31 @@ export function buildConformanceRecipeCatalog({
       coverageByEdge,
     );
     const adapterProbe = adapter.probe;
-    const publicSurfaceProbe = authoredBuiltinPublicProbe({
+    const builtinPublicSurfaceProbe = authoredBuiltinPublicProbe({
       plan,
       scenario,
       route,
       liveByObservedKey,
       coverageByObservedKey,
     });
+    const nativePublicSurface = nativePublicProbeForPlan({
+      plan,
+      scenario,
+      route,
+      liveByObservedKey,
+    });
+    if (builtinPublicSurfaceProbe && nativePublicSurface.probe) {
+      throw new Error(`${plan.fixtureId}: multiple public probe authors claimed one fixture`);
+    }
+    const publicSurfaceProbe =
+      builtinPublicSurfaceProbe ?? nativePublicSurface.probe;
     const residual = residualReasons({
       plan,
       scenario,
       adapterProbe,
       adapterUnavailableReason: adapter.unavailableReason,
       publicSurfaceProbe,
+      publicSurfaceUnavailableReason: nativePublicSurface.unavailableReason,
       route,
     });
     return {

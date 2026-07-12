@@ -1,7 +1,9 @@
 use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use sha2::Digest as _;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,7 +31,6 @@ struct Recipe {
     scenario: String,
     edge_ids: Vec<String>,
     action_ids: Vec<String>,
-    terminal_observed_key: String,
     expected_observation: serde_json::Value,
     route: RecipeRoute,
     adapter_probe: Option<AdapterProbe>,
@@ -490,4 +491,571 @@ async fn capsec_executable_recipe_adapter_batch() {
         .expect("serialize CapSec adapter evidence artifact");
     output.write_all(b"\n").expect("finish adapter evidence");
     output.sync_all().expect("sync adapter evidence artifact");
+}
+
+fn native_coverage_terminals() -> BTreeMap<String, String> {
+    let value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/capsec/registry/coverage-edges.json"
+    )))
+    .expect("checked coverage registry must be JSON");
+    value["edges"]
+        .as_array()
+        .expect("coverage registry must contain edges")
+        .iter()
+        .map(|edge| {
+            let id = edge["id"]
+                .as_str()
+                .expect("coverage edge must have an id")
+                .to_owned();
+            let kind = edge["surface"]["kind"]
+                .as_str()
+                .expect("coverage edge must have a surface kind");
+            let name = edge["surface"]["name"]
+                .as_str()
+                .expect("coverage edge must have a surface name");
+            (id, format!("{kind}:{name}"))
+        })
+        .collect()
+}
+
+fn tagged_value_digest<T: Serialize>(value: &T) -> String {
+    tagged_jcs_digest(&serde_json::to_value(value).expect("evidence must serialize"))
+}
+
+fn native_public_floor(port: u16) -> serde_json::Value {
+    serde_json::json!({
+        "cap": "network:connect",
+        "resource": {
+            "kind": "connect-endpoint",
+            "transport": "tcp",
+            "host": {"kind": "ip", "address": "127.0.0.1"},
+            "port": {"kind": "exact", "value": port},
+            "peerClasses": ["loopback"],
+            "route": {"kind": "direct"}
+        }
+    })
+}
+
+fn install_native_public_test_host(
+    listener_port: Option<u16>,
+    deny: bool,
+) -> (HostResetGuard, String) {
+    assert!(
+        !deny || listener_port.is_some(),
+        "an explicit native public denial requires an exact selector"
+    );
+    let authority = listener_port.map(native_public_floor);
+    let floor = authority.iter().cloned().collect::<Vec<_>>();
+    let denial = deny.then(|| authority.clone().expect("denial selector checked above"));
+    let (host, digest) =
+        build_armed_test_host_custom(None, false, false, false, floor, None, move |value| {
+            if let Some(denial) = denial {
+                value["principals"][0]["denials"] = serde_json::json!([denial]);
+            }
+        });
+    assert_ne!(
+        crate::host::abi::install_host(host),
+        0,
+        "native public test Host context token allocation"
+    );
+    (HostResetGuard, digest)
+}
+
+fn setup_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
+    format!(
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{Reflect.apply(f,globalThis,{});return {{kind:\"return\",globalName:n}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        serde_json::to_string(global_name).expect("serialize setup global"),
+        serde_json::to_string(arguments).expect("serialize setup arguments")
+    )
+}
+
+async fn run_native_setup(engine: &HermesEngine, invocation: &NativePublicInvocation) {
+    for setup in &invocation.setup {
+        match setup {
+            NativeProbeSetup::InvokeNativeGlobal {
+                global_name,
+                arguments,
+            } => {
+                let encoded = engine
+                    .eval_immediate(&setup_script(global_name, arguments))
+                    .await
+                    .expect("execute native public probe setup")
+                    .expect("native public probe setup returned no result");
+                let result: serde_json::Value = serde_json::from_str(&encoded)
+                    .expect("native public probe setup returned invalid JSON");
+                assert_eq!(
+                    result["kind"], "return",
+                    "native public setup {global_name} failed: {result}"
+                );
+            }
+            NativeProbeSetup::TcpLoopbackListener => {}
+        }
+    }
+}
+
+fn materialize_native_arguments(
+    invocation: &NativePublicInvocation,
+    listener_port: Option<u16>,
+) -> Vec<serde_json::Value> {
+    invocation
+        .arguments
+        .iter()
+        .map(|argument| match argument {
+            NativeProbeArgument::JsonLiteral { value } => value.clone(),
+            NativeProbeArgument::HarnessLoopbackAddress { family } => {
+                assert_eq!(
+                    family, "ipv4",
+                    "only the bounded IPv4 loopback fixture exists"
+                );
+                serde_json::Value::String("127.0.0.1".into())
+            }
+            NativeProbeArgument::HarnessLoopbackListenerPort => serde_json::json!(
+                listener_port.expect("loopback listener argument requires listener setup")
+            ),
+        })
+        .collect()
+}
+
+fn native_invocation_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
+    format!(
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{var value=Reflect.apply(f,globalThis,{});var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        serde_json::to_string(global_name).expect("serialize native global"),
+        serde_json::to_string(arguments).expect("serialize native arguments")
+    )
+}
+
+fn observed_typed_values(
+    session_id: &str,
+    observed: Vec<ibex_runtime::host::ObservedTypedDecision>,
+) -> Vec<serde_json::Value> {
+    observed
+        .into_iter()
+        .map(|decision| {
+            assert_eq!(
+                decision.terminal_branch_id, session_id,
+                "the observer session marker is not terminal evidence"
+            );
+            let mut value =
+                serde_json::to_value(decision).expect("serialize observed typed public decision");
+            value
+                .as_object_mut()
+                .expect("observed typed decision must be an object")
+                .remove("terminalBranchId");
+            value
+        })
+        .collect()
+}
+
+fn validate_native_runtime_observation(
+    recipe: &Recipe,
+    probe: &PublicSurfaceProbe,
+    invocation_result: &serde_json::Value,
+    legacy_observations: usize,
+    typed_decisions: &[serde_json::Value],
+    coverage_terminals: &BTreeMap<String, String>,
+) -> String {
+    let invocation = probe
+        .invocation
+        .native()
+        .expect("native executor received a non-native invocation descriptor");
+    assert_eq!(probe.kind, "public-surface-invocation");
+    assert_eq!(invocation.kind, "native-global-function");
+    assert_eq!(
+        invocation.source_descriptor_digest,
+        tagged_value_digest(&invocation.source_descriptor),
+        "{}: source-derived native descriptor digest drift",
+        recipe.fixture_id
+    );
+    assert_eq!(
+        probe.surface_observed_key,
+        format!("native-op:{}", invocation.global_name)
+    );
+    assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
+    assert_eq!(invocation.expected_action_ids, recipe.action_ids);
+    assert_eq!(
+        legacy_observations, 0,
+        "legacy checks are not public typed evidence"
+    );
+    assert_eq!(invocation_result["globalName"], invocation.global_name);
+    match invocation.expected_result.as_str() {
+        "return" => assert_eq!(
+            invocation_result["kind"], "return",
+            "{}: public native invocation did not return: {invocation_result}",
+            recipe.fixture_id
+        ),
+        "permission-denied" => {
+            assert_eq!(
+                invocation_result["kind"], "throw",
+                "{}: denied public native invocation did not throw: {invocation_result}",
+                recipe.fixture_id
+            );
+            assert!(
+                invocation_result["errorMessage"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("Permission denied")),
+                "{}: denied public native invocation threw the wrong error: {invocation_result}",
+                recipe.fixture_id
+            );
+        }
+        other => panic!(
+            "{}: unsupported native expected result {other}",
+            recipe.fixture_id
+        ),
+    }
+
+    let stages = typed_decisions
+        .iter()
+        .map(|decision| {
+            decision["decisionSet"]["context"]["stage"]
+                .as_str()
+                .expect("observed typed decision has no stage")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stages, invocation.expected_typed_stages,
+        "{}: runtime typed stages disagree with the public recipe",
+        recipe.fixture_id
+    );
+    assert_eq!(
+        typed_decisions.len(),
+        invocation.expected_typed_decision_count,
+        "{}: runtime typed decision count disagrees with the public recipe",
+        recipe.fixture_id
+    );
+    let mut observed_actions = BTreeSet::new();
+    let mut observed_terminals = BTreeSet::new();
+    for decision in typed_decisions {
+        let atomicity_group = decision["decisionSet"]["atomicityGroup"]
+            .as_str()
+            .expect("observed typed decision has no atomicity group");
+        let effects = decision["decisionSet"]["effects"]
+            .as_array()
+            .expect("observed typed decision has no effects");
+        for effect in effects {
+            observed_actions.insert(
+                effect["cap"]
+                    .as_str()
+                    .expect("observed effect has no action")
+                    .to_owned(),
+            );
+        }
+        let gates = decision["gates"]
+            .as_array()
+            .expect("observed typed decision has no gates");
+        assert_eq!(gates.len(), effects.len());
+        for gate in gates {
+            let edge_id = gate["coverageEdgeId"]
+                .as_str()
+                .expect("observed typed gate has no coverage edge");
+            assert!(
+                invocation
+                    .allowed_coverage_edge_ids
+                    .iter()
+                    .any(|expected| expected == edge_id),
+                "{}: observed an unbound coverage edge {edge_id}",
+                recipe.fixture_id
+            );
+            assert_eq!(atomicity_group, format!("{edge_id}.decision"));
+            assert_eq!(gate["targetCell"], "complete");
+            assert_eq!(gate["definitionAndEdgePredicatesSatisfied"], true);
+            observed_terminals.insert(
+                coverage_terminals
+                    .get(edge_id)
+                    .unwrap_or_else(|| panic!("observed unknown coverage edge {edge_id}"))
+                    .clone(),
+            );
+        }
+        let outcome = decision["evidence"]["outcome"]
+            .as_str()
+            .expect("observed typed evidence has no outcome");
+        let expected_outcome = if invocation.expected_result == "permission-denied" {
+            "deny"
+        } else {
+            "allow"
+        };
+        assert_eq!(outcome, expected_outcome);
+        let authority_evidence = decision["evidence"]["evidence"]
+            .as_array()
+            .expect("observed typed decision has no authority evidence");
+        assert_eq!(
+            authority_evidence.len(),
+            1,
+            "{}: public network probe must have one decisive root authority row: {authority_evidence:?}",
+            recipe.fixture_id
+        );
+        let authority = &authority_evidence[0];
+        let (expected_stratum, expected_source_id) =
+            if invocation.expected_result == "permission-denied" {
+                ("principal-denial", "principal.000000.denial.000000")
+            } else {
+                ("static-floor", "principal.000000.floor.000000")
+            };
+        assert_eq!(authority["stratum"], expected_stratum);
+        assert_eq!(authority["reason"], expected_stratum);
+        assert_eq!(authority["sourceId"], expected_source_id);
+    }
+    assert_eq!(
+        observed_actions.into_iter().collect::<Vec<_>>(),
+        invocation.expected_action_ids
+    );
+
+    let terminal = if typed_decisions.is_empty() {
+        assert_eq!(recipe.classification, "non-capability");
+        assert_eq!(recipe.scenario, "non-capability");
+        probe.surface_observed_key.clone()
+    } else {
+        assert_eq!(observed_terminals.len(), 1);
+        observed_terminals.into_iter().next().unwrap()
+    };
+    assert!(
+        recipe
+            .route
+            .alternatives
+            .iter()
+            .any(|alternative| alternative.terminal_observed_key == terminal),
+        "{}: runtime-derived terminal {terminal} is outside the static allowed route set",
+        recipe.fixture_id
+    );
+    terminal
+}
+
+async fn execute_native_public_recipe(
+    engine: &HermesEngine,
+    recipe: &Recipe,
+    coverage_terminals: &BTreeMap<String, String>,
+    supplied_listener: Option<std::net::TcpListener>,
+    engine_binary_digest: &str,
+) -> serde_json::Value {
+    let probe = recipe
+        .public_surface_probe
+        .as_ref()
+        .expect("fully executable native recipe must have a public probe");
+    let invocation = probe
+        .invocation
+        .native()
+        .expect("native executor received a non-native invocation descriptor");
+    assert_eq!(recipe.status, "fully-executable");
+    run_native_setup(engine, invocation).await;
+    let needs_listener = invocation
+        .setup
+        .iter()
+        .any(|setup| matches!(setup, NativeProbeSetup::TcpLoopbackListener));
+    let listener = if needs_listener {
+        supplied_listener.or_else(|| {
+            Some(
+                std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                    .expect("bind bounded native public loopback listener"),
+            )
+        })
+    } else {
+        assert!(supplied_listener.is_none());
+        None
+    };
+    let listener_port = listener
+        .as_ref()
+        .map(|listener| listener.local_addr().unwrap().port());
+    let arguments = materialize_native_arguments(invocation, listener_port);
+    let session_id = format!("public-observation:{}", recipe.plan_digest);
+    assert!(
+        ibex_runtime::host::abi::begin_installed_conformance_observation(&session_id),
+        "public native observer has no installed host"
+    );
+    let result = engine
+        .eval_immediate(&native_invocation_script(
+            &invocation.global_name,
+            &arguments,
+        ))
+        .await;
+    let (legacy, typed) = ibex_runtime::host::abi::take_installed_conformance_observations();
+    let encoded = result
+        .expect("execute native public invocation in Hermes")
+        .expect("native public invocation returned no result");
+    let invocation_result: serde_json::Value =
+        serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
+    let typed_decisions = observed_typed_values(&session_id, typed);
+    let terminal_observed_key = validate_native_runtime_observation(
+        recipe,
+        probe,
+        &invocation_result,
+        legacy.len(),
+        &typed_decisions,
+        coverage_terminals,
+    );
+    let runtime_observation = serde_json::json!({
+        "observationSchema": "ibex/capsec-runtime-public-observation/1",
+        "invocation": {
+            "invocationSchema": "ibex/capsec-native-global-invocation/1",
+            "kind": invocation.kind,
+            "surfaceObservedKey": probe.surface_observed_key,
+            "globalName": invocation.global_name,
+            "sourceDescriptorDigest": invocation.source_descriptor_digest,
+            "result": invocation_result,
+        },
+        "legacyObservationCount": legacy.len(),
+        "typedDecisions": typed_decisions,
+    });
+    let mut observation = recipe.expected_observation.clone();
+    observation
+        .as_object_mut()
+        .expect("expected public observation must be an object")
+        .insert("result".into(), serde_json::Value::String("passed".into()));
+    let mut evidence = serde_json::json!({
+        "evidenceSchema": "ibex/capsec-public-surface-fixture-evidence/2",
+        "fixtureId": recipe.fixture_id,
+        "planDigest": recipe.plan_digest,
+        "engineBinaryDigest": engine_binary_digest,
+        "probe": probe,
+        "terminalObservedKey": terminal_observed_key,
+        "exitCode": 0,
+        "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
+        "observation": observation,
+        "runtimeObservation": runtime_observation,
+    });
+    let digest = tagged_jcs_digest(&evidence);
+    evidence
+        .as_object_mut()
+        .unwrap()
+        .insert("evidenceDigest".into(), serde_json::Value::String(digest));
+    serde_json::json!({
+        "fixtureId": recipe.fixture_id,
+        "outcome": "passed",
+        "executor": "ibex-native-public-surface-harness",
+        "evidence": evidence,
+    })
+}
+
+const NATIVE_PUBLIC_BATCH_COMMAND: [&str; 9] = [
+    "cargo",
+    "test",
+    "--bin",
+    "ibex",
+    "--features",
+    "capsec-conformance-observer",
+    "capsec_public_native_recipe_batch",
+    "--",
+    "--test-threads=1",
+];
+
+fn is_native_public_batch_probe(probe: &PublicSurfaceProbe) -> bool {
+    probe.invocation.native().is_some()
+        && probe
+            .command
+            .iter()
+            .map(String::as_str)
+            .eq(NATIVE_PUBLIC_BATCH_COMMAND)
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn capsec_public_native_recipe_batch() {
+    let Ok(recipe_path) = std::env::var("IBEX_CAPSEC_RECIPE_CATALOG") else {
+        eprintln!("IBEX_CAPSEC_RECIPE_CATALOG is unset; skipping native public recipe batch");
+        return;
+    };
+    let output_path = std::env::var("IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT")
+        .expect("native public recipe batch requires an owned evidence output path");
+    let recipe_path = std::fs::canonicalize(recipe_path)
+        .expect("canonicalize CapSec executable recipe catalog path");
+    let catalog = load_recipe_catalog(&recipe_path);
+    let native_recipe_indexes = catalog
+        .recipes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, recipe)| {
+            recipe
+                .public_surface_probe
+                .as_ref()
+                .filter(|probe| {
+                    recipe.status == "fully-executable" && is_native_public_batch_probe(probe)
+                })
+                .map(|_| index)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !native_recipe_indexes.is_empty(),
+        "catalog has no native public recipes"
+    );
+    let _lock = hermes_engine_test_lock().lock().await;
+    let identity_before = HermesEngine::loaded_engine_identity()
+        .expect("attest exact loaded Hermes before native public recipes");
+    let coverage_terminals = native_coverage_terminals();
+    let mut executions = Vec::new();
+
+    for &index in &native_recipe_indexes {
+        let recipe = &catalog.recipes[index];
+        eprintln!(
+            "CapSec native public fixture {}/{}: {}",
+            executions.len() + 1,
+            native_recipe_indexes.len(),
+            recipe.fixture_id
+        );
+        let invocation = recipe
+            .public_surface_probe
+            .as_ref()
+            .and_then(|probe| probe.invocation.native())
+            .expect("native recipe index must contain a native invocation");
+        let needs_listener = invocation
+            .setup
+            .iter()
+            .any(|setup| matches!(setup, NativeProbeSetup::TcpLoopbackListener));
+        let listener = needs_listener.then(|| {
+            std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+                .expect("bind bounded native public loopback listener")
+        });
+        let listener_port = listener
+            .as_ref()
+            .map(|listener| listener.local_addr().unwrap().port());
+        let (_reset, snapshot_digest) =
+            install_native_public_test_host(listener_port, recipe.scenario == "deny");
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&snapshot_digest))
+            .expect("create isolated native public recipe engine");
+        engine
+            .load_runtime()
+            .await
+            .expect("load runtime in isolated native public recipe engine");
+        executions.push(
+            execute_native_public_recipe(
+                &engine,
+                recipe,
+                &coverage_terminals,
+                listener,
+                &identity_before.binary_digest,
+            )
+            .await,
+        );
+        eprintln!("CapSec native public fixture passed: {}", recipe.fixture_id);
+    }
+
+    executions.sort_by(|left, right| {
+        left["fixtureId"]
+            .as_str()
+            .unwrap()
+            .cmp(right["fixtureId"].as_str().unwrap())
+    });
+    assert_eq!(executions.len(), native_recipe_indexes.len());
+    let identity_after = HermesEngine::loaded_engine_identity()
+        .expect("attest exact loaded Hermes after native public recipes");
+    assert_eq!(identity_after, identity_before);
+    ibex_runtime::engine::verify_loaded_engine_binary_identity(&identity_before)
+        .expect("re-verify mapped Hermes after native public recipes");
+    let artifact = serde_json::json!({
+        "publicBatchEvidenceSchema": "ibex/capsec-public-batch-evidence/1",
+        "recipeCatalogDigest": catalog.recipe_catalog_digest,
+        "loadedEngineIdentity": identity_before,
+        "executions": executions,
+    });
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output_path)
+        .expect("create owned native public evidence artifact");
+    serde_json::to_writer_pretty(&mut output, &artifact)
+        .expect("serialize native public evidence artifact");
+    output
+        .write_all(b"\n")
+        .expect("finish native public evidence");
+    output
+        .sync_all()
+        .expect("sync native public evidence artifact");
 }

@@ -85,12 +85,42 @@ describe("exact-target CapSec executable recipes", () => {
       (recipe) => recipe.publicSurfaceProbe !== null,
     ).length;
     expect(authoredPublicFixtures).toBeGreaterThan(0);
+    const nativePublicFixtures = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
+        "ibex/capsec-native-global-invocation/1",
+    );
+    expect(nativePublicFixtures).toHaveLength(18);
+    expect(
+      nativePublicFixtures
+        .filter(
+          (recipe) =>
+            recipe.publicSurfaceProbe.invocation.globalName ===
+            "__exactTcpConnect",
+        )
+        .map((recipe) => [
+          recipe.publicSurfaceProbe.invocation.globalName,
+          recipe.scenario,
+        ]),
+    ).toEqual([
+      ["__exactTcpConnect", "allow"],
+      ["__exactTcpConnect", "deny"],
+    ]);
+    expect(
+      nativePublicFixtures.filter(
+        (recipe) => recipe.scenario === "non-capability",
+      ),
+    ).toHaveLength(16);
+    expect(
+      recipes.summary.residualReasons[
+        "native-public-global-removed-by-structural-lockdown"
+      ],
+    ).toBe(30);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
-      recipes.recipes.filter((recipe) => recipe.status === "fully-executable")
-        .length,
+      authoredPublicFixtures,
     );
     expect(recipes.summary.unresolvedFixtures).toBe(
-      expectedFixtureIds.length - recipes.summary.fullyExecutableFixtures,
+      expectedFixtureIds.length - authoredPublicFixtures,
     );
     const publicFixtures = recipes.recipes.filter(
       (recipe) => recipe.expectedObservation.kind === "enforcement-branch",
@@ -152,6 +182,57 @@ describe("exact-target CapSec executable recipes", () => {
     expect(allow.publicSurfaceProbe.invocation).not.toHaveProperty(
       "terminalObservedKey",
     );
+  });
+
+  test("binds native public probes to source-derived JSI descriptors", () => {
+    const rows = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactTcpConnect",
+    );
+    expect(rows).toHaveLength(2);
+    for (const recipe of rows) {
+      expect(recipe.publicSurfaceProbe.command).toEqual([
+        "cargo",
+        "test",
+        "--bin",
+        "ibex",
+        "--features",
+        "capsec-conformance-observer",
+        "capsec_public_native_recipe_batch",
+        "--",
+        "--test-threads=1",
+      ]);
+      const invocation = recipe.publicSurfaceProbe.invocation;
+      expect(invocation).toMatchObject({
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        globalName: "__exactTcpConnect",
+        kind: "native-global-function",
+        sourceDescriptor: {
+          arity: 4,
+          globalName: "__exactTcpConnect",
+          kind: "native-global-function",
+          sourceRef:
+            "src/engine/hermes_runtime_net.cc#jsi-global:__exactTcpConnect",
+        },
+        setup: [{ kind: "tcp-loopback-listener" }],
+        allowedCoverageEdgeIds: [
+          "surface.native.op.exacttcpconnect.1cs9rhu",
+        ],
+        expectedActionIds: ["network:connect"],
+      });
+      expect(invocation.sourceDescriptorDigest).toMatch(/^sha256-/u);
+      expect(invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "candidate", "commit", "repeat"]
+          : ["requested"],
+      );
+      expect(invocation.expectedTypedDecisionCount).toBe(
+        recipe.scenario === "allow" ? 4 : 1,
+      );
+      expect(recipe.residualReasons).toEqual([]);
+      expect(recipe.status).toBe("fully-executable");
+    }
   });
 
   test("preserves multiple argument-selected terminal routes", () => {
