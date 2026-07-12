@@ -3712,6 +3712,7 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
     #[tokio::test(flavor = "current_thread")]
     async fn concurrent_equal_digest_runtimes_claim_their_exact_installed_host() {
         let _lock = hermes_engine_test_lock().lock().await;
