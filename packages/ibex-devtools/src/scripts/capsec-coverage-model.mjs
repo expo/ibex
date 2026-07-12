@@ -5097,6 +5097,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_armed_endowments",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
+    "ex_host_authorize_typed_system_info_stack",
     "ex_host_authorize_typed_udp_datagram_stack",
     "ex_host_check_capability",
     "ex_host_check_capability_no_follow_final",

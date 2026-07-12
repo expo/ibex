@@ -3522,15 +3522,27 @@ cp \"$input\" \"$out\"\n";
     #[tokio::test(flavor = "current_thread")]
     async fn public_os_reads_reach_their_exact_typed_native_gates() {
         let _lock = hermes_engine_test_lock().lock().await;
-        let floors = ["cpus", "load-average", "network-interfaces", "user"]
-            .into_iter()
-            .map(|name| {
-                serde_json::json!({
-                    "cap": "sys:read",
-                    "resource": {"kind": "system-info", "name": name}
-                })
+        let floors = [
+            "architecture",
+            "cpus",
+            "hostname",
+            "load-average",
+            "memory",
+            "network-interfaces",
+            "os-release",
+            "platform",
+            "storage-paths",
+            "uptime",
+            "user",
+        ]
+        .into_iter()
+        .map(|name| {
+            serde_json::json!({
+                "cap": "sys:read",
+                "resource": {"kind": "system-info", "name": name}
             })
-            .collect();
+        })
+        .collect();
         let (host, digest) =
             build_armed_test_host_custom(None, false, false, false, floors, None, |snapshot| {
                 snapshot["principals"][0]["imports"]["builtins"] = serde_json::json!(["node:os"]);
@@ -3547,8 +3559,11 @@ cp \"$input\" \"$out\"\n";
         let value = engine
             .eval_immediate(
                 "var os = require('node:os'); JSON.stringify([\
-                   os.cpus().length, os.loadavg().length,\
-                   Object.keys(os.networkInterfaces()).length,\
+                   os.platform(), os.arch(), os.type(), os.release(),\
+                   os.homedir(), os.tmpdir(), os.hostname(), os.cpus().length,\
+                   os.totalmem(), os.freemem(), os.uptime(), os.endianness(),\
+                   Object.keys(os.networkInterfaces()).length, os.loadavg().length,\
+                   os.version(), os.machine(), os.availableParallelism(),\
                    typeof os.userInfo().username])",
             )
             .await
@@ -3561,17 +3576,58 @@ cp \"$input\" \"$out\"\n";
         );
         assert_eq!(
             observed.len(),
-            8,
-            "four reads must authorize two stages each"
+            36,
+            "eighteen reads must authorize two stages each"
         );
 
         let expected = [
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "platform",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "architecture",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "platform",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "os-release",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "storage-paths",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "storage-paths",
+            ),
+            ("surface.native.op.exactgethostname.01gi6am", "hostname"),
             ("surface.native.op.exactgetcpucount.1k05aty", "cpus"),
-            ("surface.native.op.exactgetloadavg.10t3k2t", "load-average"),
+            ("surface.native.op.exactgettotalmem.0ziuv9c", "memory"),
+            ("surface.native.op.exactgetfreemem.0dytp7m", "memory"),
+            ("surface.native.op.exactgetuptime.0ydqt27", "uptime"),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "architecture",
+            ),
             (
                 "surface.native.op.exactgetnetworkinterfaces.15q8n2j",
                 "network-interfaces",
             ),
+            ("surface.native.op.exactgetloadavg.10t3k2t", "load-average"),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "os-release",
+            ),
+            (
+                "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+                "architecture",
+            ),
+            ("surface.native.op.exactgetcpucount.1k05aty", "cpus"),
             ("surface.native.op.exactgetuserinfo.027b1gs", "user"),
         ];
         for (index, (edge, name)) in expected.into_iter().enumerate() {

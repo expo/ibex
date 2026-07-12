@@ -3,23 +3,29 @@ var _arch = (typeof globalThis !== "undefined" && globalThis.process && globalTh
 var _processPriority = 0;
 
 function legacyStringValue(getter) {
-  getter.toString = function() {
+  var fn = function() {
+    return getter();
+  };
+  fn.toString = function() {
     var value = getter();
     if (value === undefined || value === null) return "";
     return String(value);
   };
-  getter.valueOf = getter.toString;
-  return getter;
+  fn.valueOf = fn.toString;
+  return fn;
 }
 
 function legacyNumberValue(getter) {
-  getter.toString = function() {
+  var fn = function() {
+    return getter();
+  };
+  fn.toString = function() {
     return String(getter());
   };
-  getter.valueOf = function() {
+  fn.valueOf = function() {
     return Number(getter());
   };
-  return getter;
+  return fn;
 }
 
 function authorizeSystemInfo(kind) {
@@ -59,14 +65,17 @@ function type() {
   if (_platform === "win32") return "Windows_NT";
   return "Unknown";
 }
-function release() {
-  authorizeSystemInfo(10);
+function releaseValue() {
   var androidVersion = androidPlatformVersion();
   if (androidVersion) return androidVersion;
   if (typeof globalThis !== "undefined" && globalThis.process) {
     if (globalThis.process.__exactOSRelease) return globalThis.process.__exactOSRelease;
   }
   return "0.0.0";
+}
+function release() {
+  authorizeSystemInfo(10);
+  return releaseValue();
 }
 function homedir() {
   authorizeSystemInfo(13);
@@ -107,7 +116,7 @@ function version() {
   if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) {
     return globalThis.process.__exactOSVersion;
   }
-  return release();
+  return releaseValue();
 }
 function machine() {
   authorizeSystemInfo(0);
@@ -278,39 +287,24 @@ Object.freeze(constants.errno);
 Object.freeze(constants.priority);
 Object.freeze(constants);
 
-legacyStringValue(platform);
-legacyStringValue(arch);
-legacyStringValue(type);
-legacyStringValue(release);
-legacyStringValue(homedir);
-legacyStringValue(tmpdir);
-legacyStringValue(hostname);
-legacyNumberValue(totalmem);
-legacyNumberValue(freemem);
-legacyNumberValue(uptime);
-legacyStringValue(endianness);
-legacyStringValue(version);
-legacyStringValue(machine);
-legacyNumberValue(availableParallelism);
-
 module.exports = {
-  platform: platform,
-  arch: arch,
-  type: type,
-  release: release,
-  homedir: homedir,
-  tmpdir: tmpdir,
-  hostname: hostname,
+  platform: legacyStringValue(platform),
+  arch: legacyStringValue(arch),
+  type: legacyStringValue(type),
+  release: legacyStringValue(release),
+  homedir: legacyStringValue(homedir),
+  tmpdir: legacyStringValue(tmpdir),
+  hostname: legacyStringValue(hostname),
   cpus: cpus,
-  totalmem: totalmem,
-  freemem: freemem,
-  uptime: uptime,
-  endianness: endianness,
+  totalmem: legacyNumberValue(totalmem),
+  freemem: legacyNumberValue(freemem),
+  uptime: legacyNumberValue(uptime),
+  endianness: legacyStringValue(endianness),
   networkInterfaces: networkInterfaces,
   loadavg: loadavg,
-  version: version,
-  machine: machine,
-  availableParallelism: availableParallelism,
+  version: legacyStringValue(version),
+  machine: legacyStringValue(machine),
+  availableParallelism: legacyNumberValue(availableParallelism),
   getPriority: getPriority,
   setPriority: setPriority,
   userInfo: userInfoCompat,

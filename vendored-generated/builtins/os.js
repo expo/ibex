@@ -26,6 +26,9 @@ function legacyNumberValue(getter) {
 	};
 	return fn;
 }
+function authorizeSystemInfo(kind) {
+	if (typeof __exactAuthorizeSystemInfo === "function") __exactAuthorizeSystemInfo(kind);
+}
 function androidPlatformVersion() {
 	if (_platform !== "android" || typeof globalThis === "undefined") return null;
 	if (typeof globalThis.__exactPlatformVersion === "string" && globalThis.__exactPlatformVersion.length > 0) return globalThis.__exactPlatformVersion;
@@ -33,19 +36,22 @@ function androidPlatformVersion() {
 	return null;
 }
 function platform() {
+	authorizeSystemInfo(11);
 	return _platform;
 }
 function arch() {
+	authorizeSystemInfo(0);
 	return _arch;
 }
 function type() {
+	authorizeSystemInfo(11);
 	if (_platform === "android") return "Android";
 	if (_platform === "darwin") return "Darwin";
 	if (_platform === "linux") return "Linux";
 	if (_platform === "win32") return "Windows_NT";
 	return "Unknown";
 }
-function release() {
+function releaseValue() {
 	var androidVersion = androidPlatformVersion();
 	if (androidVersion) return androidVersion;
 	if (typeof globalThis !== "undefined" && globalThis.process) {
@@ -53,11 +59,17 @@ function release() {
 	}
 	return "0.0.0";
 }
+function release() {
+	authorizeSystemInfo(10);
+	return releaseValue();
+}
 function homedir() {
+	authorizeSystemInfo(13);
 	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) return globalThis.process.env.HOME || globalThis.process.env.USERPROFILE || "/";
 	return "/";
 }
 function tmpdir() {
+	authorizeSystemInfo(13);
 	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.env) {
 		var tempPath = globalThis.process.env.TMPDIR || globalThis.process.env.TMP || globalThis.process.env.TEMP || "/tmp";
 		if (typeof tempPath === "string" && tempPath.length > 1 && tempPath[tempPath.length - 1] === "/" && tempPath.indexOf("\\") === -1) return tempPath.slice(0, -1);
@@ -70,17 +82,20 @@ function hostname() {
 	return "localhost";
 }
 function version() {
+	authorizeSystemInfo(10);
 	var androidVersion = androidPlatformVersion();
 	if (androidVersion) return "Android " + androidVersion;
 	if (typeof __exactGetOsVersion === "function") return __exactGetOsVersion();
 	if (typeof globalThis !== "undefined" && globalThis.process && globalThis.process.__exactOSVersion) return globalThis.process.__exactOSVersion;
-	return release();
+	return releaseValue();
 }
 function machine() {
+	authorizeSystemInfo(0);
 	return _arch;
 }
 function availableParallelism() {
-	return cpus().length > 0 ? cpus().length : 1;
+	var processors = cpus();
+	return processors.length > 0 ? processors.length : 1;
 }
 function _validatePid(pid) {
 	if (pid !== void 0 && typeof pid !== "number") {
@@ -167,6 +182,7 @@ function uptime() {
 	return 1;
 }
 function endianness() {
+	authorizeSystemInfo(0);
 	return "LE";
 }
 function networkInterfaces() {

@@ -133862,6 +133862,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_authorize_typed_system_info_stack"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra",
             "classification": "non-capability",
             "surface": {
@@ -181994,6 +182004,47 @@
             "gate": "reclassifies",
             "effectMode": "conjunctive",
             "atomicityGroup": "surface.native.op.exactarch.0djy1vp.decision",
+            "lifetimeContract": "operation",
+            "barriers": {
+              "authorizeBefore": [
+                "system-information-read"
+              ],
+              "recheckAt": [],
+              "cancelAt": [
+                "negative-generation-change"
+              ]
+            }
+          },
+          {
+            "id": "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+            "classification": "effects",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactAuthorizeSystemInfo"
+            },
+            "effects": [
+              {
+                "cap": "sys:read",
+                "selectorNormalizer": "system.info.selector.v1",
+                "occurrenceNormalizer": "system.info.occurrence.v1",
+                "stages": [
+                  "requested",
+                  "commit"
+                ],
+                "positiveSources": [
+                  "ambient-root",
+                  "static-floor"
+                ]
+              }
+            ],
+            "principalSources": [
+              "frame-set",
+              "schedule-time"
+            ],
+            "effectOwnerSource": "innermost-nontransparent-frame",
+            "gate": "reclassifies",
+            "effectMode": "conjunctive",
+            "atomicityGroup": "surface.native.op.exactauthorizesysteminfo.0ii7nrh.decision",
             "lifetimeContract": "operation",
             "barriers": {
               "authorizeBefore": [

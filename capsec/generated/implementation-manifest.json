@@ -113649,6 +113649,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb",
+      "observedKey": "host-abi:ex_host_authorize_typed_system_info_stack",
+      "branchId": "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_authorize_typed_system_info_stack"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_typed_system_info_stack"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_typed_system_info_stack"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_authorize_typed_system_info_stack"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_typed_system_info_stack"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb.default.non-capability",
+        "surface.host.abi.ex.host.authorize.typed.system.info.stack.1plhebb.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra",
       "observedKey": "host-abi:ex_host_authorize_typed_udp_datagram_stack",
       "branchId": "surface.host.abi.ex.host.authorize.typed.udp.datagram.stack.0q1nyra.default",
@@ -142567,6 +142601,83 @@
         "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactarch.0xqqxff.malformed",
         "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactarch.0xqqxff.missing-attribution",
         "enforcement.src.engine.hermes.runtime.platform.windows.cc.exactarch.0xqqxff.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+      "observedKey": "native-op:__exactAuthorizeSystemInfo",
+      "branchId": "surface.native.op.exactauthorizesysteminfo.0ii7nrh.default",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "native-op:__exactAuthorizeSystemInfo"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_osinfo.cc#__exactAuthorizeSystemInfo",
+          "src/engine/hermes_runtime_osinfo.cc#jsi-global:__exactAuthorizeSystemInfo"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_osinfo.cc#__exactAuthorizeSystemInfo",
+          "src/engine/hermes_runtime_osinfo.cc#jsi-global:__exactAuthorizeSystemInfo"
+        ],
+        "terminalObservedKey": "native-op:__exactAuthorizeSystemInfo"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_osinfo.cc#__exactAuthorizeSystemInfo",
+        "src/engine/hermes_runtime_osinfo.cc#jsi-global:__exactAuthorizeSystemInfo"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0.allow",
+        "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0.deny",
+        "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0.malformed",
+        "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.osinfo.cc.exactauthorizesysteminfo.1hqfyz0.wrong-principal"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
+      "observedKey": "native-op:__exactAuthorizeSystemInfo",
+      "branchId": "surface.native.op.exactauthorizesysteminfo.0ii7nrh.windows",
+      "enforcementBranchId": "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh",
+      "enforcementRoute": {
+        "kind": "exact-source-and-semantics",
+        "proofPaths": [
+          "native-op:__exactAuthorizeSystemInfo"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_platform_windows.cc#__exactAuthorizeSystemInfo",
+          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactAuthorizeSystemInfo"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_platform_windows.cc#__exactAuthorizeSystemInfo",
+          "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactAuthorizeSystemInfo"
+        ],
+        "terminalObservedKey": "native-op:__exactAuthorizeSystemInfo"
+      },
+      "branchKind": "alternative",
+      "targetVariant": "windows",
+      "targetApplicability": {
+        "kind": "operating-system",
+        "value": "windows"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_platform_windows.cc#__exactAuthorizeSystemInfo",
+        "src/engine/hermes_runtime_platform_windows.cc#jsi-global:__exactAuthorizeSystemInfo"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh.allow",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh.deny",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh.malformed",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh.missing-attribution",
+        "enforcement.gine.hermes.runtime.platform.windows.cc.exactauthorizesysteminfo.10giouh.wrong-principal"
       ]
     },
     {
@@ -257033,6 +257144,7 @@
         "surface.native.op.exactandroidstoragepaths.filesdir.0v863tp",
         "surface.native.op.exactandroidstoragepaths.nobackupfilesdir.1tcc2lo",
         "surface.native.op.exactarch.0djy1vp",
+        "surface.native.op.exactauthorizesysteminfo.0ii7nrh",
         "surface.native.op.exactgetcpucount.1k05aty",
         "surface.native.op.exactgetcwd.1bhagb7",
         "surface.native.op.exactgetfreemem.0dytp7m",
@@ -257237,7 +257349,7 @@
         "surface.native.op.global.process.versions.0q260xv",
         "surface.startup.env.tz.1uttegh"
       ],
-      "rationale": "Covered by 268 observed effect edges."
+      "rationale": "Covered by 269 observed effect edges."
     },
     {
       "definitionId": "vm:evaluate",
@@ -257362,44 +257474,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-h-tMp98vuLSe5-YwWlVeRlelaBfAH2mdWuERzj2OdH4"
+      "rawContentDigest": "sha256-uE0UNSaW3XkWQkB6csZppoLBz6CbpGNkwbB6x09uMPk"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-DbmOPhITyYrwv-FEE4oSUrfidaoSZmzybf2OtBcUDK8"
+      "rawContentDigest": "sha256-cMpJTq-a0yz1l93ZbJxtW2cizjUyFXoyX46BjF4y6sI"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-K-LpLH4gkjdkdT2aY-njWWKTT7sYRdhBIwL4S_t_9CQ"
+      "rawContentDigest": "sha256-DTp6OIfxBzT58GAjLk6js5ktud56hGzxMbZSj1P7oKk"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-IAE2KDbgzq0gyWvvi3Cqu1zgkysIRDtaF8vIRQcNEQ8"
+      "rawContentDigest": "sha256-EU4sqOtsUmt-FWaZU_IwVdzuhszYZF4waD_dp9eAiEA"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-W_60NNEhxX1S2G-qalNy5aloeifn4vcpxjm5tvIcomg"
+      "rawContentDigest": "sha256-8U9OtMZrcFveEJ4S8rijsXQirMq8cAQtRdm9GCYGw4M"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-xv0LYrO1gF3lulLxoz5TQP9C3qMSN93I6RpuXxdGk8U"
+      "rawContentDigest": "sha256-B8NxsEzOEYzP_O2o6mo0QS_ZxVCB9ngfoCIrAXmrlVw"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-2Npecv3W0e7HJdjrTdLu-PqAJEFdAm7QhqZadCPSnmA"
+      "rawContentDigest": "sha256-DZ9xqcUcDThzPIKnCqX4AManc6ADum29kPriaJ1Cuy0"
     }
   ],
   "counts": {
-    "observedReferences": 11957,
-    "logicalSurfaces": 6974,
-    "enforcementBranches": 7165,
-    "coverageEdges": 6974,
-    "targetCells": 6974
+    "observedReferences": 11962,
+    "logicalSurfaces": 6976,
+    "enforcementBranches": 7168,
+    "coverageEdges": 6976,
+    "targetCells": 6976
   }
 }
