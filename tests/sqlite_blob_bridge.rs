@@ -5,9 +5,19 @@ use std::process::Command;
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 fn eval(js: &str) -> String {
+    let dir = tempfile::tempdir().expect("create eval tempdir");
+    let entry = dir.path().join("eval.js");
+    std::fs::write(
+        &entry,
+        format!(
+            "(function () {{\n  var watchdog = setTimeout(function () {{\n    console.error('diagnostic eval timed out');\n    process.exitCode = 1;\n  }}, 55000);\n  var result = (\n{js}\n  );\n  function resolve(value) {{\n    clearTimeout(watchdog);\n    console.log(value);\n  }}\n  function reject(error) {{\n    clearTimeout(watchdog);\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
+        ),
+    )
+    .expect("write eval fixture");
     let output = Command::new(IBEX)
-        .arg("-p")
-        .arg(js)
+        .arg("capsec")
+        .arg("audit")
+        .arg(&entry)
         .output()
         .expect("run ibex");
     assert!(

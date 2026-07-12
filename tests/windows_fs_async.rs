@@ -11,7 +11,7 @@ fn windows_async_fs_errno_append_fstat_and_flush_contract() {
         "/tests/fixtures/windows_fs_async_smoke.js"
     );
     let output = Command::new(env!("CARGO_BIN_EXE_ibex"))
-        .args(["run", fixture])
+        .args(["capsec", "audit", fixture])
         .env("IBEX_NO_BYTECODE", "1")
         .output()
         .expect("run Windows filesystem smoke");

@@ -46,17 +46,28 @@ fn fixture_path(name: &str) -> String {
         .into_owned()
 }
 
-/// Run a JS expression under `ibex -p` and return the last stdout line.
+/// Run a JS expression through the explicit foreground audit diagnostic and
+/// return the last stdout line. The wrapper preserves `-p`'s promise-awaiting
+/// behavior without exposing source text as a command-line argument.
 async fn eval(js: &str) -> String {
+    let dir = tempfile::tempdir().expect("create eval tempdir");
+    let entry = dir.path().join("eval.js");
+    std::fs::write(
+        &entry,
+        format!(
+            "(function () {{\n  var watchdog = setTimeout(function () {{\n    console.error('diagnostic eval timed out');\n    process.exitCode = 1;\n  }}, 55000);\n  var result = (\n{js}\n  );\n  function resolve(value) {{\n    clearTimeout(watchdog);\n    console.log(value);\n  }}\n  function reject(error) {{\n    clearTimeout(watchdog);\n    console.error(error && error.stack || error);\n    process.exitCode = 1;\n  }}\n  if (result && typeof result.then === 'function') result.then(resolve, reject);\n  else resolve(result);\n}})();\n"
+        ),
+    )
+    .expect("write eval fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-p").arg(js);
+    cmd.arg("capsec").arg("audit").arg(&entry);
     let output = timeout(Duration::from_secs(60), cmd.output())
         .await
-        .expect("ibex -p timed out")
+        .expect("ibex capsec audit timed out")
         .expect("failed to spawn or read ibex process output");
     assert!(
         output.status.success(),
-        "ibex -p should exit successfully: status={:?}, stderr={}",
+        "ibex capsec audit should exit successfully: status={:?}, stderr={}",
         output.status.code(),
         String::from_utf8_lossy(&output.stderr)
     );
@@ -536,11 +547,14 @@ async fn hash_finalization_and_stream_lifecycle() {
           clearTimeout(timer); \
           console.log(err ? 'ERR' : 'pipeline:' + h.read().toString('hex').slice(0, 12)); \
         });";
+    let dir = tempfile::tempdir().expect("create pipeline tempdir");
+    let entry = dir.path().join("pipeline.js");
+    std::fs::write(&entry, script).expect("write pipeline fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
     let output = timeout(Duration::from_secs(60), cmd.output())
         .await
-        .expect("ibex -e timed out")
+        .expect("ibex capsec audit timed out")
         .expect("failed to run ibex");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(

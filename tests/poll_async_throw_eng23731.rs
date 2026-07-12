@@ -15,24 +15,30 @@ use std::time::{Duration, Instant};
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 fn run_with_timeout(source: &str) -> std::process::Output {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, source).expect("write script fixture");
     let start = Instant::now();
     let child = Command::new(IBEX)
-        .arg("-e")
-        .arg(source)
+        .arg("capsec")
+        .arg("audit")
+        .arg(&entry)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("failed to spawn ibex");
-    // Bounded wait: these programs finish in well under a second; a wedge is
-    // itself a failure mode this suite exists to catch.
+    // Bounded wait: the diagnostic runtime's capability inventory startup is
+    // materially slower than the old production `-e` shortcut, but the user
+    // programs themselves still finish immediately after startup. A genuine
+    // wedge remains a failure mode this suite exists to catch.
     let mut child = child;
     loop {
         if let Some(_status) = child.try_wait().expect("try_wait failed") {
             return child.wait_with_output().expect("wait_with_output failed");
         }
-        if start.elapsed() > Duration::from_secs(10) {
+        if start.elapsed() > Duration::from_secs(45) {
             let _ = child.kill();
-            panic!("ibex did not exit within 10s (runtime wedged?)");
+            panic!("ibex did not exit within 45s (runtime wedged?)");
         }
         std::thread::sleep(Duration::from_millis(20));
     }

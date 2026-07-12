@@ -54,7 +54,7 @@ fn dns_worker_pool_does_not_spuriously_reject_concurrent_lookups() {
     std::fs::write(&script, DNS_FANOUT_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "fanout.js"])
+        .args(["capsec", "audit", "fanout.js"])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");

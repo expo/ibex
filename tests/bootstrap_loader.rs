@@ -43,11 +43,15 @@ fn write_text(path: &Path, contents: &str) {
     std::fs::write(path, contents).expect("write test file");
 }
 
-/// Run `ibex run <entry>` in `dir` with EXACT_COMPAT_TEST=1 so the entry goes
-/// through the in-process loader (no pre-bundling) and return stdout.
+/// Run `ibex capsec audit <entry>` in `dir` with EXACT_COMPAT_TEST=1 so the
+/// entry goes through the in-process loader (no pre-bundling) and return
+/// stdout. Production execution is deliberately closed until this target has
+/// a verified advertisement, so compatibility fixtures use the explicit
+/// foreground diagnostic.
 fn run_compat(dir: &Path, entry: &str) -> (String, String, bool) {
     let output = Command::new(IBEX)
-        .arg("run")
+        .arg("capsec")
+        .arg("audit")
         .arg(entry)
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
@@ -176,8 +180,8 @@ fn for_of_rewrite_preserves_line_numbers() {
 /// Finding #4: the bundled-entry remap keys on the bundle-output shape
 /// (`<key>.bundle.js` / `<key>/bundle.js`), so it fires for cache dirs that
 /// do not contain '/Caches/' (Linux `~/.cache/ibex`, Windows LOCALAPPDATA).
-/// Simulated via eval mode: set __exactEntryFile, then load a bundle-shaped
-/// file from a non-Caches dir as the first parentless module.
+/// Simulated from an audit entry: set __exactEntryFile, then load a
+/// bundle-shaped file from a non-Caches dir as the first parentless module.
 #[test]
 fn bundled_entry_remap_fires_outside_macos_caches_dir() {
     let dir = unique_dir("entry-remap");
@@ -189,14 +193,18 @@ fn bundled_entry_remap_fires_outside_macos_caches_dir() {
     let entry_file = dir.join("srcdir/realapp.js");
     let bundle = dir.join("fakecache/abc123.bundle.js");
     let code = format!(
-        "globalThis.__exactEntryFile={:?}; require({:?});",
+        "globalThis.__exactEntryFile={:?}; globalThis.__exactEntryFileConsumed=false; globalThis.require({:?});",
         entry_file.to_string_lossy(),
         bundle.to_string_lossy()
     );
+    write_text(&dir.join("remap-entry.js"), &code);
     let output = Command::new(IBEX)
-        .arg("-e")
-        .arg(&code)
+        .arg("capsec")
+        .arg("audit")
+        .arg("remap-entry.js")
+        .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .env("EXACT_COMPAT_TEST", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

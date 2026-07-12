@@ -41,16 +41,18 @@ fn write_text(path: &Path, contents: &str) {
 }
 
 fn run_app_in(dir: &Path, args: &[&str], timeout: Duration) -> AppRun {
-    let mut child = Command::new(IBEX)
+    let mut command = Command::new(IBEX);
+    command
         .args(args)
         .current_dir(dir)
-        .env("IBEX_CAPSEC_ALLOW_ADVISORY", "1")
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn ibex binary");
+        .stderr(Stdio::piped());
+    if !args.starts_with(&["capsec", "audit"]) {
+        command.env("IBEX_CAPSEC_ALLOW_ADVISORY", "1");
+    }
+    let mut child = command.spawn().expect("spawn ibex binary");
 
     let mut out = child.stdout.take().expect("stdout pipe");
     let mut err = child.stderr.take().expect("stderr pipe");
@@ -198,7 +200,11 @@ console.log('RESULT|status=' + result.status + '|stdout=' + result.stdout);
     );
     write_text(&dir.join("app.js"), &app);
 
-    let run = run_app_in(&dir, &["run", "app.js"], Duration::from_secs(20));
+    let run = run_app_in(
+        &dir,
+        &["capsec", "audit", "app.js"],
+        Duration::from_secs(20),
+    );
     let _line = result_line(&run);
     assert!(
         !marker.exists(),

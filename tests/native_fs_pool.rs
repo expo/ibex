@@ -61,7 +61,7 @@ fn timers_keep_firing_during_large_readfile() {
     std::fs::write(&big, vec![0xA5u8; 64 * 1024 * 1024]).expect("write 64MiB file");
 
     let out = Command::new(IBEX)
-        .args(["run", "starve.js", big.to_str().unwrap()])
+        .args(["capsec", "audit", "starve.js", big.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -111,7 +111,7 @@ fn inflight_async_fs_op_keeps_event_loop_alive() {
     std::fs::write(&small, "alive").expect("write small file");
 
     let out = Command::new(IBEX)
-        .args(["run", "keepalive.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "keepalive.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -146,7 +146,7 @@ fn process_exit_after_pool_use_terminates_promptly() {
 
     let start = Instant::now();
     let mut child = Command::new(IBEX)
-        .args(["run", "exit.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "exit.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -204,7 +204,7 @@ fn fs_worker_pool_handles_concurrent_fanout() {
     std::fs::write(&small, "fanout").expect("write small file");
 
     let out = Command::new(IBEX)
-        .args(["run", "fanout.js", small.to_str().unwrap()])
+        .args(["capsec", "audit", "fanout.js", small.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -271,7 +271,7 @@ fn fs_worker_pool_handles_path_metadata_ops() {
     std::fs::write(&script, PATH_OPS_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "pathops.js"])
+        .args(["capsec", "audit", "pathops.js"])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -309,7 +309,7 @@ fn async_readfile_errors_keep_node_shape() {
     std::fs::write(&script, ERROR_SHAPE_JS).expect("write script");
 
     let out = Command::new(IBEX)
-        .args(["run", "errshape.js", dir.to_str().unwrap()])
+        .args(["capsec", "audit", "errshape.js", dir.to_str().unwrap()])
         .current_dir(&dir)
         .output()
         .expect("failed to spawn ibex binary");
@@ -344,7 +344,7 @@ fs.close(fd, function(err) { if (err) console.log('close-error:' + err.code); })
     .expect("write race script");
     std::fs::write(dir.join("payload.txt"), "pinned").expect("write payload");
     let out = Command::new(IBEX)
-        .args(["run", "race.js"])
+        .args(["capsec", "audit", "race.js"])
         .current_dir(&dir)
         .output()
         .expect("run close race");
@@ -385,7 +385,7 @@ fn queue_rejection_releases_owned_fds_and_rolls_back_close() {
     )
     .expect("write rejection script");
     let out = Command::new(IBEX)
-        .args(["run", "reject.js"])
+        .args(["capsec", "audit", "reject.js"])
         .env("IBEX_TEST_FS_WORKER_MAX_QUEUE", "0")
         .current_dir(&dir)
         .output()
@@ -422,7 +422,7 @@ fs.promises.readdir('entries', {withFileTypes:true}).then(function(items) {
     )
     .expect("write large readdir script");
     let out = Command::new(IBEX)
-        .args(["run", "large-readdir.js"])
+        .args(["capsec", "audit", "large-readdir.js"])
         .current_dir(&dir)
         .output()
         .expect("run large readdir");

@@ -39,14 +39,18 @@ fn hermesc_path() -> Option<PathBuf> {
     .find(|p| p.exists())
 }
 
-/// Run `ibex` with the given args, isolated: an empty PATH dir (no bun/node,
-/// forcing the standalone pipeline) and HOME/XDG_CACHE_HOME inside `home` so
-/// nothing leaks into the real user cache.
-async fn run_ibex_isolated(home: &Path, args: &[&str]) -> std::process::Output {
+/// Run an entry through `ibex capsec audit`, isolated: an empty PATH dir (no
+/// bun/node, forcing the standalone pipeline) and HOME/XDG_CACHE_HOME inside
+/// `home` so nothing leaks into the real user cache. Production execution is
+/// closed until the target has a verified advertisement; these fixtures test
+/// runtime pipeline behavior rather than that fail-closed CLI contract.
+async fn run_ibex_isolated(home: &Path, entry: &Path) -> std::process::Output {
     let empty_path = home.join("empty-path-dir");
     let _ = std::fs::create_dir_all(&empty_path);
     let mut cmd = Command::new(IBEX);
-    cmd.args(args)
+    cmd.arg("capsec")
+        .arg("audit")
+        .arg(entry)
         .current_dir(home)
         .env("PATH", &empty_path)
         .env("HOME", home)
@@ -56,7 +60,7 @@ async fn run_ibex_isolated(home: &Path, args: &[&str]) -> std::process::Output {
         .env_remove("EXACT_COMPAT_TEST");
     timeout(Duration::from_secs(60), cmd.output())
         .await
-        .expect("ibex run timed out")
+        .expect("ibex capsec audit timed out")
         .expect("failed to spawn ibex")
 }
 
@@ -85,10 +89,10 @@ async fn cli_runtime_ignores_project_local_hermes_executables() {
     let entry = dir.path().join("app.js");
     std::fs::write(&entry, "console.log('trusted-runtime');\n").expect("write entry");
 
-    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let output = run_ibex_isolated(dir.path(), &entry).await;
     assert!(
         output.status.success(),
-        "ordinary run should succeed: {}",
+        "diagnostic runtime execution should succeed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
@@ -112,7 +116,7 @@ async fn cli_runtime_standalone_mjs_entry_without_tla_runs_lowered_source() {
     )
     .expect("write entry");
 
-    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let output = run_ibex_isolated(dir.path(), &entry).await;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -140,7 +144,7 @@ async fn cli_runtime_regex_literal_containing_await_does_not_reroute_entry() {
     )
     .expect("write entry");
 
-    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let output = run_ibex_isolated(dir.path(), &entry).await;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -167,7 +171,7 @@ async fn cli_runtime_tla_shim_preserves_sourcemap_marker_in_string_literals() {
     )
     .expect("write entry");
 
-    let output = run_ibex_isolated(dir.path(), &[entry.to_str().expect("utf8")]).await;
+    let output = run_ibex_isolated(dir.path(), &entry).await;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -208,7 +212,7 @@ async fn cli_runtime_bytecode_entry_eval_throw_runs_once_and_keeps_cache() {
     // second proves the surviving cache is reused instead of the pre-fix
     // compile → run → delete → re-run loop.
     for run in 0..2 {
-        let output = run_ibex_isolated(dir.path(), &["run", entry.to_str().expect("utf8")]).await;
+        let output = run_ibex_isolated(dir.path(), &entry).await;
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(

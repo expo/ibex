@@ -56,9 +56,9 @@ struct SignalRun {
     timed_out: bool,
 }
 
-/// Spawn `ibex run app.js`, wait for a READY line on stdout, then deliver
-/// `signals` (signal number, delay-after-previous) to the process with real
-/// `libc::kill` from this (outside) process. Returns how it terminated.
+/// Spawn `ibex capsec audit app.js`, wait for a READY line on stdout, then
+/// deliver `signals` (signal number, delay-after-previous) to the process with
+/// real `libc::kill` from this (outside) process. Returns how it terminated.
 fn run_with_signals(
     tag: &str,
     app: &str,
@@ -69,7 +69,8 @@ fn run_with_signals(
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")

@@ -57,7 +57,8 @@ fn run_app(tag: &str, app: &str, timeout: Duration) -> AppRun {
     let dir = unique_dir(tag);
     write_text(&dir.join("app.js"), app);
     let mut cmd = Command::new(IBEX);
-    cmd.arg("run")
+    cmd.arg("capsec")
+        .arg("audit")
         .arg("app.js")
         .current_dir(&dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")

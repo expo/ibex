@@ -30,8 +30,11 @@ use tokio::time::timeout;
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
 async fn run_script(script: &str, secs: u64) -> Value {
+    let dir = tempfile::tempdir().expect("create script tempdir");
+    let entry = dir.path().join("app.js");
+    std::fs::write(&entry, script).expect("write script fixture");
     let mut cmd = Command::new(IBEX);
-    cmd.arg("-e").arg(script);
+    cmd.arg("capsec").arg("audit").arg(&entry);
 
     let output = timeout(Duration::from_secs(secs), cmd.output())
         .await

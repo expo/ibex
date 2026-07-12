@@ -6066,9 +6066,18 @@ function _asyncRm(path, options) {
 
 function _resolveAsync(value) {
   return function() {
-    return Promise.resolve().then(function() {
-      return value();
-    });
+    // Invoke the native boundary while the caller's authenticated frame is
+    // still live. Deferring the call into a runtime-authored Promise reaction
+    // erases the user principal, causing descriptor ownership and typed effect
+    // checks to fail closed after an `await`. Converting the result (or a
+    // synchronous throw) to a Promise preserves the public asynchronous error
+    // contract without losing attribution.
+    // @ref LLP 0021#decision-staging-and-principal-semantics — async effects retain their authenticated actor/deputy set
+    try {
+      return Promise.resolve(value());
+    } catch (err) {
+      return Promise.reject(err);
+    }
   };
 }
 function _fileHandleErrorFromClosed() {
