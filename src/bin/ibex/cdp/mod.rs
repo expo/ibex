@@ -13,18 +13,22 @@ pub use ibex_runtime::cdp::network;
 mod network {
     use serde_json::{json, Value};
 
-    pub fn enable() {}
+    pub fn register_client() -> u64 {
+        1
+    }
 
-    pub fn disable() {}
+    pub fn enable(_client_id: u64) {}
 
-    pub fn get_response_body(_request_id: &str) -> Value {
+    pub fn disable(_client_id: u64) {}
+
+    pub fn get_response_body(_client_id: u64, _request_id: &str) -> Value {
         json!({
             "body": "",
             "base64Encoded": false,
         })
     }
 
-    pub fn drain_events() -> Vec<String> {
+    pub fn drain_events(_client_id: u64) -> Vec<String> {
         Vec::new()
     }
 }
@@ -41,14 +45,14 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
-use tokio::sync::Notify;
+use tokio::sync::{oneshot, Notify, OwnedSemaphorePermit, Semaphore};
 use tokio_tungstenite::tungstenite::handshake::server::{
     ErrorResponse, Request as WsRequest, Response as WsResponse,
 };
 use tokio_tungstenite::tungstenite::http::StatusCode;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 
 type WsWrite = futures_util::stream::SplitSink<
@@ -68,12 +72,46 @@ struct RequestContext<'a> {
     state: &'a mut ConnectionState,
     debugger_ready: &'a Arc<AtomicBool>,
     debugger_notify: &'a Arc<Notify>,
+    network_client_id: u64,
 }
 
+impl RequestContext<'_> {
+    async fn send_text(&mut self, text: String) -> Result<()> {
+        send_ws(self.write, Message::Text(text)).await
+    }
+}
+
+struct NetworkClientGuard(u64);
+
+impl Drop for NetworkClientGuard {
+    fn drop(&mut self) {
+        network::disable(self.0);
+    }
+}
+
+// @ref LLP 0003#inspector-resource-discipline — handshake/session slots,
+// deadlines, frame assembly, writes, idle lifetime, and rate limits are one
+// fail-closed resource policy.
 const CDP_MAX_TEXT_MESSAGE_BYTES: usize = 256 * 1024;
+const CDP_MAX_FRAME_BYTES: usize = CDP_MAX_TEXT_MESSAGE_BYTES;
 const CDP_MAX_MESSAGES_PER_WINDOW: usize = 600;
+const CDP_MAX_CONNECTIONS: usize = 16;
 const CDP_RATE_LIMIT_WINDOW: Duration = Duration::from_secs(1);
 const CDP_HTTP_READ_TIMEOUT: Duration = Duration::from_secs(5);
+const CDP_PEEK_TIMEOUT: Duration = Duration::from_secs(5);
+const CDP_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const CDP_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const CDP_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn websocket_config() -> WebSocketConfig {
+    WebSocketConfig {
+        write_buffer_size: 64 * 1024,
+        max_write_buffer_size: 512 * 1024,
+        max_message_size: Some(CDP_MAX_TEXT_MESSAGE_BYTES),
+        max_frame_size: Some(CDP_MAX_FRAME_BYTES),
+        ..WebSocketConfig::default()
+    }
+}
 
 struct MessageBudget {
     window_started: Instant,
@@ -160,9 +198,16 @@ pub struct CdpServerHandle {
     notify: Arc<Notify>,
     debugger_ready: Arc<AtomicBool>,
     debugger_notify: Arc<Notify>,
+    #[allow(dead_code)]
+    local_addr: SocketAddr,
 }
 
 impl CdpServerHandle {
+    #[allow(dead_code)]
+    fn local_addr(&self) -> SocketAddr {
+        self.local_addr
+    }
+
     pub fn stop(mut self) {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
@@ -293,6 +338,7 @@ pub fn start_server(
         notify,
         debugger_ready,
         debugger_notify,
+        local_addr,
     })
 }
 
@@ -314,6 +360,7 @@ async fn run_server(
             return;
         }
     };
+    let connection_slots = Arc::new(Semaphore::new(CDP_MAX_CONNECTIONS));
 
     loop {
         tokio::select! {
@@ -325,6 +372,16 @@ async fn run_server(
                     Ok(value) => value,
                     Err(err) => {
                         eprintln!("CDP accept error: {err}");
+                        continue;
+                    }
+                };
+                let permit = match connection_slots.clone().try_acquire_owned() {
+                    Ok(permit) => permit,
+                    Err(_) => {
+                        // The same bound covers partial handshakes and fully
+                        // established sessions, so unauthenticated peers cannot
+                        // consume an unbounded number of tasks or descriptors.
+                        drop(stream);
                         continue;
                     }
                 };
@@ -342,6 +399,7 @@ async fn run_server(
                         notify,
                         debugger_ready,
                         debugger_notify,
+                        permit,
                     )
                     .await
                     {
@@ -361,10 +419,13 @@ async fn handle_connection(
     notify: Arc<Notify>,
     debugger_ready: Arc<AtomicBool>,
     debugger_notify: Arc<Notify>,
+    _connection_permit: OwnedSemaphorePermit,
 ) -> Result<()> {
     let mut stream = stream;
     let mut peek_buf = [0u8; 2048];
-    let peek_len = stream.peek(&mut peek_buf).await?;
+    let peek_len = tokio::time::timeout(CDP_PEEK_TIMEOUT, stream.peek(&mut peek_buf))
+        .await
+        .map_err(|_| anyhow!("CDP request peek timed out"))??;
     if peek_len == 0 {
         return Ok(());
     }
@@ -377,15 +438,22 @@ async fn handle_connection(
 
     // `peek_text` is only a routing hint; the complete WebSocket handshake is
     // validated by the tungstenite callback below after all headers are parsed.
-    let ws =
-        tokio_tungstenite::accept_hdr_async(stream, |request: &WsRequest, response: WsResponse| {
-            if cdp_websocket_request_allowed(request) {
-                Ok(response)
-            } else {
-                Err(cdp_websocket_forbidden_response())
-            }
-        })
-        .await?;
+    let ws = tokio::time::timeout(
+        CDP_HANDSHAKE_TIMEOUT,
+        tokio_tungstenite::accept_hdr_async_with_config(
+            stream,
+            |request: &WsRequest, response: WsResponse| {
+                if cdp_websocket_request_allowed(request) {
+                    Ok(response)
+                } else {
+                    Err(cdp_websocket_forbidden_response())
+                }
+            },
+            Some(websocket_config()),
+        ),
+    )
+    .await
+    .map_err(|_| anyhow!("CDP WebSocket handshake timed out"))??;
     if !connected.swap(true, Ordering::SeqCst) {
         notify.notify_waiters();
     }
@@ -402,35 +470,72 @@ async fn handle_connection(
         network_enabled: false,
     };
     let mut message_budget = MessageBudget::new(Instant::now());
+    let mut last_inbound = Instant::now();
+    let network_client_id = network::register_client();
+    let _network_client_guard = NetworkClientGuard(network_client_id);
 
     loop {
         tokio::select! {
             _ = interval.tick() => {
+                if last_inbound.elapsed() >= CDP_IDLE_TIMEOUT {
+                    close_websocket(&mut write, CloseCode::Away, "CDP connection idle timeout").await;
+                    break;
+                }
                 if state.debugger_ready {
                     while let Some(event) = backend.next_event() {
                         if cdp_log_enabled() {
                             eprintln!("CDP <- event={}", event);
                         }
-                        let _ = write.send(Message::Text(event)).await;
+                        send_ws(&mut write, Message::Text(event)).await?;
                     }
                 }
                 // Drain CDP Network domain events.
                 if state.network_enabled {
-                    for event_json in network::drain_events() {
+                    for event_json in network::drain_events(network_client_id) {
                         if cdp_log_enabled() {
                             eprintln!("CDP <- network event={}", event_json);
                         }
-                        let _ = write.send(Message::Text(event_json)).await;
+                        send_ws(&mut write, Message::Text(event_json)).await?;
                     }
                 }
             }
             msg = read.next() => {
                 let Some(msg) = msg else { break; };
-                let Ok(msg) = msg else { break; };
+                let msg = match msg {
+                    Ok(msg) => msg,
+                    Err(tokio_tungstenite::tungstenite::Error::Capacity(_)) => {
+                        close_websocket(
+                            &mut write,
+                            CloseCode::Size,
+                            "CDP frame or message exceeded size limit",
+                        )
+                        .await;
+                        break;
+                    }
+                    Err(_) => break,
+                };
+                last_inbound = Instant::now();
+                if !message_budget.try_record(last_inbound) {
+                    close_policy_violation(
+                        &mut write,
+                        "CDP message rate limit exceeded",
+                    )
+                    .await;
+                    break;
+                }
                 let payload = match msg {
                     Message::Text(payload) => payload,
                     Message::Close(_) => break,
-                    _ => continue,
+                    Message::Ping(_) | Message::Pong(_) => continue,
+                    Message::Binary(_) | Message::Frame(_) => {
+                        close_websocket(
+                            &mut write,
+                            CloseCode::Unsupported,
+                            "CDP accepts JSON text frames only",
+                        )
+                        .await;
+                        break;
+                    }
                 };
 
                 if payload.len() > CDP_MAX_TEXT_MESSAGE_BYTES {
@@ -441,15 +546,6 @@ async fn handle_connection(
                     .await;
                     break;
                 }
-                if !message_budget.try_record(Instant::now()) {
-                    close_policy_violation(
-                        &mut write,
-                        "CDP message rate limit exceeded",
-                    )
-                    .await;
-                    break;
-                }
-
                 let value: Value = match serde_json::from_str(&payload) {
                     Ok(value) => value,
                     Err(err) => {
@@ -473,6 +569,7 @@ async fn handle_connection(
                         state: &mut state,
                         debugger_ready: &debugger_ready,
                         debugger_notify: &debugger_notify,
+                        network_client_id,
                     };
                     match handle_request(id, method, params, &mut context).await {
                         Ok(()) => {}
@@ -487,7 +584,9 @@ async fn handle_connection(
                             if cdp_log_enabled() {
                                 eprintln!("CDP <- id={} error={}", id, response);
                             }
-                            let _ = write.send(Message::Text(response.to_string())).await;
+                            if send_ws(&mut write, Message::Text(response.to_string())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                 } else if cdp_log_enabled() {
@@ -497,27 +596,32 @@ async fn handle_connection(
         }
     }
 
-    // Connection closed. If this client had enabled the Network domain, disable
-    // capture so the HTTP server stops buffering events (and caching response
-    // bodies) that nobody will ever drain. Without this the capture state stays
-    // `enabled` forever after a DevTools disconnect and leaks unbounded.
-    if state.network_enabled {
-        network::disable();
-    }
-
     Ok(())
 }
 
 async fn close_policy_violation(write: &mut WsWrite, reason: &'static str) {
+    close_websocket(write, CloseCode::Policy, reason).await;
+}
+
+async fn close_websocket(write: &mut WsWrite, code: CloseCode, reason: &'static str) {
     if cdp_log_enabled() {
         eprintln!("CDP ! closing websocket: {}", reason);
     }
-    let _ = write
-        .send(Message::Close(Some(CloseFrame {
-            code: CloseCode::Policy,
+    let _ = send_ws(
+        write,
+        Message::Close(Some(CloseFrame {
+            code,
             reason: Cow::Borrowed(reason),
-        })))
-        .await;
+        })),
+    )
+    .await;
+}
+
+async fn send_ws(write: &mut WsWrite, message: Message) -> Result<()> {
+    tokio::time::timeout(CDP_WRITE_TIMEOUT, write.send(message))
+        .await
+        .map_err(|_| anyhow!("CDP WebSocket write timed out"))??;
+    Ok(())
 }
 
 fn is_websocket_upgrade(headers: &str) -> bool {
@@ -686,8 +790,15 @@ async fn write_http_response(
         body.len(),
         body
     );
-    stream.write_all(response.as_bytes()).await?;
-    let _ = stream.shutdown().await;
+    write_tcp_with_timeout(stream, response.as_bytes()).await?;
+    let _ = tokio::time::timeout(CDP_WRITE_TIMEOUT, stream.shutdown()).await;
+    Ok(())
+}
+
+async fn write_tcp_with_timeout(stream: &mut tokio::net::TcpStream, bytes: &[u8]) -> Result<()> {
+    tokio::time::timeout(CDP_WRITE_TIMEOUT, stream.write_all(bytes))
+        .await
+        .map_err(|_| anyhow!("CDP HTTP write timed out"))??;
     Ok(())
 }
 
@@ -714,11 +825,11 @@ async fn handle_http_request(
     match read_result {
         Ok(result) => result?,
         Err(_) => {
-            stream
-                .write_all(
-                    b"HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                )
-                .await?;
+            write_tcp_with_timeout(
+                stream,
+                b"HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await?;
             return Ok(());
         }
     }
@@ -784,23 +895,23 @@ async fn handle_request(
 ) -> Result<()> {
     match method {
         "Network.enable" => {
-            network::enable();
+            network::enable(ctx.network_client_id);
             ctx.state.network_enabled = true;
             let response = json!({ "id": id, "result": {} });
             if cdp_log_enabled() {
                 eprintln!("CDP <- id={} result={}", id, response);
             }
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Network.disable" => {
-            network::disable();
+            network::disable(ctx.network_client_id);
             ctx.state.network_enabled = false;
             let response = json!({ "id": id, "result": {} });
             if cdp_log_enabled() {
                 eprintln!("CDP <- id={} result={}", id, response);
             }
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Network.getResponseBody" => {
@@ -808,7 +919,7 @@ async fn handle_request(
                 .get("requestId")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let body_result = network::get_response_body(request_id);
+            let body_result = network::get_response_body(ctx.network_client_id, request_id);
             let response = json!({
                 "id": id,
                 "result": body_result,
@@ -816,12 +927,12 @@ async fn handle_request(
             if cdp_log_enabled() {
                 eprintln!("CDP <- id={} result=(response body)", id);
             }
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Runtime.enable" | "Debugger.enable" | "Log.enable" | "Page.enable" => {
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
 
             if method == "Runtime.enable" && !ctx.state.runtime_ready {
                 ctx.state.runtime_ready = true;
@@ -835,9 +946,7 @@ async fn handle_request(
                         }
                     }
                 });
-                ctx.write
-                    .send(Message::Text(context_event.to_string()))
-                    .await?;
+                ctx.send_text(context_event.to_string()).await?;
                 if cdp_log_enabled() {
                     eprintln!("CDP <- event={}", context_event);
                 }
@@ -854,7 +963,7 @@ async fn handle_request(
                         if cdp_log_enabled() {
                             eprintln!("CDP <- event={}", event);
                         }
-                        let _ = ctx.write.send(Message::Text(event)).await;
+                        ctx.send_text(event).await?;
                     }
                 }
             }
@@ -897,7 +1006,7 @@ async fn handle_request(
             if cdp_log_enabled() {
                 eprintln!("CDP <- id={} result={}", id, result);
             }
-            ctx.write.send(Message::Text(result.to_string())).await?;
+            ctx.send_text(result.to_string()).await?;
             return Ok(());
         }
         "Debugger.setBreakpointByUrl" => {
@@ -946,7 +1055,7 @@ async fn handle_request(
                 })
             };
 
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.getScriptSource" => {
@@ -967,7 +1076,7 @@ async fn handle_request(
             if cdp_log_enabled() {
                 eprintln!("CDP <- id={} result={}", id, response);
             }
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.removeBreakpoint" => {
@@ -979,42 +1088,42 @@ async fn handle_request(
                 ctx.backend.remove_breakpoint(breakpoint_id);
             }
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.resume" => {
             ctx.backend.resume(DebugCommand::Continue);
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.stepInto" => {
             ctx.backend.resume(DebugCommand::StepInto);
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.stepOver" => {
             ctx.backend.resume(DebugCommand::StepOver);
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.stepOut" => {
             ctx.backend.resume(DebugCommand::StepOut);
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Debugger.pause" => {
             ctx.backend.pause();
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         "Runtime.runIfWaitingForDebugger" => {
             let response = json!({ "id": id, "result": {} });
-            ctx.write.send(Message::Text(response.to_string())).await?;
+            ctx.send_text(response.to_string()).await?;
             return Ok(());
         }
         _ => {}
@@ -1028,7 +1137,7 @@ async fn handle_request(
     if cdp_log_enabled() {
         eprintln!("CDP <- id={} error={}", id, response);
     }
-    ctx.write.send(Message::Text(response.to_string())).await?;
+    ctx.send_text(response.to_string()).await?;
     Ok(())
 }
 
@@ -1048,10 +1157,129 @@ mod tests {
     use super::{
         cdp_request_headers_allowed, cdp_websocket_request_allowed, inspector_origin_allowed,
         is_websocket_upgrade, loopback_host_header_allowed, method_not_found_response,
-        MessageBudget, CDP_MAX_MESSAGES_PER_WINDOW, CDP_RATE_LIMIT_WINDOW,
+        start_server, websocket_config, BreakpointInfo, CdpBackend, CdpServerHandle, DebugCommand,
+        MessageBudget, ScriptInfo, CDP_HANDSHAKE_TIMEOUT, CDP_MAX_CONNECTIONS, CDP_MAX_FRAME_BYTES,
+        CDP_MAX_MESSAGES_PER_WINDOW, CDP_MAX_TEXT_MESSAGE_BYTES, CDP_RATE_LIMIT_WINDOW,
     };
+    use anyhow::{anyhow, Result};
+    use futures_util::{SinkExt, StreamExt};
+    use serde_json::Value;
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+    use tokio::sync::Semaphore;
     use tokio_tungstenite::tungstenite::http::Request;
+    use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+    use tokio_tungstenite::tungstenite::Message;
+
+    struct NoopBackend;
+
+    impl CdpBackend for NoopBackend {
+        fn enable(&self) -> bool {
+            false
+        }
+
+        fn get_scripts(&self) -> Result<Vec<ScriptInfo>> {
+            Ok(Vec::new())
+        }
+
+        fn get_script_source(&self, _script_id: &str) -> Result<Option<String>> {
+            Ok(None)
+        }
+
+        fn set_breakpoint(
+            &self,
+            _script_id: u32,
+            _line: u32,
+            _column: u32,
+            _condition: Option<&str>,
+        ) -> Result<BreakpointInfo> {
+            Err(anyhow!("no debugger"))
+        }
+
+        fn remove_breakpoint(&self, _breakpoint_id: u64) {}
+        fn pause(&self) {}
+        fn resume(&self, _command: DebugCommand) {}
+        fn next_event(&self) -> Option<String> {
+            None
+        }
+        fn eval(&self, _expression: &str, _frame_index: u32) -> Result<Value> {
+            Ok(Value::Null)
+        }
+    }
+
+    async fn connect_websocket(
+        server: &CdpServerHandle,
+    ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
+    {
+        tokio_tungstenite::connect_async(format!("ws://{}/", server.local_addr()))
+            .await
+            .unwrap()
+            .0
+    }
+
+    async fn next_close_code(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) -> Option<CloseCode> {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while let Some(message) = socket.next().await {
+                match message {
+                    Ok(Message::Close(frame)) => return frame.map(|frame| frame.code),
+                    Ok(_) => continue,
+                    Err(_) => return None,
+                }
+            }
+            None
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    fn masked_frame(fin: bool, opcode: u8, payload: &[u8]) -> Vec<u8> {
+        let mut frame = Vec::with_capacity(payload.len() + 14);
+        frame.push((if fin { 0x80 } else { 0 }) | opcode);
+        match payload.len() {
+            len @ 0..=125 => frame.push(0x80 | len as u8),
+            len @ 126..=65535 => {
+                frame.push(0x80 | 126);
+                frame.extend_from_slice(&(len as u16).to_be_bytes());
+            }
+            len => {
+                frame.push(0x80 | 127);
+                frame.extend_from_slice(&(len as u64).to_be_bytes());
+            }
+        }
+        let mask = [0x13, 0x37, 0x42, 0x99];
+        frame.extend_from_slice(&mask);
+        frame.extend(
+            payload
+                .iter()
+                .enumerate()
+                .map(|(index, byte)| byte ^ mask[index % mask.len()]),
+        );
+        frame
+    }
+
+    async fn raw_websocket(server: &CdpServerHandle) -> TcpStream {
+        let mut stream = TcpStream::connect(server.local_addr()).await.unwrap();
+        let request = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
+            server.local_addr()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        let mut byte = [0u8; 1];
+        while !response.ends_with(b"\r\n\r\n") {
+            assert_eq!(stream.read(&mut byte).await.unwrap(), 1);
+            response.push(byte[0]);
+        }
+        assert!(String::from_utf8_lossy(&response).starts_with("HTTP/1.1 101"));
+        stream
+    }
 
     #[test]
     fn unknown_method_response_is_json_rpc_method_not_found() {
@@ -1093,6 +1321,140 @@ mod tests {
         }
 
         assert!(budget.try_record(start + CDP_RATE_LIMIT_WINDOW + Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn websocket_limits_apply_before_message_assembly() {
+        let config = websocket_config();
+        assert_eq!(config.max_frame_size, Some(CDP_MAX_FRAME_BYTES));
+        assert_eq!(config.max_message_size, Some(CDP_MAX_TEXT_MESSAGE_BYTES));
+        assert!(config.max_write_buffer_size <= 512 * 1024);
+    }
+
+    #[tokio::test]
+    async fn connection_budget_covers_handshakes_and_established_sessions() {
+        let slots = Arc::new(Semaphore::new(CDP_MAX_CONNECTIONS));
+        let mut permits = Vec::new();
+        for _ in 0..CDP_MAX_CONNECTIONS {
+            permits.push(slots.clone().try_acquire_owned().unwrap());
+        }
+        assert!(slots.clone().try_acquire_owned().is_err());
+        permits.pop();
+        assert!(slots.try_acquire_owned().is_ok());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn server_drops_connections_beyond_the_shared_handshake_session_cap() {
+        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let mut held = Vec::new();
+        for _ in 0..CDP_MAX_CONNECTIONS {
+            held.push(TcpStream::connect(server.local_addr()).await.unwrap());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let mut overflow = TcpStream::connect(server.local_addr()).await.unwrap();
+        let _ = overflow.write_all(b"G").await;
+        let mut byte = [0u8; 1];
+        let result = tokio::time::timeout(Duration::from_secs(1), overflow.read(&mut byte))
+            .await
+            .expect("overflow connection was not closed");
+        assert!(
+            matches!(result, Ok(0) | Err(_)),
+            "unexpected read: {result:?}"
+        );
+
+        drop(held);
+        server.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn websocket_rejects_oversized_text_and_all_binary_before_dispatch() {
+        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+
+        let mut text = connect_websocket(&server).await;
+        text.send(Message::Text("x".repeat(CDP_MAX_TEXT_MESSAGE_BYTES + 1)))
+            .await
+            .unwrap();
+        assert_eq!(next_close_code(&mut text).await, Some(CloseCode::Size));
+
+        let mut binary = connect_websocket(&server).await;
+        binary.send(Message::Binary(vec![0; 1024])).await.unwrap();
+        assert_eq!(
+            next_close_code(&mut binary).await,
+            Some(CloseCode::Unsupported)
+        );
+
+        let mut oversized_binary = connect_websocket(&server).await;
+        oversized_binary
+            .send(Message::Binary(vec![0; CDP_MAX_TEXT_MESSAGE_BYTES + 1]))
+            .await
+            .unwrap();
+        assert_eq!(
+            next_close_code(&mut oversized_binary).await,
+            Some(CloseCode::Size)
+        );
+        server.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fragmented_text_cannot_exceed_the_reassembled_message_budget() {
+        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let mut stream = raw_websocket(&server).await;
+        let fragment = vec![b'x'; CDP_MAX_TEXT_MESSAGE_BYTES / 2 + 1];
+        stream
+            .write_all(&masked_frame(false, 0x1, &fragment))
+            .await
+            .unwrap();
+        stream
+            .write_all(&masked_frame(true, 0x0, &fragment))
+            .await
+            .unwrap();
+
+        let mut close = [0u8; 128];
+        let count = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut close))
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(count >= 4, "close frame too short: {count}");
+        assert_eq!(close[0] & 0x0f, 0x8);
+        assert_eq!(u16::from_be_bytes([close[2], close[3]]), 1009);
+        server.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn ping_flood_consumes_the_same_rate_budget_as_text() {
+        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let mut socket = connect_websocket(&server).await;
+        for _ in 0..=CDP_MAX_MESSAGES_PER_WINDOW {
+            if socket.send(Message::Ping(Vec::new())).await.is_err() {
+                break;
+            }
+        }
+        assert_eq!(next_close_code(&mut socket).await, Some(CloseCode::Policy));
+        server.stop();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn incomplete_websocket_handshake_is_closed_at_its_deadline() {
+        let server = start_server("127.0.0.1", 0, Arc::new(NoopBackend)).unwrap();
+        let mut stream = TcpStream::connect(server.local_addr()).await.unwrap();
+        let partial = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n",
+            server.local_addr()
+        );
+        stream.write_all(partial.as_bytes()).await.unwrap();
+        let mut byte = [0u8; 1];
+        let result = tokio::time::timeout(
+            CDP_HANDSHAKE_TIMEOUT + Duration::from_secs(1),
+            stream.read(&mut byte),
+        )
+        .await
+        .expect("slow handshake outlived its deadline");
+        assert!(
+            matches!(result, Ok(0) | Err(_)),
+            "unexpected read: {result:?}"
+        );
+        server.stop();
     }
 
     #[test]

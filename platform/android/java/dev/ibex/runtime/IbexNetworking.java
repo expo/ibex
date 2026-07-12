@@ -106,6 +106,11 @@ public final class IbexNetworking {
   private static final byte[] EMPTY_BYTES = new byte[0];
   private static final int CAMERA_PERMISSION_REQUEST_CODE = 0x1b3a;
   private static final int MICROPHONE_PERMISSION_REQUEST_CODE = 0x1b3b;
+  // @ref LLP 0003#websocket-bridge-threading-and-context-ownership — bound
+  // paused receive-side buffering independently by count and bytes.
+  // A few very large frames must not bypass a count-only limit.
+  static final int MAX_WS_PENDING_MESSAGES = 256;
+  static final long MAX_WS_PENDING_BYTES = 8L * 1024L * 1024L;
   private static final Executor DIRECT_EXECUTOR = new Executor() {
     @Override
     public void execute(Runnable command) {
@@ -778,12 +783,14 @@ public final class IbexNetworking {
         @Override
         public void onClosed(WebSocket webSocket, int code, String reason) {
           webSockets.remove(wsId, entry);
+          clearPendingMessages(entry);
           nativeWebSocketDidClose(wsId, code, valueOrEmpty(reason), true);
         }
 
         @Override
         public void onFailure(WebSocket webSocket, Throwable error, Response response) {
           webSockets.remove(wsId, entry);
+          clearPendingMessages(entry);
           String message = error == null ? "WebSocket error" : error.getMessage();
           nativeWebSocketDidError(wsId, valueOrEmpty(message));
           nativeWebSocketDidClose(wsId, 1006, valueOrEmpty(message), false);
@@ -821,7 +828,11 @@ public final class IbexNetworking {
     WsEntry entry = webSockets.get(wsId);
     WebSocket socket = entry == null ? null : entry.socket;
     if (entry != null) {
-      entry.closed = true;
+      synchronized (entry) {
+        entry.closed = true;
+        entry.pending.clear();
+        entry.pendingBytes = 0;
+      }
     }
     if (socket != null) {
       socket.close(validCloseCode(code), valueOrEmpty(reason));
@@ -851,6 +862,7 @@ public final class IbexNetworking {
         if (message == null) {
           return;
         }
+        entry.pendingBytes -= message.bytes.length;
         if (entry.flowControlled) {
           entry.paused = true;
         }
@@ -1957,19 +1969,52 @@ public final class IbexNetworking {
   }
 
   private static void deliverOrQueue(WsEntry entry, WsMessage message) {
+    WebSocket overflowSocket = null;
+    boolean overflow = false;
     synchronized (entry) {
       if (entry.closed) {
         return;
       }
       if (entry.paused) {
-        entry.pending.add(message);
-        return;
+        long nextBytes = entry.pendingBytes + message.bytes.length;
+        if (entry.pending.size() >= MAX_WS_PENDING_MESSAGES
+            || nextBytes > MAX_WS_PENDING_BYTES) {
+          entry.closed = true;
+          entry.pending.clear();
+          entry.pendingBytes = 0;
+          overflowSocket = entry.socket;
+          overflow = true;
+        } else {
+          entry.pending.add(message);
+          entry.pendingBytes = nextBytes;
+          return;
+        }
       }
-      if (entry.flowControlled) {
+      if (!overflow && entry.flowControlled) {
         entry.paused = true;
       }
     }
+    if (overflow) {
+      nativeWebSocketDidError(entry.id, "WebSocket receive queue overflow");
+      if (overflowSocket != null) {
+        // 1009 is the protocol-defined "message too big" close code and gives
+        // callers a deterministic terminal outcome instead of silently
+        // dropping data or growing the Java heap without bound.
+        if (!overflowSocket.close(1009, "Receive queue overflow")) {
+          overflowSocket.cancel();
+        }
+      }
+      return;
+    }
     deliverMessage(entry.id, message);
+  }
+
+  private static void clearPendingMessages(WsEntry entry) {
+    synchronized (entry) {
+      entry.closed = true;
+      entry.pending.clear();
+      entry.pendingBytes = 0;
+    }
   }
 
   private static void deliverMessage(int wsId, WsMessage message) {
@@ -2002,6 +2047,7 @@ public final class IbexNetworking {
   private static final class WsEntry {
     final int id;
     final ArrayDeque<WsMessage> pending = new ArrayDeque<>();
+    long pendingBytes;
     volatile WebSocket socket;
     volatile boolean closed;
     boolean paused;

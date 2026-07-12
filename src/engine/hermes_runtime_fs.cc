@@ -1482,6 +1482,12 @@ static facebook::jsi::Value startFsAsync(
               } catch (...) {
                 *resultPtr = fsAsyncError(EIO, "fs-worker");
               }
+              if (resultPtr->registerOpenedFd) {
+                // The worker has no ambient JS principal. Carry the principal
+                // captured at scheduling time with the result so delivery can
+                // publish the fd under the correct owner explicitly.
+                resultPtr->openedOwner = principal;
+              }
               // The Promise executor host function may live until GC. Drop
               // the completed work closure now so dup'd and retained fds are
               // released at completion rather than at some later collection.
@@ -1499,7 +1505,8 @@ static facebook::jsi::Value startFsAsync(
                       if (resultPtr->ok) {
                         if (resultPtr->registerOpenedFd) {
                           registerFd(
-                              static_cast<int>(resultPtr->number), resultPtr->openedPath,
+                              static_cast<int>(resultPtr->number),
+                              resultPtr->openedPath,
                               resultPtr->openedCanRead, resultPtr->openedCanWrite,
                               resultPtr->openedOwner,
                               resultPtr->openedPresentedHandle,
@@ -3181,6 +3188,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
           throw facebook::jsi::JSError(runtime, "__exactFsOpen: path required");
         }
         auto path = args[0].toString(runtime).utf8(runtime);
+        const uint64_t principal = currentPrincipalId();
 
         int posixFlags = parseOpenFlagsArg(runtime, args, count, 1);
         bool needsRead = false;

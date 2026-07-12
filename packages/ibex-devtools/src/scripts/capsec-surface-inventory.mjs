@@ -10569,15 +10569,15 @@ function rustTokenEvidence(tokens) {
 const REVIEWED_CDP_FUNCTION_BODY_DIGESTS = new Map([
   [
     "start_server",
-    "sha256-51b44a08d97b993bdcd1b016fe73be4042b099a4f23e85741a07d64b9a464c89",
+    "sha256-669a9ac3395e7e783a158caa34ad9d9a72f819e5a333185df898570bcad78e11",
   ],
   [
     "run_server",
-    "sha256-8f422ef18c44c6ec9955fd801f225da341cc00ee39ef2ae335ff2c761bd36c88",
+    "sha256-2c037e85158be7ea241843993511f5e3123398a479c23b0bad3999d3aa9d44d9",
   ],
   [
     "handle_connection",
-    "sha256-9f54903c95fd418d54a66bb06fd61cfcc6528989ef22789455a991bf57db9b2e",
+    "sha256-092bbcafd01c8ab21dee1196294dd0b9a1c3d70e2a84de27b500266b1bae2732",
   ],
 ]);
 
@@ -10823,11 +10823,11 @@ const REVIEWED_CDP_HTTP_PREFIX = String.raw`
   match read_result {
       Ok(result) => result?,
       Err(_) => {
-          stream
-              .write_all(
-                  b"HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-              )
-              .await?;
+          write_tcp_with_timeout(
+              stream,
+              b"HTTP/1.1 408 Request Timeout\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+          )
+          .await?;
           return Ok(());
       }
   }
@@ -11026,6 +11026,14 @@ function exactCdpFallbackTail(tailTokens) {
           eprintln!("CDP <- id={} error={}", id, response);
       }
       ctx.write.send(Message::Text(response.to_string())).await?;
+      Ok(())
+    `,
+    String.raw`
+      let response = method_not_found_response(id, method);
+      if cdp_log_enabled() {
+          eprintln!("CDP <- id={} error={}", id, response);
+      }
+      ctx.send_text(response.to_string()).await?;
       Ok(())
     `,
   ];

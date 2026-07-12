@@ -25,8 +25,8 @@ pub mod process;
 use crate::module_loader::{ModuleLoader, ResolvedModule};
 use anyhow::Context as _;
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::{Arc, RwLock};
+use std::net::IpAddr;
+use std::sync::{Arc, OnceLock, RwLock};
 
 const MAX_TYPED_EVIDENCE_ENTRIES: usize = 1024;
 
@@ -2241,27 +2241,159 @@ fn validate_loaded_engine_identity(
 fn classify_network_peer(
     address: capsec_semantics::model::IpAddress,
 ) -> Option<capsec_semantics::model::PeerClass> {
-    use capsec_semantics::model::PeerClass;
+    network_classifier_rules()?.classify(address.get())
+}
 
-    let address = address.get();
-    if is_metadata_peer(address) {
-        return Some(PeerClass::Metadata);
+#[derive(Debug)]
+struct NetworkClassifierRules {
+    classes: Vec<(capsec_semantics::model::PeerClass, Vec<IpCidr>)>,
+    fallback: capsec_semantics::model::PeerClass,
+}
+
+impl NetworkClassifierRules {
+    fn classify(&self, address: IpAddr) -> Option<capsec_semantics::model::PeerClass> {
+        // @ref LLP 0021#default-and-target-claim — IPv4-mapped IPv6 is
+        // classified through its embedded IPv4 address and may never fall
+        // through to a broader IPv6/public class.
+        let address = match address {
+            IpAddr::V6(address) => address
+                .to_ipv4_mapped()
+                .map(IpAddr::V4)
+                .unwrap_or(IpAddr::V6(address)),
+            address => address,
+        };
+        self.classes
+            .iter()
+            .find_map(|(class, cidrs)| {
+                cidrs
+                    .iter()
+                    .any(|cidr| cidr.contains(address))
+                    .then_some(*class)
+            })
+            .or(Some(self.fallback))
     }
-    Some(match address {
-        IpAddr::V4(address) if address.is_unspecified() => PeerClass::Unspecified,
-        IpAddr::V6(address) if address.is_unspecified() => PeerClass::Unspecified,
-        IpAddr::V4(address) if address.is_loopback() => PeerClass::Loopback,
-        IpAddr::V6(address) if address.is_loopback() => PeerClass::Loopback,
-        IpAddr::V4(address) if address.is_link_local() => PeerClass::LinkLocal,
-        IpAddr::V6(address) if address.is_unicast_link_local() => PeerClass::LinkLocal,
-        IpAddr::V4(address) if address.is_multicast() => PeerClass::Multicast,
-        IpAddr::V6(address) if address.is_multicast() => PeerClass::Multicast,
-        IpAddr::V4(address) if is_carrier_grade_nat(address) => PeerClass::CarrierGradeNat,
-        IpAddr::V6(address) if is_unique_local(address) => PeerClass::UniqueLocal,
-        IpAddr::V4(address) if address.is_private() => PeerClass::Private,
-        IpAddr::V4(address) if is_reserved_v4(address) => PeerClass::Reserved,
-        IpAddr::V6(address) if is_reserved_v6(address) => PeerClass::Reserved,
-        _ => PeerClass::Public,
+}
+
+#[derive(Debug)]
+enum IpCidr {
+    V4 { network: u32, prefix: u8 },
+    V6 { network: u128, prefix: u8 },
+}
+
+impl IpCidr {
+    fn parse(text: &str) -> Option<Self> {
+        let (address, prefix) = text.split_once('/')?;
+        let prefix = prefix.parse::<u8>().ok()?;
+        match address.parse::<IpAddr>().ok()? {
+            IpAddr::V4(address) if prefix <= 32 => {
+                let mask = prefix_mask_v4(prefix);
+                let address = u32::from(address);
+                (address & mask == address).then_some(Self::V4 {
+                    network: address,
+                    prefix,
+                })
+            }
+            IpAddr::V6(address) if prefix <= 128 => {
+                let mask = prefix_mask_v6(prefix);
+                let address = u128::from(address);
+                (address & mask == address).then_some(Self::V6 {
+                    network: address,
+                    prefix,
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn contains(&self, address: IpAddr) -> bool {
+        match (self, address) {
+            (Self::V4 { network, prefix }, IpAddr::V4(address)) => {
+                u32::from(address) & prefix_mask_v4(*prefix) == *network
+            }
+            (Self::V6 { network, prefix }, IpAddr::V6(address)) => {
+                u128::from(address) & prefix_mask_v6(*prefix) == *network
+            }
+            _ => false,
+        }
+    }
+}
+
+fn prefix_mask_v4(prefix: u8) -> u32 {
+    if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix)
+    }
+}
+
+fn prefix_mask_v6(prefix: u8) -> u128 {
+    if prefix == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix)
+    }
+}
+
+fn network_classifier_rules() -> Option<&'static NetworkClassifierRules> {
+    static RULES: OnceLock<Option<NetworkClassifierRules>> = OnceLock::new();
+    RULES
+        .get_or_init(|| {
+            let document: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/capsec/registry/policy-rules.json"
+            )))
+            .ok()?;
+            let network = document.get("classifierRules")?.get("network")?;
+            let precedence = network.get("precedence")?.as_array()?;
+            let class_rows = network.get("classes")?.as_array()?;
+            let mut by_name = BTreeMap::new();
+            for row in class_rows {
+                let name = row.get("class")?.as_str()?.to_owned();
+                let cidrs = row
+                    .get("cidrs")?
+                    .as_array()?
+                    .iter()
+                    .map(|cidr| IpCidr::parse(cidr.as_str()?))
+                    .collect::<Option<Vec<_>>>()?;
+                // A duplicate class must not be silently overwritten: doing
+                // so would make runtime classification depend on JSON row
+                // order while the digest-bound registry claims one rule set.
+                if by_name.insert(name, cidrs).is_some() {
+                    return None;
+                }
+            }
+            let classes = precedence
+                .iter()
+                .map(|name| {
+                    let name = name.as_str()?;
+                    Some((peer_class_from_rule(name)?, by_name.remove(name)?))
+                })
+                .collect::<Option<Vec<_>>>()?;
+            if !by_name.is_empty() {
+                return None;
+            }
+            Some(NetworkClassifierRules {
+                classes,
+                fallback: peer_class_from_rule(network.get("fallback")?.as_str()?)?,
+            })
+        })
+        .as_ref()
+}
+
+fn peer_class_from_rule(text: &str) -> Option<capsec_semantics::model::PeerClass> {
+    use capsec_semantics::model::PeerClass;
+    Some(match text {
+        "public" => PeerClass::Public,
+        "private" => PeerClass::Private,
+        "loopback" => PeerClass::Loopback,
+        "link-local" => PeerClass::LinkLocal,
+        "carrier-grade-nat" => PeerClass::CarrierGradeNat,
+        "unique-local" => PeerClass::UniqueLocal,
+        "unspecified" => PeerClass::Unspecified,
+        "multicast" => PeerClass::Multicast,
+        "metadata" => PeerClass::Metadata,
+        "reserved" => PeerClass::Reserved,
+        _ => return None,
     })
 }
 
@@ -2341,43 +2473,6 @@ fn package_name_from_specifier(specifier: &str) -> &str {
     } else {
         root
     }
-}
-
-fn is_metadata_peer(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => matches!(
-            address.octets(),
-            [169, 254, 169, 254] | [169, 254, 170, 2] | [100, 100, 100, 200] | [168, 63, 129, 16]
-        ),
-        IpAddr::V6(address) => {
-            address == Ipv6Addr::new(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254)
-                || address == Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0xa9fe, 0xa9fe)
-        }
-    }
-}
-
-fn is_carrier_grade_nat(address: Ipv4Addr) -> bool {
-    let octets = address.octets();
-    octets[0] == 100 && (64..=127).contains(&octets[1])
-}
-
-fn is_unique_local(address: Ipv6Addr) -> bool {
-    address.octets()[0] & 0xfe == 0xfc
-}
-
-fn is_reserved_v4(address: Ipv4Addr) -> bool {
-    let octets = address.octets();
-    address.is_documentation()
-        || octets[0] == 0
-        || octets[0] >= 240
-        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
-        || (octets[0] == 198 && matches!(octets[1], 18 | 19))
-}
-
-fn is_reserved_v6(address: Ipv6Addr) -> bool {
-    let segments = address.segments();
-    (segments[0] == 0x2001 && segments[1] == 0x0db8)
-        || (segments[0] == 0x0100 && segments[1] == 0 && segments[2] == 0 && segments[3] == 0)
 }
 
 #[cfg(test)]
@@ -2621,13 +2716,39 @@ mod tests {
         };
         assert_eq!(classify("169.254.169.254"), PeerClass::Metadata);
         assert_eq!(classify("100.100.100.200"), PeerClass::Metadata);
+        assert_eq!(classify("168.63.129.16"), PeerClass::Metadata);
+        assert_eq!(classify("169.254.170.2"), PeerClass::Metadata);
+        assert_eq!(classify("fd00:ec2::254"), PeerClass::Metadata);
         assert_eq!(classify("10.0.0.1"), PeerClass::Private);
         assert_eq!(classify("100.64.0.1"), PeerClass::CarrierGradeNat);
         assert_eq!(classify("127.0.0.1"), PeerClass::Loopback);
         assert_eq!(classify("fe80::a9fe:a9fe"), PeerClass::Metadata);
         assert_eq!(classify("fd00::1"), PeerClass::UniqueLocal);
         assert_eq!(classify("2001:db8::1"), PeerClass::Reserved);
-        assert_eq!(classify("8.8.8.8"), PeerClass::Public);
+        // Public stays closed until a pinned IANA snapshot is admitted to the
+        // digest-bound registry. Unmatched addresses therefore fail closed.
+        assert_eq!(classify("8.8.8.8"), PeerClass::Reserved);
+    }
+
+    #[test]
+    fn peer_classifier_routes_ipv4_mapped_ipv6_through_embedded_ipv4() {
+        use capsec_semantics::model::{IpAddress, PeerClass};
+        let classify = |address: &str| {
+            classify_network_peer(IpAddress::new(address.parse().unwrap())).unwrap()
+        };
+        for (address, expected) in [
+            ("::ffff:169.254.169.254", PeerClass::Metadata),
+            ("::ffff:0.0.0.0", PeerClass::Unspecified),
+            ("::ffff:127.0.0.1", PeerClass::Loopback),
+            ("::ffff:169.254.1.1", PeerClass::LinkLocal),
+            ("::ffff:100.64.0.1", PeerClass::CarrierGradeNat),
+            ("::ffff:10.0.0.1", PeerClass::Private),
+            ("::ffff:224.0.0.1", PeerClass::Multicast),
+            ("::ffff:192.0.2.1", PeerClass::Reserved),
+            ("::ffff:8.8.8.8", PeerClass::Reserved),
+        ] {
+            assert_eq!(classify(address), expected, "{address}");
+        }
     }
 
     #[test]
@@ -2909,7 +3030,7 @@ mod tests {
                     "schemes": ["https"],
                     "host": {"kind": "dns-name", "name": "api.example.com"},
                     "port": {"kind": "exact", "value": 443},
-                    "peerClasses": ["public"],
+                    "peerClasses": ["reserved"],
                     "route": {"kind": "direct"}
                 }
             }]);
@@ -2938,7 +3059,7 @@ mod tests {
             .unwrap();
         assert_eq!(requested.outcome, DecisionOutcome::Allow);
 
-        let public = IpAddress::new("93.184.216.34".parse().unwrap());
+        let candidate_address = IpAddress::new("93.184.216.34".parse().unwrap());
         let candidate = host
             .authorize_typed_fetch_stage(
                 "0",
@@ -2947,8 +3068,8 @@ mod tests {
                 requested_host.clone(),
                 port,
                 Stage::Candidate,
-                vec![public],
-                Some(public),
+                vec![candidate_address],
+                Some(candidate_address),
                 None,
                 None,
                 None,
@@ -2964,10 +3085,10 @@ mod tests {
                 requested_host.clone(),
                 port,
                 Stage::Commit,
-                vec![public],
-                Some(public),
+                vec![candidate_address],
+                Some(candidate_address),
                 Some(VerifiedPeer {
-                    address: public,
+                    address: candidate_address,
                     port,
                 }),
                 Some(NonEmptyString::new("connection-1").unwrap()),
@@ -2976,7 +3097,15 @@ mod tests {
             .unwrap();
         assert_eq!(committed.outcome, DecisionOutcome::Allow);
 
-        for protected in ["169.254.169.254", "169.254.170.2", "100.100.100.200"] {
+        for protected in [
+            "169.254.169.254",
+            "169.254.170.2",
+            "100.100.100.200",
+            "168.63.129.16",
+            "fd00:ec2::254",
+            "fe80::a9fe:a9fe",
+            "::ffff:169.254.169.254",
+        ] {
             let protected = IpAddress::new(protected.parse().unwrap());
             let error = host
                 .authorize_typed_fetch_stage(
@@ -3005,8 +3134,8 @@ mod tests {
                 requested_host,
                 port,
                 Stage::Candidate,
-                vec![public, metadata],
-                Some(public),
+                vec![candidate_address, metadata],
+                Some(candidate_address),
                 None,
                 None,
                 None,
@@ -3066,7 +3195,7 @@ mod tests {
                 "transport": "tcp",
                 "host": {"kind": "dns-name", "name": "api.example.com"},
                 "port": {"kind": "exact", "value": 443},
-                "peerClasses": ["public"],
+                "peerClasses": ["reserved"],
                 "route": {"kind": "direct"}
             }
         });
@@ -3085,7 +3214,7 @@ mod tests {
             name: DnsName::new("api.example.com").unwrap(),
         };
         let port = Port::new(443).unwrap();
-        let public = IpAddress::new("93.184.216.34".parse().unwrap());
+        let candidate_address = IpAddress::new("93.184.216.34".parse().unwrap());
         let decision = connect_host
             .authorize_typed_connect_stage(
                 "7",
@@ -3096,10 +3225,10 @@ mod tests {
                 requested_host.clone(),
                 port,
                 Stage::Commit,
-                vec![public],
-                Some(public),
+                vec![candidate_address],
+                Some(candidate_address),
                 Some(VerifiedPeer {
-                    address: public,
+                    address: candidate_address,
                     port,
                 }),
                 Some(NonEmptyString::new("tcp-connection-1").unwrap()),

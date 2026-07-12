@@ -2,14 +2,16 @@
 
 This directory is the machine-readable contract for the typed effect model in
 [LLP 0021](../llp/0021-capsec-effect-model-migration.plan.md). It is deliberately
-not used for production decisions yet: WP0 froze and validated the model; WP1
-generates the production registry, source-surface inventory, and language
-bindings; WP2 implements the shared decision core.
+the only production policy and decision contract. Ordinary execution requests
+enforce mode with empty dependency authority when no grants are authored, and
+startup refuses any target that lacks a complete, artifact-bound conformance
+report. No exact target is advertised complete yet; production arming remains
+closed until WP10 has real per-obligation execution evidence.
 
-The committed Rust and C++ bindings are compile-checked by the library build.
-The JavaScript and TypeScript bindings are intentionally future-only in WP1:
-they are generated, syntax-checked, and deeply immutable, but no runtime bundle
-imports them until WP2 supplies the neutral decision core. The aggregate
+The committed Rust and C++ bindings are compile-checked by the library build;
+the generated JavaScript and TypeScript bindings are syntax-checked and deeply
+immutable. The neutral `capsec-semantics` crate supplies canonical parsing,
+containment, decisions, and digests. The aggregate
 `registryDigest` must be computed alongside these artifacts, never embedded
 back into a binding whose raw digest feeds the implementation manifest; doing
 so would create a digest fixed-point cycle.
@@ -120,9 +122,9 @@ copied into the reconciliation source.
 
 ## Ownership boundary
 
-Ibex owns the initial canonical contract here. WP2 will place the runtime-
-neutral Rust implementation behind a neutral `capsec-semantics` crate boundary
-in this repository. A second runtime must consume that exact source or trigger
+Ibex owns the canonical contract here. The runtime-neutral Rust implementation
+lives behind the `capsec-semantics` crate boundary in this repository. A second
+runtime must consume that exact source or trigger
 an explicit ownership move; it must not create a second matcher or copied
 schema authority. Product capability definitions, surface edges, attribution
 adapters, and target cells remain Ibex-local.

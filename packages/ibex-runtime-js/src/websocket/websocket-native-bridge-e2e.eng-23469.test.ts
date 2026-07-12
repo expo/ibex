@@ -42,7 +42,10 @@ const fixturePath = path.join(
 test.skipIf(!haveIbex)(
   'native WebSocket bridge: empty frames, NUL text, large messages, close semantics (live loopback)',
   async () => {
-    const proc = Bun.spawn([ibexBin, fixturePath], {
+    // This fixture intentionally exercises a live package and loopback socket
+    // without producing a durable policy. Run it in the explicitly diagnostic
+    // foreground audit posture; production defaults remain fail-closed.
+    const proc = Bun.spawn([ibexBin, 'capsec', 'audit', fixturePath], {
       cwd: repoRoot,
       stdout: 'pipe',
       stderr: 'pipe',

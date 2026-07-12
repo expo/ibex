@@ -5,7 +5,7 @@
 **Systems:** Engine, Runtime, Crypto
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
+**Revised:** 2026-07-12 (armed construction binds the actual loaded Hermes artifact and runtime-scoped Host context, while the historical unarmed constructor is non-executable — ENG-24237, ENG-24244, ENG-24245); 2026-07-11 (ENG-24259/ENG-24260/ENG-24261: bounded inspector and WebSocket buffering); 2026-07-11 (ENG-24219: engine entry points now scope frame attribution to the runtime handle being driven, so same-thread nested runtimes restore the outer attribution context); 2026-07-08 (ENG-23541: Windows async fs worker-pool hooks)
 **Related:** LLP 0000; LLP 0002 (Host ABI); LLP 0004 (Module loading); LLP 0005 (Build pipeline)
 
 ## Summary
@@ -128,6 +128,22 @@ throwing timer). Likewise the JS-side `unhandledrejection` default action sets
 `process.exitCode = 1` (preserving a user-set nonzero code) rather than
 crashing mid-run. Before ENG-23130, all of these logged and exited 0 — a
 silent green for any CI or agent using the exit code as the pass/fail signal.
+
+### Inspector resource discipline
+
+The loopback CDP service treats handshakes and established sessions as one
+bounded resource class. At most 16 sockets may occupy it concurrently; peek
+and WebSocket handshakes have five-second deadlines, writes have a five-second
+deadline, idle sessions close after five minutes, and tungstenite is configured
+to reject frames and reassembled messages above the 256 KiB protocol budget
+before allocating its much larger defaults. Every inbound data or control
+message consumes the same rate budget.
+
+The Network domain fans events into a separate bounded queue per enabled CDP
+client, so clients cannot drain or disable one another. Each queue retains at
+most 1,000 events and 2 MiB. Response bodies are capped at 1 MiB each and 16 MiB
+in aggregate under byte-budgeted LRU eviction; request post data is capped at
+64 KiB. Truncation and event eviction are explicit in diagnostic metadata.
 
 ### Blocking-work worker pools
 
@@ -254,6 +270,11 @@ both on Linux and Windows):
   `destroy` on a CONNECTING socket work), and return; the
   handshake runs on the backend's io/delegate thread and reports failure as
   an error callback followed by `close(1006, unclean)`.
+
+The Android OkHttp bridge additionally bounds paused receive delivery at 256
+messages and 8 MiB per socket. The queue owns each already-copied message once,
+drains FIFO under the existing JS flow-control handshake, and closes with 1009
+instead of silently dropping data when either bound would be exceeded.
 
 On Linux there is a third: **the io thread exclusively owns the CURL easy
 handle.** libcurl forbids using one handle from two threads, and the io
