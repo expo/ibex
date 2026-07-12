@@ -20,8 +20,9 @@
 > execution is typed, armed, enforce-only, and structurally locked down. The
 > old permissive/audit flags and `PolicyFile` passages below are retained only
 > as historical rationale; they are not operator guidance. Foreground diagnosis
-> is `ibex capsec audit`, and the sole advertised complete profile is the
-> conformant `aarch64-apple-darwin` target recorded in LLP 0021 §WP10.
+> is `ibex capsec audit`. No exact target is currently advertised complete, so
+> ordinary production execution refuses before project code; LLP 0021 §WP10
+> records `aarch64-apple-darwin` only as a candidate pending complete evidence.
 
 > Citation convention: `hermes:` paths refer to the pinned Hermes source
 > (`IBEX_HERMES_SOURCE_COMMIT` on the `260318099.0.0-stable` release branch
