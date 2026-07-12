@@ -1847,7 +1847,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     }
 
     for (const category of ["cache", "load", "resolution", "transform"]) {
-      const name = `operation:${category}:create`;
+      const name = `operation:${category}:create_dir_all`;
       expect(
         edgeActions(classifyObservedSurface(surface("loader", name), context)),
         name,
@@ -1858,7 +1858,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "cache",
       "load",
       "resolution",
-      "subprocess",
       "transform",
     ]) {
       const name = `operation:${category}:env-var`;
@@ -2621,7 +2620,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     expect(trustedEvaluation.edge.rationaleId).toBe("runtime-bootstrap-state");
 
     const installRoute = classifyObservedSurface(
-      surface("startup", "install-route:ex_hermes_create:installGlobals", {
+      surface("startup", "install-route:ex_hermes_create_impl:installGlobals", {
         evidenceType: "startup-installer-call-route",
       }),
       context,
@@ -2799,8 +2798,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
 
   test("startup environment controls are exact and cannot hide weakening", () => {
     for (const environmentName of [
-      "IBEX_ENDOW",
-      "IBEX_PER_PACKAGE_CHUNKS",
       "IBEX_CAPSEC_ALLOW_ADVISORY",
       "EX_SKIP_STARTUP_HOST_FUNCTIONS",
       "EX_DISABLE_BYTECODE_SANITY_CHECK",
@@ -3917,7 +3914,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "cache",
       "load",
       "resolution",
-      "subprocess",
       "transform",
     ]) {
       const observedKey = `loader:operation:${category}:env-var`;

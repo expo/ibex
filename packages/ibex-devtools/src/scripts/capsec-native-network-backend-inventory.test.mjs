@@ -224,7 +224,10 @@ describe("native networking backend repository inventory", () => {
     expect(
       rows.find((row) => row.name === "native_ws_destroy").metadata
         .declarations,
-    ).toEqual(["src/engine/hermes_runtime.cc#declaration:native_ws_destroy"]);
+    ).toEqual([
+      "src/engine/hermes_runtime.cc#declaration:native_ws_destroy",
+      "src/engine/hermes_runtime_websocket.cc#declaration:native_ws_destroy",
+    ]);
     expect(rows.some((row) => row.name.includes("context"))).toBe(false);
   });
 });
@@ -279,8 +282,8 @@ describe("native networking backend fail-closed gates", () => {
       (entry) => entry.sourcePath === "src/engine/native_fetch_windows.cc",
     );
     windows.text = windows.text.replace(
-      'extern "C" void native_fetch_cancel(uint32_t request_id)',
-      'extern "C" void reviewed_cancel(uint32_t request_id)',
+      'extern "C" void native_fetch_cancel(uint32_t request_id, uint64_t runtime_nonce)',
+      'extern "C" void reviewed_cancel(uint32_t request_id, uint64_t runtime_nonce)',
     );
     expect(() => scanNativeNetworkingBackendInventory(missing)).toThrow(
       /definition set drift.*native_fetch_cancel/u,
