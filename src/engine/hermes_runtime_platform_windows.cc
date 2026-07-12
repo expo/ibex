@@ -216,24 +216,57 @@ std::vector<uint8_t> jsiValueToBytes(
   return std::vector<uint8_t>(data.begin(), data.end());
 }
 
-std::string socketAddressJson(const sockaddr_storage& addr) {
+bool isIpv4MappedAddress(const IN6_ADDR& address) {
+  return IN6_IS_ADDR_V4MAPPED(&address) != 0;
+}
+
+bool isIpv4MappedLiteral(const std::string& host) {
+  IN6_ADDR address{};
+  return InetPtonA(AF_INET6, host.c_str(), &address) == 1 &&
+      isIpv4MappedAddress(address);
+}
+
+std::string socketAddressText(const sockaddr_storage& addr) {
   char ip[INET6_ADDRSTRLEN] = {};
+  if (addr.ss_family == AF_INET) {
+    auto* sa = reinterpret_cast<const sockaddr_in*>(&addr);
+    if (!InetNtopA(AF_INET, const_cast<IN_ADDR*>(&sa->sin_addr), ip, sizeof(ip))) {
+      return std::string();
+    }
+  } else if (addr.ss_family == AF_INET6) {
+    auto* sa = reinterpret_cast<const sockaddr_in6*>(&addr);
+    if (isIpv4MappedAddress(sa->sin6_addr)) {
+      IN_ADDR embedded{};
+      std::memcpy(&embedded, &sa->sin6_addr.u.Byte[12], sizeof(embedded));
+      if (!InetNtopA(AF_INET, &embedded, ip, sizeof(ip))) return std::string();
+    } else if (!InetNtopA(
+                   AF_INET6,
+                   const_cast<IN6_ADDR*>(&sa->sin6_addr),
+                   ip,
+                   sizeof(ip))) {
+      return std::string();
+    }
+  } else {
+    return std::string();
+  }
+  return std::string(ip);
+}
+
+std::string socketAddressJson(const sockaddr_storage& addr) {
+  std::string ip = socketAddressText(addr);
+  if (ip.empty()) return std::string();
   int port = 0;
   std::string family;
   if (addr.ss_family == AF_INET) {
     auto* sa = reinterpret_cast<const sockaddr_in*>(&addr);
-    InetNtopA(AF_INET, const_cast<IN_ADDR*>(&sa->sin_addr), ip, sizeof(ip));
     port = ntohs(sa->sin_port);
     family = "IPv4";
   } else if (addr.ss_family == AF_INET6) {
     auto* sa = reinterpret_cast<const sockaddr_in6*>(&addr);
-    InetNtopA(AF_INET6, const_cast<IN6_ADDR*>(&sa->sin6_addr), ip, sizeof(ip));
     port = ntohs(sa->sin6_port);
-    family = "IPv6";
-  } else {
-    return std::string();
+    family = isIpv4MappedAddress(sa->sin6_addr) ? "IPv4" : "IPv6";
   }
-  return "{\"address\":\"" + std::string(ip) + "\",\"port\":" + std::to_string(port) +
+  return "{\"address\":\"" + ip + "\",\"port\":" + std::to_string(port) +
       ",\"family\":\"" + family + "\"}";
 }
 
@@ -1512,18 +1545,13 @@ void installDnsHostFunctions(ExactHermesRuntime* handle) {
           sockaddr_storage storage{};
           if (item->ai_addrlen > sizeof(storage)) continue;
           std::memcpy(&storage, item->ai_addr, item->ai_addrlen);
-          char ip[INET6_ADDRSTRLEN] = {};
-          bool ok = false;
-          if (storage.ss_family == AF_INET) {
-            auto* sa = reinterpret_cast<sockaddr_in*>(&storage);
-            ok = InetNtopA(AF_INET, &sa->sin_addr, ip, sizeof(ip)) != nullptr;
-          } else if (storage.ss_family == AF_INET6) {
-            auto* sa = reinterpret_cast<sockaddr_in6*>(&storage);
-            ok = InetNtopA(AF_INET6, &sa->sin6_addr, ip, sizeof(ip)) != nullptr;
-          }
-          if (!ok) continue;
+          std::string ip = socketAddressText(storage);
+          if (ip.empty()) continue;
           std::string escaped;
-          appendEscapedJsonText(escaped, reinterpret_cast<const uint8_t*>(ip), std::strlen(ip));
+          appendEscapedJsonText(
+              escaped,
+              reinterpret_cast<const uint8_t*>(ip.data()),
+              ip.size());
           if (!first) json << ',';
           first = false;
           json << escaped;
@@ -1855,6 +1883,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         ensureWinsock();
         std::string host = args[0].toString(runtime).utf8(runtime);
         int port = static_cast<int>(args[1].asNumber());
+        if (isIpv4MappedLiteral(host)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactTcpConnect: IPv4-mapped IPv6 literals are not canonical; use IPv4");
+        }
         std::string connectCapability = networkEndpointCapability("network:connect", host, port);
         requireNetworkCapability(runtime, connectCapability, "network:connect");
         addrinfo hints{};
@@ -2091,6 +2124,11 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
         int port = count > 1 && args[1].isNumber() ? static_cast<int>(args[1].asNumber()) : 0;
         int backlog = count > 2 && args[2].isNumber() ? static_cast<int>(args[2].asNumber()) : 128;
         int ipv6Only = count > 3 && args[3].isNumber() ? static_cast<int>(args[3].asNumber()) : 0;
+        if (isIpv4MappedLiteral(host)) {
+          throw facebook::jsi::JSError(
+              runtime,
+              "__exactTcpListen: IPv4-mapped IPv6 literals are not canonical; use IPv4");
+        }
         std::string listenCapability = networkEndpointCapability("network:listen", host, port);
         requireNetworkCapability(runtime, listenCapability, "network:listen");
 
@@ -2117,9 +2155,19 @@ void installNetHostFunctions(ExactHermesRuntime* handle) {
           }
           BOOL reuse = TRUE;
           setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&reuse), sizeof(reuse));
-          if (item->ai_family == AF_INET6 && ipv6Only) {
-            DWORD only = 1;
-            setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&only), sizeof(only));
+          if (item->ai_family == AF_INET6) {
+            DWORD only = ipv6Only ? 1 : 0;
+            if (setsockopt(
+                    socket,
+                    IPPROTO_IPV6,
+                    IPV6_V6ONLY,
+                    reinterpret_cast<const char*>(&only),
+                    sizeof(only)) != 0) {
+              lastError = WSAGetLastError();
+              closesocket(socket);
+              socket = INVALID_SOCKET;
+              continue;
+            }
           }
           if (bind(socket, item->ai_addr, static_cast<int>(item->ai_addrlen)) == 0 &&
               listen(socket, backlog) == 0) {
