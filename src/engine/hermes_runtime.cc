@@ -1638,6 +1638,10 @@ void installGlobals(struct ExactHermesRuntime* handle) {
          const facebook::jsi::Value&,
          const facebook::jsi::Value*,
          size_t) -> facebook::jsi::Value {
+        // @ref LLP 0021#wp7--close-loader-process-inspector-stdio-and-escape-surfaces — Process cwd disclosure remains closed until its typed sys:read adapter lands.
+        if (ex_host_is_armed() == 1) {
+          return facebook::jsi::Value::undefined();
+        }
         char buffer[4096];
 #if defined(_WIN32)
         if (_getcwd(buffer, sizeof(buffer)) == nullptr) {

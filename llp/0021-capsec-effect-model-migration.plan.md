@@ -770,6 +770,11 @@ same boundary before its process-global environment marker can be installed.
 Hidden compatibility-fidelity controls that expose internals or alter
 process-wide stack/HTTP-parser configuration are rejected there as well,
 before armed artifact I/O.
+At runtime the unmigrated environment and process-cwd surfaces are explicitly
+closed: individual environment reads return `undefined`, enumeration returns an
+empty object, cwd disclosure returns `undefined`, and cwd mutation is denied
+without changing the host process directory. A live armed fixture covers all
+four boundaries.
 The initial profile therefore has no debugger protocol or compatibility-facade
 route into package memory or runtime internals.
 

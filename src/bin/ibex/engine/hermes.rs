@@ -2296,6 +2296,29 @@ mod tests {
         runtime.shutdown();
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_process_and_environment_legacy_surfaces_stay_closed() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let original_cwd = std::env::current_dir().unwrap();
+        let target = std::env::temp_dir();
+        let (_reset, digest) = install_armed_test_host();
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        let script = format!(
+            r#"(function() {{
+                var denied = 0;
+                if (__exactGetEnv('PATH') === undefined) denied++;
+                if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
+                if (__exactGetCwd() === undefined) denied++;
+                try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
+                return String(denied);
+            }})()"#,
+            target = target.to_str().unwrap(),
+        );
+        let outcome = engine.eval_immediate(&script).await.unwrap();
+        assert_eq!(outcome.as_deref(), Some("4"));
+        assert_eq!(std::env::current_dir().unwrap(), original_cwd);
+    }
+
     #[cfg(unix)]
     #[tokio::test(flavor = "current_thread")]
     async fn armed_tcp_connect_commits_and_rechecks_the_actual_peer() {
