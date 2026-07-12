@@ -354,40 +354,52 @@ fn workspace_root_from(start: &Path) -> Option<PathBuf> {
     })
 }
 
-fn workspace_roots() -> Vec<PathBuf> {
+fn runtime_workspace_roots() -> Result<Vec<PathBuf>> {
     let mut roots = Vec::new();
 
-    if let Some(found) = workspace_root_from(Path::new(env!("CARGO_MANIFEST_DIR"))) {
+    if let Some(raw) =
+        std::env::var_os("IBEX_REPO_ROOT").or_else(|| std::env::var_os("EXACT_REPO_ROOT"))
+    {
+        let candidate = PathBuf::from(raw);
+        if !candidate.is_absolute() {
+            anyhow::bail!("IBEX_REPO_ROOT must be an absolute authenticated directory");
+        }
+        let root = workspace_root_from(&candidate)
+            .and_then(|root| std::fs::canonicalize(root).ok())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "IBEX_REPO_ROOT does not identify an Ibex checkout: {}",
+                    candidate.display()
+                )
+            })?;
+        return Ok(vec![root]);
+    }
+
+    // The compile-time checkout is authenticated by the build. Never inspect
+    // the application cwd or its ancestors: a project can create a lookalike
+    // workspace and otherwise select executable runtime bootstrap code.
+    if let Some(found) = workspace_root_from(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .and_then(|root| std::fs::canonicalize(root).ok())
+    {
         roots.push(found);
     }
 
-    if let Ok(root) = std::env::var("IBEX_REPO_ROOT").or_else(|_| std::env::var("EXACT_REPO_ROOT"))
-    {
-        let candidate = PathBuf::from(root);
-        if let Some(found) = workspace_root_from(&candidate) {
-            if !roots.iter().any(|root| root == &found) {
-                roots.push(found);
-            }
-        }
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        if let Some(found) = workspace_root_from(&current_dir) {
-            if !roots.iter().any(|root| root == &found) {
-                roots.push(found);
-            }
-        }
-    }
-
     if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(found) = workspace_root_from(&exe_path) {
-            if !roots.iter().any(|root| root == &found) {
+        if let Some(found) =
+            workspace_root_from(&exe_path).and_then(|root| std::fs::canonicalize(root).ok())
+        {
+            if !roots.contains(&found) {
                 roots.push(found);
             }
         }
     }
 
-    roots
+    if roots.is_empty() {
+        anyhow::bail!(
+            "Failed to resolve an authenticated Ibex runtime root. Set IBEX_REPO_ROOT to an absolute trusted checkout"
+        );
+    }
+    Ok(roots)
 }
 
 fn target_arch_to_hermes_dir(arch: &str) -> &str {
@@ -644,13 +656,24 @@ fn find_runtime_bundle() -> Result<PathBuf> {
     // Use the committed Ibex runtime bundle by default.
     let candidates = ["vendored-generated/embedded_runtime_bundle.js"];
 
-    for base_path in workspace_roots() {
+    for base_path in runtime_workspace_roots()? {
         for search_root in runtime_bundle_search_roots(&base_path) {
             for candidate in &candidates {
                 let path = search_root.join(candidate);
-                if path.exists() {
-                    return Ok(path);
+                if !path.exists() {
+                    continue;
                 }
+                let authenticated = std::fs::canonicalize(&path).with_context(|| {
+                    format!("Failed to authenticate runtime bundle {}", path.display())
+                })?;
+                if !authenticated.starts_with(&base_path) || !authenticated.is_file() {
+                    anyhow::bail!(
+                        "Runtime bundle {} escapes authenticated root {}",
+                        authenticated.display(),
+                        base_path.display()
+                    );
+                }
+                return Ok(authenticated);
             }
         }
     }
@@ -2727,6 +2750,64 @@ mod tests {
         output
             .sync_all()
             .expect("loaded engine identity must be durable before success");
+    }
+
+    #[tokio::test]
+    async fn application_cwd_cannot_select_lookalike_runtime_bundle() {
+        let _lock = hermes_engine_test_lock().lock().await;
+
+        struct RestoreProcessState {
+            cwd: PathBuf,
+            ibex_repo_root: Option<std::ffi::OsString>,
+            exact_repo_root: Option<std::ffi::OsString>,
+        }
+        impl Drop for RestoreProcessState {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.cwd);
+                match self.ibex_repo_root.take() {
+                    Some(value) => std::env::set_var("IBEX_REPO_ROOT", value),
+                    None => std::env::remove_var("IBEX_REPO_ROOT"),
+                }
+                match self.exact_repo_root.take() {
+                    Some(value) => std::env::set_var("EXACT_REPO_ROOT", value),
+                    None => std::env::remove_var("EXACT_REPO_ROOT"),
+                }
+            }
+        }
+        let _restore = RestoreProcessState {
+            cwd: std::env::current_dir().unwrap(),
+            ibex_repo_root: std::env::var_os("IBEX_REPO_ROOT"),
+            exact_repo_root: std::env::var_os("EXACT_REPO_ROOT"),
+        };
+        std::env::remove_var("IBEX_REPO_ROOT");
+        std::env::remove_var("EXACT_REPO_ROOT");
+
+        let fake = tempfile::tempdir().unwrap();
+        fs::create_dir_all(fake.path().join("vendored-generated")).unwrap();
+        fs::create_dir_all(fake.path().join("packages/ibex-runtime-js")).unwrap();
+        fs::create_dir_all(fake.path().join("packages/ibex-devtools")).unwrap();
+        fs::write(
+            fake.path().join("packages/ibex-runtime-js/package.json"),
+            "{}",
+        )
+        .unwrap();
+        fs::write(
+            fake.path().join("packages/ibex-devtools/package.json"),
+            "{}",
+        )
+        .unwrap();
+        fs::write(
+            fake.path()
+                .join("vendored-generated/embedded_runtime_bundle.js"),
+            "throw new Error('application-controlled runtime executed');",
+        )
+        .unwrap();
+
+        std::env::set_current_dir(fake.path()).unwrap();
+        let fake_root = fs::canonicalize(fake.path()).unwrap();
+        let roots = runtime_workspace_roots().unwrap();
+        assert!(roots.iter().all(|root| root != &fake_root));
+        assert!(!find_runtime_bundle().unwrap().starts_with(fake_root));
     }
 
     #[test]
