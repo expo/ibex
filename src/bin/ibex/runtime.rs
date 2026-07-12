@@ -2722,6 +2722,25 @@ pub async fn prepare_entry_with_format(
     entry: &str,
     bundle_format: BundleFormat,
 ) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode(entry, bundle_format, true).await
+}
+
+/// Prepare source for the build command. The build command is itself producing
+/// the requested HBC, so feeding it an entry-cache HBC would ask hermesc to
+/// compile bytecode as JavaScript and would also lose the bundle directory
+/// containing per-package chunks.
+pub async fn prepare_entry_for_bytecode_build(
+    entry: &str,
+    bundle_format: BundleFormat,
+) -> Result<PathBuf> {
+    prepare_entry_with_format_and_bytecode(entry, bundle_format, false).await
+}
+
+async fn prepare_entry_with_format_and_bytecode(
+    entry: &str,
+    bundle_format: BundleFormat,
+    allow_bytecode: bool,
+) -> Result<PathBuf> {
     let path = PathBuf::from(entry);
     let path = if path.is_absolute() {
         path
@@ -2760,7 +2779,8 @@ pub async fn prepare_entry_with_format(
 
     if let Some(output) = find_fresh_bundle(&artifact_root, &path, bundle_format).await {
         // Bundle is cached. Try bytecode if not already known incompatible.
-        if !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+        if allow_bytecode
+            && !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
             && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
         {
             if let Ok(bytecode_path) = prepare_bytecode_entry(&output).await {
@@ -2795,7 +2815,8 @@ pub async fn prepare_entry_with_format(
     };
 
     if let Some(output) = find_fresh_bundle(&artifact_root, &path, effective_format).await {
-        return if !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+        return if allow_bytecode
+            && !BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
             && crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_none()
         {
             prepare_bytecode_entry(&output).await.or(Ok(output))
@@ -2860,7 +2881,8 @@ pub async fn prepare_entry_with_format(
     // Try to compile to bytecode for faster startup on subsequent runs.
     // Skip if we've already detected that hermesc produces incompatible bytecode,
     // or if bytecode is explicitly disabled.
-    if BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
+    if !allow_bytecode
+        || BYTECODE_INCOMPATIBLE.load(Ordering::Relaxed)
         || crate::runtime_env("IBEX_NO_BYTECODE", "EX_NO_BYTECODE").is_some()
     {
         return Ok(prepared);
@@ -3197,25 +3219,213 @@ async fn bytecode_cache_is_fresh(source: &Path, bytecode: &Path) -> bool {
     engine::hermes::bytecode_artifact_is_fresh(source, bytecode).await
 }
 
+fn touch_bytecode_artifact(artifact_dir: &Path) {
+    std::fs::write(artifact_dir.join(".last-used"), []).ok();
+}
+
+fn is_bytecode_cache_key(name: &std::ffi::OsStr) -> bool {
+    name.to_str().is_some_and(|name| {
+        name.len() == 64
+            && name
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    })
+}
+
+fn ensure_bytecode_cache_root(cache_parent: &Path) -> Result<PathBuf> {
+    let cache_parent = cache_parent.to_path_buf();
+    std::fs::create_dir_all(&cache_parent).with_context(|| {
+        format!(
+            "Failed to create runtime cache directory {}",
+            cache_parent.display()
+        )
+    })?;
+    let cache_parent = std::fs::canonicalize(&cache_parent).with_context(|| {
+        format!(
+            "Failed to authenticate runtime cache directory {}",
+            cache_parent.display()
+        )
+    })?;
+    let cache_root = cache_parent.join(".bytecode-cache");
+    match std::fs::symlink_metadata(&cache_root) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match std::fs::create_dir(&cache_root) {
+                Ok(()) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        std::fs::set_permissions(
+                            &cache_root,
+                            std::fs::Permissions::from_mode(0o700),
+                        )?;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("Failed to create bytecode cache {}", cache_root.display())
+                    })
+                }
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = std::fs::symlink_metadata(&cache_root)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        anyhow::bail!(
+            "Bytecode cache root must be a real directory, not a symlink or file: {}",
+            cache_root.display()
+        );
+    }
+    let authenticated = std::fs::canonicalize(&cache_root).with_context(|| {
+        format!(
+            "Failed to authenticate bytecode cache {}",
+            cache_root.display()
+        )
+    })?;
+    if authenticated.parent() != Some(cache_parent.as_path()) {
+        anyhow::bail!(
+            "Bytecode cache {} escapes runtime cache {}",
+            authenticated.display(),
+            cache_parent.display()
+        );
+    }
+    Ok(authenticated)
+}
+
+fn bytecode_cache_parent_for_source(source: &Path) -> Result<PathBuf> {
+    let runtime_root = runtime_cache_dir()?;
+    std::fs::create_dir_all(&runtime_root)?;
+    let runtime_root = std::fs::canonicalize(runtime_root)?;
+    let bundles_root = runtime_root.join("bundles");
+    if source.starts_with(&bundles_root) {
+        return source
+            .parent()
+            .map(Path::to_path_buf)
+            .context("bundle cache source has no parent");
+    }
+    Ok(runtime_root)
+}
+
+fn cleanup_abandoned_bytecode_temp_dirs(cache_root: &Path) {
+    let Ok(entries) = std::fs::read_dir(cache_root) else {
+        return;
+    };
+    for entry in entries.filter_map(|entry| entry.ok()) {
+        if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let owner = [".stage-", ".invalid-", ".evict-"]
+            .iter()
+            .find_map(|prefix| {
+                name.strip_prefix(prefix)
+                    .and_then(|rest| rest.split('-').next())
+                    .and_then(|pid| pid.parse::<u32>().ok())
+            });
+        if owner.is_some_and(|pid| !process_is_running(pid)) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
+fn prune_bytecode_cache_to_limit(cache_root: &Path, keep: &Path, limit: u64) {
+    cleanup_abandoned_bytecode_temp_dirs(cache_root);
+    let Ok(entries) = std::fs::read_dir(cache_root) else {
+        return;
+    };
+    let mut artifacts = entries
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let path = entry.path();
+            let file_type = entry.file_type().ok()?;
+            if path == keep || !file_type.is_dir() || !is_bytecode_cache_key(&entry.file_name()) {
+                return None;
+            }
+            let metadata = entry.metadata().ok()?;
+            let recency = std::fs::metadata(path.join(".last-used"))
+                .and_then(|marker| marker.modified())
+                .or_else(|_| metadata.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            Some((recency, cached_directory_size(&path), path))
+        })
+        .collect::<Vec<_>>();
+    let mut total = cached_directory_size(cache_root);
+    artifacts.sort_by_key(|(modified, _, _)| *modified);
+    for (_, size, path) in artifacts {
+        if total <= limit {
+            break;
+        }
+        let Ok(Some(gate)) = try_acquire_bundle_artifact_gate(&path) else {
+            continue;
+        };
+        if bundle_artifact_has_live_lease(&path) {
+            drop(gate);
+            continue;
+        }
+        let quarantine = cache_root.join(format!(
+            ".evict-{}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0),
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("artifact")
+        ));
+        let renamed = std::fs::rename(&path, &quarantine).is_ok();
+        drop(gate);
+        if renamed && std::fs::remove_dir_all(&quarantine).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+fn enforce_bytecode_cache_quota(cache_root: &Path, keep: &Path) {
+    const DEFAULT_LIMIT: u64 = 256 * 1024 * 1024;
+    let limit = std::env::var("IBEX_BYTECODE_CACHE_MAX_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_LIMIT);
+    prune_bytecode_cache_to_limit(cache_root, keep, limit);
+}
+
 async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
 
     let source_identity = std::fs::canonicalize(entry)
         .with_context(|| format!("Failed to authenticate bytecode source {}", entry.display()))?;
+    // A bundle-cache source may be evicted by another process. Hold its shared
+    // lease through the single source read, compilation, and HBC publication.
+    let _source_lease = acquire_bundle_execution_lease(&source_identity).await?;
     let source = tokio::fs::read(&source_identity).await?;
     let source_digest_before = sha256_bytes(&source);
+    // Generated-code caches fail closed unless the mapped runtime binary can
+    // be attested. Explicit `ibex build` output is not a cache and remains
+    // available on platforms (currently Windows) without mapped-module
+    // identity support; the cache-specific gate belongs here, not in the
+    // generic compiler wrapper.
+    ibex_runtime::engine::loaded_engine_binary_identity()
+        .map_err(anyhow::Error::msg)
+        .context("cannot authenticate the loaded Hermes engine for bytecode cache use")?;
     let toolchain_identity = engine::hermes::bytecode_cache_identity();
+    let source_path = source_identity
+        .to_str()
+        .context("bytecode cache does not support non-UTF-8 source paths")?;
     let cache_key = sha256_bytes(
-        format!("bytecode-cache-v2\0{source_digest_before}\0{toolchain_identity}").as_bytes(),
+        format!("bytecode-cache-v3\0{source_path}\0{source_digest_before}\0{toolchain_identity}")
+            .as_bytes(),
     );
-    let parent = source_identity
-        .parent()
-        .context("bytecode source has no parent")?;
-    let cache_root = parent.join(".bytecode-cache");
+    let cache_parent = bytecode_cache_parent_for_source(&source_identity)?;
+    let cache_root = ensure_bytecode_cache_root(&cache_parent)?;
     let final_dir = cache_root.join(&cache_key);
     let hbc_path = final_dir.join("entry.hbc");
     if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
+        touch_bytecode_artifact(&final_dir);
         return Ok(hbc_path);
     }
 
@@ -3252,6 +3462,7 @@ async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
     if final_dir.exists() {
         if bytecode_cache_is_fresh(&source_identity, &hbc_path).await {
             tokio::fs::remove_dir_all(&stage_dir).await.ok();
+            touch_bytecode_artifact(&final_dir);
             return Ok(hbc_path);
         }
         let invalid = cache_root.join(format!(
@@ -3275,7 +3486,9 @@ async fn prepare_bytecode_entry(entry: &Path) -> Result<PathBuf> {
     if let Some(invalid) = quarantine {
         tokio::fs::remove_dir_all(invalid).await.ok();
     }
+    touch_bytecode_artifact(&final_dir);
     drop(gate);
+    enforce_bytecode_cache_quota(&cache_root, &final_dir);
 
     Ok(hbc_path)
 }
@@ -3943,12 +4156,14 @@ async fn acquire_bundle_artifact_gate(artifact_dir: &Path) -> Result<BundleArtif
 }
 
 pub(crate) struct BundleLease {
-    file: std::fs::File,
+    files: Vec<std::fs::File>,
 }
 
 impl Drop for BundleLease {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        for file in &self.files {
+            let _ = file.unlock();
+        }
     }
 }
 
@@ -3963,7 +4178,7 @@ fn acquire_bundle_lease(artifact_dir: &Path) -> Result<BundleLease> {
     file.lock_shared()
         .with_context(|| format!("Failed to lock bundle artifact {}", artifact_dir.display()))?;
     std::fs::write(artifact_dir.join(".last-used"), []).ok();
-    Ok(BundleLease { file })
+    Ok(BundleLease { files: vec![file] })
 }
 
 fn bundle_artifact_has_live_lease(artifact_dir: &Path) -> bool {
@@ -3987,6 +4202,27 @@ fn bundle_artifact_has_live_lease(artifact_dir: &Path) -> bool {
 }
 
 pub(crate) async fn acquire_bundle_execution_lease(path: &Path) -> Result<Option<BundleLease>> {
+    let mut retained = None;
+    if let (Some(artifact_dir), Some(cache_root)) =
+        (path.parent(), path.parent().and_then(Path::parent))
+    {
+        if cache_root
+            .file_name()
+            .is_some_and(|name| name == ".bytecode-cache")
+            && artifact_dir.file_name().is_some_and(is_bytecode_cache_key)
+        {
+            let gate = acquire_bundle_artifact_gate(artifact_dir).await?;
+            if !artifact_dir.is_dir() {
+                anyhow::bail!(
+                    "Bytecode cache artifact disappeared before execution: {}",
+                    artifact_dir.display()
+                );
+            }
+            retained = Some(acquire_bundle_lease(artifact_dir)?);
+            drop(gate);
+        }
+    }
+
     let bundles_root = runtime_cache_dir()?.join("bundles");
     let mut current = path.parent();
     while let Some(directory) = current {
@@ -4002,8 +4238,12 @@ pub(crate) async fn acquire_bundle_execution_lease(path: &Path) -> Result<Option
                     directory.display()
                 );
             }
-            let lease = acquire_bundle_lease(directory)?;
+            let mut lease = acquire_bundle_lease(directory)?;
             drop(gate);
+            if let Some(mut bytecode_lease) = retained {
+                bytecode_lease.files.append(&mut lease.files);
+                return Ok(Some(bytecode_lease));
+            }
             return Ok(Some(lease));
         }
         if !directory.starts_with(&bundles_root) {
@@ -4011,7 +4251,7 @@ pub(crate) async fn acquire_bundle_execution_lease(path: &Path) -> Result<Option
         }
         current = directory.parent();
     }
-    Ok(None)
+    Ok(retained)
 }
 
 async fn find_fresh_bundle(
@@ -5586,6 +5826,55 @@ mod tests {
         assert!(repaired
             .components()
             .any(|component| component.as_os_str() == ".bytecode-cache"));
+        std::fs::remove_dir_all(repaired.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn bytecode_cache_quota_evicts_lru_units_and_skips_locked_publishers() {
+        let dir = tempdir().unwrap();
+        let old = dir.path().join("a".repeat(64));
+        let locked = dir.path().join("b".repeat(64));
+        let leased = dir.path().join("c".repeat(64));
+        let current = dir.path().join("d".repeat(64));
+        for artifact in [&old, &locked, &leased, &current] {
+            std::fs::create_dir(artifact).unwrap();
+            std::fs::write(artifact.join("entry.hbc"), vec![0u8; 64]).unwrap();
+            touch_bytecode_artifact(artifact);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let mut dead_pid = std::process::id().saturating_add(1_000_000);
+        while process_is_running(dead_pid) {
+            dead_pid = dead_pid.saturating_add(1);
+        }
+        let abandoned = dir.path().join(format!(".stage-{dead_pid}-1-dead"));
+        let live = dir
+            .path()
+            .join(format!(".stage-{}-1-live", std::process::id()));
+        std::fs::create_dir(&abandoned).unwrap();
+        std::fs::create_dir(&live).unwrap();
+        let locked_gate = try_acquire_bundle_artifact_gate(&locked)
+            .unwrap()
+            .expect("test owns publisher gate");
+        let execution_lease = acquire_bundle_lease(&leased).unwrap();
+
+        prune_bytecode_cache_to_limit(dir.path(), &current, 64);
+        assert!(!old.exists(), "oldest unlocked HBC unit should be evicted");
+        assert!(
+            locked.exists(),
+            "a live publisher gate must prevent eviction"
+        );
+        assert!(
+            leased.exists(),
+            "a live execution lease must prevent eviction"
+        );
+        assert!(current.exists(), "the current HBC unit must be retained");
+        assert!(
+            !abandoned.exists(),
+            "dead publisher stages must be reclaimed"
+        );
+        assert!(live.exists(), "live publisher stages must not be reclaimed");
+        drop(execution_lease);
+        drop(locked_gate);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

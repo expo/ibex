@@ -1380,7 +1380,7 @@ async fn build_bytecode(cli: &Cli, file: &str, outdir: Option<&std::path::Path>)
     } else {
         cli.bundle_format
     };
-    let bundled = runtime::prepare_entry_with_format(file, format).await?;
+    let bundled = runtime::prepare_entry_for_bytecode_build(file, format).await?;
     let _bundle_lease = runtime::acquire_bundle_execution_lease(&bundled).await?;
     let bundled_str = bundled.to_string_lossy().to_string();
 

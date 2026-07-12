@@ -1590,9 +1590,13 @@ impl HermesEngine {
                                 };
 
                                 let _ = runtime.block_on(async {
-                                    compile_to_bytecode(&js_path.to_string_lossy(), &hbc_out, None)
-                                        .await
-                                        .ok()
+                                    compile_attested_cache_bytecode(
+                                        &js_path.to_string_lossy(),
+                                        &hbc_out,
+                                        None,
+                                    )
+                                    .await
+                                    .ok()
                                 });
                             });
                             self.track_bytecode_compile_task(compile_task);
@@ -2395,7 +2399,26 @@ pub async fn compile_to_bytecode(
     let source = tokio::fs::read(&input_path)
         .await
         .with_context(|| format!("Failed to read bytecode source {input}"))?;
-    compile_source_to_bytecode(&input_path, &source, output, source_map).await
+    compile_source_to_bytecode_with_attestation(
+        &input_path,
+        &source,
+        output,
+        source_map,
+        BytecodeOutputKind::ExplicitBuild,
+    )
+    .await
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BytecodeOutputKind {
+    ExplicitBuild,
+    GeneratedCache,
+}
+
+impl BytecodeOutputKind {
+    fn requires_runtime_attestation(self) -> bool {
+        matches!(self, Self::GeneratedCache)
+    }
 }
 
 pub(crate) async fn compile_source_to_bytecode(
@@ -2404,6 +2427,43 @@ pub(crate) async fn compile_source_to_bytecode(
     output: &Path,
     source_map: Option<&Path>,
 ) -> Result<()> {
+    compile_source_to_bytecode_with_attestation(
+        input_path,
+        source,
+        output,
+        source_map,
+        BytecodeOutputKind::GeneratedCache,
+    )
+    .await
+}
+
+async fn compile_attested_cache_bytecode(
+    input: &str,
+    output: &Path,
+    source_map: Option<&Path>,
+) -> Result<()> {
+    let input_path = std::fs::canonicalize(input)
+        .with_context(|| format!("Failed to authenticate bytecode source {input}"))?;
+    let source = tokio::fs::read(&input_path)
+        .await
+        .with_context(|| format!("Failed to read bytecode source {input}"))?;
+    compile_source_to_bytecode_with_attestation(
+        &input_path,
+        &source,
+        output,
+        source_map,
+        BytecodeOutputKind::GeneratedCache,
+    )
+    .await
+}
+
+async fn compile_source_to_bytecode_with_attestation(
+    input_path: &Path,
+    source: &[u8],
+    output: &Path,
+    source_map: Option<&Path>,
+    output_kind: BytecodeOutputKind,
+) -> Result<()> {
     let compiler_identity = find_hermesc_identity()?;
     compile_source_to_bytecode_with_compiler(
         input_path,
@@ -2411,6 +2471,7 @@ pub(crate) async fn compile_source_to_bytecode(
         output,
         source_map,
         &compiler_identity,
+        output_kind,
     )
     .await
 }
@@ -2421,10 +2482,13 @@ async fn compile_source_to_bytecode_with_compiler(
     output: &Path,
     source_map: Option<&Path>,
     compiler_identity: &HermesToolIdentity,
+    output_kind: BytecodeOutputKind,
 ) -> Result<()> {
-    ibex_runtime::engine::loaded_engine_binary_identity()
-        .map_err(anyhow::Error::msg)
-        .context("cannot authenticate the loaded Hermes engine for bytecode compilation")?;
+    if output_kind.requires_runtime_attestation() {
+        ibex_runtime::engine::loaded_engine_binary_identity()
+            .map_err(anyhow::Error::msg)
+            .context("cannot authenticate the loaded Hermes engine for bytecode cache use")?;
+    }
     // Select/canonicalize the source identity before any async compile work.
     // Callers read the exact bytes through this canonical path, so the
     // manifest never canonicalizes a different pathname object after compile.
@@ -2603,6 +2667,15 @@ mod tests {
     use std::time::{Duration as StdDuration, Instant};
     #[cfg(feature = "host-http-server")]
     use tokio::time::{sleep, timeout, Duration};
+
+    #[test]
+    fn only_generated_bytecode_caches_require_mapped_engine_attestation() {
+        assert!(BytecodeOutputKind::GeneratedCache.requires_runtime_attestation());
+        assert!(
+            !BytecodeOutputKind::ExplicitBuild.requires_runtime_attestation(),
+            "explicit ibex build output must remain available on Windows"
+        );
+    }
 
     #[cfg(feature = "host-http-server")]
     async fn eval_json(engine: &HermesEngine, code: &str) -> serde_json::Value {
@@ -3039,6 +3112,7 @@ cp \"$input\" \"$out\"\n";
                 &task_output,
                 None,
                 &identity,
+                BytecodeOutputKind::ExplicitBuild,
             )
             .await
         });
