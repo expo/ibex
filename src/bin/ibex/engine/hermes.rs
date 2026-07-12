@@ -1949,6 +1949,12 @@ pub async fn compile_to_bytecode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_conformance_batch {
+        include!("capsec_conformance_batch.rs");
+    }
+
     use std::fs;
     #[cfg(feature = "host-http-server")]
     use std::io::{Read, Write};
@@ -2456,6 +2462,18 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .extend(extra_escalation_ceiling);
+        value["principals"][fs_principal_index]["floor"]
+            .as_array_mut()
+            .unwrap()
+            .sort_by(|left, right| {
+                let left = capsec_semantics::canonical::to_jcs_bytes(left).unwrap();
+                let right = capsec_semantics::canonical::to_jcs_bytes(right).unwrap();
+                left.cmp(&right)
+            });
+        value["principals"][fs_principal_index]["floor"]
+            .as_array_mut()
+            .unwrap()
+            .dedup();
         mutate(&mut value);
         let digest = capsec_semantics::digest::compute_checked_contract_digest(
             capsec_semantics::digest::DigestKind::ArmedSnapshot,
