@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(18);
+    expect(nativePublicFixtures).toHaveLength(80);
     expect(
       nativePublicFixtures
         .filter(
@@ -118,14 +118,17 @@ describe("exact-target CapSec executable recipes", () => {
     ]);
     expect(
       nativePublicFixtures.filter(
-        (recipe) => recipe.scenario === "non-capability",
+        (recipe) =>
+          recipe.scenario === "non-capability" &&
+          recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(16);
+    ).toHaveLength(22);
     expect(
-      recipes.summary.residualReasons[
-        "native-public-global-removed-by-structural-lockdown"
-      ],
-    ).toBe(30);
+      nativePublicFixtures.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.expectedResult === "absent",
+      ),
+    ).toHaveLength(56);
     expect(recipes.summary.fullyExecutableFixtures).toBe(
       authoredPublicFixtures,
     );
@@ -289,9 +292,7 @@ describe("exact-target CapSec executable recipes", () => {
       ),
     ).toBe(false);
     expect(
-      recipes.summary.residualReasons[
-        "builtin-export-not-available-on-target"
-      ],
+      recipes.summary.residualReasons["builtin-export-not-available-on-target"],
     ).toBe(14);
   });
 
@@ -342,7 +343,8 @@ describe("exact-target CapSec executable recipes", () => {
         "__exactAndroidLocation.getPermissionStatus",
     );
     expect(androidGlobal.publicSurfaceProbe).toMatchObject({
-      surfaceObservedKey: "native-op:__exactAndroidLocation.getPermissionStatus",
+      surfaceObservedKey:
+        "native-op:__exactAndroidLocation.getPermissionStatus",
       invocation: {
         invocationSchema: "ibex/capsec-target-absence-invocation/1",
         kind: "target-absence",
@@ -450,14 +452,12 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.status === "fully-executable" &&
           recipe.classification === "non-capability" &&
           recipe.scenario === "non-capability" &&
-          recipe.publicSurfaceProbe.invocation.kind ===
-            "builtin-export-call" &&
+          recipe.publicSurfaceProbe.invocation.kind === "builtin-export-call" &&
           recipe.publicSurfaceProbe.invocation.expectedResult ===
             "normal-return" &&
           recipe.publicSurfaceProbe.invocation.bodyEntryProof.kind ===
             "normal-return-from-source-call" &&
-          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount ===
-            0,
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount === 0,
       ),
     ).toBe(true);
     expect(
@@ -488,8 +488,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     const advisory = rows.find(
       (recipe) =>
-        recipe.terminalObservedKey ===
-        "cli:option:ibex:capsec_allow_advisory",
+        recipe.terminalObservedKey === "cli:option:ibex:capsec_allow_advisory",
     );
     expect(advisory.publicSurfaceProbe.invocation).toMatchObject({
       surfaceKind: "cli",
@@ -544,6 +543,58 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.status !== "fully-executable",
       ),
     ).toHaveLength(21);
+  });
+
+  test("binds nested native argument producers and exact absence probes", () => {
+    const decrypt = recipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactAesCbcDecrypt",
+    );
+    expect(decrypt).toBeDefined();
+    const producer = decrypt.publicSurfaceProbe.invocation.arguments[2];
+    expect(producer).toMatchObject({
+      kind: "native-global-result",
+      globalName: "__exactAesCbcEncrypt",
+      sourceDescriptor: {
+        arity: 3,
+        globalName: "__exactAesCbcEncrypt",
+        kind: "native-global-function",
+      },
+    });
+    expect(producer.sourceDescriptorDigest).toMatch(/^sha256-/u);
+
+    const targetAbsence = recipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+          "__exactAndroidCameraHostCall" &&
+        recipe.expectedObservation.kind === "target-absence",
+    );
+    expect(targetAbsence).toMatchObject({
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        surfaceObservedKey: "native-op:__exactAndroidCameraHostCall",
+        invocation: {
+          expectedResult: "absent",
+          expectedTypedDecisionCount: 0,
+          expectedTypedStages: [],
+        },
+      },
+    });
+
+    const lockdownAbsence = recipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__hostCall",
+    );
+    expect(lockdownAbsence).toMatchObject({
+      classification: "closed",
+      status: "fully-executable",
+      residualReasons: [],
+      publicSurfaceProbe: {
+        invocation: { expectedResult: "absent" },
+      },
+    });
   });
 
   test("preserves multiple argument-selected terminal routes", () => {

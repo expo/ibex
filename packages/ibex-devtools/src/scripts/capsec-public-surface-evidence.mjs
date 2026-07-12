@@ -122,10 +122,12 @@ function executionSummary(recipeCatalog, executions) {
     executableFixtures: recipeCatalog.summary.fullyExecutableFixtures,
     residualFixtures: recipeCatalog.summary.unresolvedFixtures,
     executedFixtures: executions.length,
-    passedFixtures: executions.filter((execution) => execution.outcome === "passed")
-      .length,
-    failedFixtures: executions.filter((execution) => execution.outcome === "failed")
-      .length,
+    passedFixtures: executions.filter(
+      (execution) => execution.outcome === "passed",
+    ).length,
+    failedFixtures: executions.filter(
+      (execution) => execution.outcome === "failed",
+    ).length,
     missingFixtures: recipeCatalog.summary.requiredFixtures - executions.length,
   };
 }
@@ -168,7 +170,9 @@ export function buildPublicSurfaceExecutionArtifact({
 
 function coverageTerminalMap(coverage) {
   if (!Array.isArray(coverage?.edges)) {
-    throw new Error("runtime public evidence requires the bound coverage registry");
+    throw new Error(
+      "runtime public evidence requires the bound coverage registry",
+    );
   }
   const terminals = new Map();
   for (const edge of coverage.edges) {
@@ -180,7 +184,9 @@ function coverageTerminalMap(coverage) {
       typeof name !== "string" ||
       terminals.has(edge.id)
     ) {
-      throw new Error("bound coverage registry has malformed or duplicate edges");
+      throw new Error(
+        "bound coverage registry has malformed or duplicate edges",
+      );
     }
     terminals.set(edge.id, `${kind}:${name}`);
   }
@@ -191,7 +197,9 @@ function validateRuntimeInvocation(observation, recipe) {
   const invocation = observation.invocation;
   const authored = recipe.publicSurfaceProbe?.invocation;
   if (!authored || typeof authored.invocationSchema !== "string") {
-    throw new Error(`${recipe.fixtureId}: public probe has no typed invocation descriptor`);
+    throw new Error(
+      `${recipe.fixtureId}: public probe has no typed invocation descriptor`,
+    );
   }
   const commonKeys = [
     "invocationSchema",
@@ -200,22 +208,26 @@ function validateRuntimeInvocation(observation, recipe) {
     "sourceDescriptorDigest",
     "result",
   ];
-  if (invocation?.invocationSchema === "ibex/capsec-native-global-invocation/1") {
+  if (
+    invocation?.invocationSchema === "ibex/capsec-native-global-invocation/1"
+  ) {
     exactKeys(
       invocation,
-      [...commonKeys, "globalName"],
+      [...commonKeys, "globalName", "executionProof"],
       `${recipe.fixtureId}: native runtime invocation`,
     );
     if (
       invocation.kind !== "native-global-function" ||
       invocation.globalName !== authored.globalName
     ) {
-      throw new Error(`${recipe.fixtureId}: native runtime invocation descriptor drift`);
+      throw new Error(
+        `${recipe.fixtureId}: native runtime invocation descriptor drift`,
+      );
     }
   } else if (
-    [
-      "ibex/capsec-builtin-export-invocation/1",
-    ].includes(invocation?.invocationSchema)
+    ["ibex/capsec-builtin-export-invocation/1"].includes(
+      invocation?.invocationSchema,
+    )
   ) {
     exactKeys(
       invocation,
@@ -229,11 +241,12 @@ function validateRuntimeInvocation(observation, recipe) {
       invocation.moduleSpecifier !== authored.moduleSpecifier ||
       invocation.exportName !== authored.exportName
     ) {
-      throw new Error(`${recipe.fixtureId}: builtin runtime invocation descriptor drift`);
+      throw new Error(
+        `${recipe.fixtureId}: builtin runtime invocation descriptor drift`,
+      );
     }
   } else if (
-    invocation?.invocationSchema ===
-    "ibex/capsec-target-absence-invocation/1"
+    invocation?.invocationSchema === "ibex/capsec-target-absence-invocation/1"
   ) {
     exactKeys(
       invocation,
@@ -268,22 +281,28 @@ function validateRuntimeInvocation(observation, recipe) {
       );
     }
   } else {
-    throw new Error(`${recipe.fixtureId}: unsupported runtime invocation schema`);
+    throw new Error(
+      `${recipe.fixtureId}: unsupported runtime invocation schema`,
+    );
   }
   if (
     invocation.invocationSchema !== authored.invocationSchema ||
     invocation.kind !== authored.kind ||
-    invocation.surfaceObservedKey !== recipe.publicSurfaceProbe.surfaceObservedKey ||
+    invocation.surfaceObservedKey !==
+      recipe.publicSurfaceProbe.surfaceObservedKey ||
     invocation.sourceDescriptorDigest !== authored.sourceDescriptorDigest ||
     authored.sourceDescriptorDigest !== taggedDigest(authored.sourceDescriptor)
   ) {
-    throw new Error(`${recipe.fixtureId}: runtime invocation is not source-descriptor bound`);
+    throw new Error(
+      `${recipe.fixtureId}: runtime invocation is not source-descriptor bound`,
+    );
   }
   if (
     !Number.isSafeInteger(authored.expectedTypedDecisionCount) ||
     authored.expectedTypedDecisionCount < 0 ||
     !Array.isArray(authored.expectedTypedStages) ||
-    authored.expectedTypedDecisionCount !== authored.expectedTypedStages.length ||
+    authored.expectedTypedDecisionCount !==
+      authored.expectedTypedStages.length ||
     !Array.isArray(authored.allowedCoverageEdgeIds) ||
     !Array.isArray(authored.expectedActionIds) ||
     !authored.expectedTypedStages.every(
@@ -300,7 +319,9 @@ function validateRuntimeInvocation(observation, recipe) {
     canonicalJson(authored.expectedActionIds) !==
       canonicalJson(canonicalSet(authored.expectedActionIds))
   ) {
-    throw new Error(`${recipe.fixtureId}: malformed authored runtime expectations`);
+    throw new Error(
+      `${recipe.fixtureId}: malformed authored runtime expectations`,
+    );
   }
   if (!invocation.result || typeof invocation.result !== "object") {
     throw new Error(`${recipe.fixtureId}: runtime invocation has no result`);
@@ -318,64 +339,80 @@ function validateRuntimeInvocation(observation, recipe) {
       throw new Error(`${recipe.fixtureId}: public invocation did not deny`);
     }
   } else if (authored.expectedResult === "absent") {
-    const probeMode = authored.sourceDescriptor?.probeMode;
     if (
-      invocation.result.kind !== "absent" ||
-      invocation.result.surfaceKind !== authored.surfaceKind ||
-      invocation.result.surfaceName !== authored.surfaceName ||
-      invocation.result.targetTriple !== authored.targetTriple ||
-      invocation.result.compiledTargetOs !== "macos" ||
-      invocation.result.compiledTargetArch !== "aarch64" ||
-      invocation.result.probeMode !== probeMode?.kind
+      invocation.invocationSchema === "ibex/capsec-native-global-invocation/1"
     ) {
-      throw new Error(`${recipe.fixtureId}: target-absence probe did not prove absence`);
-    }
-    if (probeMode?.kind === "runtime-global-property") {
-      exactKeys(
-        invocation.result,
-        [
-          "kind",
-          "surfaceKind",
-          "surfaceName",
-          "targetTriple",
-          "compiledTargetOs",
-          "compiledTargetArch",
-          "probeMode",
-          "globalName",
-          "memberName",
-          "surfacePresent",
-        ],
-        `${recipe.fixtureId}: native-global target-absence runtime result`,
-      );
-      if (
-        invocation.result.globalName !== probeMode.globalName ||
-        invocation.result.memberName !== probeMode.memberName ||
-        invocation.result.surfacePresent !== false
-      ) {
-        throw new Error(`${recipe.fixtureId}: runtime-global probe did not prove absence`);
+      if (invocation.result.kind !== "missing") {
+        throw new Error(
+          `${recipe.fixtureId}: public native global was not absent`,
+        );
       }
     } else {
-      exactKeys(
-        invocation.result,
-        [
-          "kind",
-          "surfaceKind",
-          "surfaceName",
-          "targetTriple",
-          "compiledTargetOs",
-          "compiledTargetArch",
-          "probeMode",
-          "symbolName",
-          "symbolPresent",
-        ],
-        `${recipe.fixtureId}: symbol target-absence runtime result`,
-      );
+      const probeMode = authored.sourceDescriptor?.probeMode;
       if (
-        !["dynamic-symbol", "platform-bridge"].includes(probeMode?.kind) ||
-        invocation.result.symbolName !== probeMode.symbolName ||
-        invocation.result.symbolPresent !== false
+        invocation.result.kind !== "absent" ||
+        invocation.result.surfaceKind !== authored.surfaceKind ||
+        invocation.result.surfaceName !== authored.surfaceName ||
+        invocation.result.targetTriple !== authored.targetTriple ||
+        invocation.result.compiledTargetOs !== "macos" ||
+        invocation.result.compiledTargetArch !== "aarch64" ||
+        invocation.result.probeMode !== probeMode?.kind
       ) {
-        throw new Error(`${recipe.fixtureId}: symbol probe did not prove absence`);
+        throw new Error(
+          `${recipe.fixtureId}: target-absence probe did not prove absence`,
+        );
+      }
+      if (probeMode?.kind === "runtime-global-property") {
+        exactKeys(
+          invocation.result,
+          [
+            "kind",
+            "surfaceKind",
+            "surfaceName",
+            "targetTriple",
+            "compiledTargetOs",
+            "compiledTargetArch",
+            "probeMode",
+            "globalName",
+            "memberName",
+            "surfacePresent",
+          ],
+          `${recipe.fixtureId}: native-global target-absence runtime result`,
+        );
+        if (
+          invocation.result.globalName !== probeMode.globalName ||
+          invocation.result.memberName !== probeMode.memberName ||
+          invocation.result.surfacePresent !== false
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: runtime-global probe did not prove absence`,
+          );
+        }
+      } else {
+        exactKeys(
+          invocation.result,
+          [
+            "kind",
+            "surfaceKind",
+            "surfaceName",
+            "targetTriple",
+            "compiledTargetOs",
+            "compiledTargetArch",
+            "probeMode",
+            "symbolName",
+            "symbolPresent",
+          ],
+          `${recipe.fixtureId}: symbol target-absence runtime result`,
+        );
+        if (
+          !["dynamic-symbol", "platform-bridge"].includes(probeMode?.kind) ||
+          invocation.result.symbolName !== probeMode.symbolName ||
+          invocation.result.symbolPresent !== false
+        ) {
+          throw new Error(
+            `${recipe.fixtureId}: symbol probe did not prove absence`,
+          );
+        }
       }
     }
   } else if (authored.expectedResult === "closed") {
@@ -404,7 +441,9 @@ function validateRuntimeInvocation(observation, recipe) {
       typeof invocation.result.engineExecuted !== "boolean" ||
       invocation.result.projectCodeExecuted !== false
     ) {
-      throw new Error(`${recipe.fixtureId}: public closed surface did not fail closed`);
+      throw new Error(
+        `${recipe.fixtureId}: public closed surface did not fail closed`,
+      );
     }
     if (
       authored.operation?.kind === "startup-environment" &&
@@ -441,6 +480,29 @@ function validateRuntimeInvocation(observation, recipe) {
   } else {
     throw new Error(`${recipe.fixtureId}: unsupported expected public result`);
   }
+  if (
+    invocation.invocationSchema === "ibex/capsec-native-global-invocation/1"
+  ) {
+    exactKeys(
+      invocation.executionProof,
+      ["kind", "bodyEntered"],
+      `${recipe.fixtureId}: native execution proof`,
+    );
+    const expectedProof =
+      authored.expectedResult === "return"
+        ? ["native-return", true]
+        : authored.expectedResult === "permission-denied"
+          ? ["typed-permission-denial", true]
+          : ["exact-global-absence", false];
+    if (
+      invocation.executionProof.kind !== expectedProof[0] ||
+      invocation.executionProof.bodyEntered !== expectedProof[1]
+    ) {
+      throw new Error(
+        `${recipe.fixtureId}: native execution proof disagrees with result`,
+      );
+    }
+  }
 }
 
 function validateRuntimeObservation(observation, recipe, coverage) {
@@ -463,14 +525,18 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     !Array.isArray(observation.typedDecisions) ||
     observation.typedDecisions.length !== authored?.expectedTypedDecisionCount
   ) {
-    throw new Error(`${recipe.fixtureId}: malformed runtime public observation`);
+    throw new Error(
+      `${recipe.fixtureId}: malformed runtime public observation`,
+    );
   }
   const stages = [];
   const actions = new Set();
   const edgeIds = new Set();
   const terminals = new Set();
   const terminalByEdge =
-    observation.typedDecisions.length === 0 ? null : coverageTerminalMap(coverage);
+    observation.typedDecisions.length === 0
+      ? null
+      : coverageTerminalMap(coverage);
   for (const decision of observation.typedDecisions) {
     exactKeys(
       decision,
@@ -503,28 +569,42 @@ function validateRuntimeObservation(observation, recipe, coverage) {
         set.atomicityGroup !== `${edgeId}.decision` ||
         !authored.allowedCoverageEdgeIds.includes(edgeId)
       ) {
-        throw new Error(`${recipe.fixtureId}: observed an unbound or incomplete typed gate`);
+        throw new Error(
+          `${recipe.fixtureId}: observed an unbound or incomplete typed gate`,
+        );
       }
       edgeIds.add(edgeId);
       const terminal = terminalByEdge.get(edgeId);
       if (!terminal) {
-        throw new Error(`${recipe.fixtureId}: observed an unknown coverage edge`);
+        throw new Error(
+          `${recipe.fixtureId}: observed an unknown coverage edge`,
+        );
       }
       terminals.add(terminal);
     }
     const expectedOutcome =
       authored.expectedResult === "permission-denied" ? "deny" : "allow";
     if (decision.evidence?.outcome !== expectedOutcome) {
-      throw new Error(`${recipe.fixtureId}: observed typed outcome disagrees with invocation`);
+      throw new Error(
+        `${recipe.fixtureId}: observed typed outcome disagrees with invocation`,
+      );
     }
   }
   if (
     canonicalJson(stages) !== canonicalJson(authored.expectedTypedStages) ||
     canonicalJson([...actions].sort(compareText)) !==
-      canonicalJson([...authored.expectedActionIds].sort(compareText)) ||
+      canonicalJson(
+        [
+          ...(authored.expectedResult === "absent"
+            ? []
+            : authored.expectedActionIds),
+        ].sort(compareText),
+      ) ||
     (observation.typedDecisions.length > 0 && edgeIds.size === 0)
   ) {
-    throw new Error(`${recipe.fixtureId}: observed typed stages, actions, or gates drifted`);
+    throw new Error(
+      `${recipe.fixtureId}: observed typed stages, actions, or gates drifted`,
+    );
   }
 
   let terminalObservedKey;
@@ -537,28 +617,53 @@ function validateRuntimeObservation(observation, recipe, coverage) {
     if (
       !validZeroDecisionScenario ||
       authored.expectedTypedStages.length !== 0 ||
-      authored.expectedActionIds.length !== 0
+      (authored.expectedResult !== "absent" &&
+        authored.expectedActionIds.length !== 0)
     ) {
-      throw new Error(`${recipe.fixtureId}: absence of a typed decision is not evidence here`);
+      throw new Error(
+        `${recipe.fixtureId}: absence of a typed decision is not evidence here`,
+      );
     }
-    terminalObservedKey =
-      recipe.scenario === "absent"
-        ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
-        : observation.invocation.surfaceObservedKey;
+    const nativeExactAbsence =
+      authored.expectedResult === "absent" &&
+      observation.invocation.invocationSchema ===
+        "ibex/capsec-native-global-invocation/1";
+    if (
+      nativeExactAbsence &&
+      observation.invocation.surfaceObservedKey !== recipe.terminalObservedKey
+    ) {
+      throw new Error(`${recipe.fixtureId}: malformed exact-absence evidence`);
+    }
+    const sourceVariantAbsence =
+      authored.expectedResult === "absent" &&
+      observation.invocation.invocationSchema !==
+        "ibex/capsec-native-global-invocation/1";
+    terminalObservedKey = sourceVariantAbsence
+      ? `${observation.invocation.result.surfaceKind}:${observation.invocation.result.surfaceName}`
+      : observation.invocation.surfaceObservedKey;
   } else {
     if (terminals.size !== 1) {
-      throw new Error(`${recipe.fixtureId}: typed gates selected multiple terminals`);
+      throw new Error(
+        `${recipe.fixtureId}: typed gates selected multiple terminals`,
+      );
     }
     terminalObservedKey = [...terminals][0];
   }
-  const allowed =
-    recipe.scenario === "absent"
-      ? [recipe.terminalObservedKey]
-      : recipe.route?.alternatives?.map(
-          (alternative) => alternative.terminalObservedKey,
-        );
-  if (!allowed?.includes(terminalObservedKey)) {
-    throw new Error(`${recipe.fixtureId}: runtime-derived terminal is outside the bound route`);
+  const allowed = recipe.route?.alternatives?.map(
+    (alternative) => alternative.terminalObservedKey,
+  );
+  const exactTargetAbsence =
+    authored.expectedResult === "absent" &&
+    recipe.expectedObservation?.kind === "target-absence";
+  if (
+    exactTargetAbsence
+      ? allowed?.length !== 0 ||
+        terminalObservedKey !== recipe.terminalObservedKey
+      : !allowed?.includes(terminalObservedKey)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: runtime-derived terminal is outside the bound route`,
+    );
   }
   return terminalObservedKey;
 }
@@ -597,7 +702,8 @@ function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
     /adapter/iu.test(execution.executor) ||
     evidence.planDigest !== recipe.planDigest ||
     evidence.engineBinaryDigest !== engineBinaryDigest ||
-    canonicalJson(evidence.probe) !== canonicalJson(recipe.publicSurfaceProbe) ||
+    canonicalJson(evidence.probe) !==
+      canonicalJson(recipe.publicSurfaceProbe) ||
     evidence.evidenceDigest !== evidenceDigest(evidence)
   ) {
     throw new Error(
@@ -618,17 +724,25 @@ function validateExecution(execution, recipe, engineBinaryDigest, coverage) {
         ? "failed"
         : null;
   if (!derivedOutcome || derivedOutcome !== execution.outcome) {
-    throw new Error(`${recipe.fixtureId}: public result marker disagrees with outcome`);
+    throw new Error(
+      `${recipe.fixtureId}: public result marker disagrees with outcome`,
+    );
   }
   const expectedObservation = {
     ...recipe.expectedObservation,
     result: derivedOutcome,
   };
-  if (canonicalJson(evidence.observation) !== canonicalJson(expectedObservation)) {
-    throw new Error(`${recipe.fixtureId}: public observation selected the wrong branch`);
+  if (
+    canonicalJson(evidence.observation) !== canonicalJson(expectedObservation)
+  ) {
+    throw new Error(
+      `${recipe.fixtureId}: public observation selected the wrong branch`,
+    );
   }
   if (runtimeTerminal !== evidence.terminalObservedKey) {
-    throw new Error(`${recipe.fixtureId}: claimed terminal differs from runtime typed gates`);
+    throw new Error(
+      `${recipe.fixtureId}: claimed terminal differs from runtime typed gates`,
+    );
   }
 }
 
@@ -675,7 +789,9 @@ export function validatePublicSurfaceExecutionArtifact(
     (sourceTreeDigest && artifact.sourceTreeDigest !== sourceTreeDigest) ||
     (engine && canonicalJson(artifact.engine) !== canonicalJson(engine))
   ) {
-    throw new Error("public-surface execution artifact has stale or mismatched bindings");
+    throw new Error(
+      "public-surface execution artifact has stale or mismatched bindings",
+    );
   }
   validateRecipeCatalog(recipeCatalog, { target: artifact.target });
   const recipes = new Map(
@@ -685,7 +801,9 @@ export function validatePublicSurfaceExecutionArtifact(
   for (const execution of artifact.executions) {
     const recipe = recipes.get(execution?.fixtureId);
     if (!recipe || seen.has(execution.fixtureId)) {
-      throw new Error("public-surface executions contain an unknown or duplicate fixture");
+      throw new Error(
+        "public-surface executions contain an unknown or duplicate fixture",
+      );
     }
     seen.add(execution.fixtureId);
     validateExecution(
@@ -699,13 +817,17 @@ export function validatePublicSurfaceExecutionArtifact(
     canonicalJson(artifact.executions.map((row) => row.fixtureId)) !==
     canonicalJson([...seen].sort(compareText))
   ) {
-    throw new Error("public-surface executions are not in canonical fixture order");
+    throw new Error(
+      "public-surface executions are not in canonical fixture order",
+    );
   }
   if (
     canonicalJson(artifact.summary) !==
     canonicalJson(executionSummary(recipeCatalog, artifact.executions))
   ) {
-    throw new Error("public-surface execution summary disagrees with its evidence");
+    throw new Error(
+      "public-surface execution summary disagrees with its evidence",
+    );
   }
   return artifact;
 }

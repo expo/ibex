@@ -138,9 +138,7 @@ function runtimeObservation(recipe) {
           context: {
             stage: "requested",
             actor: { kind: "root", identity: "project-root" },
-            constrainedPrincipals: [
-              { kind: "root", identity: "project-root" },
-            ],
+            constrainedPrincipals: [{ kind: "root", identity: "project-root" }],
             presentedHandleIds: [],
           },
           effects: [
@@ -329,7 +327,8 @@ function completeNativeAbsenceCatalog() {
     },
   };
   recipe.fixtureId = "fixture.native-op.absent";
-  recipe.terminalObservedKey = "native-op:__exactAndroidLocation.getPermissionStatus";
+  recipe.terminalObservedKey =
+    "native-op:__exactAndroidLocation.getPermissionStatus";
   recipe.publicSurfaceProbe.surfaceObservedKey = recipe.terminalObservedKey;
   Object.assign(recipe.publicSurfaceProbe.invocation, {
     surfaceKind: "native-op",
@@ -371,8 +370,7 @@ function completeClosedCatalog() {
       surfaceObservedKeys: ["startup:env:EX_SKIP_STARTUP_MODULE_LOADER"],
       alternatives: [
         {
-          terminalObservedKey:
-            "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
+          terminalObservedKey: "startup:env:EX_SKIP_STARTUP_MODULE_LOADER",
           proofPaths: ["startup:env:EX_SKIP_STARTUP_MODULE_LOADER"],
         },
       ],
@@ -505,6 +503,93 @@ function closedRuntimeObservation(recipe, projectCodeExecuted = false) {
   };
 }
 
+function targetAbsenceCatalog() {
+  const recipe = {
+    fixtureId: "fixture.native.target.absent",
+    planDigest: "sha256-DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+    classification: "effects",
+    scenario: "absent",
+    edgeIds: ["edge.public"],
+    implementationBranchIds: [],
+    enforcementBranchIds: [],
+    actionIds: ["sys:read"],
+    terminalObservedKey: "native-op:__exactPlatformOnly",
+    expectedObservation: { kind: "target-absence", target },
+    route: {
+      surfaceObservedKeys: [],
+      alternatives: [],
+      ambiguousCallees: [],
+    },
+    adapterProbe: null,
+    publicSurfaceProbe: {
+      kind: "target-absence-probe",
+      surfaceObservedKey: "native-op:__exactPlatformOnly",
+      command: [
+        "ibex",
+        "capsec-public-fixture",
+        "fixture.native.target.absent",
+      ],
+      invocation: {
+        invocationSchema: "ibex/capsec-native-global-invocation/1",
+        kind: "native-global-function",
+        globalName: "__exactPlatformOnly",
+        sourceDescriptor: {
+          arity: 0,
+          globalName: "__exactPlatformOnly",
+          kind: "native-global-function",
+          sourceRef: "src/engine/platform.cc#jsi-global:__exactPlatformOnly",
+        },
+        arguments: [],
+        setup: [],
+        expectedResult: "absent",
+        expectedTypedStages: [],
+        expectedTypedDecisionCount: 0,
+        allowedCoverageEdgeIds: ["edge.public"],
+        expectedActionIds: ["sys:read"],
+      },
+    },
+    status: "fully-executable",
+    residualReasons: [],
+  };
+  recipe.publicSurfaceProbe.invocation.sourceDescriptorDigest = taggedDigest(
+    recipe.publicSurfaceProbe.invocation.sourceDescriptor,
+  );
+  const catalog = {
+    recipeCatalogSchema: "ibex/capsec-executable-recipes/1",
+    profile: "ibex/capsec/1",
+    target,
+    recipes: [recipe],
+    summary: {
+      requiredFixtures: 1,
+      fullyExecutableFixtures: 1,
+      adapterExecutableFixtures: 0,
+      unresolvedFixtures: 0,
+      byScenario: { absent: 1 },
+      residualReasons: {},
+    },
+  };
+  catalog.recipeCatalogDigest = computeRecipeCatalogDigest(catalog);
+  return catalog;
+}
+
+function targetAbsenceObservation(recipe) {
+  const invocation = recipe.publicSurfaceProbe.invocation;
+  return {
+    observationSchema: "ibex/capsec-runtime-public-observation/1",
+    invocation: {
+      invocationSchema: invocation.invocationSchema,
+      kind: invocation.kind,
+      surfaceObservedKey: recipe.publicSurfaceProbe.surfaceObservedKey,
+      globalName: invocation.globalName,
+      sourceDescriptorDigest: invocation.sourceDescriptorDigest,
+      result: { kind: "missing", globalName: invocation.globalName },
+      executionProof: { kind: "exact-global-absence", bodyEntered: false },
+    },
+    legacyObservationCount: 0,
+    typedDecisions: [],
+  };
+}
+
 describe("CapSec public-surface promotion evidence", () => {
   test("merges only exact, engine-bound public fixture batches", () => {
     const catalog = completeCatalog();
@@ -542,9 +627,12 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/duplicate public execution/);
     expect(() =>
       mergePublicBatchExecutions({
-        batches: [{ batch: { ...batch, executions: [] }, expectedFixtureIds: [
-          catalog.recipes[0].fixtureId,
-        ] }],
+        batches: [
+          {
+            batch: { ...batch, executions: [] },
+            expectedFixtureIds: [catalog.recipes[0].fixtureId],
+          },
+        ],
         recipeCatalog: catalog,
         loadedEngineIdentity: engine,
       }),
@@ -558,8 +646,7 @@ describe("CapSec public-surface promotion evidence", () => {
       assertPublicSurfaceExecutionComplete(artifact, catalog, {
         target,
         sourceRevision: "a".repeat(40),
-        sourceTreeDigest:
-          "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
         engine,
         coverage,
         expectedFixtureIds: ["fixture.public.allow"],
@@ -653,6 +740,51 @@ describe("CapSec public-surface promotion evidence", () => {
     ).toThrow(/wrong rejection/);
   });
 
+  test("accepts exact source-bound target absence and rejects invented entry proof", () => {
+    const catalog = targetAbsenceCatalog();
+    const recipe = catalog.recipes[0];
+    const observation = targetAbsenceObservation(recipe);
+    const execution = buildPublicFixtureEvidence({
+      recipe,
+      engineBinaryDigest: engine.binaryDigest,
+      runtimeObservation: observation,
+      coverage,
+    });
+    const artifact = buildPublicSurfaceExecutionArtifact({
+      recipeCatalog: catalog,
+      sourceRevision: "a".repeat(40),
+      sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      target,
+      engine,
+      coverage,
+      executions: [execution],
+    });
+    expect(() =>
+      assertPublicSurfaceExecutionComplete(artifact, catalog, {
+        target,
+        sourceRevision: "a".repeat(40),
+        sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+        engine,
+        coverage,
+        expectedFixtureIds: [recipe.fixtureId],
+      }),
+    ).not.toThrow();
+
+    const invented = targetAbsenceObservation(recipe);
+    invented.invocation.executionProof = {
+      kind: "native-return",
+      bodyEntered: true,
+    };
+    expect(() =>
+      buildPublicFixtureEvidence({
+        recipe,
+        engineBinaryDigest: engine.binaryDigest,
+        runtimeObservation: invented,
+        coverage,
+      }),
+    ).toThrow(/execution proof disagrees/);
+  });
+
   test("rejects adapter-only evidence explicitly", () => {
     const catalog = completeCatalog();
     expect(() =>
@@ -691,8 +823,7 @@ describe("CapSec public-surface promotion evidence", () => {
     const artifact = buildPublicSurfaceExecutionArtifact({
       recipeCatalog: catalog,
       sourceRevision: "a".repeat(40),
-      sourceTreeDigest:
-        "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+      sourceTreeDigest: "sha256-CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
       target,
       engine,
       coverage,

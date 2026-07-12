@@ -31,6 +31,7 @@ struct Recipe {
     scenario: String,
     edge_ids: Vec<String>,
     action_ids: Vec<String>,
+    terminal_observed_key: String,
     expected_observation: serde_json::Value,
     route: RecipeRoute,
     adapter_probe: Option<AdapterProbe>,
@@ -118,9 +119,22 @@ struct BuiltinPublicInvocation {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 enum NativeProbeArgument {
-    JsonLiteral { value: serde_json::Value },
-    HarnessLoopbackAddress { family: String },
+    JsonLiteral {
+        value: serde_json::Value,
+    },
+    HarnessLoopbackAddress {
+        family: String,
+    },
     HarnessLoopbackListenerPort,
+    NativeGlobalResult {
+        #[serde(rename = "globalName")]
+        global_name: String,
+        arguments: Vec<NativeProbeArgument>,
+        #[serde(rename = "sourceDescriptor")]
+        source_descriptor: serde_json::Value,
+        #[serde(rename = "sourceDescriptorDigest")]
+        source_descriptor_digest: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -324,10 +338,18 @@ fn required_floor(catalog: &RecipeCatalog) -> Vec<serde_json::Value> {
 fn validate_response(item: &WorkItem<'_>, response: &serde_json::Value) -> CaseEvidence {
     let legacy = response["legacyObservations"]
         .as_array()
-        .unwrap_or_else(|| panic!("{}: response has no legacy observations", item.recipe.fixture_id));
-    let typed = response["typedObservations"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{}: response has no typed observations", item.recipe.fixture_id));
+        .unwrap_or_else(|| {
+            panic!(
+                "{}: response has no legacy observations",
+                item.recipe.fixture_id
+            )
+        });
+    let typed = response["typedObservations"].as_array().unwrap_or_else(|| {
+        panic!(
+            "{}: response has no typed observations",
+            item.recipe.fixture_id
+        )
+    });
     assert_eq!(
         legacy.len(),
         item.case.expected.legacy_observations,
@@ -492,7 +514,10 @@ async fn capsec_executable_recipe_adapter_batch() {
             passed_cases += 1;
         }
         if passed_cases % 1024 < chunk.len() {
-            eprintln!("CapSec typed-adapter cases passed: {passed_cases}/{}", work.len());
+            eprintln!(
+                "CapSec typed-adapter cases passed: {passed_cases}/{}",
+                work.len()
+            );
         }
     }
     let identity_after = HermesEngine::loaded_engine_identity()
@@ -575,12 +600,12 @@ fn install_native_public_test_host(
     listener_port: Option<u16>,
     deny: bool,
 ) -> (HostResetGuard, String) {
+    let authority = listener_port.map(native_public_floor);
+    let floor = authority.iter().cloned().collect::<Vec<_>>();
     assert!(
         !deny || listener_port.is_some(),
         "an explicit native public denial requires an exact selector"
     );
-    let authority = listener_port.map(native_public_floor);
-    let floor = authority.iter().cloned().collect::<Vec<_>>();
     let denial = deny.then(|| authority.clone().expect("denial selector checked above"));
     let (host, digest) =
         build_armed_test_host_custom(None, false, false, false, floor, None, move |value| {
@@ -632,31 +657,80 @@ fn materialize_native_arguments(
     invocation: &NativePublicInvocation,
     listener_port: Option<u16>,
 ) -> Vec<serde_json::Value> {
-    invocation
-        .arguments
-        .iter()
-        .map(|argument| match argument {
-            NativeProbeArgument::JsonLiteral { value } => value.clone(),
+    fn materialize(
+        argument: &NativeProbeArgument,
+        listener_port: Option<u16>,
+    ) -> serde_json::Value {
+        match argument {
+            NativeProbeArgument::JsonLiteral { value } => serde_json::json!({
+                "kind": "json-literal",
+                "value": value,
+            }),
             NativeProbeArgument::HarnessLoopbackAddress { family } => {
                 assert_eq!(
                     family, "ipv4",
                     "only the bounded IPv4 loopback fixture exists"
                 );
-                serde_json::Value::String("127.0.0.1".into())
+                serde_json::json!({
+                    "kind": "json-literal",
+                    "value": "127.0.0.1",
+                })
             }
-            NativeProbeArgument::HarnessLoopbackListenerPort => serde_json::json!(
-                listener_port.expect("loopback listener argument requires listener setup")
-            ),
-        })
+            NativeProbeArgument::HarnessLoopbackListenerPort => serde_json::json!({
+                "kind": "json-literal",
+                "value": listener_port
+                    .expect("loopback listener argument requires listener setup"),
+            }),
+            NativeProbeArgument::NativeGlobalResult {
+                global_name,
+                arguments,
+                source_descriptor,
+                source_descriptor_digest,
+            } => {
+                assert_eq!(
+                    source_descriptor_digest,
+                    &tagged_value_digest(source_descriptor),
+                    "native argument producer source descriptor digest drift"
+                );
+                assert_eq!(
+                    source_descriptor["kind"], "native-global-function",
+                    "native argument producer must bind a source-derived function"
+                );
+                assert_eq!(
+                    source_descriptor["globalName"],
+                    global_name.as_str(),
+                    "native argument producer source global drift"
+                );
+                serde_json::json!({
+                    "kind": "native-global-result",
+                    "globalName": global_name,
+                    "arguments": arguments
+                        .iter()
+                        .map(|nested| materialize(nested, listener_port))
+                        .collect::<Vec<_>>(),
+                })
+            }
+        }
+    }
+
+    invocation
+        .arguments
+        .iter()
+        .map(|argument| materialize(argument, listener_port))
         .collect()
 }
 
 fn native_invocation_script(global_name: &str, arguments: &[serde_json::Value]) -> String {
     format!(
-        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};try{{var value=Reflect.apply(f,globalThis,{});var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
+        "JSON.stringify((function(){{var n={};var f=globalThis[n];if(typeof f!==\"function\")return {{kind:\"missing\",globalName:n}};var specs={};function materialize(spec){{if(spec.kind===\"json-literal\")return spec.value;if(spec.kind===\"native-global-result\"){{var producer=globalThis[spec.globalName];if(typeof producer!==\"function\")throw new Error(\"missing native argument producer: \"+spec.globalName);return Reflect.apply(producer,globalThis,spec.arguments.map(materialize));}}throw new Error(\"unsupported native argument kind: \"+String(spec&&spec.kind));}}var args;try{{args=specs.map(materialize);}}catch(e){{return {{kind:\"argument-throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}try{{var value=Reflect.apply(f,globalThis,args);var valueType=value===null?\"null\":typeof value;var cleanup=\"none\";if(n===\"__exactTcpConnect\"&&typeof value===\"number\"&&typeof globalThis.__exactTcpClose===\"function\"){{globalThis.__exactTcpClose(value);cleanup=\"closed-tcp-handle\";}}else if(n===\"__exactUdpSocket\"&&typeof value===\"number\"&&typeof globalThis.__exactUdpClose===\"function\"){{globalThis.__exactUdpClose(value);cleanup=\"closed-udp-handle\";}}return {{kind:\"return\",globalName:n,valueType:valueType,cleanup:cleanup}};}}catch(e){{return {{kind:\"throw\",globalName:n,errorName:String(e&&e.name||\"Error\"),errorMessage:String(e&&e.message||e)}};}}}})())",
         serde_json::to_string(global_name).expect("serialize native global"),
         serde_json::to_string(arguments).expect("serialize native arguments")
     )
+}
+
+struct NativeRuntimeValidation {
+    terminal_observed_key: String,
+    execution_proof: serde_json::Value,
 }
 
 fn observed_typed_values(
@@ -688,12 +762,17 @@ fn validate_native_runtime_observation(
     legacy_observations: usize,
     typed_decisions: &[serde_json::Value],
     coverage_terminals: &BTreeMap<String, String>,
-) -> String {
+) -> NativeRuntimeValidation {
     let invocation = probe
         .invocation
         .native()
         .expect("native executor received a non-native invocation descriptor");
-    assert_eq!(probe.kind, "public-surface-invocation");
+    let expected_probe_kind = if recipe.expected_observation["kind"] == "target-absence" {
+        "target-absence-probe"
+    } else {
+        "public-surface-invocation"
+    };
+    assert_eq!(probe.kind, expected_probe_kind);
     assert_eq!(invocation.kind, "native-global-function");
     assert_eq!(
         invocation.source_descriptor_digest,
@@ -712,12 +791,18 @@ fn validate_native_runtime_observation(
         "legacy checks are not public typed evidence"
     );
     assert_eq!(invocation_result["globalName"], invocation.global_name);
-    match invocation.expected_result.as_str() {
-        "return" => assert_eq!(
-            invocation_result["kind"], "return",
-            "{}: public native invocation did not return: {invocation_result}",
-            recipe.fixture_id
-        ),
+    let execution_proof = match invocation.expected_result.as_str() {
+        "return" => {
+            assert_eq!(
+                invocation_result["kind"], "return",
+                "{}: public native invocation did not return: {invocation_result}",
+                recipe.fixture_id
+            );
+            serde_json::json!({
+                "kind": "native-return",
+                "bodyEntered": true,
+            })
+        }
         "permission-denied" => {
             assert_eq!(
                 invocation_result["kind"], "throw",
@@ -731,12 +816,27 @@ fn validate_native_runtime_observation(
                 "{}: denied public native invocation threw the wrong error: {invocation_result}",
                 recipe.fixture_id
             );
+            serde_json::json!({
+                "kind": "typed-permission-denial",
+                "bodyEntered": true,
+            })
+        }
+        "absent" => {
+            assert_eq!(
+                invocation_result["kind"], "missing",
+                "{}: native global expected absent but remained public: {invocation_result}",
+                recipe.fixture_id
+            );
+            serde_json::json!({
+                "kind": "exact-global-absence",
+                "bodyEntered": false,
+            })
         }
         other => panic!(
             "{}: unsupported native expected result {other}",
             recipe.fixture_id
         ),
-    }
+    };
 
     let stages = typed_decisions
         .iter()
@@ -820,22 +920,44 @@ fn validate_native_runtime_observation(
             recipe.fixture_id
         );
         let authority = &authority_evidence[0];
-        let (expected_stratum, expected_source_id) =
+        let (expected_stratum, expected_source_prefix) =
             if invocation.expected_result == "permission-denied" {
-                ("principal-denial", "principal.000000.denial.000000")
+                ("principal-denial", "principal.000000.denial.")
             } else {
-                ("static-floor", "principal.000000.floor.000000")
+                ("static-floor", "principal.000000.floor.")
             };
         assert_eq!(authority["stratum"], expected_stratum);
         assert_eq!(authority["reason"], expected_stratum);
-        assert_eq!(authority["sourceId"], expected_source_id);
+        assert!(
+            authority["sourceId"]
+                .as_str()
+                .is_some_and(|source| source.starts_with(expected_source_prefix)),
+            "{}: public native decision used the wrong authority source: {authority}",
+            recipe.fixture_id
+        );
     }
-    assert_eq!(
-        observed_actions.into_iter().collect::<Vec<_>>(),
-        invocation.expected_action_ids
-    );
+    if invocation.expected_result == "absent" {
+        assert!(
+            observed_actions.is_empty(),
+            "{}: target/lockdown absence cannot invent observed actions",
+            recipe.fixture_id
+        );
+    } else {
+        assert_eq!(
+            observed_actions.into_iter().collect::<Vec<_>>(),
+            invocation.expected_action_ids
+        );
+    }
 
-    let terminal = if typed_decisions.is_empty() {
+    let terminal = if invocation.expected_result == "absent" {
+        assert!(
+            typed_decisions.is_empty(),
+            "{}: an absent global cannot emit typed decisions",
+            recipe.fixture_id
+        );
+        assert_eq!(recipe.terminal_observed_key, probe.surface_observed_key);
+        probe.surface_observed_key.clone()
+    } else if typed_decisions.is_empty() {
         assert_eq!(recipe.classification, "non-capability");
         assert_eq!(recipe.scenario, "non-capability");
         probe.surface_observed_key.clone()
@@ -843,16 +965,29 @@ fn validate_native_runtime_observation(
         assert_eq!(observed_terminals.len(), 1);
         observed_terminals.into_iter().next().unwrap()
     };
-    assert!(
-        recipe
-            .route
-            .alternatives
-            .iter()
-            .any(|alternative| alternative.terminal_observed_key == terminal),
-        "{}: runtime-derived terminal {terminal} is outside the static allowed route set",
-        recipe.fixture_id
-    );
-    terminal
+    if invocation.expected_result != "absent"
+        || recipe.expected_observation["kind"] != "target-absence"
+    {
+        assert!(
+            recipe
+                .route
+                .alternatives
+                .iter()
+                .any(|alternative| alternative.terminal_observed_key == terminal),
+            "{}: runtime-derived terminal {terminal} is outside the static allowed route set",
+            recipe.fixture_id
+        );
+    } else {
+        assert!(
+            recipe.route.alternatives.is_empty(),
+            "{}: target absence unexpectedly retained an implementation route",
+            recipe.fixture_id
+        );
+    }
+    NativeRuntimeValidation {
+        terminal_observed_key: terminal,
+        execution_proof,
+    }
 }
 
 async fn execute_native_public_recipe(
@@ -909,7 +1044,7 @@ async fn execute_native_public_recipe(
     let invocation_result: serde_json::Value =
         serde_json::from_str(&encoded).expect("native public invocation returned invalid JSON");
     let typed_decisions = observed_typed_values(&session_id, typed);
-    let terminal_observed_key = validate_native_runtime_observation(
+    let validation = validate_native_runtime_observation(
         recipe,
         probe,
         &invocation_result,
@@ -926,6 +1061,7 @@ async fn execute_native_public_recipe(
             "globalName": invocation.global_name,
             "sourceDescriptorDigest": invocation.source_descriptor_digest,
             "result": invocation_result,
+            "executionProof": validation.execution_proof,
         },
         "legacyObservationCount": legacy.len(),
         "typedDecisions": typed_decisions,
@@ -941,7 +1077,7 @@ async fn execute_native_public_recipe(
         "planDigest": recipe.plan_digest,
         "engineBinaryDigest": engine_binary_digest,
         "probe": probe,
-        "terminalObservedKey": terminal_observed_key,
+        "terminalObservedKey": validation.terminal_observed_key,
         "exitCode": 0,
         "resultMarker": format!("ibex-capsec-public-fixture:{}:passed", recipe.fixture_id),
         "observation": observation,

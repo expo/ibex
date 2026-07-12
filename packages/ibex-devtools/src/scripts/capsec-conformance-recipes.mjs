@@ -549,6 +549,16 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
 // installed global and declared JSI arity; this registry supplies only bounded
 // arguments/setup whose effects the harness can own and reproduce.
 const literalArgument = (value) => ({ kind: "json-literal", value });
+const nativeResultArgument = (
+  globalName,
+  requiredSourceArity,
+  argumentsList = [],
+) => ({
+  kind: "native-global-result",
+  globalName,
+  requiredSourceArity,
+  arguments: argumentsList,
+});
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -563,22 +573,29 @@ const nativeNoEffectTemplate = (
     requiredSourceArity,
     setup,
   });
-
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
 // that a pre-lockdown implementation detail remains callable.
-const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Set([
-  "__exactEnsureChildProcess",
-  "__exactEnsureDns",
-  "__exactEnsureFormData",
-  "__exactEnsureFs",
-  "__exactEnsureHttp",
-  "__exactEnsureNet",
-  "__exactEnsureSqlite",
-  "__exactEnsureStreamEnhance",
-  "__exactEnsureWebCrypto",
-  "__exactEnsureWebStorage",
+const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
+  ["__exactCheckImport", 2],
+  ["__exactEnsureChildProcess", 0],
+  ["__exactEnsureDns", 0],
+  ["__exactEnsureFormData", 0],
+  ["__exactEnsureFs", 0],
+  ["__exactEnsureHttp", 0],
+  ["__exactEnsureNet", 0],
+  ["__exactEnsureSqlite", 0],
+  ["__exactEnsureStreamEnhance", 0],
+  ["__exactEnsureWebCrypto", 0],
+  ["__exactEnsureWebStorage", 0],
+  ["__exactGrantCapability", 2],
+  ["__exactRegisterPackage", 4],
+  ["__exactSetActiveModuleId", 1],
+  ["__exactSetPendingPackageId", 1],
+  ["__hostCall", 2],
+  ["__hostCallAsync", 2],
+  ["__ibexBarePackageName", 1],
 ]);
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
@@ -612,6 +629,18 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactAesCbcDecrypt",
+    nativeNoEffectTemplate(3, [
+      literalArgument("0123456789abcdef"),
+      literalArgument("fedcba9876543210"),
+      nativeResultArgument("__exactAesCbcEncrypt", 3, [
+        literalArgument("0123456789abcdef"),
+        literalArgument("fedcba9876543210"),
+        literalArgument("ibex"),
+      ]),
+    ]),
+  ],
+  [
     "__exactAesCtrEncrypt",
     nativeNoEffectTemplate(3, [
       literalArgument("0123456789abcdef"),
@@ -630,8 +659,34 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactAesGcmDecrypt",
+    nativeNoEffectTemplate(5, [
+      literalArgument("0123456789abcdef"),
+      literalArgument("fixture-iv12"),
+      nativeResultArgument("__exactAesGcmEncrypt", 5, [
+        literalArgument("0123456789abcdef"),
+        literalArgument("fixture-iv12"),
+        literalArgument("ibex"),
+        literalArgument("fixture-aad"),
+        literalArgument(128),
+      ]),
+      literalArgument("fixture-aad"),
+      literalArgument(128),
+    ]),
+  ],
+  [
     "__exactBrotliCompressSync",
     nativeNoEffectTemplate(2, [literalArgument("ibex"), literalArgument(4)]),
+  ],
+  [
+    "__exactBrotliDecompressSync",
+    nativeNoEffectTemplate(2, [
+      nativeResultArgument("__exactBrotliCompressSync", 2, [
+        literalArgument("ibex"),
+        literalArgument(4),
+      ]),
+      literalArgument(true),
+    ]),
   ],
   [
     "__exactBytesToUtf8String",
@@ -643,6 +698,29 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument("ibex"),
       literalArgument(6),
       literalArgument(0),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactInflateSync",
+    nativeNoEffectTemplate(5, [
+      nativeResultArgument("__exactDeflateSync", 4, [
+        literalArgument("ibex"),
+        literalArgument(6),
+        literalArgument(0),
+        literalArgument(null),
+      ]),
+      literalArgument(0),
+      literalArgument(true),
+      literalArgument(0),
+      literalArgument(null),
+    ]),
+  ],
+  [
+    "__exactGenerateKeyPairSync",
+    nativeNoEffectTemplate(3, [
+      literalArgument("ec"),
+      literalArgument({ namedCurve: "P-256" }),
       literalArgument(null),
     ]),
   ],
@@ -703,7 +781,33 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     "__exactStringToUtf8Bytes",
     nativeNoEffectTemplate(1, [literalArgument("ibex")]),
   ],
+  ["__exactUdpSocket", nativeNoEffectTemplate(1, [literalArgument("udp4")])],
 ]);
+
+function bindNativeArgumentSources(argument, liveByObservedKey) {
+  if (argument.kind !== "native-global-result") return clone(argument);
+  const producer = liveByObservedKey.get(`native-op:${argument.globalName}`)
+    ?.metadata?.publicInvocation;
+  if (
+    !producer ||
+    producer.kind !== "native-global-function" ||
+    producer.arity !== argument.requiredSourceArity
+  ) {
+    throw new Error(
+      `native public argument producer descriptor drift: ${argument.globalName}`,
+    );
+  }
+  const sourceDescriptor = clone(producer);
+  return {
+    kind: argument.kind,
+    globalName: argument.globalName,
+    arguments: argument.arguments.map((nested) =>
+      bindNativeArgumentSources(nested, liveByObservedKey),
+    ),
+    sourceDescriptor,
+    sourceDescriptorDigest: taggedDigest(sourceDescriptor),
+  };
+}
 
 function nativePublicProbeForPlan({
   plan,
@@ -711,31 +815,47 @@ function nativePublicProbeForPlan({
   route,
   liveByObservedKey,
 }) {
-  if (plan.expectedObservation.kind === "target-absence") {
+  const targetAbsence = plan.expectedObservation.kind === "target-absence";
+  const surfaceObservedKey = targetAbsence
+    ? plan.terminalObservedKey
+    : route.surfaceObservedKeys.length === 1
+      ? route.surfaceObservedKeys[0]
+      : null;
+  if (!surfaceObservedKey?.startsWith("native-op:")) {
     return { probe: null, unavailableReason: null };
   }
-  if (
-    route.surfaceObservedKeys.length !== 1 ||
-    !route.surfaceObservedKeys[0].startsWith("native-op:")
-  ) {
-    return { probe: null, unavailableReason: null };
-  }
-  const surfaceObservedKey = route.surfaceObservedKeys[0];
   const live = liveByObservedKey.get(surfaceObservedKey);
   const invocation = live?.metadata?.publicInvocation;
   if (!invocation) {
     return {
       probe: null,
-      unavailableReason: "native-public-source-invocation-unavailable",
+      unavailableReason: targetAbsence
+        ? "native-public-target-absence-source-invocation-unavailable"
+        : "native-public-source-invocation-unavailable",
     };
   }
-  if (NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT.has(invocation.globalName)) {
+  const structuralAbsenceArity = NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT.get(
+    invocation.globalName,
+  );
+  const structuralAbsence = structuralAbsenceArity !== undefined;
+  if (structuralAbsence && invocation.arity !== structuralAbsenceArity) {
     return {
       probe: null,
-      unavailableReason: "native-public-global-removed-by-structural-lockdown",
+      unavailableReason: "native-public-source-descriptor-drift",
     };
   }
-  const template = NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName);
+  const template =
+    targetAbsence || structuralAbsence
+      ? {
+          actionIds: plan.actionIds,
+          arguments: [],
+          expectedDecisionCounts: { [scenario]: 0 },
+          expectedResults: { [scenario]: "absent" },
+          expectedStages: { [scenario]: [] },
+          requiredSourceArity: invocation.arity,
+          setup: [],
+        }
+      : NATIVE_PUBLIC_PROBE_TEMPLATES.get(invocation.globalName);
   if (!template) {
     return {
       probe: null,
@@ -762,9 +882,10 @@ function nativePublicProbeForPlan({
     };
   }
   if (
-    route.alternatives.length !== 1 ||
-    route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
-    route.ambiguousCallees.length !== 0
+    !targetAbsence &&
+    (route.alternatives.length !== 1 ||
+      route.alternatives[0].terminalObservedKey !== surfaceObservedKey ||
+      route.ambiguousCallees.length !== 0)
   ) {
     return {
       probe: null,
@@ -775,7 +896,9 @@ function nativePublicProbeForPlan({
   return {
     unavailableReason: null,
     probe: {
-      kind: "public-surface-invocation",
+      kind: targetAbsence
+        ? "target-absence-probe"
+        : "public-surface-invocation",
       surfaceObservedKey,
       command: [
         "cargo",
@@ -794,7 +917,9 @@ function nativePublicProbeForPlan({
         globalName: invocation.globalName,
         sourceDescriptor,
         sourceDescriptorDigest: taggedDigest(sourceDescriptor),
-        arguments: clone(template.arguments),
+        arguments: template.arguments.map((argument) =>
+          bindNativeArgumentSources(argument, liveByObservedKey),
+        ),
         setup: clone(template.setup),
         expectedResult: template.expectedResults[scenario],
         expectedTypedStages: clone(template.expectedStages[scenario]),
@@ -817,7 +942,12 @@ function residualReasons({
 }) {
   const reasons = [];
   if (plan.expectedObservation.kind === "target-absence") {
-    if (!publicSurfaceProbe) reasons.push("target-absence-probe-not-authored");
+    if (!publicSurfaceProbe) {
+      reasons.push("target-absence-probe-not-authored");
+      if (publicSurfaceUnavailableReason) {
+        reasons.push(publicSurfaceUnavailableReason);
+      }
+    }
     return reasons;
   } else if (!publicSurfaceProbe) {
     reasons.push("public-surface-invocation-not-authored");
@@ -975,7 +1105,7 @@ export function buildConformanceRecipeCatalog({
       liveByObservedKey,
     });
     const authoredPublicSurfaceProbes = [
-      targetAbsenceProbe,
+      nativePublicSurface.probe ? null : targetAbsenceProbe,
       closedPublicSurfaceProbe,
       effectBuiltinPublicSurfaceProbe,
       nonCapabilityBuiltinPublicSurfaceProbe,
