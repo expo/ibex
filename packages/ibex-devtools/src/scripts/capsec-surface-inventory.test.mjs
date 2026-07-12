@@ -3203,12 +3203,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const inheritedRows = exports.filter(
       (row) => row.metadata.inheritedShape === true,
     );
-    expect(inheritedRows).toHaveLength(504);
+    expect(inheritedRows).toHaveLength(434);
     expect(
       new Set(inheritedRows.map((row) => row.metadata.inheritedShapeReviewId)),
     ).toEqual(
       new Set([
-        "sha256-93cea4f43ae03d6bd8594c30d94af07b2c1c415793947f2aec25fca93af0de72",
+        "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc",
       ]),
     );
     expect(

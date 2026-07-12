@@ -225,6 +225,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactRename",
   "__exactRequestAnimationFrame",
   "__exactResetSignal",
+  "__exactResolveManifestBuiltinInternal",
   "__exactRevokeHandle",
   "__exactRmdir",
   "__exactRsaOaepDecrypt",
@@ -874,6 +875,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_buffer:Buffer.base64urlSlice",
   "export:node_buffer:Buffer.base64urlWrite",
   "export:node_buffer:Buffer.compare",
+  "export:node_buffer:Buffer.constructor",
   "export:node_buffer:Buffer.copy",
   "export:node_buffer:Buffer.equals",
   "export:node_buffer:Buffer.fill",
@@ -976,6 +978,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_buffer:SlowBuffer.base64urlSlice",
   "export:node_buffer:SlowBuffer.base64urlWrite",
   "export:node_buffer:SlowBuffer.compare",
+  "export:node_buffer:SlowBuffer.constructor",
   "export:node_buffer:SlowBuffer.copy",
   "export:node_buffer:SlowBuffer.equals",
   "export:node_buffer:SlowBuffer.fill",
@@ -5192,6 +5195,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_random_fill",
     "ex_host_register_module_package",
     "ex_host_release_context",
+    "ex_host_resolve_manifest_builtin_internal",
     "ex_host_restore_context",
     "ex_host_sqlite_all",
     "ex_host_sqlite_close",
@@ -5851,6 +5855,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:javascript:grantCapabilities",
     "function:javascript:idToModuleId",
     "function:javascript:importImpl",
+    "function:javascript:invokeModuleBody",
     "function:javascript:isCompleteStaticImportStatement",
     "function:javascript:isSameModule",
     "function:javascript:load",
@@ -5873,6 +5878,7 @@ const REVIEWED_LOADER_NAMES = reviewedNameSet(
     "function:rust:build_builtin_registry",
     "function:rust:builtin_module_debug_entries",
     "function:rust:is_builtin_specifier",
+    "function:rust:is_registered_builtin_specifier",
     "function:rust:load_module_source",
     "function:rust:load_source",
     "function:rust:load_source_bytes",
@@ -6319,6 +6325,8 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:<dynamic>:javascript:process.env",
     "env:<dynamic>:javascript:process.env[]",
     "env:<dynamic>:javascript:process[]",
+    "env:<dynamic>:rust:env::remove_var",
+    "env:<dynamic>:rust:env::set_var",
     "env:<dynamic>:rust:env::var",
     "env:<dynamic>:rust:env::var_os",
     "env:<dynamic>:rust:env::vars",
@@ -6415,6 +6423,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_BYTECODE_CACHE_MAX_BYTES",
     "env:IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_ALLOW_ADVISORY",
+    "env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_RECIPE_CATALOG",
     "env:IBEX_CDP_LOG",
     "env:IBEX_DNS_SERVER",
@@ -8955,7 +8964,7 @@ function builtinExportClassification(surface) {
 }
 
 const REVIEWED_BUILTIN_INHERITED_SHAPE_ID =
-  "sha256-93cea4f43ae03d6bd8594c30d94af07b2c1c415793947f2aec25fca93af0de72";
+  "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc";
 
 function builtinClassification(surface) {
   const isExport = surface.metadata?.surfaceType === "export";
@@ -9421,6 +9430,7 @@ function loaderClassification(surface) {
         "function:javascript:compilemodulebody",
         "function:javascript:createeventtargetmodule",
         "function:javascript:idtomoduleid",
+        "function:javascript:invokemodulebody",
         "function:javascript:iscompletestaticimportstatement",
         "function:javascript:issamemodule",
         "function:javascript:loadinternal",
@@ -9437,6 +9447,7 @@ function loaderClassification(surface) {
         "function:javascript:wrapasyncmodule",
         "function:rust:build_builtin_registry",
         "function:rust:is_builtin_specifier",
+        "function:rust:is_registered_builtin_specifier",
         "function:rust:module_kind_from_path",
       ]).has(name)
     ) {
@@ -9571,6 +9582,7 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EXACT_TEST_SECTION",
   "EXACT_WPT_FIXTURE_CLOSE_SEMANTICS",
   "IBEX_CAPSEC_ADAPTER_EVIDENCE_OUTPUT",
+  "IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
   "IBEX_CAPSEC_RECIPE_CATALOG",
   "IBEX_TEST_ARMED_CREATE_PAUSE_MS",
   "IBEX_TEST_ARMED_DENY_OPEN_COMMIT",
@@ -11969,6 +11981,9 @@ function classifyConcreteSurface(surface) {
     if (surface.name === "ex_host_http_cleanup_runtime") {
       return nonCapabilitySpec("authority-release", "WP6");
     }
+    if (surface.name === "ex_host_resolve_manifest_builtin_internal") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
     const android = androidHostAbiClassification(surface.name);
     if (android) return android;
     const escape = abiEscapeClassification(surface.name);
@@ -12012,6 +12027,9 @@ function classifyConcreteSurface(surface) {
   // Lazy installers and immutable bootstrap probes change reachability but do
   // not themselves exercise the installed operation's authority.
   if (/ensure/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP4");
+  }
+  if (/resolvemanifestbuiltininternal/u.test(name)) {
     return nonCapabilitySpec("authority-control-plane", "WP4");
   }
   if (

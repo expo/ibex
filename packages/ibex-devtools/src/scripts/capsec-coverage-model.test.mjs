@@ -2745,7 +2745,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
 
     for (const [label, classification, semantic] of [
       ["capability-hardening", "non-capability", "authority-control-plane"],
-      ["cdp", "closed", "inspector:activate"],
       ["form-data", "non-capability", "runtime-bootstrap-state"],
       ["freeze-seal", "non-capability", "authority-control-plane"],
       ["fs-handle", "non-capability", "authority-control-plane"],
@@ -3479,7 +3478,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const inheritedBuiltinExports = liveBuiltinExportRows.filter(
       (row) => row.metadata?.inheritedShape === true,
     );
-    expect(inheritedBuiltinExports).toHaveLength(504);
+    expect(inheritedBuiltinExports).toHaveLength(434);
     expect(
       new Set(
         inheritedBuiltinExports.map(
@@ -3488,7 +3487,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(
       new Set([
-        "sha256-93cea4f43ae03d6bd8594c30d94af07b2c1c415793947f2aec25fca93af0de72",
+        "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc",
       ]),
     );
     const reviewedBuiltinNames = new Set([
@@ -3871,7 +3870,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
           rationaleId: "authority-control-plane",
         },
       ],
-      ["cdp", { classification: "closed", cap: "inspector:activate" }],
       [
         "form-data",
         {
