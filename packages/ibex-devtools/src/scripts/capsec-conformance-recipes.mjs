@@ -550,6 +550,7 @@ function routeForPlan(plan, implementationRows, liveByObservedKey) {
 // installed global and declared JSI arity; this registry supplies only bounded
 // arguments/setup whose effects the harness can own and reproduce.
 const literalArgument = (value) => ({ kind: "json-literal", value });
+const harnessNoopCallbackArgument = () => ({ kind: "harness-noop-callback" });
 const nativeResultArgument = (
   globalName,
   requiredSourceArity,
@@ -560,6 +561,25 @@ const nativeResultArgument = (
   requiredSourceArity,
   arguments: argumentsList,
 });
+const nativeResultPropertyArgument = (
+  property,
+  globalName,
+  requiredSourceArity,
+  argumentsList = [],
+) => ({
+  kind: "native-global-result-property",
+  property,
+  globalName,
+  requiredSourceArity,
+  arguments: argumentsList,
+});
+const generatedKeyArgument = (keyType, property, options = null) =>
+  nativeResultPropertyArgument(
+    property,
+    "__exactGenerateKeyPairSync",
+    3,
+    [literalArgument(keyType), literalArgument(options), literalArgument(null)],
+  );
 const nativeNoEffectTemplate = (
   requiredSourceArity,
   argumentsList = [],
@@ -619,6 +639,24 @@ const NATIVE_PUBLIC_POST_LOCKDOWN_ABSENT = new Map([
 ]);
 
 export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
+  [
+    "queueMicrotask",
+    nativeNoEffectTemplate(1, [harnessNoopCallbackArgument()]),
+  ],
+  [
+    "setInterval",
+    nativeNoEffectTemplate(2, [
+      harnessNoopCallbackArgument(),
+      literalArgument(60_000),
+    ]),
+  ],
+  [
+    "setTimeout",
+    nativeNoEffectTemplate(2, [
+      harnessNoopCallbackArgument(),
+      literalArgument(60_000),
+    ]),
+  ],
   [
     "__exactTcpConnect",
     Object.freeze({
@@ -797,6 +835,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
       literalArgument("sha256"),
     ]),
   ],
+  ["__exactRandomBytes", nativeNoEffectTemplate(1, [literalArgument(16)])],
   [
     "__exactScryptSync",
     nativeNoEffectTemplate(6, [
@@ -809,10 +848,43 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   [
+    "__exactSignSync",
+    nativeNoEffectTemplate(5, [
+      literalArgument("SHA256"),
+      literalArgument("ibex"),
+      generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+      literalArgument(null),
+      literalArgument(null),
+    ]),
+  ],
+  [
     "__exactStringToUtf8Bytes",
     nativeNoEffectTemplate(1, [literalArgument("ibex")]),
   ],
+  [
+    "__exactUdpClose",
+    nativeNoEffectTemplate(1, [
+      nativeResultArgument("__exactUdpSocket", 1, [literalArgument("udp4")]),
+    ]),
+  ],
   ["__exactUdpSocket", nativeNoEffectTemplate(1, [literalArgument("udp4")])],
+  [
+    "__exactVerifySync",
+    nativeNoEffectTemplate(6, [
+      literalArgument("SHA256"),
+      nativeResultArgument("__exactSignSync", 5, [
+        literalArgument("SHA256"),
+        literalArgument("ibex"),
+        generatedKeyArgument("rsa", "privateKey", { modulusLength: 1024 }),
+        literalArgument(null),
+        literalArgument(null),
+      ]),
+      literalArgument("ibex"),
+      generatedKeyArgument("rsa", "publicKey", { modulusLength: 1024 }),
+      literalArgument(null),
+      literalArgument(null),
+    ]),
+  ],
 ]);
 
 const GLOBAL_READ_INACCESSIBLE_MEMBER_KINDS = new Set([
@@ -898,9 +970,15 @@ function nativePublicReadDescriptor(surface) {
 }
 
 function bindNativeArgumentSources(argument, liveByObservedKey) {
-  if (argument.kind !== "native-global-result") return clone(argument);
-  const producer = liveByObservedKey.get(`native-op:${argument.globalName}`)
-    ?.metadata?.publicInvocation;
+  if (
+    argument.kind !== "native-global-result" &&
+    argument.kind !== "native-global-result-property"
+  ) {
+    return clone(argument);
+  }
+  const producer = liveByObservedKey.get(
+    `native-op:${argument.globalName}`,
+  )?.metadata?.publicInvocation;
   if (
     !producer ||
     producer.kind !== "native-global-function" ||
@@ -913,6 +991,9 @@ function bindNativeArgumentSources(argument, liveByObservedKey) {
   const sourceDescriptor = clone(producer);
   return {
     kind: argument.kind,
+    ...(argument.kind === "native-global-result-property"
+      ? { property: argument.property }
+      : {}),
     globalName: argument.globalName,
     arguments: argument.arguments.map((nested) =>
       bindNativeArgumentSources(nested, liveByObservedKey),

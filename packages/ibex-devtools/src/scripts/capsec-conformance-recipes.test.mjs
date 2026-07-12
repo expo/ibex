@@ -100,7 +100,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    expect(nativePublicFixtures).toHaveLength(163);
+    expect(nativePublicFixtures).toHaveLength(170);
     expect(
       nativePublicFixtures
         .filter(
@@ -122,7 +122,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(119);
+    ).toHaveLength(126);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -713,6 +713,34 @@ describe("exact-target CapSec executable recipes", () => {
     });
     expect(producer.sourceDescriptorDigest).toMatch(/^sha256-/u);
 
+    const rsaVerify = recipes.recipes.find(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName ===
+        "__exactVerifySync",
+    );
+    const publicKey = rsaVerify.publicSurfaceProbe.invocation.arguments[3];
+    const privateKey =
+      rsaVerify.publicSurfaceProbe.invocation.arguments[1].arguments[2];
+    expect(publicKey).toMatchObject({
+      kind: "native-global-result-property",
+      property: "publicKey",
+      globalName: "__exactGenerateKeyPairSync",
+      sourceDescriptor: {
+        arity: 3,
+        globalName: "__exactGenerateKeyPairSync",
+        kind: "native-global-function",
+      },
+    });
+    expect(privateKey).toMatchObject({
+      kind: "native-global-result-property",
+      property: "privateKey",
+      globalName: "__exactGenerateKeyPairSync",
+    });
+    expect(publicKey.arguments).toEqual(privateKey.arguments);
+    expect(publicKey.sourceDescriptorDigest).toBe(
+      privateKey.sourceDescriptorDigest,
+    );
+
     const targetAbsence = recipes.recipes.find(
       (recipe) =>
         recipe.publicSurfaceProbe?.invocation?.globalName ===
@@ -744,6 +772,38 @@ describe("exact-target CapSec executable recipes", () => {
         invocation: { expectedResult: "absent" },
       },
     });
+  });
+
+  test("supplies owned callbacks and bounded delays to native timers", () => {
+    for (const globalName of ["queueMicrotask", "setInterval", "setTimeout"]) {
+      const recipe = recipes.recipes.find(
+        (candidate) =>
+          candidate.publicSurfaceProbe?.invocation?.globalName === globalName,
+      );
+      expect(recipe).toMatchObject({
+        classification: "non-capability",
+        scenario: "non-capability",
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: `native-op:global:${globalName}`,
+          invocation: {
+            expectedResult: "return",
+            expectedTypedDecisionCount: 0,
+            expectedTypedStages: [],
+          },
+        },
+      });
+      expect(recipe.publicSurfaceProbe.invocation.arguments[0]).toEqual({
+        kind: "harness-noop-callback",
+      });
+      if (globalName !== "queueMicrotask") {
+        expect(recipe.publicSurfaceProbe.invocation.arguments[1]).toEqual({
+          kind: "json-literal",
+          value: 60_000,
+        });
+      }
+    }
   });
 
   test("binds OS-info calls to exact typed selectors and stages", () => {

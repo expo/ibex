@@ -1129,6 +1129,19 @@ that may already have materialized a callable remain residual until they have a
 bounded call/setup recipe. This keeps inventory facts from becoming synthetic
 execution claims while permitting exact non-capability data reads to close.
 
+Bounded native-call recipes likewise use only harness-owned literals,
+callbacks, listeners, handles, or results of source-bound native producers.
+When two arguments need the same generated key pair, the loaded-engine harness
+caches the exact producer invocation and projects only an own `privateKey` or
+`publicKey` property; independently generated keys are not interchangeable
+evidence. Timer callbacks are inert and their returned timers are cancelled
+before the fixture completes. Resource-consuming calls receive a handle minted
+inside that invocation. Compile-guarded globals absent from the attested engine
+remain residual even when source discovery finds their registration text.
+Every non-capability recipe requires zero legacy and zero typed authorization
+observations; in particular, ordinary random bytes cannot retain the retired
+always-allowed `crypto:random` legacy check.
+
 Acceptance:
 
 - Every authorable edge has positive, negative, wrong-principal, malformed,
