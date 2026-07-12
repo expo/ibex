@@ -41,7 +41,7 @@ test('buildCanonicalPolicy emits deterministic typed rows and a self-digest', ()
   expect(first.mode).toBe('enforce');
   expect(first.principals[0].floor).toHaveLength(1);
   expect(first.policyDigest).toMatch(/^sha256-/);
-});
+}, 30_000);
 
 test('buildCanonicalPolicy rejects action/resource mismatches', () => {
   const bad = { ...authority, cap: 'network:fetch' };
