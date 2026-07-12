@@ -884,6 +884,19 @@ permissive execution, `--allow-all`, advisory attribution, environment-selected
 weakening, durable audit mode, optional lockdown under enforce, and permissive
 legacy host construction.
 
+Implementation status (2026-07-11): `Auto` and explicit `enforce` now resolve
+to the same enforce posture even when no policy is present. Durable audit or
+permissive policy modes, `--allow-all`, explicit permissive mode, legacy
+allow/deny overrides, environment-endowment widening, and advisory-attribution
+flags/environment inputs refuse instead of weakening production. Lockdown is
+installed structurally for both the ordinary CLI and direct `Runtime`
+construction, and missing lockdown, frame attribution, or package isolation is
+a hard enforce failure with no advisory override. Compatibility, inspector,
+and runtime-fidelity controls also refuse at ordinary host construction. The
+remaining cutover step is replacing that unarmed legacy host construction with
+the default immutable typed snapshot path and moving audit to its separately
+named foreground command.
+
 Acceptance:
 
 - Plain `ibex run` and an explicit enforce affirmation arm identical policy and

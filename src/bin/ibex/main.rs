@@ -320,9 +320,10 @@ async fn run(cli: Cli) -> Result<()> {
     // @ref LLP 0013#mechanism-1 — the boot lockdown is read by the engine from
     // the environment (std::getenv). Setting it here, before any runtime is
     // created, lets `--lockdown` reach the in-process Hermes runtime.
-    if cli.lockdown || cli.capsec_armed_snapshot.is_some() {
-        std::env::set_var("IBEX_LOCKDOWN", "1");
-    }
+    // Complete enforcement and the foreground audit workflow both require
+    // structural lockdown. This is no longer an opt-in production property.
+    // @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths
+    std::env::set_var("IBEX_LOCKDOWN", "1");
 
     if cli.version {
         println!("v{}", env!("CARGO_PKG_VERSION"));

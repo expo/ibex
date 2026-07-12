@@ -1618,6 +1618,35 @@ fn policy_is_explicit(cli: &Cli) -> bool {
 }
 
 fn build_host_config(cli: &Cli) -> Result<HostConfig> {
+    // Embedders that construct `Runtime` directly do not pass through main's
+    // boot shim; install the same mandatory structural posture before checking
+    // readiness or creating Hermes.
+    std::env::set_var("IBEX_LOCKDOWN", "1");
+    if !cli.allow.is_empty()
+        || !cli.deny.is_empty()
+        || cli.allow_env_endowments
+        || cli.capsec_allow_advisory
+        || crate::env_flag_enabled("IBEX_CAPSEC_ALLOW_ADVISORY")
+    {
+        anyhow::bail!(
+            "production capability enforcement rejects legacy allow/deny, environment endowment widening, and advisory-attribution overrides"
+        );
+    }
+    if cli.compat.is_some()
+        || cli.inspect
+        || cli.inspect_wait
+        || cli.inspect_open
+        || cli.inspect_pause
+        || cli.inspect_port.is_some()
+        || cli.inspect_host.is_some()
+        || cli.expose_internals
+        || cli.stack_size.is_some()
+        || cli.max_http_header_size.is_some()
+    {
+        anyhow::bail!(
+            "production capability enforcement closes compatibility, inspector, and runtime-fidelity overrides"
+        );
+    }
     let policy_path = resolve_policy_path(cli);
     // Parse the policy artifact exactly ONCE per startup and thread the parsed
     // struct through mode resolution, readiness, endowments, and (via
@@ -1715,22 +1744,26 @@ fn resolve_security_mode(
         None => None,
     };
 
-    // Map CLI mode to host SecurityMode.
-    // --allow-all overrides --capsec for backward compatibility.
-    let mode = if cli.allow_all {
-        SecurityMode::Permissive
-    } else {
-        // @ref LLP 0013#phase-1 — Audit maps to the log-but-proceed mode.
-        match cli.capsec {
-            CapSecMode::Permissive => SecurityMode::Permissive,
-            CapSecMode::Audit => SecurityMode::Audit,
-            CapSecMode::Enforce => SecurityMode::Enforce,
-            // Default (no explicit --capsec): honor the policy artifact's declared
-            // `mode` when it has one — the generated policy is the security config,
-            // so `mode: "enforce"` takes effect without a redundant flag. Explicit
-            // `--capsec permissive` (and `--allow-all`) still force Permissive.
-            CapSecMode::Auto => declared_mode.unwrap_or(SecurityMode::Permissive),
-        }
+    if cli.allow_all || cli.capsec == CapSecMode::Permissive {
+        anyhow::bail!(
+            "permissive capability execution is no longer a production mode; use the separately named foreground capsec audit workflow"
+        );
+    }
+    if matches!(
+        declared_mode,
+        Some(SecurityMode::Audit | SecurityMode::Permissive)
+    ) {
+        anyhow::bail!(
+            "durable policy mode cannot weaken production enforcement; canonical production policy must declare enforce"
+        );
+    }
+    // @ref LLP 0021#wp9--make-complete-enforcement-the-default-and-remove-weakening-paths
+    // Auto and explicit enforce are identical. Audit remains a foreground
+    // diagnostic selection until the dedicated command replaces this plumbing.
+    let mode = match cli.capsec {
+        CapSecMode::Audit => SecurityMode::Audit,
+        CapSecMode::Auto | CapSecMode::Enforce => SecurityMode::Enforce,
+        CapSecMode::Permissive => unreachable!("rejected above"),
     };
 
     Ok(mode)
@@ -1847,7 +1880,7 @@ fn check_capsec_readiness(
     mode: crate::host::SecurityMode,
     stage: CapsecStage,
     readiness: CapsecReadiness,
-    allow_advisory: bool,
+    _allow_advisory: bool,
 ) -> Result<Vec<String>> {
     use crate::host::SecurityMode;
     if mode == SecurityMode::Permissive {
@@ -1896,11 +1929,9 @@ fn check_capsec_readiness(
                 .to_string(),
         );
     }
-    if mode == SecurityMode::Enforce && !readiness.lockdown {
-        soft.push(
-            "capsec enforce is running without lockdown: shared intrinsics remain mutable, \
-             so intrinsic-integrity attacks between packages are not defended"
-                .to_string(),
+    if !readiness.lockdown {
+        hard.push(
+            "structural runtime lockdown (shared intrinsics would remain mutable)".to_string(),
         );
     }
 
@@ -1908,12 +1939,11 @@ fn check_capsec_readiness(
         return Ok(vec![report]);
     }
 
-    if mode == SecurityMode::Enforce && !hard.is_empty() && !allow_advisory {
+    if mode == SecurityMode::Enforce && !hard.is_empty() {
         anyhow::bail!(
             "capsec enforce requires attribution prerequisites this {} does not satisfy:\n  - {}\n{}\n\
-             Refusing to present advisory attribution as enforcement. Pass --capsec-allow-advisory \
-             (or hidden alias --allow-advisory-attribution), set IBEX_CAPSEC_ALLOW_ADVISORY=1 \
-             to proceed anyway, or use --capsec audit.",
+             Refusing to present advisory attribution as enforcement; use the separately named \
+             foreground capsec audit workflow for diagnostics.",
             match stage {
                 CapsecStage::Run => "run",
                 CapsecStage::Build => "build",
@@ -3592,7 +3622,7 @@ mod tests {
     // integration tests can't reach on the unpatched checked-in Hermes (they
     // skip vacuously). @ref LLP 0013#mechanism-3
     #[test]
-    fn resolve_security_mode_honors_committed_enforce_policy() {
+    fn resolve_security_mode_defaults_to_enforce_and_rejects_weakening() {
         use crate::host::SecurityMode;
 
         let dir = tempdir().unwrap();
@@ -3609,7 +3639,7 @@ mod tests {
         // (build_host_config / apply_build_isolation). (ENG-22644)
         let resolve = |cli: &Cli, path: Option<&Path>| {
             let policy = load_policy_file(cli, path).unwrap();
-            resolve_security_mode(cli, policy.as_deref(), path).unwrap()
+            resolve_security_mode(cli, policy.as_deref(), path)
         };
 
         // Default CLI (capsec = Auto): the committed policy's declared mode wins,
@@ -3617,33 +3647,21 @@ mod tests {
         // per-package chunking instead of emitting a flat, single-principal bundle.
         let cli = Cli::parse_from(["ibex", "app.ts"]);
         assert_eq!(
-            resolve(&cli, Some(enforce.as_path())),
+            resolve(&cli, Some(enforce.as_path())).unwrap(),
             SecurityMode::Enforce,
         );
-        // Audit likewise implies per-package attribution.
-        assert_eq!(resolve(&cli, Some(audit.as_path())), SecurityMode::Audit);
-        assert_eq!(
-            resolve(&cli, Some(permissive.as_path())),
-            SecurityMode::Permissive,
-        );
+        assert!(resolve(&cli, Some(audit.as_path())).is_err());
+        assert!(resolve(&cli, Some(permissive.as_path())).is_err());
 
-        // No policy under Auto stays Permissive: an absent auto-discovered default
-        // must not silently flip a build to chunked/enforced.
-        assert_eq!(resolve(&cli, None), SecurityMode::Permissive);
+        assert_eq!(resolve(&cli, None).unwrap(), SecurityMode::Enforce);
 
         // The documented operator opt-outs override a committed enforce policy, so
         // a build under either stays flat: explicit `--capsec permissive` ...
         let forced = Cli::parse_from(["ibex", "--capsec", "permissive", "app.ts"]);
-        assert_eq!(
-            resolve(&forced, Some(enforce.as_path())),
-            SecurityMode::Permissive,
-        );
+        assert!(resolve(&forced, Some(enforce.as_path())).is_err());
         // ... and `--allow-all` (back-compat legacy escape hatch).
         let allow_all = Cli::parse_from(["ibex", "--allow-all", "app.ts"]);
-        assert_eq!(
-            resolve(&allow_all, Some(enforce.as_path())),
-            SecurityMode::Permissive,
-        );
+        assert!(resolve(&allow_all, Some(enforce.as_path())).is_err());
     }
 
     // ENG-22884 — enforce must not silently proceed as full-strength capsec when
@@ -3669,26 +3687,19 @@ mod tests {
         assert!(lines[0].contains("frame-attribution=present"));
         assert!(lines[0].contains("package-isolation=per-package"));
 
-        // Enforce without lockdown is allowed for compatibility, but it must not
-        // silently imply full shared-intrinsics integrity.
+        // Lockdown is a structural prerequisite, not an optional claim ceiling.
         let enforce_without_lockdown = CapsecReadiness {
             lockdown: false,
             ..ready
         };
-        let lines = check_capsec_readiness(
+        let error = check_capsec_readiness(
             SecurityMode::Enforce,
             CapsecStage::Run,
             enforce_without_lockdown,
             false,
         )
-        .unwrap();
-        assert!(
-            lines.iter().any(|line| line.contains("without lockdown"))
-                && lines
-                    .iter()
-                    .any(|line| line.contains("intrinsic-integrity attacks")),
-            "enforce without lockdown must state the claim ceiling: {lines:?}"
-        );
+        .unwrap_err();
+        assert!(error.to_string().contains("structural runtime lockdown"));
 
         // Missing frame attribution (an engine built without
         // EXACT_HAVE_FRAME_ATTRIBUTION): an enforce run fails closed with the
@@ -3701,16 +3712,13 @@ mod tests {
             .unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("frame-derived attribution"));
-        assert!(msg.contains("--capsec-allow-advisory"));
+        assert!(msg.contains("foreground capsec audit"));
 
-        // ...unless the operator explicitly opts into advisory attribution, which
-        // still reports loudly.
-        let lines = check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, true)
-            .unwrap();
-        assert!(lines.iter().any(|l| l.contains("ADVISORY")));
-        assert!(lines
-            .iter()
-            .any(|l| l.contains("frame-attribution=missing")));
+        // The removed advisory override cannot weaken enforce.
+        assert!(
+            check_capsec_readiness(SecurityMode::Enforce, CapsecStage::Run, advisory, true)
+                .is_err()
+        );
 
         // An explicit IBEX_PER_PACKAGE_CHUNKS=0 collapses bundled dependencies
         // into the root principal — hard prerequisite at run AND build stage
