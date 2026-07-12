@@ -17,7 +17,9 @@
  *   surfaced each curl chunk as a separate, mis-typed message),
  * - server close code/reason surface in the CloseEvent (Linux reported
  *   1000/'' unconditionally),
- * - client close() fires the close event (Linux never invoked close_cb).
+ * - client close() fires the close event (Linux never invoked close_cb),
+ * - failed handshakes deliver error followed by close instead of consuming
+ *   the terminal close while deduplicating native callbacks.
  *
  * Skips when the ibex binary has not been built (matches the repo's
  * hermes-gated test convention); build with `cargo build` or point IBEX_BIN
@@ -40,7 +42,7 @@ const fixturePath = path.join(
 );
 
 test.skipIf(!haveIbex)(
-  'native WebSocket bridge: empty frames, NUL text, large messages, close semantics (live loopback)',
+  'native WebSocket bridge: frames, messages, close and failure semantics (live loopback)',
   async () => {
     // This fixture intentionally exercises a live package and loopback socket
     // without producing a durable policy. Run it in the explicitly diagnostic

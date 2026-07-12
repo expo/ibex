@@ -132,8 +132,34 @@ async function run(port) {
     'code=' + closeEvt2.code + ' wasClean=' + closeEvt2.wasClean + ' readyState=' + ws2.readyState
   );
 
+  // Stop listening, then connect to the now-closed loopback port. Native
+  // backends report a failed handshake as error followed by close(1006). The
+  // bridge must deduplicate terminal callbacks without letting error consume
+  // the following close and strand readyState at CONNECTING.
+  await new Promise((resolve) => server.close(resolve));
+  const failedEvents = [];
+  const failed = new WebSocket('ws://127.0.0.1:' + port + '/');
+  const failedClose = await new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(
+      'failed handshake never delivered close; events=' + failedEvents.join(','))), 5000);
+    failed.onerror = () => failedEvents.push('error');
+    failed.onclose = (ev) => {
+      clearTimeout(t);
+      failedEvents.push('close');
+      resolve(ev);
+    };
+  });
+  report(
+    'failed handshake delivers error then close',
+    failedEvents.join(',') === 'error,close' &&
+      failedClose.code === 1006 &&
+      failed.readyState === 3,
+    'events=' + failedEvents.join(',') +
+      ' code=' + failedClose.code +
+      ' readyState=' + failed.readyState
+  );
+
   clearTimeout(overallTimeout);
-  server.close();
   console.log('RESULT: ' + (failures === 0 ? 'PASS' : 'FAIL'));
   process.exit(failures === 0 ? 0 : 1);
 }

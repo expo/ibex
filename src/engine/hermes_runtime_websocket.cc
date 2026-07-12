@@ -349,18 +349,41 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
               auto wsObj = context->ws_instance;
               auto principal = context->principal;
               auto msgCopy = std::string(message ? message : "Unknown error");
-              if (!unregisterWebSocket(ws_id, context)) return;
+              auto closeAfterError = ws_id == 0;
+              // An error event is not the terminal WebSocket notification:
+              // native backends report fatal failures as error followed by
+              // close. Keep a registered nonzero socket current so the close
+              // callback can unregister it and deliver readyState=CLOSED.
+              // A zero-id setup failure has no later registration/close path,
+              // so retain the per-context exactly-once gate and synthesize its
+              // unclean close after delivering the error.
+              // @ref LLP 0003#websocket-bridge-threading-and-context-ownership —
+              // handshake failure is error followed by close(1006, unclean)
+              if (ws_id == 0) {
+                if (!unregisterWebSocket(0, context)) return;
+              } else if (!webSocketCallbackIsCurrent(ws_id, context)) {
+                return;
+              }
               native_ws_retain_context(context);
               auto context_guard = std::shared_ptr<void>(context, native_ws_release_context);
               pushRuntimeCallback(
                   runtime,
                   [wsObj,
                    msgCopy,
+                   closeAfterError,
                    principal,
                    context_guard = std::move(context_guard)](facebook::jsi::Runtime& rt) {
                     ScopedNativePrincipal nativePrincipal(principal);
                     auto fn = wsObj->getPropertyAsFunction(rt, "_handleError");
                     fn.call(rt, facebook::jsi::String::createFromUtf8(rt, msgCopy));
+                    if (closeAfterError) {
+                      auto closeFn = wsObj->getPropertyAsFunction(rt, "_handleClose");
+                      closeFn.call(
+                          rt,
+                          facebook::jsi::Value(1006),
+                          facebook::jsi::String::createFromUtf8(rt, ""),
+                          facebook::jsi::Value(false));
+                    }
                   });
             },
             [](uint32_t ws_id, size_t bytes_sent, void* ctx) {
