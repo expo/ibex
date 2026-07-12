@@ -131,6 +131,10 @@ struct ExactHermesRuntime {
   // touched on the runtime thread.
   // @ref LLP 0003#the-event-loop — async failures are fatal (ENG-23130)
   bool fatal_async_error = false;
+  bool typed_authority_generations_initialized = false;
+  uint64_t typed_negative_generation = 0;
+  uint64_t typed_dynamic_generation = 0;
+  uint64_t typed_handle_generation = 0;
   // Host policy for JS errors escaping drained async callbacks (timers,
   // microtasks, nextTick, cross-thread tasks). CLI default (false): the
   // fatal_async_error / poll -1 contract above. Embedded app hosts opt in

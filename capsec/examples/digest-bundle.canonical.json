@@ -137289,6 +137289,16 @@
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
           },
           {
+            "id": "surface.host.abi.ex.host.typed.generations.0opne2t",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "host-abi",
+              "name": "ex_host_typed_generations"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
             "id": "surface.host.abi.ex.host.typed.handle.mint.06rx1lp",
             "classification": "non-capability",
             "surface": {
@@ -180622,6 +180632,16 @@
             "rationale": "Private descriptor maps and IPC bootstrap state are shared ambient channels."
           },
           {
+            "id": "surface.native.op.exactnotifytypedauthoritychange.184tus9",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "__exactNotifyTypedAuthorityChange"
+            },
+            "rationaleId": "callback-attribution-carrier",
+            "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+          },
+          {
             "id": "surface.native.op.exactopendir.0eh7ha4",
             "classification": "effects",
             "surface": {
@@ -200623,6 +200643,16 @@
             "surface": {
               "kind": "native-op",
               "name": "global:Ibex.authority.mintHandle"
+            },
+            "rationaleId": "authority-control-plane",
+            "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+          },
+          {
+            "id": "surface.native.op.global.ibex.authority.onchange.1cl76ut",
+            "classification": "non-capability",
+            "surface": {
+              "kind": "native-op",
+              "name": "global:Ibex.authority.onChange"
             },
             "rationaleId": "authority-control-plane",
             "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

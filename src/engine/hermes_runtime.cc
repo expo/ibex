@@ -244,6 +244,9 @@ extern "C" char* ex_host_typed_handle_mint(const uint8_t* request,
                                             size_t request_len);
 extern "C" int32_t ex_host_typed_handle_revoke(const uint8_t* request,
                                                  size_t request_len);
+extern "C" int32_t ex_host_typed_generations(uint64_t* negative,
+                                              uint64_t* dynamic,
+                                              uint64_t* handle);
 extern "C" int32_t ex_host_check_capability(uint64_t module_id, const char* capability);
 extern "C" int32_t ex_host_check_handle_mint(uint64_t module_id, const char* capability);
 extern "C" void ex_host_grant_capability(uint64_t module_id, const char* capability);
@@ -2199,6 +2202,21 @@ void installGlobals(struct ExactHermesRuntime* handle) {
     if (result < 0) throw new Error('Typed handle revocation refused');
     return result > 0;
   };
+  var __authorityListeners = [];
+  Ibex.authority.onChange = function (listener) {
+    if (typeof listener !== 'function') return function () {};
+    __authorityListeners.push(listener);
+    return function () {
+      var i = __authorityListeners.indexOf(listener);
+      if (i !== -1) __authorityListeners.splice(i, 1);
+    };
+  };
+  g.__exactNotifyTypedAuthorityChange = function (negative, dynamic, handle) {
+    var event = Object.freeze({ negative: negative, dynamic: dynamic, handle: handle });
+    for (var i = 0; i < __authorityListeners.length; i++) {
+      try { __authorityListeners[i](event); } catch (e) {}
+    }
+  };
   // @ref LLP 0013 — §dynamic permissions — acquisition is async and lives in the
   // attenuator, while the host-boundary check stays synchronous. `acquire`
   // returns a Promise that suspends on the broker decision and resolves the
@@ -2754,6 +2772,11 @@ extern "C" ExactHermesRuntime* ex_hermes_create() {
   auto handle = new ExactHermesRuntime();
   handle->runtime = std::move(runtime);
   handle->runtime_thread = std::this_thread::get_id();
+  handle->typed_authority_generations_initialized =
+      ex_host_typed_generations(
+          &handle->typed_negative_generation,
+          &handle->typed_dynamic_generation,
+          &handle->typed_handle_generation) == 1;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // @ref LLP 0013#mechanism-3 — cache the vm::Runtime so host-boundary checks can
   // resolve the executing frame's package principal. getVMRuntimeUnsafe() is the
@@ -3446,6 +3469,45 @@ extern "C" void ex_hermes_free_string(char* value) {
   }
 }
 
+static int pollTypedAuthorityGenerations(ExactHermesRuntime* runtime) {
+  uint64_t negative = 0;
+  uint64_t dynamic = 0;
+  uint64_t handle = 0;
+  if (ex_host_typed_generations(&negative, &dynamic, &handle) != 1) {
+    return 0;
+  }
+  if (!runtime->typed_authority_generations_initialized) {
+    runtime->typed_authority_generations_initialized = true;
+    runtime->typed_negative_generation = negative;
+    runtime->typed_dynamic_generation = dynamic;
+    runtime->typed_handle_generation = handle;
+    return 0;
+  }
+  if (runtime->typed_negative_generation == negative &&
+      runtime->typed_dynamic_generation == dynamic &&
+      runtime->typed_handle_generation == handle) {
+    return 0;
+  }
+  runtime->typed_negative_generation = negative;
+  runtime->typed_dynamic_generation = dynamic;
+  runtime->typed_handle_generation = handle;
+  try {
+    auto& rt = *runtime->runtime;
+    auto callback = rt.global().getProperty(rt, "__exactNotifyTypedAuthorityChange");
+    if (callback.isObject() && callback.asObject(rt).isFunction(rt)) {
+      callback.asObject(rt).asFunction(rt).call(
+          rt,
+          facebook::jsi::Value(static_cast<double>(negative)),
+          facebook::jsi::Value(static_cast<double>(dynamic)),
+          facebook::jsi::Value(static_cast<double>(handle)));
+      return 1;
+    }
+  } catch (const facebook::jsi::JSError& err) {
+    disposeAsyncCallbackError(runtime, err);
+  }
+  return 0;
+}
+
 extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
   if (!runtime) {
     return 0;
@@ -3457,6 +3519,7 @@ extern "C" int ex_hermes_poll(ExactHermesRuntime* runtime, uint64_t now_ms) {
 #endif
 
   int executed = 0;
+  executed += pollTypedAuthorityGenerations(runtime);
   cleanupFetchCallbacks(runtime);
 
   // Drain cross-thread callback queue (HTTP server responses, etc.)

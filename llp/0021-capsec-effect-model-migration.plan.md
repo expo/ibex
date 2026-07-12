@@ -721,6 +721,11 @@ Typed bearer mint and cascade revocation are likewise reachable as
 `Ibex.authority.mintHandle(request)` and `revokeHandle(handleId)`. Handle IDs
 remain opaque strings; the live bridge exposes no numeric conversion or legacy
 capability-string minting path.
+Successful typed grant, revocation, mint, and cascade-revocation publications
+wake the runtime. Each event-loop poll compares the authenticated negative,
+dynamic, and handle generations; changes emit a frozen generation tuple through
+`Ibex.authority.onChange`, including mutations initiated by an embedder rather
+than JavaScript itself.
 
 ### WP9 — Make complete enforcement the default and remove weakening paths
 

@@ -197,6 +197,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactNativeFreeze",
   "__exactNativeModuleResolve",
   "__exactNativeModuleResolveMeta",
+  "__exactNotifyTypedAuthorityChange",
   "__exactOSRelease",
   "__exactOSVersion",
   "__exactOpendir",
@@ -3735,6 +3736,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "",
     "authority",
     "authority.mintHandle",
+    "authority.onChange",
     "authority.revokeHandle",
     "fs",
     "fs.readHandle",
@@ -5171,6 +5173,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_time_now_ms",
     "ex_host_typed_dynamic_grant",
     "ex_host_typed_dynamic_revoke",
+    "ex_host_typed_generations",
     "ex_host_typed_handle_mint",
     "ex_host_typed_handle_revoke",
     "ex_host_version",
@@ -11234,7 +11237,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {

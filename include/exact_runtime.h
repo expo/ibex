@@ -310,6 +310,12 @@ int ex_host_typed_dynamic_revoke(const uint8_t* request, size_t request_len);
 char* ex_host_typed_handle_mint(const uint8_t* request, size_t request_len);
 int ex_host_typed_handle_revoke(const uint8_t* request, size_t request_len);
 
+/// Read the current authenticated negative/dynamic/handle generations.
+/// Returns 1 for an armed host and 0 otherwise.
+int ex_host_typed_generations(uint64_t* negative,
+                              uint64_t* dynamic,
+                              uint64_t* handle);
+
 /// Console log output from JS
 void ex_host_console_log(int32_t level, const char* message);
 

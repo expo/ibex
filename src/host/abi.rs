@@ -978,7 +978,7 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
         return -1;
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
-    with_host(
+    let result = with_host(
         |host| match host.grant_typed_dynamic_json(request) {
             Ok(applied) => i32::from(applied),
             Err(error) => {
@@ -987,7 +987,11 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_grant(
             }
         },
         -1,
-    )
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
 }
 
 /// Revoke a typed dynamic grant by its JSON string ID. Returns 1 when removed,
@@ -1005,7 +1009,7 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
         return -1;
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
-    with_host(
+    let result = with_host(
         |host| match host.revoke_typed_dynamic_json(request) {
             Ok(removed) => i32::from(removed),
             Err(error) => {
@@ -1014,7 +1018,11 @@ pub unsafe extern "C" fn ex_host_typed_dynamic_revoke(
             }
         },
         -1,
-    )
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
 }
 
 /// Mint or re-attenuate an unguessable typed bearer handle. Returns a
@@ -1035,7 +1043,10 @@ pub unsafe extern "C" fn ex_host_typed_handle_mint(
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
     let result = with_host(
         |host| match host.mint_typed_handle_json(request) {
-            Ok(handle_id) => as_json_cstring(&json!({"handleId": handle_id.as_str()})),
+            Ok(handle_id) => {
+                notify_runtime_authority_change();
+                as_json_cstring(&json!({"handleId": handle_id.as_str()}))
+            }
             Err(error) => as_json_cstring(&json!({"error": error.to_string()})),
         },
         std::ptr::null_mut(),
@@ -1062,7 +1073,7 @@ pub unsafe extern "C" fn ex_host_typed_handle_revoke(
         return -1;
     }
     let request = unsafe { std::slice::from_raw_parts(request, request_len) };
-    with_host(
+    let result = with_host(
         |host| match host.revoke_typed_handle_json(request) {
             Ok(removed) => i32::from(removed),
             Err(error) => {
@@ -1071,7 +1082,43 @@ pub unsafe extern "C" fn ex_host_typed_handle_revoke(
             }
         },
         -1,
-    )
+    );
+    if result == 1 {
+        notify_runtime_authority_change();
+    }
+    result
+}
+
+/// Copy the current authenticated authority generations into caller-owned
+/// outputs. Returns 1 for an armed host and 0 otherwise.
+///
+/// # Safety
+/// All output pointers must be non-null and writable.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_typed_generations(
+    negative: *mut u64,
+    dynamic: *mut u64,
+    handle: *mut u64,
+) -> i32 {
+    if negative.is_null() || dynamic.is_null() || handle.is_null() {
+        return 0;
+    }
+    let Some(generations) = with_host(|host| host.typed_generations(), None) else {
+        return 0;
+    };
+    unsafe {
+        *negative = generations.negative.get();
+        *dynamic = generations.dynamic.get();
+        *handle = generations.handle.get();
+    }
+    1
+}
+
+fn notify_runtime_authority_change() {
+    unsafe extern "C" {
+        fn ex_hermes_notify_callback();
+    }
+    unsafe { ex_hermes_notify_callback() };
 }
 
 /// Returns 1 if the host is in Legacy (allow-all) mode, 0 otherwise.

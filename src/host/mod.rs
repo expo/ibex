@@ -352,6 +352,11 @@ impl Host {
             .unwrap_or_default()
     }
 
+    pub fn typed_generations(&self) -> Option<capsec_semantics::cache::GenerationSet> {
+        let context = self.decision_context.as_deref()?.read().ok()?;
+        Some(context.authority().generations)
+    }
+
     pub fn grant_typed_dynamic(
         &self,
         grant_id: capsec_semantics::model::NonEmptyString,
@@ -1366,7 +1371,12 @@ mod tests {
             "authority": selector
         }))
         .unwrap();
+        let initial_generations = host.typed_generations().unwrap();
         assert!(host.grant_typed_dynamic_json(&grant_request).unwrap());
+        let granted_generations = host.typed_generations().unwrap();
+        assert_eq!(granted_generations.negative, initial_generations.negative);
+        assert!(granted_generations.dynamic > initial_generations.dynamic);
+        assert_eq!(granted_generations.handle, initial_generations.handle);
         assert!(!host.grant_typed_dynamic_json(&grant_request).unwrap());
         assert_eq!(
             host.evaluate_typed_decision(&decision, &gates)
@@ -1377,6 +1387,10 @@ mod tests {
         assert!(host
             .revoke_typed_dynamic_json(br#""location-session""#)
             .unwrap());
+        let revoked_generations = host.typed_generations().unwrap();
+        assert!(revoked_generations.negative > granted_generations.negative);
+        assert!(revoked_generations.dynamic > granted_generations.dynamic);
+        assert_eq!(revoked_generations.handle, granted_generations.handle);
         assert_eq!(
             host.evaluate_typed_decision(&decision, &gates)
                 .unwrap()
