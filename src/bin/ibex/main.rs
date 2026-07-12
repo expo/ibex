@@ -393,6 +393,9 @@ async fn run(cli: Cli) -> Result<()> {
             DebugCommands::Modules => run_debug_modules(),
         },
         Some(Commands::Policy { command }) => runtime::run_policy_command(command).await,
+        Some(Commands::Capsec { command }) => match command {
+            cli::CapsecCommands::Audit { file, args } => run_capsec_audit(&cli, file, args).await,
+        },
         Some(Commands::SelfTest) => runtime_tests::run_all(&cli).await,
         Some(Commands::Compat {
             section,
@@ -462,6 +465,19 @@ async fn run(cli: Cli) -> Result<()> {
             }
         }
     }
+}
+
+async fn run_capsec_audit(cli: &Cli, file: &str, args: &[String]) -> Result<()> {
+    let runtime = runtime::Runtime::from_audit_cli(cli)?;
+    suppress_runtime_banner(&runtime).await?;
+    runtime.load_runtime().await?;
+    runtime.run_file_with_args(file, args).await?;
+    if let Some(report) = crate::host::abi::current_audit_report() {
+        if !report.is_empty() {
+            eprintln!("{report}");
+        }
+    }
+    Ok(())
 }
 
 fn should_run_package_script(file: &str) -> bool {

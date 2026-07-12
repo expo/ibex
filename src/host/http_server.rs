@@ -2553,7 +2553,7 @@ mod tests {
         );
         // The default is comfortably above the old hard 1 MiB cap that 413'd
         // routine multi-megabyte uploads.
-        assert!(DEFAULT_MAX_REQUEST_BODY_BYTES > 1024 * 1024);
+        const { assert!(DEFAULT_MAX_REQUEST_BODY_BYTES > 1024 * 1024) };
     }
 
     #[test]

@@ -56157,6 +56157,40 @@
       ]
     },
     {
+      "edgeId": "surface.cli.argument.parser.ibex.20capsec.20audit.args.utf8.string.0k5fzg0",
+      "observedKey": "cli:argument-parser:ibex%20capsec%20audit:args:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20capsec.20audit.args.utf8.string.0k5fzg0.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex capsec audit:args:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20capsec.20audit.args.utf8.string.0k5fzg0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.argument.parser.ibex.20capsec.20audit.file.utf8.string.1y9o3hv",
+      "observedKey": "cli:argument-parser:ibex%20capsec%20audit:file:utf8-string",
+      "branchId": "surface.cli.argument.parser.ibex.20capsec.20audit.file.utf8.string.1y9o3hv.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.semanticRelations:parser:ibex capsec audit:file:utf8-string"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.argument.parser.ibex.20capsec.20audit.file.utf8.string.1y9o3hv.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.argument.parser.ibex.20compat.jobs.unsigned.integer.usize.12n3esq",
       "observedKey": "cli:argument-parser:ibex%20compat:jobs:unsigned-integer-usize",
       "branchId": "surface.cli.argument.parser.ibex.20compat.jobs.unsigned.integer.usize.12n3esq.main",
@@ -56684,6 +56718,23 @@
       ]
     },
     {
+      "edgeId": "surface.cli.capsec.1plmeeg",
+      "observedKey": "cli:capsec",
+      "branchId": "surface.cli.capsec.1plmeeg.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#visibleCommands"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.capsec.1plmeeg.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.cli.command.ibex.1lxr3nm",
       "observedKey": "cli:command:ibex",
       "branchId": "surface.cli.command.ibex.1lxr3nm.main",
@@ -56715,6 +56766,40 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.command.ibex.20build.1hu3u0l.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20capsec.1bmnjca",
+      "observedKey": "cli:command:ibex%20capsec",
+      "branchId": "surface.cli.command.ibex.20capsec.1bmnjca.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.command.ibex.20capsec.1bmnjca.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.command.ibex.20capsec.20audit.08lc6u6",
+      "observedKey": "cli:command:ibex%20capsec%20audit",
+      "branchId": "surface.cli.command.ibex.20capsec.20audit.08lc6u6.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.command.ibex.20capsec.20audit.08lc6u6.main.non-capability"
       ]
     },
     {
@@ -63671,6 +63756,142 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.cli.positional.ibex.20build.file.value.name.file.1dssyr5.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.args.1ko9ieu",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:args",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.args.1ko9ieu.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:args"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.args.1ko9ieu.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.args.action.append.1fqiol0",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:args:action:Append",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.args.action.append.1fqiol0.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:args"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.args.action.append.1fqiol0.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.args.arity.0.unbounded.1t457np",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:args:arity:0:unbounded",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.args.arity.0.unbounded.1t457np.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:args"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.args.arity.0.unbounded.1t457np.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.args.value.name.args.0mk3x32",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:args:value-name:ARGS",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.args.value.name.args.0mk3x32.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:args"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.args.value.name.args.0mk3x32.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.file.1rrjr8d",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:file",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.file.1rrjr8d.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:file"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.file.1rrjr8d.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.file.action.set.0ss1939",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:file:action:Set",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.file.action.set.0ss1939.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:file"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.file.action.set.0ss1939.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.file.arity.1.1.05o0nge",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:file:arity:1:1",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.file.arity.1.1.05o0nge.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:file"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.file.arity.1.1.05o0nge.main.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.cli.positional.ibex.20capsec.20audit.file.value.name.file.1y1u89u",
+      "observedKey": "cli:positional:ibex%20capsec%20audit:file:value-name:FILE",
+      "branchId": "surface.cli.positional.ibex.20capsec.20audit.file.value.name.file.1y1u89u.main",
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "runtime-surface.json#clapSurface.command:ibex capsec audit:positional:file"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.cli.positional.ibex.20capsec.20audit.file.value.name.file.1y1u89u.main.non-capability"
       ]
     },
     {
@@ -136956,7 +137177,6 @@
       "sourceRefs": [
         "src/bin/ibex/runtime.rs#env::remove_var:IBEX_ENDOW:unset",
         "src/bin/ibex/runtime.rs#env::set_var:IBEX_ENDOW:write",
-        "src/bin/ibex/runtime.rs#env::var:IBEX_ENDOW:read",
         "src/engine/hermes_runtime.cc#getenv:IBEX_ENDOW:read"
       ],
       "implementationOwner": "WP9",
@@ -143825,53 +144045,53 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-2Qj8PUwPv7GciCv-gHHNLHQHh7wxR6VwicVwecqcd7c"
+      "rawContentDigest": "sha256-1hGxeV070238hfUDp0KR5Tu8u6tWGRB3kcmEH5xt_KI"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-V7UWOk4-Y6Yk-xzEf2LUgQ2NH0oXwh589rtiCSbwvec"
+      "rawContentDigest": "sha256-2NVhcAPJ_RxfVLoygUynLx5lW1TZPefuVy4NpcFZhSM"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/target-matrix.md",
-      "rawContentDigest": "sha256--6zIebeYp74-0MKX_DYM24PEe8XYUSlV_Dj2uoH8G6w"
+      "rawContentDigest": "sha256-D0KpAJr8tKYhaOy1PjEITt0yEb2XddraGUw_cnEZYBk"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-9iDX6Y_S98N2FqWjsIu7NHDd3pcFREEsxrHe65jcCwM"
+      "rawContentDigest": "sha256-4q6nW6hNQGvqExKZHrXhewbGFDzMgm-3B8R1g7l3fsA"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/target-cells.json",
-      "rawContentDigest": "sha256-egH5ve1Ko4wFXHUBxlzxPZE4xNejA_Pb2aoLGfOuDEg"
+      "rawContentDigest": "sha256-4flW-xvdplJY5I2qSiowjxgHzqnXB1HLOqe-BvRH1ZQ"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-vYI5-Li2TAEw8XCEanNon5IJuTXsLZ8YOHvY7-tVzv0"
+      "rawContentDigest": "sha256-gvcJ_DScQ-tx8wXUcqWrOE37eUCSSLpV4rjaLodSURE"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-FWp7JTgKHyR__gbiRIU81bTBePb1WjU7BAkAI0V1Gac"
+      "rawContentDigest": "sha256-SiG-RaPSVWmo5P5JfL_SlHStAwqZexDnudOdSR1j-8U"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-FGCFGVANwAzEdCpggnLvl-kK2GA0W3VFM1ws1hH4OXw"
+      "rawContentDigest": "sha256-uAjK8FxnI4ejHEPHBN1ncWp-cS3YWkMut_KnmrsX3dU"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-LxCtcCECn7v3VJ9A0tfAhnN-0mXWDbW8Ok-OkoRzaqE"
+      "rawContentDigest": "sha256-N-Q-IM2HOj18hLlHSvtDC-6PYrSdogJfC8A0Vx97hSo"
     }
   ],
   "counts": {
-    "observedReferences": 11120,
-    "logicalSurfaces": 6848,
-    "coverageEdges": 6848,
-    "targetCells": 6848
+    "observedReferences": 11132,
+    "logicalSurfaces": 6861,
+    "coverageEdges": 6861,
+    "targetCells": 6861
   }
 }

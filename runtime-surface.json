@@ -10,7 +10,8 @@
     "completions",
     "version",
     "debug",
-    "policy"
+    "policy",
+    "capsec"
   ],
   "hiddenHarnessCommands": ["self-test", "compat"],
   "reservedCommands": ["test", "install", "bench", "exec"],
@@ -67,6 +68,8 @@
         { "commandPath": "ibex", "argumentId": "stack_size", "parserKind": "utf8-string" },
         { "commandPath": "ibex build", "argumentId": "file", "parserKind": "utf8-string" },
         { "commandPath": "ibex build", "argumentId": "outdir", "parserKind": "os-path" },
+        { "commandPath": "ibex capsec audit", "argumentId": "args", "parserKind": "utf8-string" },
+        { "commandPath": "ibex capsec audit", "argumentId": "file", "parserKind": "utf8-string" },
         {
           "commandPath": "ibex compat",
           "argumentId": "jobs",
@@ -712,6 +715,50 @@
               "defaultValues": [],
               "defaultMissingValues": [],
               "allowHyphenValues": false
+            }
+          }
+        ]
+      },
+      {
+        "path": "ibex capsec"
+      },
+      {
+        "path": "ibex capsec audit",
+        "positionals": [
+          {
+            "id": "file",
+            "index": 1,
+            "passthrough": false,
+            "valueShape": {
+              "action": "Set",
+              "required": true,
+              "valueNames": ["FILE"],
+              "minValues": 1,
+              "maxValues": 1,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": false
+            }
+          },
+          {
+            "id": "args",
+            "index": 2,
+            "passthrough": true,
+            "valueShape": {
+              "action": "Append",
+              "required": false,
+              "valueNames": ["ARGS"],
+              "minValues": 0,
+              "maxValues": null,
+              "valueDomain": "arbitrary",
+              "possibleValues": [],
+              "possibleValuesHidden": false,
+              "defaultValues": [],
+              "defaultMissingValues": [],
+              "allowHyphenValues": true
             }
           }
         ]

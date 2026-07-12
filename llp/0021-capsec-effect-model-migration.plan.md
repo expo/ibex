@@ -900,9 +900,16 @@ package graph, empty dependency floors and dynamic ceilings, and the current
 semantic/registry identity. Auto and explicit enforce produce byte-identical
 snapshot documents and engine handshakes. The trusted module loader may read
 only source that canonicalizes under the authenticated project binding after
-the typed import gate succeeds. Remaining cutover work is ingesting a generated
-canonical policy into this same snapshot builder and moving audit to its
-separately named foreground command.
+the typed import gate succeeds. A project-local `ibex-policy.json` (or explicit
+`--policy`) is now accepted only as strict, digest-valid canonical typed policy;
+its package principals, typed floor/denial/ceiling rows, import axes,
+endowments, graph nodes, root and package import edges, and authenticated package-root
+bindings are projected one way into that same snapshot. Environment-selected
+policy paths and stale/tampered policy digests refuse. Production builds always
+enable enforce isolation and cannot persist audit or permissive posture.
+Diagnostic audit is a separately named foreground command,
+`ibex capsec audit <file>`; it accepts no durable policy or ambient endowment
+input and never becomes an armed production profile.
 
 Acceptance:
 

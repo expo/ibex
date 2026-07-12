@@ -209,7 +209,7 @@ async fn native_response_destroy_before_headers_unblocks_the_client() {
     let errored = evs
         .iter()
         .any(|e| e == "res-aborted" || e.starts_with("res-error:") || e.starts_with("req-error:"));
-    let synthesized_error_status = parsed["status"] == Value::from(500);
+    let synthesized_error_status = parsed["status"] == 500;
     assert!(
         errored || synthesized_error_status,
         "pre-header destroy should surface as a connection error or a synthesized 5xx, \

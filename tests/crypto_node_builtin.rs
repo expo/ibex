@@ -482,7 +482,7 @@ async fn ecdh_curves_primes_dh_encoding_and_cipher_validation() {
         try { c.createCipheriv('aes-128-ctr', Buffer.alloc(16), Buffer.alloc(3)); out.badIv = 'no-throw'; } \
         catch (e) { out.badIv = e.code; } \
         return JSON.stringify(out); })()";
-    let result = eval(&js).await;
+    let result = eval(js).await;
     let parsed: serde_json::Value = serde_json::from_str(&result).expect("JSON result");
     // On reduced profiles EC keygen may throw honestly; both are acceptable,
     // silently generating a P-256 key (length 65) is not.

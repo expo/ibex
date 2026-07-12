@@ -2546,7 +2546,7 @@ mod tests {
         let child = host
             .mint_typed_handle(
                 holder.clone(),
-                &[holder.clone()],
+                std::slice::from_ref(&holder),
                 holder.clone(),
                 photo,
                 Some(&parent),

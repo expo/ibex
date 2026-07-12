@@ -43,6 +43,7 @@ pub extern "C" fn ex_hermes_set_host_wake_hook(
     HOST_WAKE_HOOK_FN.store(hook.map_or(0, |f| f as usize), Ordering::Release);
 }
 
+#[cfg(any(not(feature = "cli-notify"), test))]
 fn invoke_host_wake_hook() {
     let raw_fn = HOST_WAKE_HOOK_FN.load(Ordering::Acquire);
     if raw_fn == 0 {

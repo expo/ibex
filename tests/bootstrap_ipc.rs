@@ -177,7 +177,7 @@ fn run_app_env_stdin(
     }
 }
 
-fn result_line<'a>(run: &'a AppRun) -> &'a str {
+fn result_line(run: &AppRun) -> &str {
     assert!(
         !run.timed_out,
         "app timed out\nstdout:\n{}\nstderr:\n{}",

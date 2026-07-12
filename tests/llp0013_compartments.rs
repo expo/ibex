@@ -729,7 +729,8 @@ fn generated_policy_keeps_delegation_version_local() {
         serde_json::from_str(&std::fs::read_to_string(&policy).unwrap()).unwrap();
     let principals = artifact["principals"].as_array().expect("principals array");
     // No helper-pkg selector (bare or identity) may carry a capability.
-    for key in ["helper-pkg@1.0.0"] {
+    {
+        let key = "helper-pkg@1.0.0";
         let entry = principals
             .iter()
             .find(|entry| entry["principal"]["locator"] == key)

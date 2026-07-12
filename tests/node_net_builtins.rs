@@ -480,7 +480,7 @@ s.on('close', function(hadErr) {
     );
     let events = parsed["events"].as_array().cloned().unwrap_or_default();
     assert_eq!(
-        events.get(0),
+        events.first(),
         Some(&Value::String("error:boom".to_string())),
         "error should be observable by a listener attached after destroy(): {parsed}"
     );

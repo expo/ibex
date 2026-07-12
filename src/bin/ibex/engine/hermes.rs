@@ -21,6 +21,12 @@ use {std::sync::OnceLock, tokio::sync::Notify};
 
 const REQUIRED_RUNTIME_MARKERS: &[&[u8]] = &[b"globalThis.__exactRuntime", b"ExactBundle"];
 
+#[cfg(test)]
+pub(crate) fn hermes_engine_test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(Mutex::default)
+}
+
 fn contains_any_marker(bytes: &[u8], markers: &[&[u8]]) -> bool {
     markers
         .iter()
@@ -1887,7 +1893,6 @@ mod tests {
     use std::net::TcpStream;
     #[cfg(feature = "host-http-server")]
     use std::sync::mpsc;
-    use std::sync::OnceLock;
     #[cfg(feature = "host-http-server")]
     use std::time::{Duration as StdDuration, Instant};
     #[cfg(feature = "host-http-server")]
@@ -2118,11 +2123,6 @@ mod tests {
         assert_eq!(repl_idle_wait(now as i64, now, floor, tiny), tiny);
     }
 
-    fn hermes_engine_test_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(Mutex::default)
-    }
-
     fn install_armed_test_host() -> (HostResetGuard, String) {
         install_armed_test_host_at(None, false, false, false, vec![])
     }
@@ -2312,7 +2312,6 @@ mod tests {
                 if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
                 if (__exactGetCwd() === undefined) denied++;
                 try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
-                __exactEnsureChildProcess();
                 try {{ __exactExecSync('touch ' + {marker:?}, '{{}}'); }} catch (_) {{ denied++; }}
                 try {{ __exactSpawnSync('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
                 try {{ __exactSpawn('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
@@ -2433,7 +2432,7 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
-                __exactEnsureNet();
+                if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
                 var socket = __exactTcpConnect('127.0.0.1', {port});
                 if (__exactTcpWrite(socket, 'x') !== 1) throw new Error('write');
                 __exactTcpClose(socket);
@@ -2485,7 +2484,7 @@ mod tests {
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
         let script = format!(
             r#"(function() {{
-                __exactEnsureNet();
+                if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
                 var socket = __exactUdpSocket('udp4');
                 var bindDenied = false;
                 try {{ __exactUdpBind(socket, '127.0.0.1', 0); }} catch (_) {{ bindDenied = true; }}
@@ -2524,7 +2523,7 @@ mod tests {
         ));
         let script = format!(
             r#"(function() {{
-                __exactEnsureNet();
+                if (typeof __exactEnsureNet === 'function') __exactEnsureNet();
                 var denied = 0;
                 try {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }} catch (_) {{ denied++; }}
                 try {{ __exactDnsLookup('localhost', 4); }} catch (_) {{ denied++; }}
@@ -2574,7 +2573,6 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
-                __exactEnsureFs();
                 var existing = __exactFsOpen({existing:?}, 'w');
                 __exactFsWrite(existing, 'new', -1);
                 __exactFsClose(existing);
@@ -2750,7 +2748,6 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
-                __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactFsOpen({existing:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({absent:?}, 'w'); }} catch (_) {{ denied++; }}
@@ -2842,7 +2839,6 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
-                __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactStat({file:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactReaddir({directory:?}); }} catch (_) {{ denied++; }}
@@ -2892,7 +2888,6 @@ mod tests {
 
         let script = format!(
             r#"(function() {{
-                __exactEnsureFs();
                 var denied = 0;
                 try {{ __exactFsOpen({parent_escape:?}, 'w'); }} catch (_) {{ denied++; }}
                 try {{ __exactFsOpen({final_escape:?}, 'w'); }} catch (_) {{ denied++; }}
@@ -3184,7 +3179,6 @@ mod tests {
             r#"(function() {{
                 function b2s(a) {{ return String.fromCharCode.apply(null, a); }}
                 // The POSIX fs bridge is installed lazily on first use.
-                __exactEnsureFs();
                 var fd = __exactFsOpen({path_str:?}, 'r');
                 // Positional read at offset 5 -> "fg". This must NOT advance the
                 // fd cursor, so the following sequential read starts from 0.

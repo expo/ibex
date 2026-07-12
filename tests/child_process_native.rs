@@ -111,7 +111,7 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line.split('|').find_map(|kv| kv.strip_prefix(key))
 }
 
-fn result_line<'a>(run: &'a AppRun) -> &'a str {
+fn result_line(run: &AppRun) -> &str {
     assert!(
         !run.timed_out,
         "app timed out (likely a deadlock regression)\nstdout:\n{}\nstderr:\n{}",

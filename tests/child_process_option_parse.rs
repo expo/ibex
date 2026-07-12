@@ -91,7 +91,7 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
     }
 }
 
-fn result_line<'a>(run: &'a AppRun) -> &'a str {
+fn result_line(run: &AppRun) -> &str {
     assert!(
         !run.timed_out,
         "app timed out\nstdout:\n{}\nstderr:\n{}",

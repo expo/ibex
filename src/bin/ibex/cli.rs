@@ -260,6 +260,12 @@ pub enum Commands {
         command: PolicyCommands,
     },
 
+    /// Run an explicit foreground capability audit diagnostic
+    Capsec {
+        #[command(subcommand)]
+        command: CapsecCommands,
+    },
+
     /// Run the hidden in-binary runtime smoke suite
     #[command(hide = true, name = "self-test")]
     SelfTest,
@@ -333,6 +339,17 @@ pub enum Commands {
         /// Override timeout per test in milliseconds (default: 6000)
         #[arg(long, value_name = "MS")]
         timeout: Option<u64>,
+    },
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum CapsecCommands {
+    /// Execute one file while reporting would-deny legacy compatibility calls
+    Audit {
+        #[arg(required = true)]
+        file: String,
+        #[arg(value_name = "ARGS", num_args = 0.., allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -1808,6 +1825,17 @@ mod tests {
     fn self_test_command_parses() {
         let cli = Cli::parse_from(["ibex", "self-test"]);
         assert!(matches!(cli.command, Some(Commands::SelfTest)));
+    }
+
+    #[test]
+    fn foreground_capsec_audit_command_parses() {
+        let cli = Cli::parse_from(["ibex", "capsec", "audit", "app.ts", "--arg"]);
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Capsec {
+                command: CapsecCommands::Audit { file, args },
+            }) if file == "app.ts" && args == ["--arg"]
+        ));
     }
 
     /// The registered exact-side checks invoke exactly this surface
