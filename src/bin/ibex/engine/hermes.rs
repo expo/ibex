@@ -3923,6 +3923,7 @@ cp \"$input\" \"$out\"\n";
             "storage-paths",
             "uptime",
             "user",
+            "cwd",
         ]
         .into_iter()
         .map(|name| {
@@ -3953,7 +3954,7 @@ cp \"$input\" \"$out\"\n";
                    os.totalmem(), os.freemem(), os.uptime(), os.endianness(),\
                    Object.keys(os.networkInterfaces()).length, os.loadavg().length,\
                    os.version(), os.machine(), os.availableParallelism(),\
-                   typeof os.userInfo().username, __exactGetProcessRSS()])",
+                   typeof os.userInfo().username, __exactGetProcessRSS(), __exactGetCwd()])",
             )
             .await
             .unwrap();
@@ -3965,8 +3966,8 @@ cp \"$input\" \"$out\"\n";
         );
         assert_eq!(
             observed.len(),
-            38,
-            "nineteen reads must authorize two stages each"
+            40,
+            "twenty reads must authorize two stages each"
         );
 
         let expected = [
@@ -4019,6 +4020,7 @@ cp \"$input\" \"$out\"\n";
             ("surface.native.op.exactgetcpucount.1k05aty", "cpus"),
             ("surface.native.op.exactgetuserinfo.027b1gs", "user"),
             ("surface.native.op.exactgetprocessrss.0o50wgs", "memory"),
+            ("surface.native.op.exactgetcwd.1bhagb7", "cwd"),
         ];
         for (index, (edge, name)) in expected.into_iter().enumerate() {
             let requested = &observed[index * 2];
@@ -4067,6 +4069,10 @@ cp \"$input\" \"$out\"\n";
                     {
                         "cap": "sys:read",
                         "resource": {"kind": "system-info", "name": "memory"}
+                    },
+                    {
+                        "cap": "sys:read",
+                        "resource": {"kind": "system-info", "name": "cwd"}
                     }
                 ]);
             });
@@ -4085,7 +4091,8 @@ cp \"$input\" \"$out\"\n";
                     var os = require('node:os');
                     var calls = [
                       function() { return os.cpus(); },
-                      function() { return __exactGetProcessRSS(); }
+                      function() { return __exactGetProcessRSS(); },
+                      function() { return __exactGetCwd(); }
                     ];
                     var denied = 0;
                     for (var i = 0; i < calls.length; i++) {
@@ -4100,12 +4107,12 @@ cp \"$input\" \"$out\"\n";
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(value, "2", "both public reads must deny before data access");
+        assert_eq!(value, "3", "all public reads must deny before data access");
         let (legacy, observed) = ibex_runtime::host::abi::take_installed_conformance_observations();
         assert!(legacy.is_empty());
         assert_eq!(
             observed.len(),
-            2,
+            3,
             "each denial must stop before Commit and read"
         );
         assert!(observed.iter().all(|decision| {
@@ -4120,6 +4127,7 @@ cp \"$input\" \"$out\"\n";
             vec![
                 "surface.native.op.exactgetcpucount.1k05aty",
                 "surface.native.op.exactgetprocessrss.0o50wgs",
+                "surface.native.op.exactgetcwd.1bhagb7",
             ]
         );
     }
@@ -4305,7 +4313,7 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn armed_process_and_environment_legacy_surfaces_stay_closed() {
+    async fn armed_process_and_environment_unmigrated_surfaces_stay_closed() {
         let _lock = hermes_engine_test_lock().lock().await;
         let original_cwd = std::env::current_dir().unwrap();
         let target = std::env::temp_dir();
@@ -4318,7 +4326,6 @@ cp \"$input\" \"$out\"\n";
                 var denied = 0;
                 if (__exactGetEnv('PATH') === undefined) denied++;
                 if (Object.keys(__exactGetAllEnv()).length === 0) denied++;
-                if (__exactGetCwd() === undefined) denied++;
                 try {{ __exactSetCwd({target:?}); }} catch (_) {{ denied++; }}
                 try {{ __exactExecSync('touch ' + {marker:?}, '{{}}'); }} catch (_) {{ denied++; }}
                 try {{ __exactSpawnSync('/usr/bin/touch', JSON.stringify([{marker:?}]), '{{}}'); }} catch (_) {{ denied++; }}
@@ -4329,7 +4336,7 @@ cp \"$input\" \"$out\"\n";
             marker = marker.to_str().unwrap(),
         );
         let outcome = engine.eval_immediate(&script).await.unwrap();
-        assert_eq!(outcome.as_deref(), Some("7"));
+        assert_eq!(outcome.as_deref(), Some("6"));
         assert_eq!(std::env::current_dir().unwrap(), original_cwd);
         assert!(!marker.exists());
     }

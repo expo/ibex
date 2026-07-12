@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(179);
+    expect(nativePublicFixtures).toHaveLength(181);
     expect(
       nativePublicFixtures
         .filter(
@@ -1119,42 +1119,48 @@ describe("exact-target CapSec executable recipes", () => {
     );
   });
 
-  test("binds process RSS to the exact typed memory selector and stages", () => {
-    const processRss = recipes.recipes.filter(
-      (recipe) =>
-        recipe.publicSurfaceProbe?.invocation?.globalName ===
-        "__exactGetProcessRSS",
-    );
-    expect(processRss).toHaveLength(2);
-    expect(processRss.map((recipe) => recipe.scenario)).toEqual([
-      "allow",
-      "deny",
-    ]);
-    for (const recipe of processRss) {
-      expect(recipe).toMatchObject({
-        actionIds: ["sys:read"],
-        status: "fully-executable",
-        residualReasons: [],
-        publicSurfaceProbe: {
-          invocation: {
-            requiredFloor: [
-              {
-                cap: "sys:read",
-                resource: { kind: "system-info", name: "memory" },
-              },
-            ],
-            expectedActionIds: ["sys:read"],
-          },
-        },
-      });
-      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
-        recipe.scenario === "allow"
-          ? ["requested", "commit"]
-          : ["requested"],
+  test("binds direct system-info calls to exact typed selectors and stages", () => {
+    for (const { globalName, name } of [
+      { globalName: "__exactGetProcessRSS", name: "memory" },
+      { globalName: "__exactGetCwd", name: "cwd" },
+    ]) {
+      const directSystemInfo = recipes.recipes.filter(
+        (recipe) =>
+          recipe.publicSurfaceProbe?.invocation?.globalName === globalName,
       );
-      expect(
-        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
-      ).toBe(recipe.scenario === "allow" ? 2 : 1);
+      expect(directSystemInfo).toHaveLength(2);
+      expect(directSystemInfo.map((recipe) => recipe.scenario)).toEqual([
+        "allow",
+        "deny",
+      ]);
+      for (const recipe of directSystemInfo) {
+        expect(recipe).toMatchObject({
+          actionIds: ["sys:read"],
+          status: "fully-executable",
+          residualReasons: [],
+          publicSurfaceProbe: {
+            invocation: {
+              requiredFloor: [
+                {
+                  cap: "sys:read",
+                  resource: { kind: "system-info", name },
+                },
+              ],
+              expectedActionIds: ["sys:read"],
+            },
+          },
+        });
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedTypedStages,
+        ).toEqual(
+          recipe.scenario === "allow"
+            ? ["requested", "commit"]
+            : ["requested"],
+        );
+        expect(
+          recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+        ).toBe(recipe.scenario === "allow" ? 2 : 1);
+      }
     }
   });
 

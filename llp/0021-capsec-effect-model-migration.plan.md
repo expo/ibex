@@ -866,11 +866,13 @@ before armed artifact I/O.
 Ad-hoc eval/print, explicit or implicit REPL entry, and debug-registry commands
 are likewise rejected at the production dispatcher/runtime boundary before
 arming artifact I/O, engine allocation, or evaluation of supplied code.
-At runtime the unmigrated environment and process-cwd surfaces are explicitly
-closed: individual environment reads return `undefined`, enumeration returns an
-empty object, cwd disclosure returns `undefined`, and cwd mutation is denied
-without changing the host process directory. A live armed fixture covers all
-four boundaries.
+At runtime the unmigrated environment surfaces are explicitly closed:
+individual environment reads return `undefined` and enumeration returns an
+empty object. Process cwd disclosure now uses the same exact typed `sys:read`
+plane as other system information: requested and commit authorize the `cwd`
+selector before `getcwd`, while denial occurs before disclosure. Cwd mutation
+remains denied without changing the host process directory. Live armed
+fixtures cover these boundaries.
 The same live fixture invokes shell exec, synchronous spawn, and asynchronous
 spawn with a real marker-file command. All three are denied at the armed native
 boundary and the marker remains absent, so executable selection, child

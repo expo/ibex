@@ -847,6 +847,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
     ]),
   ],
   ["__exactGetCpuCount", nativeSystemInfoTemplate("cpus")],
+  ["__exactGetCwd", nativeSystemInfoTemplate("cwd")],
   ["__exactGetFreeMem", nativeSystemInfoTemplate("memory")],
   ["__exactGetHostname", nativeSystemInfoTemplate("hostname")],
   ["__exactGetLoadAvg", nativeSystemInfoTemplate("load-average")],

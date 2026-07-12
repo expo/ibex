@@ -540,6 +540,7 @@ enum class ExactSystemInfoSurface : uint32_t {
   UserInfo = 7,
   CachedValue = 8,
   ProcessRss = 9,
+  Cwd = 10,
 };
 
 enum class ExactSystemInfoName : uint32_t {
