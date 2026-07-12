@@ -282,7 +282,7 @@ ${registrationLines.join('\n')}
 ];
 
 #[rustfmt::skip]
-pub(crate) const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
+pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
 ${gatedBuiltinLines.join('\n')}
 ];
 

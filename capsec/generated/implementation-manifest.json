@@ -69397,8 +69397,12 @@
         "src/module_loader/mod.rs#module_cache_key:external:qualified:DefaultHasher::new:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::canonicalize:count-1",
         "src/module_loader/mod.rs#module_cache_key:external:qualified:std::fs::metadata:count-1",
-        "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:ends_with:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:extension:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:file_name:count-2",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:is_some_and:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:map:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:unwrap_or:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:qualified:Self::source_needs_downlevel:count-1",
@@ -69675,8 +69679,12 @@
         "src/module_loader/mod.rs#module_kind_from_path:external:method:extension:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:map:count-1",
         "src/module_loader/mod.rs#module_kind_from_path:external:method:to_ascii_lowercase:count-1",
-        "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:call:Some:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:and_then:count-3",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:ends_with:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:extension:count-1",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:file_name:count-2",
+        "src/module_loader/mod.rs#needs_js_downlevel:external:method:is_some_and:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:map:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:method:unwrap_or:count-1",
         "src/module_loader/mod.rs#needs_js_downlevel:external:qualified:Self::source_needs_downlevel:count-1",
@@ -144050,7 +144058,7 @@
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-2NVhcAPJ_RxfVLoygUynLx5lW1TZPefuVy4NpcFZhSM"
+      "rawContentDigest": "sha256-9sr2LIPBYCxvzaO2ot0989UcQxOYFx0Eyx3YonEByqs"
     },
     {
       "kind": "markdown",
@@ -144089,7 +144097,7 @@
     }
   ],
   "counts": {
-    "observedReferences": 11132,
+    "observedReferences": 11140,
     "logicalSurfaces": 6861,
     "coverageEdges": 6861,
     "targetCells": 6861

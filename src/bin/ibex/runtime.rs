@@ -1755,13 +1755,18 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     let policy_principals = policy["principals"]
         .as_array()
         .context("canonical policy principals must be an array")?;
+    let mut root_builtins = crate::module_loader::RUNTIME_GATED_NODE_BUILTINS
+        .iter()
+        .map(|name| format!("node:{name}"))
+        .collect::<Vec<_>>();
+    root_builtins.sort();
     let mut snapshot_principals = vec![serde_json::json!({
         "principal": {"kind": "root", "identity": "project-root"},
         "floor": [],
         "denials": [],
         "escalationCeiling": [],
         "imports": {
-            "builtins": [],
+            "builtins": root_builtins,
             "packages": policy_principals.iter().filter_map(|row| row["principal"]["locator"].as_str()).collect::<Vec<_>>()
         },
         "endowments": [],
@@ -1905,6 +1910,34 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
         "hostPath": {"root": "absolute", "components": components, "hostBound": true},
         "object": root_object,
     })];
+    let cache_root = runtime_cache_dir()?;
+    std::fs::create_dir_all(&cache_root)?;
+    let cache_root = std::fs::canonicalize(cache_root)?;
+    let cache_components = cache_root
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => Some(serde_json::json!({
+                "encoding": "utf8",
+                "value": value.to_str().expect("advertised target paths must be UTF-8"),
+            })),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    #[cfg(unix)]
+    let cache_object = {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(&cache_root)?;
+        serde_json::json!({
+            "platform": "apple",
+            "volume": format!("dev:{}", metadata.dev()),
+            "file": format!("ino:{}", metadata.ino()),
+        })
+    };
+    root_bindings.push(serde_json::json!({
+        "logicalRoot": "home",
+        "hostPath": {"root": "absolute", "components": cache_components, "hostBound": true},
+        "object": cache_object,
+    }));
     root_bindings.extend(package_bindings);
     value["rootBindings"] = serde_json::Value::Array(root_bindings);
     value["protectedObjects"] = serde_json::json!([{

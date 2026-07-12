@@ -927,6 +927,21 @@ for each advertised target. Exercise the real Exact/Snapback graphs and the npm
 compatibility corpus as product-quality evidence, not as a reason to preserve
 the old policy format.
 
+Implementation status (2026-07-11): the only advertised complete profile is
+`aarch64-apple-darwin` with patched Hermes frame attribution, native
+compartments, and native lockdown. `bun run verify:capsec-conformance` executes
+the serialized Rust/JS/red-team commands from a clean tree and publishes a
+revision-, tree-, engine-, vocabulary-, registry-, implementation-, target-,
+and fixture-catalog-bound report. The current run proves all 6,861 inventory
+cells and all 21,597 required fixture obligations with zero missing or failed
+outcomes. The standalone Hermes transform and loader corpora pass 15/15 and
+16/16. An isolated copy of the Exact quick corpus was also exercised: the
+default empty-policy posture intentionally closes tests needing filesystem,
+network, process, or crypto authority rather than silently widening them;
+policy-free, non-authority compatibility results are evidence only and are not
+used to raise this claim ceiling. Other desktop and mobile targets remain
+unadvertised and production startup refuses them.
+
 Acceptance:
 
 - Every authorable edge has positive, negative, wrong-principal, malformed,

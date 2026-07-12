@@ -133,7 +133,7 @@ pub(crate) const BUILTIN_MANIFEST_REGISTRATIONS: &[BuiltinManifestRegistration] 
 ];
 
 #[rustfmt::skip]
-pub(crate) const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
+pub const RUNTIME_GATED_NODE_BUILTINS: &[&str] = &[
     r"assert",
     r"async_hooks",
     r"buffer",

@@ -3641,7 +3641,11 @@ if (!Object.hasOwn(Writable.prototype, "writableFinished")) try {
 } catch (_defErr) {}
 Writable.prototype.__exactWritableProtoPatched = true;
 Object.defineProperty(Writable, Symbol.hasInstance, { value: function(object) {
-	if (Function.prototype[Symbol.hasInstance].call(this, object)) return true;
+	var prototype = object == null ? null : Object.getPrototypeOf(object);
+	while (prototype) {
+		if (prototype === this.prototype) return true;
+		prototype = Object.getPrototypeOf(prototype);
+	}
 	if (this !== Writable) return false;
 	return object != null && typeof object === "object" && object._writableState != null;
 } });

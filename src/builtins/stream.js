@@ -4802,8 +4802,13 @@ Writable.prototype.__exactWritableProtoPatched = true;
 // Custom Symbol.hasInstance so Duplex instances pass `instanceof Writable`
 Object.defineProperty(Writable, Symbol.hasInstance, {
   value: function(object) {
-    // First check the normal prototype chain
-    if (Function.prototype[Symbol.hasInstance].call(this, object)) return true;
+    // Lockdown removes the mutable Function.prototype @@hasInstance hook.
+    // Walk the prototype chain directly so this remains usable after taming.
+    var prototype = object == null ? null : Object.getPrototypeOf(object);
+    while (prototype) {
+      if (prototype === this.prototype) return true;
+      prototype = Object.getPrototypeOf(prototype);
+    }
     if (this !== Writable) return false;
     // For Writable specifically, also check if object has _writableState
     // This allows Duplex (which inherits from Readable, not Writable) to pass

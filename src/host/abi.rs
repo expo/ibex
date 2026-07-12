@@ -2217,7 +2217,7 @@ pub extern "C" fn ex_host_module_resolve(
             record
         }
         Err(err) => json!({
-            "error": err.to_string()
+            "error": format!("{err:#}")
         }),
     };
 

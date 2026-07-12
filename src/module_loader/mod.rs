@@ -257,6 +257,17 @@ impl ModuleLoader {
     }
 
     fn needs_js_downlevel(path: &Path, source: &str) -> bool {
+        // Runtime bundler outputs are already lowered for Hermes. Re-parsing
+        // their script/IIFE wrapper as a module can reject legal top-level
+        // `return` statements before the generated entry is ever evaluated.
+        if path.file_name().and_then(OsStr::to_str) == Some("bundle.js")
+            || path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name.ends_with(".bundle.js"))
+        {
+            return false;
+        }
         path.extension()
             .and_then(OsStr::to_str)
             .map(|ext| matches!(ext, "js" | "mjs" | "cjs"))
@@ -1908,6 +1919,10 @@ const asyncIterable = {
         assert!(ModuleLoader::source_needs_async_downlevel(source));
         assert!(ModuleLoader::needs_js_downlevel(
             std::path::Path::new("fixture.js"),
+            source
+        ));
+        assert!(!ModuleLoader::needs_js_downlevel(
+            std::path::Path::new("bundle.js"),
             source
         ));
     }
