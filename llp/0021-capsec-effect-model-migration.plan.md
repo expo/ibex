@@ -714,6 +714,10 @@ and package import axes from the authenticated snapshot. Numeric engine module
 IDs bind only to a matching package name plus locator from that snapshot;
 unknown or mismatched registrations fail closed. Root and package import checks
 therefore no longer consult `PolicyFile` once armed.
+Armed runtime construction also rejects every inspector activation and
+configuration flag (`inspect`, wait/open/pause, host, and port) before reading
+arming artifacts or allocating the engine. The initial profile therefore has
+no debugger protocol route into package memory or runtime internals.
 
 ### WP8 — Port handles, dynamic authority, and audit evidence
 

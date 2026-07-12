@@ -1534,6 +1534,17 @@ fn build_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             "--capsec-armed-snapshot and --capsec-arming-identity must be provided together"
         ),
         (Some(snapshot_path), Some(identity_path)) => {
+            if cli.inspect
+                || cli.inspect_wait
+                || cli.inspect_open
+                || cli.inspect_pause
+                || cli.inspect_port.is_some()
+                || cli.inspect_host.is_some()
+            {
+                anyhow::bail!(
+                    "armed capability startup closes inspector activation and configuration"
+                );
+            }
             if cli.policy.is_some()
                 || !cli.allow.is_empty()
                 || !cli.deny.is_empty()
@@ -3406,6 +3417,38 @@ mod tests {
             !error.contains("failed to read"),
             "override must fail before artifact I/O: {error}"
         );
+    }
+
+    #[test]
+    fn armed_startup_closes_every_inspector_activation_before_io() {
+        for inspector_args in [
+            vec!["--inspect"],
+            vec!["--inspect-wait"],
+            vec!["--inspect-open"],
+            vec!["--inspect-pause"],
+            vec!["--inspect-port", "9230"],
+            vec!["--inspect-host", "127.0.0.1"],
+        ] {
+            let mut args = vec![
+                "ibex",
+                "--capsec-armed-snapshot",
+                "missing-snapshot.json",
+                "--capsec-arming-identity",
+                "missing-identity.json",
+            ];
+            args.extend(inspector_args);
+            args.push("app.ts");
+            let cli = Cli::parse_from(args);
+            let error = build_host(&cli)
+                .err()
+                .expect("armed inspector configuration must be closed")
+                .to_string();
+            assert!(error.contains("closes inspector"), "{error}");
+            assert!(
+                !error.contains("failed to read"),
+                "inspector closure must precede artifact I/O: {error}"
+            );
+        }
     }
 
     #[test]
