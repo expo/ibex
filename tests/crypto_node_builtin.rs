@@ -762,6 +762,75 @@ process.stdout.write(JSON.stringify(signatures.map((entry, i) =>
     );
 }
 
+/// The macOS default profile must import Node's unencrypted PKCS#8 EC keys
+/// without the optional OpenSSL backend, while keeping the compatibility
+/// fallback deliberately narrow. Malformed algorithm/curve identifiers,
+/// inconsistent embedded public points, and trailing DER must throw rather
+/// than being reinterpreted as symmetric HMAC keys.
+#[cfg(all(target_os = "macos", not(feature = "openssl-crypto")))]
+#[tokio::test]
+async fn macos_default_ec_pkcs8_import_is_strict() {
+    let oracle = r#"
+const c = require('crypto');
+const pair = c.generateKeyPairSync('ec', {
+  namedCurve: 'prime256v1',
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+});
+process.stdout.write(JSON.stringify(pair));
+"#;
+    let oracle_output = match Command::new("node").arg("-e").arg(oracle).output().await {
+        Ok(output) if output.status.success() => output,
+        _ => {
+            eprintln!("skipping strict PKCS#8 import test: Node oracle unavailable");
+            return;
+        }
+    };
+    let pair = String::from_utf8(oracle_output.stdout).expect("Node key pair JSON is UTF-8");
+    let js = format!(
+        r#"(function(){{
+          var c = require('crypto');
+          var pair = {pair};
+          var msg = Buffer.from('strict-pkcs8-import');
+          function pemToDer(pem) {{
+            return Buffer.from(pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, ''), 'base64');
+          }}
+          function derToPem(der) {{
+            var body = der.toString('base64').replace(/(.{{64}})/g, '$1\n');
+            return '-----BEGIN PRIVATE KEY-----\n' + body +
+              (body.endsWith('\n') ? '' : '\n') + '-----END PRIVATE KEY-----\n';
+          }}
+          function replaceLastByte(der, hex, value) {{
+            var needle = Buffer.from(hex, 'hex');
+            var offset = der.indexOf(needle);
+            if (offset < 0) throw new Error('test DER marker missing');
+            var copy = Buffer.from(der);
+            copy[offset + needle.length - 1] = value;
+            return copy;
+          }}
+          function rejects(der) {{
+            try {{ c.sign('sha256', msg, derToPem(der)); return false; }}
+            catch (_) {{ return true; }}
+          }}
+          var der = pemToDer(pair.privateKey);
+          var valid = c.sign('sha256', msg, pair.privateKey);
+          var badPoint = Buffer.from(der); badPoint[badPoint.length - 1] ^= 1;
+          return JSON.stringify({{
+            valid: c.verify('sha256', msg, pair.publicKey, valid),
+            algorithm: rejects(replaceLastByte(der, '06072a8648ce3d0201', 2)),
+            curve: rejects(replaceLastByte(der, '06082a8648ce3d030107', 8)),
+            point: rejects(badPoint),
+            trailing: rejects(Buffer.concat([der, Buffer.from([0])]))
+          }});
+        }})()"#
+    );
+    let result = eval(&js).await;
+    assert_eq!(
+        result, r#"{"valid":true,"algorithm":true,"curve":true,"point":true,"trailing":true}"#,
+        "default SecKey PKCS#8 import must accept only a consistent supported EC key"
+    );
+}
+
 /// ENG-23465 finding 3: verify.verify(key, signature, signatureEncoding)
 /// decodes hex/base64 signature strings (they always verified false before).
 #[tokio::test]

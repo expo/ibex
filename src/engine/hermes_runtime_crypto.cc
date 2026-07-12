@@ -1078,6 +1078,348 @@ static int opensslVerifyMessageCore(
 
 #if defined(__APPLE__) && !defined(EXACT_PLATFORM_IOS)
 // SecItemImport/SecItemExport are macOS-only APIs (not available on iOS)
+
+struct DerValue {
+  const uint8_t* data = nullptr;
+  size_t size = 0;
+};
+
+class DerReader {
+ public:
+  DerReader(const uint8_t* data, size_t size) : cursor_(data), end_(data + size) {}
+
+  bool read(uint8_t expectedTag, DerValue& value) {
+    if (cursor_ == end_ || *cursor_++ != expectedTag || cursor_ == end_) {
+      return false;
+    }
+
+    size_t length = *cursor_++;
+    if ((length & 0x80) != 0) {
+      const size_t lengthBytes = length & 0x7f;
+      if (lengthBytes == 0 || lengthBytes > 4 ||
+          static_cast<size_t>(end_ - cursor_) < lengthBytes ||
+          *cursor_ == 0) {
+        return false;
+      }
+      length = 0;
+      for (size_t i = 0; i < lengthBytes; ++i) {
+        length = (length << 8) | *cursor_++;
+      }
+      // DER requires the shortest definite-length encoding.
+      if (length < 128) {
+        return false;
+      }
+    }
+
+    if (length > static_cast<size_t>(end_ - cursor_)) {
+      return false;
+    }
+    value = {cursor_, length};
+    cursor_ += length;
+    return true;
+  }
+
+  bool empty() const { return cursor_ == end_; }
+  uint8_t nextTag() const { return cursor_ == end_ ? 0 : *cursor_; }
+
+ private:
+  const uint8_t* cursor_;
+  const uint8_t* end_;
+};
+
+static bool isPemSpace(char ch) {
+  return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
+static int base64Value(char ch) {
+  if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+  if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+  if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+  if (ch == '+') return 62;
+  if (ch == '/') return 63;
+  return -1;
+}
+
+// Decode exactly one unencrypted PKCS#8 PEM block. This intentionally accepts
+// no alternate labels, concatenated blocks, non-canonical padding, or trailing
+// non-whitespace: the fallback below must never broaden arbitrary strings into
+// asymmetric key material.
+static bool decodePkcs8PrivateKeyPem(
+    const std::string& pem,
+    std::vector<uint8_t>& der) {
+  static constexpr char kHeader[] = "-----BEGIN PRIVATE KEY-----";
+  static constexpr char kFooter[] = "-----END PRIVATE KEY-----";
+  if (pem.size() > 32 * 1024) return false;
+
+  size_t offset = 0;
+  while (offset < pem.size() && isPemSpace(pem[offset])) ++offset;
+  const size_t headerLength = sizeof(kHeader) - 1;
+  if (pem.compare(offset, headerLength, kHeader) != 0) return false;
+  offset += headerLength;
+  if (offset == pem.size() || !isPemSpace(pem[offset])) return false;
+
+  const auto footer = pem.find(kFooter, offset);
+  if (footer == std::string::npos) return false;
+  const size_t footerLength = sizeof(kFooter) - 1;
+  for (size_t i = footer + footerLength; i < pem.size(); ++i) {
+    if (!isPemSpace(pem[i])) return false;
+  }
+
+  std::string encoded;
+  encoded.reserve(footer - offset);
+  for (size_t i = offset; i < footer; ++i) {
+    if (isPemSpace(pem[i])) continue;
+    if (base64Value(pem[i]) < 0 && pem[i] != '=') return false;
+    encoded.push_back(pem[i]);
+  }
+  if (encoded.empty() || encoded.size() % 4 != 0) return false;
+
+  der.clear();
+  der.reserve(encoded.size() / 4 * 3);
+  for (size_t i = 0; i < encoded.size(); i += 4) {
+    const bool isLast = i + 4 == encoded.size();
+    const int a = base64Value(encoded[i]);
+    const int b = base64Value(encoded[i + 1]);
+    const int c = base64Value(encoded[i + 2]);
+    const int d = base64Value(encoded[i + 3]);
+    if (a < 0 || b < 0) return false;
+
+    der.push_back(static_cast<uint8_t>((a << 2) | (b >> 4)));
+    if (encoded[i + 2] == '=') {
+      if (!isLast || encoded[i + 3] != '=' || (b & 0x0f) != 0) return false;
+      continue;
+    }
+    if (c < 0) return false;
+    der.push_back(static_cast<uint8_t>((b << 4) | (c >> 2)));
+    if (encoded[i + 3] == '=') {
+      if (!isLast || (c & 0x03) != 0) return false;
+      continue;
+    }
+    if (d < 0) return false;
+    der.push_back(static_cast<uint8_t>((c << 6) | d));
+  }
+  return true;
+}
+
+static bool derValueEquals(
+    const DerValue& value,
+    const uint8_t* expected,
+    size_t expectedSize) {
+  return value.size == expectedSize &&
+      std::memcmp(value.data, expected, expectedSize) == 0;
+}
+
+static void appendDerLength(std::vector<uint8_t>& output, size_t length) {
+  if (length < 128) {
+    output.push_back(static_cast<uint8_t>(length));
+    return;
+  }
+  uint8_t bytes[sizeof(size_t)];
+  size_t count = 0;
+  while (length != 0) {
+    bytes[count++] = static_cast<uint8_t>(length & 0xff);
+    length >>= 8;
+  }
+  output.push_back(static_cast<uint8_t>(0x80 | count));
+  while (count != 0) output.push_back(bytes[--count]);
+}
+
+static void appendDerTlv(
+    std::vector<uint8_t>& output,
+    uint8_t tag,
+    const uint8_t* value,
+    size_t valueSize) {
+  output.push_back(tag);
+  appendDerLength(output, valueSize);
+  output.insert(output.end(), value, value + valueSize);
+}
+
+// Security.framework imports SEC1 EC private keys, but not the ordinary
+// PKCS#8 EC private keys emitted by Node/OpenSSL on every supported macOS
+// release. Strictly validate the two nested ASN.1 structures, inject the named
+// curve parameters from PrivateKeyInfo into ECPrivateKey, and import that SEC1
+// representation. No generic PEM/DER parser or symmetric fallback is involved.
+// @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
+static SecKeyRef importNodePkcs8EcPrivateKey(const std::string& pemText) {
+  static constexpr uint8_t kEcPublicKeyOid[] = {
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01};
+  static constexpr uint8_t kP256Oid[] = {
+      0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07};
+  static constexpr uint8_t kP384Oid[] = {0x2b, 0x81, 0x04, 0x00, 0x22};
+  static constexpr uint8_t kP521Oid[] = {0x2b, 0x81, 0x04, 0x00, 0x23};
+  struct CurveSpec {
+    const uint8_t* oid;
+    size_t oidSize;
+    size_t coordinateSize;
+    int keySizeBits;
+  };
+  static constexpr CurveSpec kCurves[] = {
+      {kP256Oid, sizeof(kP256Oid), 32, 256},
+      {kP384Oid, sizeof(kP384Oid), 48, 384},
+      {kP521Oid, sizeof(kP521Oid), 66, 521},
+  };
+
+  std::vector<uint8_t> pkcs8;
+  if (!decodePkcs8PrivateKeyPem(pemText, pkcs8)) return nullptr;
+
+  DerReader rootReader(pkcs8.data(), pkcs8.size());
+  DerValue privateKeyInfo;
+  if (!rootReader.read(0x30, privateKeyInfo) || !rootReader.empty()) return nullptr;
+  DerReader privateKeyInfoReader(privateKeyInfo.data, privateKeyInfo.size);
+  DerValue version;
+  DerValue algorithmIdentifier;
+  DerValue privateKey;
+  static constexpr uint8_t kPkcs8Version[] = {0x00};
+  if (!privateKeyInfoReader.read(0x02, version) ||
+      !derValueEquals(version, kPkcs8Version, sizeof(kPkcs8Version)) ||
+      !privateKeyInfoReader.read(0x30, algorithmIdentifier) ||
+      !privateKeyInfoReader.read(0x04, privateKey) ||
+      !privateKeyInfoReader.empty()) {
+    return nullptr;
+  }
+
+  DerReader algorithmReader(algorithmIdentifier.data, algorithmIdentifier.size);
+  DerValue algorithmOid;
+  DerValue curveOid;
+  if (!algorithmReader.read(0x06, algorithmOid) ||
+      !derValueEquals(algorithmOid, kEcPublicKeyOid, sizeof(kEcPublicKeyOid)) ||
+      !algorithmReader.read(0x06, curveOid) || !algorithmReader.empty()) {
+    return nullptr;
+  }
+  const CurveSpec* curve = nullptr;
+  for (const auto& candidate : kCurves) {
+    if (derValueEquals(curveOid, candidate.oid, candidate.oidSize)) {
+      curve = &candidate;
+      break;
+    }
+  }
+  if (!curve) return nullptr;
+
+  DerReader sec1RootReader(privateKey.data, privateKey.size);
+  DerValue ecPrivateKey;
+  if (!sec1RootReader.read(0x30, ecPrivateKey) || !sec1RootReader.empty()) {
+    return nullptr;
+  }
+  DerReader ecPrivateKeyReader(ecPrivateKey.data, ecPrivateKey.size);
+  DerValue ecVersion;
+  DerValue privateScalar;
+  static constexpr uint8_t kEcVersion[] = {0x01};
+  if (!ecPrivateKeyReader.read(0x02, ecVersion) ||
+      !derValueEquals(ecVersion, kEcVersion, sizeof(kEcVersion)) ||
+      !ecPrivateKeyReader.read(0x04, privateScalar) ||
+      privateScalar.size != curve->coordinateSize) {
+    return nullptr;
+  }
+
+  if (ecPrivateKeyReader.nextTag() == 0xa0) {
+    DerValue parameters;
+    if (!ecPrivateKeyReader.read(0xa0, parameters)) return nullptr;
+    DerReader parametersReader(parameters.data, parameters.size);
+    DerValue innerCurveOid;
+    if (!parametersReader.read(0x06, innerCurveOid) ||
+        !derValueEquals(innerCurveOid, curve->oid, curve->oidSize) ||
+        !parametersReader.empty()) {
+      return nullptr;
+    }
+  }
+
+  DerValue publicKeyField;
+  if (!ecPrivateKeyReader.read(0xa1, publicKeyField) ||
+      !ecPrivateKeyReader.empty()) {
+    return nullptr;
+  }
+  DerReader publicKeyReader(publicKeyField.data, publicKeyField.size);
+  DerValue publicKeyBits;
+  if (!publicKeyReader.read(0x03, publicKeyBits) || !publicKeyReader.empty() ||
+      publicKeyBits.size != 2 + 2 * curve->coordinateSize ||
+      publicKeyBits.data[0] != 0 || publicKeyBits.data[1] != 0x04) {
+    return nullptr;
+  }
+
+  std::vector<uint8_t> parameters;
+  appendDerTlv(parameters, 0x06, curve->oid, curve->oidSize);
+  std::vector<uint8_t> publicKey;
+  appendDerTlv(publicKey, 0x03, publicKeyBits.data, publicKeyBits.size);
+  std::vector<uint8_t> sec1Contents;
+  appendDerTlv(sec1Contents, 0x02, kEcVersion, sizeof(kEcVersion));
+  appendDerTlv(
+      sec1Contents, 0x04, privateScalar.data, privateScalar.size);
+  appendDerTlv(sec1Contents, 0xa0, parameters.data(), parameters.size());
+  appendDerTlv(sec1Contents, 0xa1, publicKey.data(), publicKey.size());
+  std::vector<uint8_t> sec1;
+  appendDerTlv(sec1, 0x30, sec1Contents.data(), sec1Contents.size());
+
+  auto keyData = adoptCF(CFDataCreate(
+      kCFAllocatorDefault,
+      sec1.data(),
+      static_cast<CFIndex>(sec1.size())));
+  if (!keyData) return nullptr;
+  SecItemImportExportKeyParameters keyParams{};
+  keyParams.version = SEC_KEY_IMPORT_EXPORT_PARAMS_VERSION;
+  SecExternalFormat inputFormat = kSecFormatOpenSSL;
+  SecExternalItemType itemType = kSecItemTypePrivateKey;
+  CFArrayRef importedItems = nullptr;
+  const auto status = SecItemImport(
+      keyData.get(),
+      nullptr,
+      &inputFormat,
+      &itemType,
+      0,
+      &keyParams,
+      nullptr,
+      &importedItems);
+  auto importedItemsHandle = adoptCF(importedItems);
+  if (status != errSecSuccess || !importedItemsHandle ||
+      CFArrayGetCount(importedItemsHandle.get()) != 1) {
+    return nullptr;
+  }
+  auto maybeKey = CFArrayGetValueAtIndex(importedItemsHandle.get(), 0);
+  if (!maybeKey || CFGetTypeID(maybeKey) != SecKeyGetTypeID()) return nullptr;
+  auto key = static_cast<SecKeyRef>(const_cast<void*>(maybeKey));
+
+  auto attributes = adoptCF(SecKeyCopyAttributes(key));
+  if (!attributes) return nullptr;
+  auto importedKeyType =
+      CFDictionaryGetValue(attributes.get(), kSecAttrKeyType);
+  auto importedKeyClass =
+      CFDictionaryGetValue(attributes.get(), kSecAttrKeyClass);
+  if (!importedKeyType || !importedKeyClass ||
+      !CFEqual(importedKeyType, kSecAttrKeyTypeECSECPrimeRandom) ||
+      !CFEqual(importedKeyClass, kSecAttrKeyClassPrivate)) {
+    return nullptr;
+  }
+  int keySizeBits = 0;
+  auto keySize = static_cast<CFNumberRef>(
+      CFDictionaryGetValue(attributes.get(), kSecAttrKeySizeInBits));
+  if (!keySize || !CFNumberGetValue(
+                      keySize, kCFNumberIntType, &keySizeBits) ||
+      keySizeBits != curve->keySizeBits) {
+    return nullptr;
+  }
+
+  // Confirm that Security.framework derived the same public point carried in
+  // the PKCS#8 key. This rejects internally inconsistent scalar/point pairs.
+  auto derivedPublicKey = adoptCF(SecKeyCopyPublicKey(key));
+  CFErrorRef exportError = nullptr;
+  auto derivedPublicBytes = derivedPublicKey
+      ? adoptCF(SecKeyCopyExternalRepresentation(
+            derivedPublicKey.get(), &exportError))
+      : CFRefPtr<CFDataRef>(nullptr);
+  auto exportErrorHandle = adoptCF(exportError);
+  if (!derivedPublicBytes ||
+      static_cast<size_t>(CFDataGetLength(derivedPublicBytes.get())) !=
+          publicKeyBits.size - 1 ||
+      std::memcmp(
+          CFDataGetBytePtr(derivedPublicBytes.get()),
+          publicKeyBits.data + 1,
+          publicKeyBits.size - 1) != 0) {
+    return nullptr;
+  }
+
+  CFRetain(key);
+  return key;
+}
+
 static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType itemType) {
   auto keyBytes = std::vector<uint8_t>(pemText.begin(), pemText.end());
   CFUniquePtr keyData(static_cast<const void*>(CFDataCreate(
@@ -1124,6 +1466,9 @@ static SecKeyRef importPemKey(const std::string& pemText, SecExternalItemType it
   }
 
   if (status != noErr || !importedItems) {
+    if (itemType == kSecItemTypePrivateKey) {
+      return importNodePkcs8EcPrivateKey(pemText);
+    }
     return nullptr;
   }
 
@@ -2582,9 +2927,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         auto key = adoptCF(importPemKey(keyText, kSecItemTypePrivateKey));
         if (!key) {
 #if !defined(EXACT_NO_OPENSSL)
-          // Security.framework does not import Node's ordinary PKCS#8 EC
-          // private keys on every macOS version. Use the already-linked,
-          // asymmetric OpenSSL parser as a strict fallback; malformed or
+          // Keep the feature-gated asymmetric OpenSSL parser for key kinds
+          // outside the strict SecKey import surface. Malformed or
           // non-asymmetric keys still fail here and can never reach HMAC.
           // @ref LLP 0006#platform-native-crypto-with-honest-reduced-profiles
           const EVP_MD* digest = openSslDigestForAlgorithm(hashName);
