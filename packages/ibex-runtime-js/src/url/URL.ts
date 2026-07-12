@@ -609,14 +609,29 @@ export class URL {
     if (typeof hostURL === "function") {
       try {
         const parsed = base ? new hostURL(input, base.href) : new hostURL(input);
-        const parsedProtocol = String(parsed.protocol);
-        const parsedHostname = String(parsed.hostname);
-        const parsedHref = String(parsed.href);
+        const requiredStringFields = [
+          "protocol",
+          "username",
+          "password",
+          "hostname",
+          "port",
+          "pathname",
+          "search",
+          "hash",
+          "href",
+        ];
+        const parsedRecord = parsed as unknown as Record<string, unknown>;
+        const malformedHostResult = requiredStringFields.some(
+          (field) => typeof parsedRecord[field] !== "string",
+        );
+        const parsedProtocol = malformedHostResult ? "" : parsed.protocol;
+        const parsedHostname = malformedHostResult ? "" : parsed.hostname;
+        const parsedHref = malformedHostResult ? "" : parsed.href;
         const discardedRequiredAuthority =
           SPECIAL_SCHEMES.has(parsedProtocol.slice(0, -1)) &&
           parsedProtocol !== "file:" &&
           (parsedHostname === "" || !parsedHref.startsWith(`${parsedProtocol}//`));
-        if (!discardedRequiredAuthority) {
+        if (!malformedHostResult && !discardedRequiredAuthority) {
           this._protocol = parsed.protocol;
           this._username = parsed.username;
           this._password = parsed.password;
@@ -635,9 +650,10 @@ export class URL {
       } catch {
         throw _makeURLError(input, baseStr);
       }
-      // The bootstrap URL shim can recognize a scheme while silently dropping
-      // its authority. Re-run that structurally impossible result through the
-      // runtime's closed parser; never pass the truncated endpoint onward.
+      // The bootstrap URL shim can return malformed fields or recognize a
+      // scheme while silently dropping its authority. Re-run that structurally
+      // impossible result through the runtime's closed parser; never pass the
+      // truncated endpoint onward.
     }
 
     const parsed = parseBasicUrl(input, base);

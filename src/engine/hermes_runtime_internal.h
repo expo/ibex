@@ -689,6 +689,11 @@ inline bool parseNetworkUrl(
     }
     return false;
   };
+  for (unsigned char byte : url) {
+    if (byte <= 0x20 || byte == 0x7f) {
+      return fail("ASCII control or space");
+    }
+  }
   auto scheme_end = url.find("://");
   if (scheme_end == std::string::npos || scheme_end == 0) {
     return fail("missing scheme");

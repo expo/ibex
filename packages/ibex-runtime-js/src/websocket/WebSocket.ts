@@ -124,9 +124,7 @@ export class WebSocket extends EventTarget {
     super();
 
     // Normalize URL
-    const urlString = url && typeof url === 'object' && typeof (url as any).href === 'string'
-      ? (url as any).href
-      : String(url);
+    const urlString = String(url);
 
     if (urlString.includes('#')) {
       throw new DOMException(

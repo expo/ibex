@@ -4215,6 +4215,12 @@ cp \"$input\" \"$out\"\n";
                 try {{ __nativeFetch('http://127.0.0.1:9/', {{}}); }} catch (_) {{ denied++; }}
                 try {{ __exactDnsLookup('localhost', 4); }} catch (_) {{ denied++; }}
                 try {{ __exactWsConnect('ws://127.0.0.1:9/', '', {{}}); }} catch (_) {{ denied++; }}
+                var nulUrlRejected = false;
+                try {{ __exactWsConnect('ws://127.0.0.1:9/\u0000suffix', '', {{}}); }}
+                catch (error) {{
+                  nulUrlRejected = String(error && error.message || error).indexOf('ASCII control') !== -1;
+                }}
+                if (!nulUrlRejected) throw new Error('NUL-bearing WebSocket URL was not rejected');
                 try {{ __exactTcpListen('127.0.0.1', 0, 1, 0, 0); }} catch (_) {{ denied++; }}
                 try {{ __exactHttpServe(0, '127.0.0.1'); }} catch (_) {{ denied++; }}
                 try {{ __exactUnixConnect({socket_path:?}); }} catch (_) {{ denied++; }}
