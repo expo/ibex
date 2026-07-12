@@ -711,6 +711,10 @@ connect occurrences under the distinct `network:connect` action and retained
 verified-peer/connection facts. A package fixture proves a fetch-only floor
 cannot yield raw TCP authority, while a matching connect floor commits the
 verified public peer.
+The C ABI accepts the complete staged network fact set for fetch and connect,
+maps authenticated numeric frame stacks to typed principals, and rejects
+noncanonical host/IP text, duplicate-key or ill-typed candidate JSON, invalid
+ports/stages/transports, and unsafe redirect counters before host evaluation.
 
 Acceptance:
 

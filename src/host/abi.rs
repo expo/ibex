@@ -1193,6 +1193,191 @@ pub unsafe extern "C" fn ex_host_authorize_typed_fs_stack(
     )
 }
 
+/// Authorize one staged fetch or raw-connect occurrence from an engine adapter.
+/// Returns 1 allow, 0 deny, and -1 for malformed or unsupported input.
+///
+/// `network_kind` is 0/1 for HTTP/HTTPS fetch and 2..=7 for
+/// TCP/TLS/UDP/WS/WSS/WebTransport connect. `stage` is requested, candidate,
+/// commit, delivery, repeat, or cleanup as 0..=5. Candidates are a canonical
+/// JSON array of IP address strings; optional strings use null pointers.
+///
+/// # Safety
+/// All pointer/length pairs and C strings must remain valid for this call.
+#[no_mangle]
+pub unsafe extern "C" fn ex_host_authorize_typed_network_stack(
+    module_id: u64,
+    module_ids: *const u64,
+    module_ids_len: usize,
+    network_kind: u32,
+    host: *const c_char,
+    port: u16,
+    stage: u32,
+    candidates_json: *const c_char,
+    selected_candidate: *const c_char,
+    verified_peer: *const c_char,
+    connection_id: *const c_char,
+    redirect_index: u64,
+) -> i32 {
+    use capsec_semantics::decision::DecisionOutcome;
+    use capsec_semantics::model::{
+        ConcreteHost, ConnectTransport, DnsName, FetchScheme, IpAddress, NonEmptyString, Port,
+        SafeUint, Stage, VerifiedPeer,
+    };
+
+    if module_ids.is_null()
+        || module_ids_len == 0
+        || module_ids_len > 257
+        || host.is_null()
+        || candidates_json.is_null()
+        || port == 0
+        || stage > 5
+        || network_kind > 7
+    {
+        return -1;
+    }
+    let stage = match stage {
+        0 => Stage::Requested,
+        1 => Stage::Candidate,
+        2 => Stage::Commit,
+        3 => Stage::Delivery,
+        4 => Stage::Repeat,
+        5 => Stage::Cleanup,
+        _ => return -1,
+    };
+    let host_text = unsafe { CStr::from_ptr(host) }.to_string_lossy();
+    let concrete_host = match host_text.parse::<std::net::IpAddr>() {
+        Ok(address) if address.to_string() == host_text => ConcreteHost::Ip {
+            address: IpAddress::new(address),
+        },
+        Ok(_) => return -1,
+        Err(_) => match DnsName::new(host_text.as_ref()) {
+            Ok(name) => ConcreteHost::DnsName { name },
+            Err(_) => return -1,
+        },
+    };
+    let Some(port) = Port::new(port) else {
+        return -1;
+    };
+    let candidates_text = unsafe { CStr::from_ptr(candidates_json) }.to_bytes();
+    let candidates: Vec<IpAddress> = match std::str::from_utf8(candidates_text)
+        .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))
+        .and_then(capsec_semantics::strict_json::parse_strict)
+        .and_then(|value| {
+            serde_json::from_value(value)
+                .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))
+        }) {
+        Ok(candidates) => candidates,
+        Err(_) => return -1,
+    };
+    let parse_optional_ip = |value: *const c_char| -> Option<Option<IpAddress>> {
+        if value.is_null() {
+            return Some(None);
+        }
+        let text = unsafe { CStr::from_ptr(value) }.to_string_lossy();
+        let address = text.parse::<std::net::IpAddr>().ok()?;
+        (address.to_string() == text).then_some(Some(IpAddress::new(address)))
+    };
+    let Some(selected_candidate) = parse_optional_ip(selected_candidate) else {
+        return -1;
+    };
+    let Some(verified_address) = parse_optional_ip(verified_peer) else {
+        return -1;
+    };
+    let verified_peer = verified_address.map(|address| VerifiedPeer { address, port });
+    let connection_id = if connection_id.is_null() {
+        None
+    } else {
+        match NonEmptyString::new(
+            unsafe { CStr::from_ptr(connection_id) }
+                .to_string_lossy()
+                .into_owned(),
+        ) {
+            Ok(value) => Some(value),
+            Err(_) => return -1,
+        }
+    };
+    let redirect_index = if redirect_index == u64::MAX {
+        None
+    } else {
+        match SafeUint::new(redirect_index) {
+            Ok(value) => Some(value),
+            Err(_) => return -1,
+        }
+    };
+    let module_ids = unsafe { std::slice::from_raw_parts(module_ids, module_ids_len) };
+    with_host(
+        |host| {
+            let mut constrained_principals = match module_ids
+                .iter()
+                .map(|id| host.typed_principal_for_module(&id.to_string()))
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(principals) => principals,
+                None => return -1,
+            };
+            constrained_principals
+                .sort_by_key(|principal| serde_json::to_vec(principal).unwrap_or_default());
+            constrained_principals.dedup();
+            let result = match network_kind {
+                0 | 1 => host.authorize_typed_fetch_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    if network_kind == 0 {
+                        FetchScheme::Http
+                    } else {
+                        FetchScheme::Https
+                    },
+                    concrete_host,
+                    port,
+                    stage,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    connection_id,
+                    redirect_index,
+                ),
+                2..=7 => host.authorize_typed_connect_stage(
+                    &module_id.to_string(),
+                    constrained_principals,
+                    match network_kind {
+                        2 => ConnectTransport::Tcp,
+                        3 => ConnectTransport::Tls,
+                        4 => ConnectTransport::Udp,
+                        5 => ConnectTransport::Ws,
+                        6 => ConnectTransport::Wss,
+                        7 => ConnectTransport::Webtransport,
+                        _ => unreachable!(),
+                    },
+                    concrete_host,
+                    port,
+                    stage,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    connection_id,
+                ),
+                _ => return -1,
+            };
+            match result {
+                Ok(decision)
+                    if matches!(
+                        decision.outcome,
+                        DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                    ) =>
+                {
+                    1
+                }
+                Ok(_) => 0,
+                Err(error) => {
+                    eprintln!("error: typed network authorization refused: {error}");
+                    -1
+                }
+            }
+        },
+        -1,
+    )
+}
+
 #[cfg(unix)]
 fn object_identity_for_fd(fd: i32) -> Option<capsec_semantics::model::ObjectIdentity> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
@@ -3207,6 +3392,69 @@ mod tests {
                 }
             });
         }
+    }
+
+    #[test]
+    fn typed_network_abi_rejects_noncanonical_inputs_before_host_lookup() {
+        let ids = [0u64];
+        let candidates = CString::new("[]").unwrap();
+        let uppercase_host = CString::new("API.example.com").unwrap();
+        let canonical_host = CString::new("api.example.com").unwrap();
+        let malformed_candidates = CString::new(r#"{"a":1,"a":2}"#).unwrap();
+
+        let uppercase = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                uppercase_host.as_ptr(),
+                443,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(uppercase, -1);
+
+        let duplicate_key = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                canonical_host.as_ptr(),
+                443,
+                0,
+                malformed_candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                u64::MAX,
+            )
+        };
+        assert_eq!(duplicate_key, -1);
+
+        let unsafe_redirect = unsafe {
+            ex_host_authorize_typed_network_stack(
+                0,
+                ids.as_ptr(),
+                ids.len(),
+                1,
+                canonical_host.as_ptr(),
+                443,
+                0,
+                candidates.as_ptr(),
+                ptr::null(),
+                ptr::null(),
+                ptr::null(),
+                9_007_199_254_740_992,
+            )
+        };
+        assert_eq!(unsafe_redirect, -1);
     }
 
     struct FailingWriter;
