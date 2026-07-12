@@ -2668,6 +2668,11 @@ mod tests {
         include!("capsec_public_target_absence_batch.rs");
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    mod capsec_public_noncap_builtin_batch {
+        include!("capsec_public_noncap_builtin_batch.rs");
+    }
+
     use std::fs;
     #[cfg(feature = "host-http-server")]
     use std::io::{Read, Write};
