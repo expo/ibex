@@ -726,8 +726,15 @@ registry publication remains on the attributed runtime thread. The remaining
 descriptor metadata/disclosure operations (`fstat`, truncate, sync, ownership,
 mode, and times, including their worker-backed forms) reuse the retained
 descriptor and typed repeat checks. Synchronous and worker-backed whole-file
-reads use their own registry edges and accept only retained regular files.
-They perform one full repeat decision per descriptor lease and cheaply compare
+reads use their own conjunctive registry edges: `fs:list` authorizes requested
+path lookup and retained-object discovery, then `fs:read` authorizes commit
+immediately before the first byte can be observed and every repeat lease. The
+private descriptor open between discovery and commit discloses no file bytes
+and does not add a redundant read-discovery decision. Public `Cargo.toml`
+allow/deny recipes prove the four-stage action sequence and fail closed at the
+first list decision when lookup authority is absent. Whole-file reads accept
+only retained regular files. They perform one full repeat decision per
+descriptor lease and cheaply compare
 negative, dynamic, and handle generations before each chunk; any change
 re-enters the full evaluator before more bytes are observed. Leases are local
 to the exact operation and retained descriptors, so operation/gate/principal/
@@ -1163,7 +1170,10 @@ the complete executable-recipe catalog, and a separate public-surface execution
 artifact. All three are immutable regular files addressed by their raw content,
 and the report and attestation bind the catalog and public-execution semantic
 digests. Adapter-probe evidence is a distinct diagnostic schema and is rejected
-at publication. The generator re-derives the exact required fixture set and
+at publication. `IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT` only selects the
+harness-owned diagnostic artifact destination; it never supplies authority,
+policy, a principal, a target claim, or production runtime input. The generator
+re-derives the exact required fixture set and
 requires one passing authored public-surface invocation (or target-absence
 probe) with the selected terminal observation for every recipe, with zero
 residual, missing, duplicate, or failed rows. It then derives every cell and

@@ -550,6 +550,11 @@ function validateRuntimeInvocation(observation, recipe) {
     !authored.expectedActionIds.every(
       (actionId) => typeof actionId === "string" && actionId.length > 0,
     ) ||
+    authored.expectedActionIds.some(
+      (actionId) => !recipe.actionIds.includes(actionId),
+    ) ||
+    (authored.expectedTypedDecisionCount > 0 &&
+      authored.expectedActionIds.length === 0) ||
     canonicalJson(authored.allowedCoverageEdgeIds) !==
       canonicalJson(canonicalSet(authored.allowedCoverageEdgeIds)) ||
     canonicalJson(authored.expectedActionIds) !==

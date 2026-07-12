@@ -718,6 +718,29 @@ const nativeProjectMetadataTemplate = () =>
     requiredSourceArity: 2,
     setup: [],
   });
+const nativeProjectReadFileTemplate = () =>
+  Object.freeze({
+    actionIds: ["fs:list", "fs:read"],
+    arguments: [literalArgument("Cargo.toml"), literalArgument(null)],
+    expectedDecisionCounts: { allow: 4, deny: 1 },
+    expectedResults: { allow: "return", deny: "permission-denied" },
+    expectedStages: {
+      allow: ["requested", "discovery", "commit", "repeat"],
+      deny: ["requested"],
+    },
+    requiredFloor: [
+      {
+        cap: "fs:list",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+      {
+        cap: "fs:read",
+        resource: projectPathExactResource("Cargo.toml"),
+      },
+    ],
+    requiredSourceArity: 2,
+    setup: [],
+  });
 // Structural lockdown eagerly invokes these installers and then deletes the
 // globals before user code can run. Their source registrations are real, but a
 // post-load public harness must report them as unavailable rather than claiming
@@ -934,6 +957,7 @@ export const NATIVE_PUBLIC_PROBE_TEMPLATES = new Map([
   ["__exactGetUptime", nativeSystemInfoTemplate("uptime")],
   ["__exactGetUserInfo", nativeSystemInfoTemplate("user")],
   ["__exactLstat", nativeProjectMetadataTemplate()],
+  ["__exactReadFile", nativeProjectReadFileTemplate()],
   ["__exactRealpath", nativeProjectMetadataTemplate()],
   ["__exactStat", nativeProjectMetadataTemplate()],
   [
@@ -1207,6 +1231,7 @@ function nativePublicProbeForPlan({
   scenario,
   route,
   liveByObservedKey,
+  adapterProbe,
 }) {
   const targetAbsence = plan.expectedObservation.kind === "target-absence";
   const surfaceObservedKey = targetAbsence
@@ -1344,6 +1369,14 @@ function nativePublicProbeForPlan({
     };
   }
   const sourceDescriptor = clone(invocation);
+  const expectedStages = template.expectedStages[scenario];
+  const expectedActionIds = adapterProbe
+    ? canonicalSet(
+        adapterProbe.cases
+          .filter((adapterCase) => expectedStages.includes(adapterCase.stage))
+          .flatMap((adapterCase) => adapterCase.actionIds),
+      )
+    : clone(plan.actionIds);
   return {
     unavailableReason: null,
     probe: {
@@ -1376,10 +1409,10 @@ function nativePublicProbeForPlan({
           bindNativeSetupSources(setup, liveByObservedKey),
         ),
         expectedResult: template.expectedResults[scenario],
-        expectedTypedStages: clone(template.expectedStages[scenario]),
+        expectedTypedStages: clone(expectedStages),
         expectedTypedDecisionCount: template.expectedDecisionCounts[scenario],
         allowedCoverageEdgeIds: clone(plan.edgeIds),
-        expectedActionIds: clone(plan.actionIds),
+        expectedActionIds,
       },
     },
   };
@@ -1587,6 +1620,7 @@ export function buildConformanceRecipeCatalog({
       scenario,
       route,
       liveByObservedKey,
+      adapterProbe,
     });
     const authoredPublicSurfaceProbes = callbackInvariantProbe
       ? [callbackInvariantProbe]

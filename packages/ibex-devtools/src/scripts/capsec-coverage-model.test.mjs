@@ -1068,6 +1068,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       surface("native-op", "__exactReadFile"),
       context,
     );
+    expect(edgeActions(classified)).toEqual(["fs:list", "fs:read"]);
     const effect = classified.edge.effects.find((row) => row.cap === "fs:read");
     const definition = definitions.definitions.find(
       (row) => row.id === "fs:read",

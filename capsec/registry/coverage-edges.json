@@ -133834,6 +133834,16 @@
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
+      "id": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_authorize_typed_environment_read_stack"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "classification": "non-capability",
       "surface": {
@@ -190628,6 +190638,22 @@
       },
       "effects": [
         {
+          "cap": "fs:list",
+          "selectorNormalizer": "fs.path.selector.v1",
+          "occurrenceNormalizer": "fs.path.occurrence.v1",
+          "stages": [
+            "requested",
+            "discovery"
+          ],
+          "positiveSources": [
+            "ambient-root",
+            "handle",
+            "implicit-self",
+            "session",
+            "static-floor"
+          ]
+        },
+        {
           "cap": "fs:read",
           "selectorNormalizer": "fs.path.selector.v1",
           "occurrenceNormalizer": "fs.path.occurrence.v1",
@@ -244795,6 +244821,16 @@
       },
       "cap": "runtime:inspect",
       "rationale": "IBEX_CAPSEC_ALLOW_ADVISORY can weaken, widen, or replace shared runtime security and trust behavior."
+    },
+    {
+      "id": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
       "id": "surface.startup.env.ibex.capsec.recipe.catalog.1590m4m",

@@ -113581,6 +113581,40 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv",
+      "observedKey": "host-abi:ex_host_authorize_typed_environment_read_stack",
+      "branchId": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_authorize_typed_environment_read_stack"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_typed_environment_read_stack"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_authorize_typed_environment_read_stack"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_authorize_typed_environment_read_stack"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_authorize_typed_environment_read_stack"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default.non-capability",
+        "surface.host.abi.ex.host.authorize.typed.environment.read.stack.08r7vbv.default.post-lockdown-invariant"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna",
       "observedKey": "host-abi:ex_host_authorize_typed_fs_stack",
       "branchId": "surface.host.abi.ex.host.authorize.typed.fs.stack.1j5vvna.default",
@@ -152608,7 +152642,7 @@
       "edgeId": "surface.native.op.exactreadfile.1cmzco7",
       "observedKey": "native-op:__exactReadFile",
       "branchId": "surface.native.op.exactreadfile.1cmzco7.default",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -152635,18 +152669,18 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci.allow",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci.deny",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0vnwqci.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.allow",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.deny",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.cc.exactreadfile.0bk9p97.wrong-principal"
       ]
     },
     {
       "edgeId": "surface.native.op.exactreadfile.1cmzco7",
       "observedKey": "native-op:__exactReadFile",
       "branchId": "surface.native.op.exactreadfile.1cmzco7.windows",
-      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov",
+      "enforcementBranchId": "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e",
       "enforcementRoute": {
         "kind": "exact-source-and-semantics",
         "proofPaths": [
@@ -152674,11 +152708,11 @@
       ],
       "implementationOwner": "WP5",
       "fixtureObligations": [
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov.allow",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov.deny",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov.malformed",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov.missing-attribution",
-        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.0a6tbov.wrong-principal"
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e.allow",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e.deny",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e.malformed",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e.missing-attribution",
+        "enforcement.src.engine.hermes.runtime.fs.windows.cc.exactreadfile.1phia4e.wrong-principal"
       ]
     },
     {
@@ -248017,6 +248051,37 @@
       ]
     },
     {
+      "edgeId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2",
+      "observedKey": "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
+      "branchId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2.main",
+      "enforcementBranchId": "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT"
+        ],
+        "proofSourceRefs": [
+          "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+        ],
+        "sourceRefs": [
+          "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+        ],
+        "terminalObservedKey": "startup:env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/bin/ibex/engine/capsec_conformance_batch.rs#env::var:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT:read"
+      ],
+      "implementationOwner": "WP9",
+      "fixtureObligations": [
+        "surface.startup.env.ibex.capsec.public.batch.evidence.output.1fl72f2.main.non-capability"
+      ]
+    },
+    {
       "edgeId": "surface.startup.env.ibex.capsec.recipe.catalog.1590m4m",
       "observedKey": "startup:env:IBEX_CAPSEC_RECIPE_CATALOG",
       "branchId": "surface.startup.env.ibex.capsec.recipe.catalog.1590m4m.main",
@@ -254080,6 +254145,7 @@
         "surface.native.op.exactnativemoduleresolvemeta.05tdyxr",
         "surface.native.op.exactopendir.0eh7ha4",
         "surface.native.op.exactreaddir.0tg30vk",
+        "surface.native.op.exactreadfile.1cmzco7",
         "surface.native.op.exactrealpath.06qb6s2",
         "surface.native.op.exactrename.10zwbcv",
         "surface.native.op.exactrmdir.1mew8oz",
@@ -254128,7 +254194,7 @@
         "surface.startup.env.node.extra.ca.certs.0brff6f",
         "surface.startup.env.path.1sio6bc"
       ],
-      "rationale": "Covered by 345 observed effect edges."
+      "rationale": "Covered by 346 observed effect edges."
     },
     {
       "definitionId": "fs:read",

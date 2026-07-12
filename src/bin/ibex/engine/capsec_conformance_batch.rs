@@ -1160,7 +1160,21 @@ fn validate_native_runtime_observation(
         );
     }
     assert_eq!(invocation.allowed_coverage_edge_ids, recipe.edge_ids);
-    assert_eq!(invocation.expected_action_ids, recipe.action_ids);
+    assert!(
+        invocation
+            .expected_action_ids
+            .iter()
+            .all(|action| recipe.action_ids.contains(action)),
+        "{}: runtime-observed action expectation exceeds the semantic recipe",
+        recipe.fixture_id
+    );
+    if invocation.expected_typed_decision_count > 0 {
+        assert!(
+            !invocation.expected_action_ids.is_empty(),
+            "{}: typed runtime expectation has no action",
+            recipe.fixture_id
+        );
+    }
     assert_eq!(
         legacy_observations, 0,
         "legacy checks are not public typed evidence"

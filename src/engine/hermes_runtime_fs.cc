@@ -917,15 +917,13 @@ static std::pair<std::shared_ptr<int>, std::string> prepareArmedReadTarget(
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   // A missing read target must reach openat so callers receive ENOENT. There
-  // is no fs:read effect for an absent-create object to authorize.
+  // is no fs:read effect for an absent-create object to authorize. For an
+  // existing target, opening a private retained descriptor discloses no file
+  // bytes; the actual object is authorized at commit before the first read and
+  // then rechecked at repeat.
+  // @ref LLP 0021#decision-staging-and-principal-semantics
   auto absent = targetAbsentAt(*parent, name);
   if (!absent) throwFsError(runtime, "open", path);
-  if (!*absent &&
-      ex_host_authorize_typed_fs_open(
-          principal, path.c_str(), 4, surface, *parent, -1, 1, 0,
-          presented) != 1) {
-    throw facebook::jsi::JSError(runtime, "Permission denied");
-  }
   return {std::move(parent), std::move(name)};
 }
 

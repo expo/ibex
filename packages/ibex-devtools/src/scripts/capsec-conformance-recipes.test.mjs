@@ -1315,6 +1315,72 @@ describe("exact-target CapSec executable recipes", () => {
     }
   });
 
+  test("composes project lookup and content authority for whole-file reads", () => {
+    const readFile = recipes.recipes.filter(
+      (recipe) =>
+        recipe.publicSurfaceProbe?.invocation?.globalName === "__exactReadFile",
+    );
+    expect(readFile).toHaveLength(2);
+    expect(readFile.map((recipe) => recipe.scenario)).toEqual([
+      "allow",
+      "deny",
+    ]);
+    for (const recipe of readFile) {
+      expect(recipe).toMatchObject({
+        actionIds: ["fs:list", "fs:read"],
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          invocation: {
+            arguments: [
+              { kind: "json-literal", value: "Cargo.toml" },
+              { kind: "json-literal", value: null },
+            ],
+            requiredFloor: [
+              {
+                cap: "fs:list",
+                resource: {
+                  kind: "path-exact",
+                  path: {
+                    root: "project",
+                    components: [
+                      { encoding: "utf8", value: "Cargo.toml" },
+                    ],
+                  },
+                },
+              },
+              {
+                cap: "fs:read",
+                resource: {
+                  kind: "path-exact",
+                  path: {
+                    root: "project",
+                    components: [
+                      { encoding: "utf8", value: "Cargo.toml" },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      });
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedActionIds,
+      ).toEqual(
+        recipe.scenario === "allow" ? ["fs:list", "fs:read"] : ["fs:list"],
+      );
+      expect(recipe.publicSurfaceProbe.invocation.expectedTypedStages).toEqual(
+        recipe.scenario === "allow"
+          ? ["requested", "discovery", "commit", "repeat"]
+          : ["requested"],
+      );
+      expect(
+        recipe.publicSurfaceProbe.invocation.expectedTypedDecisionCount,
+      ).toBe(recipe.scenario === "allow" ? 4 : 1);
+    }
+  });
+
   test("preserves multiple argument-selected terminal routes", () => {
     const recipe = recipes.recipes.find(
       (candidate) =>

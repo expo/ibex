@@ -5099,8 +5099,10 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_set_module_dispatch_callback",
     "ex_hermes_set_module_sync_callback",
     "ex_host_armed_endowments",
+    "ex_host_authorize_typed_environment_read_stack",
     "ex_host_authorize_typed_fs_stack",
     "ex_host_authorize_typed_network_stack",
+    "ex_host_authorize_typed_print_stack",
     "ex_host_authorize_typed_system_info_stack",
     "ex_host_authorize_typed_udp_datagram_stack",
     "ex_host_check_capability",
@@ -11662,7 +11664,7 @@ function hostAbiClassification(name) {
   if (!name.startsWith("exhost")) return null;
 
   if (
-    /^(?:exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
+    /^(?:exhostauthorizetypedenvironmentreadstack|exhostauthorizetypedfsstack|exhostauthorizetypednetworkstack|exhostauthorizetypedprintstack|exhostauthorizetypedsysteminfostack|exhostauthorizetypedudpdatagramstack|exhostclaimarmedcontext|exhostclaimdiagnosticcontext|exhostcheckcapability|exhostcheckcapabilitynofollowfinal|exhostcheckcapabilitystack|exhostcheckcapabilitystacknofollowfinal|exhostcheckhandlemint|exhostcheckimport|exhostentercontext|exhostevaluatetypeddecision|exhostgrantcapability|exhosthandlecheck|exhosthandlecreate|exhosthandlerevoke|exhosthandlescoped|exhosthasdeputyclasses|exhostisallowall|exhostisarmed|exhostlegacyauthorizationcacheable|exhostlegacyauthorizationgeneration|exhostlogevent|exhostpermissionrequest|exhostpermissionrevoke|exhostpermissionstatus|exhostregistermodulepackage|exhostreleasecontext|exhostrestorecontext|exhosttypeddynamicgrant|exhosttypeddynamicrevoke|exhosttypedgenerations|exhosttypedhandlemint|exhosttypedhandlerevoke)$/u.test(
       name,
     )
   ) {
@@ -12582,6 +12584,17 @@ function classifyConcreteSurface(surface) {
     ) {
       return effectSpec(
         descriptorOperation ? ["fs:write"] : ["fs:list", "fs:write"],
+        "filesystem",
+        "WP5",
+        descriptorOptions,
+      );
+    }
+    // @ref LLP 0021#typed-resources-and-initial-vocabulary — a path-based
+    // whole-file read discloses lookup metadata before it reads content, so
+    // exactReadFile composes independent list and read effects.
+    if (/^exactreadfile$/u.test(name)) {
+      return effectSpec(
+        ["fs:list", "fs:read"],
         "filesystem",
         "WP5",
         descriptorOptions,
