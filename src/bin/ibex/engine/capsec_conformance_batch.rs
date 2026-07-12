@@ -1,9 +1,7 @@
 use super::*;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use sha2::Digest as _;
 use std::collections::BTreeMap;
-use std::io::Write as _;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -378,4 +376,3 @@ async fn capsec_executable_recipe_adapter_batch() {
     output.write_all(b"\n").expect("finish adapter evidence");
     output.sync_all().expect("sync adapter evidence artifact");
 }
-
