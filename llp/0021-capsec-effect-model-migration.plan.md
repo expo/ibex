@@ -1023,7 +1023,7 @@ cannot cross snapshot identities, public grant requests cannot widen the static
 ceiling, and lockdown remains structurally immutable. A feature-gated one-shot
 observer records only the actual principal and runtime nonce; it cannot evaluate
 or authorize an operation, and the harness deletes its global before the public
-invariant operation runs. The 2,822 applicable non-capability fixtures carry
+invariant operation runs. The 2,836 applicable non-capability fixtures carry
 runtime-derived results, exact structured typed outcomes/reasons where an
 auxiliary decision is required, and zero legacy observations. This closes those
 recipe obligations without advertising a target; target promotion remains gated

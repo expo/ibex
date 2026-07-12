@@ -102,7 +102,7 @@ describe("exact-target CapSec executable recipes", () => {
     );
     // Callback-invariant probes intentionally take precedence for 30 native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(191);
+    expect(nativePublicFixtures).toHaveLength(193);
     expect(
       nativePublicFixtures
         .filter(
@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_822);
+    expect(callbackRecipes).toHaveLength(2_836);
     expect(
       Object.fromEntries(
         [
@@ -352,12 +352,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 556,
-      "generation-recheck": 556,
-      "principal-restore": 556,
-      "snapshot-mismatch-deny": 556,
-      "cannot-widen-authority": 299,
-      "post-lockdown-invariant": 299,
+      "attribution-missing-deny": 557,
+      "generation-recheck": 557,
+      "principal-restore": 557,
+      "snapshot-mismatch-deny": 557,
+      "cannot-widen-authority": 304,
+      "post-lockdown-invariant": 304,
     });
     expect(
       callbackRecipes.every(

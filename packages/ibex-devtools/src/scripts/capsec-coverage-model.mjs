@@ -35,6 +35,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__StringBuffer",
   "__compartments",
   "__ex_p",
+  "__ibexCapsecContextObserver_",
   "__exact",
   "__exactAccess",
   "__exactAccessibilitySnapshot",
@@ -2785,6 +2786,7 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactOSVersion",
   "__exactSetCompartmentFor",
   "__ibex",
+  "__ibexCapsecContextObserver_",
   "__ibexLockedDown",
   "__ibexTamed",
   "native_fetch_cancel",
@@ -6327,8 +6329,6 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:<dynamic>:javascript:process.env",
     "env:<dynamic>:javascript:process.env[]",
     "env:<dynamic>:javascript:process[]",
-    "env:<dynamic>:rust:env::remove_var",
-    "env:<dynamic>:rust:env::set_var",
     "env:<dynamic>:rust:env::var",
     "env:<dynamic>:rust:env::var_os",
     "env:<dynamic>:rust:env::vars",
@@ -12000,6 +12000,9 @@ function classifyConcreteSurface(surface) {
       return nativeEscapeClassification(text);
     }
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
+    if (surface.name === "__ibexCapsecContextObserver_") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
     const nativeNetworkBackend = nativeNetworkBackendClassification(
       surface.name,
     );

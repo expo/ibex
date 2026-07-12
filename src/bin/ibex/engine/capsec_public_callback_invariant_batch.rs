@@ -1472,7 +1472,7 @@ async fn capsec_public_callback_invariant_batch() {
             .entry(recipe.scenario.as_str())
             .or_insert(0usize) += 1;
     }
-    assert_eq!(recipes.len(), 2_822);
+    assert_eq!(recipes.len(), 2_836);
     assert_eq!(by_scenario.get("attribution-missing-deny"), Some(&556));
     assert_eq!(by_scenario.get("generation-recheck"), Some(&556));
     assert_eq!(by_scenario.get("principal-restore"), Some(&556));
