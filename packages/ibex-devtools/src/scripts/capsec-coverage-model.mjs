@@ -2807,7 +2807,7 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
 // @ref LLP 0013#mechanism-1-lockdown — every reachable
 // Function-family evaluator must remain closed by the initial profile.
 const REVIEWED_HERMES_EVALUATOR_REVIEW_ID =
-  "hermes-evaluators.30d158ff776c29d55fee650ca956cc4ba0d34c480344b451f80670cdcbd6c601";
+  "hermes-evaluators.87790c6a143328434dae2d2370018b8881123674203ea7aeb86c048308b4ed31";
 const REVIEWED_HERMES_LOCKDOWN_TAMING_DIGEST =
   "sha256-8e6f277ae960175a3b0d16dd2276576f3be5e17c4e5a8d9cb9da47dc239096f8";
 const REVIEWED_HERMES_EVALUATOR_PROFILE_IDS = Object.freeze([

@@ -9562,12 +9562,12 @@ const REVIEWED_HERMES_EVALUATOR_PROFILES = [
       patchIdentityAuthorityDigest:
         "sha256-84edac8af0c2f253d97320fcaa78358bc2616c393d692bd1c93f06eed45b8a7a",
       patchStackDigest:
-        "sha256-63b7e4cec5387db8aba0be56c55321376b4efed7aecaae3af4b67b67ec0ff1fc",
+        "sha256-75c76960ba5710524abe1d2957d41927dfc4ad8871badb24b7526d4f8e38a1f0",
       sourceBuildAuthorityDigests: {
         "scripts/build-hermes-linux.sh":
           "sha256-101c625bc1ea5868827088a7eacaceb35a8f229431baf96f351b830ef784e27b",
         "scripts/build-hermes.sh":
-          "sha256-4edac6a907a75c6d742501be3a3be2a319e756f87d0b1ec01eb2eebb28a19369",
+          "sha256-9aca630d1dd2ad913e52a5045ed373ebb6602d31c4c2f35f828fb498d8a88cfb",
       },
       sourceCommit: "ac8c6e6c80ec5fc22da39a77379ffb2fdbdde138",
       sourceRef: "260318099.0.0-stable",
