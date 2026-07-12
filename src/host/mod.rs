@@ -576,6 +576,105 @@ impl Host {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn authorize_typed_connect_stage(
+        &self,
+        module_id: &str,
+        constrained_principals: Vec<capsec_semantics::model::Principal>,
+        transport: capsec_semantics::model::ConnectTransport,
+        host: capsec_semantics::model::ConcreteHost,
+        port: capsec_semantics::model::Port,
+        stage: capsec_semantics::model::Stage,
+        candidates: Vec<capsec_semantics::model::IpAddress>,
+        selected_candidate: Option<capsec_semantics::model::IpAddress>,
+        verified_peer: Option<capsec_semantics::model::VerifiedPeer>,
+        connection_id: Option<capsec_semantics::model::NonEmptyString>,
+    ) -> capsec_semantics::Result<capsec_semantics::decision::Decision> {
+        use capsec_semantics::decision::{EffectGate, TargetCellDisposition};
+        use capsec_semantics::model::{
+            ActionId, DecisionContext, DecisionSet, DecisionSetSchema, Effect, EffectCombination,
+            NetworkRequest, OccurrenceResource, PeerClass, Route, StableId,
+        };
+
+        let principal = self.typed_principal_for_module(module_id).ok_or_else(|| {
+            capsec_semantics::Error::ArmRefused(
+                "connect operation has no authenticated typed principal".into(),
+            )
+        })?;
+        if constrained_principals.is_empty()
+            || !constrained_principals.contains(&principal)
+            || constrained_principals
+                .windows(2)
+                .any(|pair| serde_json::to_vec(&pair[0]).ok() >= serde_json::to_vec(&pair[1]).ok())
+        {
+            return Err(capsec_semantics::Error::ArmRefused(
+                "connect principal stack is empty, noncanonical, or omits the actor".into(),
+            ));
+        }
+        for address in candidates
+            .iter()
+            .chain(selected_candidate.iter())
+            .chain(verified_peer.iter().map(|peer| &peer.address))
+        {
+            if matches!(
+                classify_network_peer(*address),
+                Some(PeerClass::Metadata | PeerClass::Unspecified) | None
+            ) {
+                return Err(capsec_semantics::Error::ArmRefused(
+                    "protected metadata or unspecified network peer is always denied".into(),
+                ));
+            }
+        }
+        let requested = NetworkRequest::ConnectEndpoint {
+            transport,
+            host,
+            port,
+        };
+        let operation_resource = serde_json::to_string(&requested)
+            .map_err(|error| capsec_semantics::Error::InvalidModel(error.to_string()))?;
+        let set = DecisionSet {
+            decision_set_schema: DecisionSetSchema::V1,
+            operation_id: capsec_semantics::model::NonEmptyString::new(format!(
+                "connect:{module_id}:{operation_resource}"
+            ))
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            atomicity_group: StableId::new(
+                "surface.native.op.exacttcpconnect.1cs9rhu.decision".to_owned(),
+            )
+            .map_err(capsec_semantics::Error::InvalidModel)?,
+            combination: EffectCombination::Conjunction,
+            context: DecisionContext {
+                stage,
+                actor: principal.clone(),
+                constrained_principals,
+                presented_handle_ids: Vec::new(),
+            },
+            effects: vec![Effect {
+                action: ActionId::new("network:connect")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                effect_owner: principal,
+                resource: OccurrenceResource::NetworkOccurrence {
+                    requested,
+                    route: Route::Direct,
+                    candidates,
+                    selected_candidate,
+                    verified_peer,
+                    redirect_index: None,
+                    connection_id,
+                },
+            }],
+        };
+        self.evaluate_typed_decision(
+            &set,
+            &[EffectGate {
+                coverage_edge_id: StableId::new("surface.native.op.exacttcpconnect.1cs9rhu")
+                    .map_err(capsec_semantics::Error::InvalidModel)?,
+                target_cell: TargetCellDisposition::Complete,
+                definition_and_edge_predicates_satisfied: true,
+            }],
+        )
+    }
+
     /// Evaluate one complete typed effect set against the immutable authority
     /// context. Armed execution never falls back to the legacy string manager.
     pub fn evaluate_typed_decision(
@@ -1897,6 +1996,88 @@ mod tests {
             mixed_error.to_string().contains("always denied"),
             "{mixed_error}"
         );
+    }
+
+    #[test]
+    fn typed_connect_is_distinct_from_fetch_and_binds_the_verified_peer() {
+        use capsec_semantics::decision::DecisionOutcome;
+        use capsec_semantics::model::{
+            ConcreteHost, ConnectTransport, DnsName, IpAddress, NonEmptyString, Port, Stage,
+            VerifiedPeer,
+        };
+
+        let selector = serde_json::json!({
+            "cap": "network:connect",
+            "resource": {
+                "kind": "connect-endpoint",
+                "transport": "tcp",
+                "host": {"kind": "dns-name", "name": "api.example.com"},
+                "port": {"kind": "exact", "value": 443},
+                "peerClasses": ["public"],
+                "route": {"kind": "direct"}
+            }
+        });
+        let connect_host = example_armed_host_with(|value| {
+            value["principals"][1]["floor"] = serde_json::json!([selector]);
+            value["principals"][1]["denials"] = serde_json::json!([]);
+        });
+        connect_host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        let principal = connect_host.typed_principal_for_module("7").unwrap();
+        let requested_host = ConcreteHost::DnsName {
+            name: DnsName::new("api.example.com").unwrap(),
+        };
+        let port = Port::new(443).unwrap();
+        let public = IpAddress::new("93.184.216.34".parse().unwrap());
+        let decision = connect_host
+            .authorize_typed_connect_stage(
+                "7",
+                vec![principal],
+                ConnectTransport::Tcp,
+                requested_host.clone(),
+                port,
+                Stage::Commit,
+                vec![public],
+                Some(public),
+                Some(VerifiedPeer {
+                    address: public,
+                    port,
+                }),
+                Some(NonEmptyString::new("tcp-connection-1").unwrap()),
+            )
+            .unwrap();
+        assert_eq!(decision.outcome, DecisionOutcome::Allow);
+
+        let fetch_only_host = example_armed_host_with(|value| {
+            value["principals"][1]["floor"] = serde_json::json!([{
+                "cap": "network:fetch",
+                "resource": {
+                    "kind": "fetch-endpoint",
+                    "schemes": ["https"],
+                    "host": {"kind": "dns-name", "name": "api.example.com"},
+                    "port": {"kind": "exact", "value": 443},
+                    "peerClasses": ["public"],
+                    "route": {"kind": "direct"}
+                }
+            }]);
+            value["principals"][1]["denials"] = serde_json::json!([]);
+        });
+        fetch_only_host.register_module_package("7", "image-lib", Some("image-lib@2.4.1"));
+        let principal = fetch_only_host.typed_principal_for_module("7").unwrap();
+        let denied = fetch_only_host
+            .authorize_typed_connect_stage(
+                "7",
+                vec![principal],
+                ConnectTransport::Tcp,
+                requested_host,
+                port,
+                Stage::Requested,
+                vec![],
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(denied.outcome, DecisionOutcome::Deny);
     }
 
     #[test]

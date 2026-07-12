@@ -706,7 +706,11 @@ authorization applies selector peer classes, while an independent host guard
 unconditionally rejects metadata-service and unspecified selected or verified
 peers. Live fetch remains closed until the transport adapter can report and
 recheck the actual connected peer; requested-host authorization alone is not
-treated as sufficient enforcement.
+treated as sufficient enforcement. The host also evaluates staged typed TCP
+connect occurrences under the distinct `network:connect` action and retained
+verified-peer/connection facts. A package fixture proves a fetch-only floor
+cannot yield raw TCP authority, while a matching connect floor commits the
+verified public peer.
 
 Acceptance:
 
