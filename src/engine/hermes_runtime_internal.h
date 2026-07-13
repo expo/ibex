@@ -120,7 +120,9 @@ struct ExactHermesRuntime {
   // process-global environment toggles that other threads can observe/race.
   bool armed{false};
   bool structural_lockdown{false};
-  std::string snapshot_endowments;
+  // Strict JSON [{locator,endowments}] projection copied from the immutable
+  // armed Host context. Locator punctuation is data, never bootstrap syntax.
+  std::string snapshot_endowments_json;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   // The frame-attribution VM owned by this handle. The active pointer is
   // selected at each engine entry point; a thread may drive nested runtimes.
@@ -1022,6 +1024,9 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle);
 void unregisterSignalRuntime(ExactHermesRuntime* handle);
 void installFsHostFunctions(ExactHermesRuntime* handle);
 void installChildProcessHostFunctions(ExactHermesRuntime* handle);
+// Install only the runtime/principal-bound retained-wrapper owner primitive.
+// Full socket and TLS host functions remain behind __exactEnsureNet.
+void installNetOwnerHostFunction(ExactHermesRuntime* handle);
 void installNetHostFunctions(ExactHermesRuntime* handle);
 // Native TLS bridge host functions (ENG-23492/ENG-23526); installed from
 // installNetHostFunctions and driven by the platform TCP host functions.

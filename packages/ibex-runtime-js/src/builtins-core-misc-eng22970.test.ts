@@ -69,6 +69,62 @@ describe('events.once() error-listener scoping (ENG-22970 #1)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// ENG-24284 — with captureRejections disabled, EventEmitter must ignore a
+// listener's return value completely. In particular it must not attach a
+// second rejection observer to a Promise the application already handles, or
+// even read a user-controlled thenable getter.
+// ---------------------------------------------------------------------------
+describe('events listener returns without captureRejections (ENG-24284)', () => {
+  const Events = require('../../../src/builtins/events.js');
+
+  test('a handled listener rejection is left to normal Promise tracking', async () => {
+    const previousCaptureRejections = Events.EventEmitter.captureRejections;
+    const previousExitCode = process.exitCode;
+    Events.EventEmitter.captureRejections = false;
+    const emitter = new Events.EventEmitter();
+    const expected = new Error('handled-by-application');
+    const shared = Promise.reject(expected);
+    const handled = shared.catch((error: Error) => error);
+    try {
+      emitter.on('work', () => shared);
+      expect(emitter.emit('work')).toBe(true);
+      expect(await handled).toBe(expected);
+
+      // Give the builtin's historical rejection observer enough turns to run.
+      await Promise.resolve();
+      await delay(0);
+      expect(process.exitCode).toBe(previousExitCode);
+    } finally {
+      Events.EventEmitter.captureRejections = previousCaptureRejections;
+      process.exitCode = previousExitCode;
+    }
+  });
+
+  test('does not inspect a returned thenable when captureRejections is off', () => {
+    const previousCaptureRejections = Events.EventEmitter.captureRejections;
+    Events.EventEmitter.captureRejections = false;
+    const emitter = new Events.EventEmitter();
+    let thenReads = 0;
+    const returned = Object.create(null, {
+      then: {
+        get() {
+          thenReads++;
+          throw new Error('listener return must be ignored');
+        },
+      },
+    });
+
+    try {
+      emitter.on('work', () => returned);
+      expect(() => emitter.emit('work')).not.toThrow();
+      expect(thenReads).toBe(0);
+    } finally {
+      Events.EventEmitter.captureRejections = previousCaptureRejections;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Finding #2 — timeout.refresh() must reactivate a timer whose callback has
 // already fired (Node semantics), while a cleared/closed timer stays dead.
 // ---------------------------------------------------------------------------

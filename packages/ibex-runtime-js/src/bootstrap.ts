@@ -1063,31 +1063,61 @@ export function installGlobals(): void {
   // The create() method passes the WebSocket instance so C++ callbacks can call
   // _handleOpen/_handleMessage/_handleClose/_handleError/_handleBytesSent on it.
   // ========================================
-  if (typeof g.__exactWsConnect === 'function') {
+  const exactWsConnect = g.__exactWsConnect;
+  const exactWsSend = g.__exactWsSend;
+  const exactWsClose = g.__exactWsClose;
+  const exactWsPause = g.__exactWsPause;
+  const exactWsResume = g.__exactWsResume;
+  const exactWsSetFlowControlled = g.__exactWsSetFlowControlled;
+  const exactNetOwner = g.__exactNetOwner;
+  if (
+    typeof exactWsConnect === 'function' &&
+    typeof exactWsSend === 'function' &&
+    typeof exactWsClose === 'function' &&
+    typeof exactNetOwner === 'function'
+  ) {
     setNativeWebSocketModule({
+      createOwner(): unknown {
+        return exactNetOwner('new');
+      },
+      checkStateOwner(owner: unknown): void {
+        exactNetOwner('assert', owner);
+      },
       create(url: string, protocols?: string[], instance?: any): number {
         const protocolStr = (protocols || []).join(',');
-        return g.__exactWsConnect(url, protocolStr, instance);
+        return exactWsConnect(url, protocolStr, instance);
+      },
+      checkOwner(id: number): void {
+        // Passing an unsupported payload exercises __exactWsSend's native
+        // owner/capability gate without reaching native_ws_send. This keeps
+        // queue admission synchronous and avoids adding a second authority
+        // implementation beside the actual send boundary.
+        exactWsSend(id, undefined);
+      },
+      checkReleaseOwner(id: number): void {
+        // Fourth argument selects owner-only preflight in the native close
+        // host function. It does not mark closing or touch the transport.
+        exactWsClose(id, 1005, '', true);
       },
       send(id: number, data: string | Uint8Array): void {
-        g.__exactWsSend(id, data);
+        exactWsSend(id, data);
       },
       close(id: number, code?: number, reason?: string): void {
-        g.__exactWsClose(id, code ?? 1005, reason ?? '');
+        exactWsClose(id, code ?? 1005, reason ?? '');
       },
       pause(id: number): void {
-        if (typeof g.__exactWsPause === 'function') {
-          g.__exactWsPause(id);
+        if (typeof exactWsPause === 'function') {
+          exactWsPause(id);
         }
       },
       resume(id: number): void {
-        if (typeof g.__exactWsResume === 'function') {
-          g.__exactWsResume(id);
+        if (typeof exactWsResume === 'function') {
+          exactWsResume(id);
         }
       },
       setFlowControlled(id: number, enabled: boolean): void {
-        if (typeof g.__exactWsSetFlowControlled === 'function') {
-          g.__exactWsSetFlowControlled(id, !!enabled);
+        if (typeof exactWsSetFlowControlled === 'function') {
+          exactWsSetFlowControlled(id, !!enabled);
         }
       },
     });

@@ -66,28 +66,53 @@ var constants = {
 // Statement
 // ============================================================================
 
+var statementAuthorityStates = new WeakMap();
+function statementAuthorityState(statement) {
+  var state = statementAuthorityStates.get(statement);
+  if (!state) throw new TypeError('Illegal Statement receiver');
+  return state;
+}
+
 function Statement(dbHandle, sql) {
   if (!g.__exactSqlitePrepare) {
     throw new Error('exact:sqlite native bridge not available');
   }
-  this._db = dbHandle;
   this._sql = sql;
-  this._finalized = false;
   this._columnTypes = [];
   this._declaredTypes = [];
   this._readOnly = true;
   this._executed = false;
 
   var result = g.__exactSqlitePrepare(dbHandle, sql);
-  this._handle = result.handle;
+  statementAuthorityStates.set(this, {
+    handle: result.handle,
+    dbHandle: dbHandle,
+    finalized: false,
+  });
   this.columnNames = result.columnNames || [];
   this._declaredTypes = result.declaredTypes || [];
   this.paramsCount = result.paramsCount || 0;
   this._readOnly = result.readOnly !== false;
 }
 
+Object.defineProperty(Statement.prototype, '_handle', {
+  get: function() { return statementAuthorityState(this).handle; },
+  set: function() { throw new TypeError('Statement handle is private'); },
+  configurable: false, enumerable: false,
+});
+Object.defineProperty(Statement.prototype, '_db', {
+  get: function() { return statementAuthorityState(this).dbHandle; },
+  set: function() { throw new TypeError('Statement database handle is private'); },
+  configurable: false, enumerable: false,
+});
+Object.defineProperty(Statement.prototype, '_finalized', {
+  get: function() { return statementAuthorityState(this).finalized; },
+  set: function() { throw new TypeError('Statement finalize state is private'); },
+  configurable: false, enumerable: false,
+});
+
 Statement.prototype._checkFinalized = function() {
-  if (this._finalized) throw new Error('Statement has been finalized and cannot be used');
+  if (statementAuthorityState(this).finalized) throw new Error('Statement has been finalized and cannot be used');
 };
 
 Statement.prototype._normalizeParams = function(params) {
@@ -136,7 +161,7 @@ Statement.prototype._recordExecution = function(result) {
 Statement.prototype.all = function() {
   this._checkFinalized();
   var bindings = this._normalizeParams(Array.prototype.slice.call(arguments));
-  var result = g.__exactSqliteAll(this._handle, bindings);
+  var result = g.__exactSqliteAll(statementAuthorityState(this).handle, bindings);
   this._recordExecution(result);
   return result.rows;
 };
@@ -144,7 +169,7 @@ Statement.prototype.all = function() {
 Statement.prototype.get = function() {
   this._checkFinalized();
   var bindings = this._normalizeParams(Array.prototype.slice.call(arguments));
-  var result = g.__exactSqliteGet(this._handle, bindings);
+  var result = g.__exactSqliteGet(statementAuthorityState(this).handle, bindings);
   this._recordExecution(result);
   return result.row != null ? result.row : null;
 };
@@ -152,7 +177,7 @@ Statement.prototype.get = function() {
 Statement.prototype.run = function() {
   this._checkFinalized();
   var bindings = this._normalizeParams(Array.prototype.slice.call(arguments));
-  var result = g.__exactSqliteRun(this._handle, bindings);
+  var result = g.__exactSqliteRun(statementAuthorityState(this).handle, bindings);
   this._executed = true;
   return result;
 };
@@ -160,26 +185,28 @@ Statement.prototype.run = function() {
 Statement.prototype.values = function() {
   this._checkFinalized();
   var bindings = this._normalizeParams(Array.prototype.slice.call(arguments));
-  var result = g.__exactSqliteValues(this._handle, bindings);
+  var result = g.__exactSqliteValues(statementAuthorityState(this).handle, bindings);
   this._recordExecution(result);
   return result.rows;
 };
 
 Statement.prototype.finalize = function() {
-  if (this._finalized) return;
-  this._finalized = true;
-  if (g.__exactSqliteFinalize) g.__exactSqliteFinalize(this._handle);
+  var state = statementAuthorityState(this);
+  if (state.finalized) return;
+  if (g.__exactSqliteFinalize) g.__exactSqliteFinalize(state.handle);
+  state.finalized = true;
 };
 
 Statement.prototype.toString = function() {
   this._checkFinalized();
-  if (g.__exactSqliteExpandedSql) return g.__exactSqliteExpandedSql(this._handle);
+  if (g.__exactSqliteExpandedSql) return g.__exactSqliteExpandedSql(statementAuthorityState(this).handle);
   return this._sql;
 };
 
 Statement.prototype.as = function(Class) {
   var self = this;
   var wrapped = Object.create(this);
+  statementAuthorityStates.set(wrapped, statementAuthorityState(this));
 
   wrapped.all = function() {
     var rows = self.all.apply(self, arguments);
@@ -201,12 +228,17 @@ Statement.prototype.as = function(Class) {
 // Database
 // ============================================================================
 
+var databaseAuthorityStates = new WeakMap();
+function databaseAuthorityState(database) {
+  var state = databaseAuthorityStates.get(database);
+  if (!state) throw new TypeError('Illegal Database receiver');
+  return state;
+}
+
 function Database(filename, options) {
   if (!(this instanceof Database)) return new Database(filename, options);
 
   this.filename = filename || ':memory:';
-  this._closed = false;
-  this._queryCache = {};
   this._crSqliteLoaded = false;
 
   if (typeof options === 'number') {
@@ -220,12 +252,19 @@ function Database(filename, options) {
   }
 
   var flags = typeof options === 'number' ? options : undefined;
-  this._handle = g.__exactSqliteOpen(this.filename, {
+  var handle = g.__exactSqliteOpen(this.filename, {
     readonly: this._options.readonly || false,
     create: this._options.create !== false,
     readwrite: this._options.readwrite !== false,
     safeIntegers: this._options.safeIntegers || false,
     flags: flags,
+  });
+  // @ref LLP 0004#retained-native-wrapper-invariant — cached statements
+  // carry the database's native authority and must not be caller-poisonable.
+  databaseAuthorityStates.set(this, {
+    handle: handle,
+    closed: false,
+    queryCache: Object.create(null),
   });
 
   // Enable WAL mode and foreign keys by default
@@ -233,34 +272,46 @@ function Database(filename, options) {
   this.run('PRAGMA foreign_keys = ON');
 }
 
+Object.defineProperty(Database.prototype, '_handle', {
+  get: function() { return databaseAuthorityState(this).handle; },
+  set: function() { throw new TypeError('Database handle is private'); },
+  configurable: false, enumerable: false,
+});
+Object.defineProperty(Database.prototype, '_closed', {
+  get: function() { return databaseAuthorityState(this).closed; },
+  set: function() { throw new TypeError('Database close state is private'); },
+  configurable: false, enumerable: false,
+});
+
 Object.defineProperty(Database.prototype, 'handle', {
-  get: function() { return this._handle; },
+  get: function() { return databaseAuthorityState(this).handle; },
   configurable: true, enumerable: true,
 });
 
 Object.defineProperty(Database.prototype, 'inTransaction', {
   get: function() {
     this._checkClosed();
-    return g.__exactSqliteInTransaction ? g.__exactSqliteInTransaction(this._handle) : false;
+    return g.__exactSqliteInTransaction ? g.__exactSqliteInTransaction(databaseAuthorityState(this).handle) : false;
   },
   configurable: true, enumerable: true,
 });
 
 Database.prototype._checkClosed = function() {
-  if (this._closed) throw new Error('Database is closed');
+  if (databaseAuthorityState(this).closed) throw new Error('Database is closed');
 };
 
 Database.prototype.query = function(sql) {
   this._checkClosed();
-  if (!this._queryCache[sql]) {
-    this._queryCache[sql] = new Statement(this._handle, sql);
+  var state = databaseAuthorityState(this);
+  if (!state.queryCache[sql]) {
+    state.queryCache[sql] = new Statement(state.handle, sql);
   }
-  return this._queryCache[sql];
+  return state.queryCache[sql];
 };
 
 Database.prototype.prepare = function(sql) {
   this._checkClosed();
-  return new Statement(this._handle, sql);
+  return new Statement(databaseAuthorityState(this).handle, sql);
 };
 
 Database.prototype.run = function(sql) {
@@ -273,7 +324,7 @@ Database.prototype.run = function(sql) {
     } else if (bindings.length > 0) {
       params = bindings;
     }
-    return g.__exactSqliteExec(this._handle, sql, params);
+    return g.__exactSqliteExec(databaseAuthorityState(this).handle, sql, params);
   }
   var stmt = this.prepare(sql);
   try { return stmt.run.apply(stmt, bindings); }
@@ -321,37 +372,43 @@ Database.prototype.transaction = function(fn) {
 };
 
 Database.prototype.close = function(throwOnError) {
-  if (this._closed) return;
+  var state = databaseAuthorityState(this);
+  if (state.closed) return;
   if (this._crSqliteLoaded) {
     try { this.run('SELECT crsql_finalize()'); } catch (e) {}
   }
-  this._closed = true;
-  for (var key in this._queryCache) {
-    this._queryCache[key].finalize();
+  for (var key in state.queryCache) {
+    state.queryCache[key].finalize();
   }
-  this._queryCache = {};
+  // Finalized cached statements cannot be reused if database close fails.
+  // Clear them immediately so the still-live database can prepare replacements.
+  state.queryCache = Object.create(null);
   if (g.__exactSqliteClose) {
-    try { g.__exactSqliteClose(this._handle); }
-    catch (e) { if (throwOnError) throw e; }
+    try { g.__exactSqliteClose(state.handle); }
+    catch (e) {
+      if (throwOnError) throw e;
+      return;
+    }
   }
+  state.closed = true;
 };
 
 Database.prototype.serialize = function(name) {
   this._checkClosed();
   if (!g.__exactSqliteSerialize) throw new Error('Database serialization not supported');
-  return g.__exactSqliteSerialize(this._handle, name || 'main');
+  return g.__exactSqliteSerialize(databaseAuthorityState(this).handle, name || 'main');
 };
 
 Database.prototype.loadExtension = function(path, entryPoint) {
   this._checkClosed();
   if (!g.__exactSqliteLoadExtension) throw new Error('Extension loading not supported');
-  g.__exactSqliteLoadExtension(this._handle, path, entryPoint);
+  g.__exactSqliteLoadExtension(databaseAuthorityState(this).handle, path, entryPoint);
 };
 
 Database.prototype.fileControl = function() {
   this._checkClosed();
   if (!g.__exactSqliteFileControl) throw new Error('fileControl not supported');
-  return g.__exactSqliteFileControl.apply(null, [this._handle].concat(Array.prototype.slice.call(arguments)));
+  return g.__exactSqliteFileControl.apply(null, [databaseAuthorityState(this).handle].concat(Array.prototype.slice.call(arguments)));
 };
 
 // cr-sqlite methods
@@ -361,7 +418,7 @@ Database.prototype.enableCrSqlite = function() {
   if (g.__exactCrSqlitePath) {
     this.loadExtension(g.__exactCrSqlitePath());
   } else if (g.__exactSqliteLoadCrSqlite) {
-    g.__exactSqliteLoadCrSqlite(this._handle);
+    g.__exactSqliteLoadCrSqlite(databaseAuthorityState(this).handle);
   } else {
     throw new Error('cr-sqlite extension not available. The Ibex runtime must be built with cr-sqlite support.');
   }
@@ -427,9 +484,11 @@ Database.deserialize = function(data, options) {
   var isReadOnly = typeof options === 'boolean' ? options : (options && options.readonly) || false;
   var handle = g.__exactSqliteDeserialize(data, isReadOnly);
   var db = Object.create(Database.prototype);
-  db._handle = handle;
-  db._closed = false;
-  db._queryCache = {};
+  databaseAuthorityStates.set(db, {
+    handle: handle,
+    closed: false,
+    queryCache: Object.create(null),
+  });
   db._options = typeof options === 'object' ? options : { readonly: isReadOnly };
   db.filename = ':memory:';
   db._crSqliteLoaded = false;

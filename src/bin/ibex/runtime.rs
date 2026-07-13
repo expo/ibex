@@ -449,17 +449,29 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     });
   }
 
-  function ExactEventTarget() {
-    this.__listeners = {};
+  var exactEventTargetStates = new WeakMap();
+  function ExactEventTarget(ownerAssert) {
+    exactEventTargetStates.set(this, {
+      listeners: {},
+      ownerAssert: typeof ownerAssert === 'function' ? ownerAssert : null
+    });
+  }
+  function exactEventTargetState(target) {
+    var state = target && exactEventTargetStates.get(target);
+    if (!state) throw new TypeError('Illegal invocation');
+    if (state.ownerAssert) state.ownerAssert();
+    return state;
   }
   ExactEventTarget.prototype.addEventListener = function(type, listener) {
+    var state = exactEventTargetState(this);
     if (typeof listener !== 'function') return;
     type = String(type);
-    (this.__listeners[type] || (this.__listeners[type] = [])).push(listener);
+    (state.listeners[type] || (state.listeners[type] = [])).push(listener);
   };
   ExactEventTarget.prototype.removeEventListener = function(type, listener) {
+    var state = exactEventTargetState(this);
     type = String(type);
-    var list = this.__listeners[type];
+    var list = state.listeners[type];
     if (!list) return;
     for (var i = 0; i < list.length; i++) {
       if (list[i] === listener) {
@@ -469,13 +481,14 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     }
   };
   ExactEventTarget.prototype.dispatchEvent = function(event) {
+    var state = exactEventTargetState(this);
     event.target = event.target || this;
     event.currentTarget = this;
     var handler = this['on' + event.type];
     if (typeof handler === 'function') {
       handler.call(this, event);
     }
-    var list = this.__listeners[event.type];
+    var list = state.listeners[event.type];
     if (list) {
       list = list.slice();
       for (var i = 0; i < list.length; i++) {
@@ -485,37 +498,114 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     return true;
   };
 
-  if (typeof g.WebSocket !== 'function' && typeof g.__exactWsConnect === 'function') {
+  if (typeof g.WebSocket !== 'function' &&
+      typeof g.__exactWsConnect === 'function' &&
+      typeof g.__exactWsSend === 'function' &&
+      typeof g.__exactWsClose === 'function' &&
+      typeof g.__exactNetOwner === 'function') {
+    var exactWebSocketStates = new WeakMap();
+    var exactWsConnect = g.__exactWsConnect;
+    var exactWsSend = g.__exactWsSend;
+    var exactWsClose = g.__exactWsClose;
+    var exactNetOwner = g.__exactNetOwner;
+    var exactEventTargetDispatch = ExactEventTarget.prototype.dispatchEvent;
+
+    function exactWebSocketState(socket) {
+      var state = socket && exactWebSocketStates.get(socket);
+      if (!state) throw new TypeError('Illegal invocation');
+      return state;
+    }
+
+    function exactOwnedWebSocketState(socket) {
+      var state = exactWebSocketState(socket);
+      exactNetOwner('assert', state.ownerStamp);
+      return state;
+    }
+
+    function exactWebSocketHandleOpen(socket, protocol, extensions) {
+      var state = exactOwnedWebSocketState(socket);
+      if (state.readyState !== ExactWebSocket.CONNECTING) return;
+      state.protocol = protocol || '';
+      state.extensions = extensions || '';
+      state.readyState = ExactWebSocket.OPEN;
+      exactEventTargetDispatch.call(socket, { type: 'open' });
+    }
+
+    function exactWebSocketHandleMessage(socket, data) {
+      if (exactOwnedWebSocketState(socket).readyState !== ExactWebSocket.OPEN) return;
+      exactEventTargetDispatch.call(socket, { type: 'message', data: data });
+    }
+
+    function exactWebSocketHandleError(socket, message) {
+      var state = exactOwnedWebSocketState(socket);
+      exactEventTargetDispatch.call(socket, { type: 'error', message: message || 'WebSocket error' });
+      if (state.readyState !== ExactWebSocket.CLOSED) {
+        state.readyState = ExactWebSocket.CLOSED;
+        exactEventTargetDispatch.call(socket, { type: 'close', code: 1006, reason: message || '', wasClean: false });
+      }
+    }
+
+    function exactWebSocketHandleClose(socket, code, reason, wasClean) {
+      exactOwnedWebSocketState(socket).readyState = ExactWebSocket.CLOSED;
+      exactEventTargetDispatch.call(socket, { type: 'close', code: code, reason: reason || '', wasClean: !!wasClean });
+    }
+
+    function exactWebSocketHandleBytesSent(socket, bytes) {
+      var state = exactOwnedWebSocketState(socket);
+      state.bufferedAmount = Math.max(0, state.bufferedAmount - (bytes || 0));
+    }
+
     function ExactWebSocket(url, protocols) {
       if (!(this instanceof ExactWebSocket)) {
         throw new TypeError("Failed to construct 'WebSocket': Please use the 'new' operator");
       }
-      ExactEventTarget.call(this);
-      this.url = String(url);
-      this.protocol = '';
-      this.extensions = '';
-      this.readyState = ExactWebSocket.CONNECTING;
-      this.bufferedAmount = 0;
-      this.binaryType = 'blob';
-      this.onopen = null;
-      this.onmessage = null;
-      this.onerror = null;
-      this.onclose = null;
-      this._handleOpen = ExactWebSocket.prototype._handleOpen.bind(this);
-      this._handleMessage = ExactWebSocket.prototype._handleMessage.bind(this);
-      this._handleError = ExactWebSocket.prototype._handleError.bind(this);
-      this._handleClose = ExactWebSocket.prototype._handleClose.bind(this);
-      this._handleBytesSent = ExactWebSocket.prototype._handleBytesSent.bind(this);
+      var ownerStamp = exactNetOwner('new');
+      ExactEventTarget.call(this, function() {
+        exactNetOwner('assert', ownerStamp);
+      });
+      var state = {
+        url: String(url),
+        protocol: '',
+        extensions: '',
+        readyState: ExactWebSocket.CONNECTING,
+        bufferedAmount: 0,
+        binaryType: 'blob',
+        id: 0,
+        ownerStamp: ownerStamp,
+        onopen: null,
+        onmessage: null,
+        onerror: null,
+        onclose: null
+      };
+      // @ref LLP 0013#delegation-and-authority-flow — a wrapper may cross a
+      // principal boundary, but its native selector remains closure-private.
+      exactWebSocketStates.set(this, state);
+      var socket = this;
+      var bridge = {
+        _handleOpen: function(protocol, extensions) {
+          exactWebSocketHandleOpen(socket, protocol, extensions);
+        },
+        _handleMessage: function(data) {
+          exactWebSocketHandleMessage(socket, data);
+        },
+        _handleError: function(message) {
+          exactWebSocketHandleError(socket, message);
+        },
+        _handleClose: function(code, reason, wasClean) {
+          exactWebSocketHandleClose(socket, code, reason, wasClean);
+        },
+        _handleBytesSent: function(bytes) {
+          exactWebSocketHandleBytesSent(socket, bytes);
+        }
+      };
       var protocolList = [];
       if (Array.isArray(protocols)) {
         protocolList = protocols.map(String);
       } else if (protocols !== undefined) {
         protocolList = [String(protocols)];
       }
-      this.__id = g.__exactWsConnect(this.url, protocolList.join(','), this);
-      if (typeof this.__id !== 'number') {
-        this.__id = 0;
-      }
+      var id = exactWsConnect(state.url, protocolList.join(','), bridge);
+      state.id = typeof id === 'number' ? id : 0;
     }
     ExactWebSocket.CONNECTING = 0;
     ExactWebSocket.OPEN = 1;
@@ -527,10 +617,76 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
     ExactWebSocket.prototype.OPEN = ExactWebSocket.OPEN;
     ExactWebSocket.prototype.CLOSING = ExactWebSocket.CLOSING;
     ExactWebSocket.prototype.CLOSED = ExactWebSocket.CLOSED;
+    Object.defineProperties(ExactWebSocket.prototype, {
+      url: {
+        get: function() { return exactOwnedWebSocketState(this).url; },
+        enumerable: true,
+        configurable: true
+      },
+      protocol: {
+        get: function() { return exactOwnedWebSocketState(this).protocol; },
+        enumerable: true,
+        configurable: true
+      },
+      extensions: {
+        get: function() { return exactOwnedWebSocketState(this).extensions; },
+        enumerable: true,
+        configurable: true
+      },
+      readyState: {
+        get: function() { return exactOwnedWebSocketState(this).readyState; },
+        enumerable: true,
+        configurable: true
+      },
+      bufferedAmount: {
+        get: function() { return exactOwnedWebSocketState(this).bufferedAmount; },
+        enumerable: true,
+        configurable: true
+      },
+      binaryType: {
+        get: function() { return exactOwnedWebSocketState(this).binaryType; },
+        set: function(value) {
+          if (value === 'blob' || value === 'arraybuffer') {
+            exactOwnedWebSocketState(this).binaryType = value;
+          }
+        },
+        enumerable: true,
+        configurable: true
+      },
+      onopen: {
+        get: function() { return exactOwnedWebSocketState(this).onopen; },
+        set: function(value) { exactOwnedWebSocketState(this).onopen = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onmessage: {
+        get: function() { return exactOwnedWebSocketState(this).onmessage; },
+        set: function(value) { exactOwnedWebSocketState(this).onmessage = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onerror: {
+        get: function() { return exactOwnedWebSocketState(this).onerror; },
+        set: function(value) { exactOwnedWebSocketState(this).onerror = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      },
+      onclose: {
+        get: function() { return exactOwnedWebSocketState(this).onclose; },
+        set: function(value) { exactOwnedWebSocketState(this).onclose = typeof value === 'function' ? value : null; },
+        enumerable: true,
+        configurable: true
+      }
+    });
     ExactWebSocket.prototype.send = function(data) {
-      if (this.readyState !== ExactWebSocket.OPEN) {
+      var state = exactOwnedWebSocketState(this);
+      if (state.readyState !== ExactWebSocket.OPEN) {
         throw new Error('WebSocket is not open');
       }
+      // Authenticate before caller-controlled conversion or bufferedAmount
+      // mutation. The native send boundary ignores this unsupported payload
+      // after performing its strict owner/capability check.
+      exactWsSend(state.id, undefined);
       var payload = data;
       var bytes = 0;
       if (typeof data === 'string') {
@@ -545,38 +701,26 @@ const WINDOWS_MINIMAL_RUNTIME_BOOTSTRAP: &str = r#"(function(g) {
         payload = String(data);
         bytes = new TextEncoder().encode(payload).byteLength;
       }
-      this.bufferedAmount += bytes;
-      g.__exactWsSend(this.__id, payload);
+      state.bufferedAmount += bytes;
+      try {
+        exactWsSend(state.id, payload);
+      } catch (error) {
+        state.bufferedAmount = Math.max(0, state.bufferedAmount - bytes);
+        throw error;
+      }
     };
     ExactWebSocket.prototype.close = function(code, reason) {
-      if (this.readyState === ExactWebSocket.CLOSED || this.readyState === ExactWebSocket.CLOSING) return;
-      this.readyState = ExactWebSocket.CLOSING;
-      if (this.__id) {
-        g.__exactWsClose(this.__id, code == null ? 1005 : code, reason == null ? '' : String(reason));
+      var state = exactOwnedWebSocketState(this);
+      if (state.readyState === ExactWebSocket.CLOSED || state.readyState === ExactWebSocket.CLOSING) return;
+      if (state.id) {
+        // __exactWsClose performs the strict native owner check. Only commit
+        // CLOSING after it succeeds so a denied retained-wrapper call cannot
+        // poison the owner's retry.
+        exactWsClose(state.id, code == null ? 1005 : code, reason == null ? '' : String(reason));
       }
-    };
-    ExactWebSocket.prototype._handleOpen = function(protocol, extensions) {
-      this.protocol = protocol || '';
-      this.extensions = extensions || '';
-      this.readyState = ExactWebSocket.OPEN;
-      this.dispatchEvent({ type: 'open' });
-    };
-    ExactWebSocket.prototype._handleMessage = function(data) {
-      this.dispatchEvent({ type: 'message', data: data });
-    };
-    ExactWebSocket.prototype._handleError = function(message) {
-      this.dispatchEvent({ type: 'error', message: message || 'WebSocket error' });
-      if (this.readyState !== ExactWebSocket.CLOSED) {
-        this.readyState = ExactWebSocket.CLOSED;
-        this.dispatchEvent({ type: 'close', code: 1006, reason: message || '', wasClean: false });
+      if (state.readyState !== ExactWebSocket.CLOSED) {
+        state.readyState = ExactWebSocket.CLOSING;
       }
-    };
-    ExactWebSocket.prototype._handleClose = function(code, reason, wasClean) {
-      this.readyState = ExactWebSocket.CLOSED;
-      this.dispatchEvent({ type: 'close', code: code, reason: reason || '', wasClean: !!wasClean });
-    };
-    ExactWebSocket.prototype._handleBytesSent = function(bytes) {
-      this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytes || 0));
     };
     g.WebSocket = ExactWebSocket;
   }
@@ -1886,7 +2030,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
     })];
     let mut graph_nodes = Vec::new();
     let mut graph_edges = Vec::new();
-    let mut endowment_groups = Vec::new();
     let root_principal = serde_json::json!({"kind": "root", "identity": "project-root"});
     let mut package_bindings = Vec::new();
     let installed_packages = authenticated_installed_packages(&project_root, policy_principals)?;
@@ -1918,17 +2061,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             "importer": root_principal,
             "imported": principal,
         }));
-        if let (Some(locator), Some(endowments)) =
-            (principal["locator"].as_str(), row["endowments"].as_array())
-        {
-            if !endowments.is_empty() {
-                let values = endowments
-                    .iter()
-                    .map(|value| value.as_str().context("endowment must be a string"))
-                    .collect::<Result<Vec<_>>>()?;
-                endowment_groups.push(format!("{locator}:{}", values.join(",")));
-            }
-        }
         if let (Some(name), Some(locator), Some(integrity)) = (
             principal["name"].as_str(),
             principal["locator"].as_str(),
@@ -1986,7 +2118,6 @@ fn build_default_armed_host(cli: &Cli) -> Result<(Host, Option<String>)> {
             }));
         }
     }
-    endowment_groups.sort();
     let mut value: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/capsec/examples/armed-snapshot.canonical.json"

@@ -19,10 +19,21 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
+
+// Diagnostic `.js` entries authenticate and hash the complete bundler
+// toolchain before Hermes evaluates the fixture. A cold debug build can spend
+// nearly the old 15-second deadline there under full-matrix load, before the
+// child-process code under test has run at all. Add the same cold-start
+// headroom used by the 60-second diagnostic CLI suite to each case's outer
+// watchdog; the case-specific duration remains the child-runtime allowance.
+// This is one total wall-clock deadline (the harness cannot observe the exact
+// evaluation boundary), not a claim that the two phases are timed separately.
+const DIAGNOSTIC_STARTUP_HEADROOM: Duration = Duration::from_secs(45);
 
 struct AppRun {
     stdout: String,
@@ -53,6 +64,14 @@ fn write_text(path: &Path, contents: &str) {
 /// target has no verified advertisement; these bridge-parity tests use the
 /// explicit diagnostic entry point. Extra files can be pre-written into `dir`.
 fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
+    // Each case performs a cold diagnostic Ibex startup. Running all of those
+    // compiler/bundler pipelines concurrently can exhaust CI CPU and make the
+    // per-app deadlock watchdog measure harness contention instead of the
+    // child-process bridge. The Windows and option-parser suites use the same
+    // serialization discipline.
+    static APP_RUN_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = APP_RUN_LOCK.lock().expect("lock child_process app runner");
+
     write_text(&dir.join("app.js"), app);
     let mut child = Command::new(IBEX)
         .arg("capsec")
@@ -60,6 +79,8 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
         .arg("app.js")
         .current_dir(dir)
         .env("IBEX_SKIP_AGENT_SKILLS_SYNC", "1")
+        .env("IBEX_NO_BYTECODE", "1")
+        .env("BUN_INSTALL_CACHE_DIR", dir.join(".bun-cache"))
         .env("IBEX_PARENT_ONLY_SECRET", "must-not-reach-explicit-env")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -82,7 +103,7 @@ fn run_app_in(dir: &Path, app: &str, timeout: Duration) -> AppRun {
         s
     });
 
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now() + DIAGNOSTIC_STARTUP_HEADROOM + timeout;
     let mut timed_out = false;
     loop {
         match child.try_wait() {
@@ -1085,7 +1106,10 @@ setTimeout(function () {
   }
 }, 15000);
 "#;
-    let run = run_app("postforkstress", app, Duration::from_secs(30));
+    // The app deliberately keeps a 15-second watchdog referenced after its
+    // 160 native worker callbacks and 160 child launches. Include cold source
+    // startup headroom while preserving a bounded deadlock failure.
+    let run = run_app("postforkstress", app, Duration::from_secs(45));
     let line = result_line(&run);
     assert_eq!(
         field(line, "closed="),

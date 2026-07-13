@@ -1,7 +1,11 @@
 // @ts-nocheck
 import { DOMException } from '../events/DOMException';
 import { ReadableStream, ReadableStreamDefaultController, WritableStream } from '../streams';
-import { WebSocket } from './WebSocket';
+import {
+  WebSocket,
+  createWebSocketForStream,
+  getSupportedWebSocketBlobSize,
+} from './WebSocket';
 import { WebSocketError, createWireWebSocketError } from './WebSocketError';
 
 export interface WebSocketStreamOptions {
@@ -32,6 +36,98 @@ interface ClosedInfo {
 const STREAM_WRITE_IMMEDIATE_WINDOW_BYTES = 256 * 1024;
 const STREAM_WRITE_DRAIN_BYTES_PER_MS = 4096;
 
+interface AuthorizedWebSocketStreamWrite {
+  socket: WebSocket;
+  chunk: unknown;
+}
+
+interface AuthorizedWebSocketStreamRead {
+  socket: WebSocket;
+  chunk: string | Uint8Array;
+}
+
+// The generic WritableStream exposes compatibility `_` fields, so never put
+// caller data or a forgeable "authorized" bit directly in its deferred queue.
+// The queue receives only a frozen identity object; its payload and one-shot
+// admission record stay module-private.
+const authorizedWebSocketStreamWrites = new WeakMap<
+  object,
+  AuthorizedWebSocketStreamWrite
+>();
+const consumedWebSocketStreamWrites = new WeakSet<object>();
+
+// Inbound payloads must likewise never sit in ReadableStream's compatibility
+// `_controller._queue`. Queue only an opaque identity and resolve it after an
+// owner-admitted read; direct queue/request inspection can reveal at most the
+// frozen token, never the peer's bytes.
+// @ref LLP 0004#retained-native-wrapper-invariant — deferred stream queues
+// carry opaque one-shot identities, with payloads held only in private maps.
+const authorizedWebSocketStreamReads = new WeakMap<
+  object,
+  AuthorizedWebSocketStreamRead
+>();
+const consumedWebSocketStreamReads = new WeakSet<object>();
+
+// Capture the socket surface before application code can replace prototype
+// methods and intercept the closure-private socket during stream setup.
+const webSocketStreamSocketSend = WebSocket.prototype.send;
+const webSocketStreamSocketClose = WebSocket.prototype.close;
+const webSocketStreamSocketPauseIncoming = WebSocket.prototype._pauseIncoming;
+const webSocketStreamSocketResumeIncoming = WebSocket.prototype._resumeIncoming;
+const webSocketStreamSocketSetIncomingFlowControl = WebSocket.prototype._setIncomingFlowControl;
+const webSocketStreamSocketAddEventListener = WebSocket.prototype.addEventListener;
+const webSocketStreamSocketBinaryTypeSetter = Object.getOwnPropertyDescriptor(
+  WebSocket.prototype,
+  'binaryType'
+)?.set;
+const webSocketStreamSocketProtocolGetter = Object.getOwnPropertyDescriptor(
+  WebSocket.prototype,
+  'protocol'
+)?.get;
+const webSocketStreamSocketExtensionsGetter = Object.getOwnPropertyDescriptor(
+  WebSocket.prototype,
+  'extensions'
+)?.get;
+
+interface PendingWebSocketStreamWrite {
+  remaining: number;
+  readyAt: number;
+  resolve: () => void;
+  reject: (reason: unknown) => void;
+}
+
+interface WebSocketStreamPrivateState {
+  constructing: boolean;
+  url: string;
+  socket: WebSocket | null;
+  readableController: ReadableStreamDefaultController<string | Uint8Array> | null;
+  readable: ReadableStream<string | Uint8Array> | null;
+  writable: WritableStream<string | ArrayBuffer | ArrayBufferView | Blob> | null;
+  openedDeferred: ReturnType<typeof createDeferred<OpenedInfo>>;
+  closedDeferred: ReturnType<typeof createDeferred<ClosedInfo>>;
+  openedSettled: boolean;
+  closedSettled: boolean;
+  connected: boolean;
+  localCloseInitiated: boolean;
+  closedDuringHandshake: boolean;
+  ignoredTerminal: boolean;
+  pendingWriteRequests: PendingWebSocketStreamWrite[];
+  writableInvalidStateError: DOMException | null;
+  pendingWriteResolveTimer: number | null;
+  assertStateOwner: (() => void) | null;
+  assertSendOwner: (() => void) | null;
+  assertReleaseOwner: (() => void) | null;
+  writableCloseAdmitted: boolean;
+  writableAbortAdmitted: boolean;
+}
+
+// WebSocketStream wrappers can cross principal boundaries. Keep every native
+// handle reference, deferred settlement bit, and write-accounting record off
+// the wrapper so forged properties cannot redirect or poison the owner's
+// state machine.
+const webSocketStreamPrivateStates = new WeakMap<object, WebSocketStreamPrivateState>();
+const webSocketStreamInternalKey = {};
+
 function createDeferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
@@ -44,6 +140,57 @@ function createDeferred<T>(): {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+function newWebSocketStreamPrivateState(url: string): WebSocketStreamPrivateState {
+  return {
+    constructing: true,
+    url,
+    socket: null,
+    readableController: null,
+    readable: null,
+    writable: null,
+    openedDeferred: createDeferred<OpenedInfo>(),
+    closedDeferred: createDeferred<ClosedInfo>(),
+    openedSettled: false,
+    closedSettled: false,
+    connected: false,
+    localCloseInitiated: false,
+    closedDuringHandshake: false,
+    ignoredTerminal: false,
+    pendingWriteRequests: [],
+    writableInvalidStateError: null,
+    pendingWriteResolveTimer: null,
+    assertStateOwner: null,
+    assertSendOwner: null,
+    assertReleaseOwner: null,
+    writableCloseAdmitted: false,
+    writableAbortAdmitted: false,
+  };
+}
+
+function webSocketStreamPrivateState(value: unknown): WebSocketStreamPrivateState {
+  const state = value !== null && (typeof value === 'object' || typeof value === 'function')
+    ? webSocketStreamPrivateStates.get(value as object)
+    : undefined;
+  if (!state) {
+    throw new TypeError('Illegal invocation');
+  }
+  return state;
+}
+
+function ownedWebSocketStreamPrivateState(value: unknown): WebSocketStreamPrivateState {
+  const state = webSocketStreamPrivateState(value);
+  // A pre-aborted constructor never creates a native wrapper. Its already-
+  // rejected promises remain observable without inventing an owner identity.
+  state.assertStateOwner?.();
+  return state;
+}
+
+function assertWebSocketStreamInternal(key: unknown): void {
+  if (key !== webSocketStreamInternalKey) {
+    throw new TypeError('Illegal invocation');
+  }
 }
 
 function createRealmDomException(message: string, name: string): DOMException {
@@ -117,14 +264,14 @@ function getAbortCloseArguments(reason: unknown): { code?: number; reason?: stri
 
 function closeSocket(socket: WebSocket, code?: number, reason?: string): void {
   if (code === undefined) {
-    socket.close();
+    webSocketStreamSocketClose.call(socket);
     return;
   }
   if (reason === undefined) {
-    socket.close(code);
+    webSocketStreamSocketClose.call(socket, code);
     return;
   }
-  socket.close(code, reason);
+  webSocketStreamSocketClose.call(socket, code, reason);
 }
 
 function normalizeClosedInfo(code: number, reason: string): ClosedInfo {
@@ -186,8 +333,9 @@ function normalizeWritableChunk(
     return { sendValue: chunk, byteLength: chunk.byteLength };
   }
 
-  if (chunk && typeof chunk === 'object' && typeof (chunk as Blob).arrayBuffer === 'function' && typeof (chunk as Blob).size === 'number') {
-    return { sendValue: chunk as Blob, byteLength: (chunk as Blob).size };
+  const blobByteLength = getSupportedWebSocketBlobSize(chunk);
+  if (blobByteLength !== null) {
+    return { sendValue: chunk as Blob, byteLength: blobByteLength };
   }
 
   const stringified = String(chunk);
@@ -198,40 +346,14 @@ function normalizeWritableChunk(
 }
 
 export class WebSocketStream {
-  readonly url: string;
-  readonly opened: Promise<OpenedInfo>;
-  readonly closed: Promise<ClosedInfo>;
-
-  _socket: WebSocket | null = null;
-  _readableController: ReadableStreamDefaultController<string | Uint8Array> | null = null;
-  _readable: ReadableStream<string | Uint8Array> | null = null;
-  _writable: WritableStream<string | ArrayBuffer | ArrayBufferView | Blob> | null = null;
-  _openedDeferred = createDeferred<OpenedInfo>();
-  _closedDeferred = createDeferred<ClosedInfo>();
-  _openedSettled = false;
-  _closedSettled = false;
-  _connected = false;
-  _localCloseInitiated = false;
-  _closedDuringHandshake = false;
-  _ignoredTerminal = false;
-  _pendingWriteRequests: Array<{
-    remaining: number;
-    readyAt: number;
-    resolve: () => void;
-    reject: (reason: unknown) => void;
-  }> = [];
-  _writableInvalidStateError: DOMException | null = null;
-  _pendingWriteResolveTimer: number | null = null;
-
   constructor(url: string | URL, options?: WebSocketStreamOptions) {
-    const urlString = url instanceof URL ? url.href : String(url);
-    this.url = urlString;
-    this.opened = this._openedDeferred.promise;
-    this.closed = this._closedDeferred.promise;
-
     if (arguments.length === 0) {
       throw new TypeError('WebSocketStream constructor requires a URL');
     }
+    const urlString = url instanceof URL ? url.href : String(url);
+    const state = newWebSocketStreamPrivateState(urlString);
+    webSocketStreamPrivateStates.set(this, state);
+
     if (options !== undefined && !isObjectLike(options)) {
       throw new TypeError('WebSocketStream options must be an object');
     }
@@ -242,119 +364,286 @@ export class WebSocketStream {
     const signal = options?.signal;
     if (signal?.aborted) {
       const abortError = createAbortError();
-      this._rejectOpened(abortError);
-      this._rejectClosed(abortError);
+      webSocketStreamRejectOpened.call(this, abortError, webSocketStreamInternalKey);
+      webSocketStreamRejectClosed.call(this, abortError, webSocketStreamInternalKey);
       return;
     }
 
-    this._readable = new ReadableStream<string | Uint8Array>({
+    state.readable = new ReadableStream<string | Uint8Array>({
       start: (controller) => {
-        this._readableController = controller;
+        state.readableController = controller;
       },
       pull: () => {
-        this._syncReadableBackpressure();
+        webSocketStreamSyncReadableBackpressure.call(this, webSocketStreamInternalKey);
       },
       cancel: async (reason?: unknown) => {
-        const closeArgs = getAbortCloseArguments(reason);
-        await this._initiateClose(closeArgs.code, closeArgs.reason);
-      },
-    });
-
-    this._writable = new WritableStream<string | ArrayBuffer | ArrayBufferView | Blob>({
-      write: async (chunk) => {
-        if (!this._socket || !this._connected) {
+        if (!state.socket || !state.assertReleaseOwner) {
           throw createInvalidStateError();
         }
-        const normalized = normalizeWritableChunk(chunk);
+        state.assertReleaseOwner();
+        const closeArgs = getAbortCloseArguments(reason);
+        await webSocketStreamInitiateClose.call(
+          this,
+          closeArgs.code,
+          closeArgs.reason,
+          webSocketStreamInternalKey
+        );
+      },
+    }, undefined, {
+      read: () => {
+        if (!state.assertStateOwner) {
+          // ReadableStream schedules some setup work as a microtask. If the
+          // later WebSocket construction throws (for example invalid URL
+          // credentials), that inaccessible partial stream must still be able
+          // to finish its internal setup without creating an unhandled error.
+          if (state.constructing) {
+            return;
+          }
+          throw createInvalidStateError();
+        }
+        state.assertStateOwner();
+      },
+      transformChunk: (chunk) => {
+        const socket = state.socket;
+        const entry = isObjectLike(chunk) ? chunk as object : null;
+        const authorized = entry
+          ? authorizedWebSocketStreamReads.get(entry)
+          : undefined;
+        if (
+          !socket ||
+          !entry ||
+          !authorized ||
+          authorized.socket !== socket ||
+          consumedWebSocketStreamReads.has(entry)
+        ) {
+          throw createInvalidStateError();
+        }
+        consumedWebSocketStreamReads.add(entry);
+        return authorized.chunk;
+      },
+      cancel: () => {
+        if (!state.socket || !state.assertReleaseOwner) {
+          throw createInvalidStateError();
+        }
+        state.assertReleaseOwner();
+      },
+    } as any);
+
+    state.writable = new WritableStream<string | ArrayBuffer | ArrayBufferView | Blob>({
+      write: async (admittedWrite) => {
+        const socket = state.socket;
+        if (!socket || !state.connected || !state.assertSendOwner) {
+          throw createInvalidStateError();
+        }
+        // `_writeAlgorithm` is a compatibility field on the generic stream.
+        // Re-authenticate before resolving an opaque admission back to its
+        // caller-owned payload, so a retained foreign caller cannot make us
+        // invoke conversion hooks or inspect that payload through the sink.
+        state.assertSendOwner();
+        const entry = isObjectLike(admittedWrite) ? admittedWrite as object : null;
+        const authorized = entry
+          ? authorizedWebSocketStreamWrites.get(entry)
+          : undefined;
+        if (
+          !entry ||
+          !authorized ||
+          authorized.socket !== socket ||
+          consumedWebSocketStreamWrites.has(entry)
+        ) {
+          throw createInvalidStateError();
+        }
+        const normalized = normalizeWritableChunk(authorized.chunk);
         return new Promise<void>((resolve, reject) => {
           const resolveDelay = estimateWriteResolveDelay(normalized.byteLength);
-          this._pendingWriteRequests.push({
+          const request: PendingWebSocketStreamWrite = {
             remaining: normalized.byteLength,
             readyAt: getMonotonicNow() + resolveDelay,
             resolve,
             reject,
-          });
+          };
+          state.pendingWriteRequests.push(request);
           try {
-            this._socket!.send(normalized.sendValue as any);
-            if (normalized.byteLength === 0) {
-              const waiter = this._pendingWriteRequests.shift();
-              waiter?.resolve();
-            }
+            webSocketStreamSocketSend.call(socket, normalized.sendValue as any);
+            // Consume only after the native owner preflight in send() has
+            // succeeded. A direct foreign call to the captured sink cannot
+            // burn the owner's admitted entry.
+            consumedWebSocketStreamWrites.add(entry);
           } catch (error) {
-            const waiter = this._pendingWriteRequests.pop();
-            waiter?.reject(error);
+            const requestIndex = state.pendingWriteRequests.indexOf(request);
+            if (requestIndex !== -1) {
+              state.pendingWriteRequests.splice(requestIndex, 1);
+            }
+            request.reject(error);
           }
         });
       },
       close: async () => {
-        await this._initiateClose(undefined, undefined);
+        if (!state.writableCloseAdmitted || !state.socket || !state.assertReleaseOwner) {
+          throw createInvalidStateError();
+        }
+        state.assertReleaseOwner();
+        await webSocketStreamInitiateClose.call(
+          this,
+          undefined,
+          undefined,
+          webSocketStreamInternalKey
+        );
+        state.writableCloseAdmitted = false;
       },
       abort: async (reason?: unknown) => {
+        if (!state.writableAbortAdmitted || !state.socket || !state.assertReleaseOwner) {
+          throw createInvalidStateError();
+        }
+        state.assertReleaseOwner();
         const closeArgs = getAbortCloseArguments(reason);
-        await this._initiateClose(closeArgs.code, closeArgs.reason);
+        await webSocketStreamInitiateClose.call(
+          this,
+          closeArgs.code,
+          closeArgs.reason,
+          webSocketStreamInternalKey
+        );
+        state.writableAbortAdmitted = false;
+      },
+    }, undefined, {
+      inspect: () => {
+        if (!state.assertStateOwner) {
+          if (state.constructing) {
+            return;
+          }
+          throw createInvalidStateError();
+        }
+        state.assertStateOwner();
+      },
+      write: (chunk) => {
+        const socket = state.socket;
+        if (!socket || !state.connected || !state.assertSendOwner) {
+          throw createInvalidStateError();
+        }
+
+        // @ref LLP 0021#decision-staging-and-principal-semantics — authenticate
+        // at public writer.write() queue admission, not when a prior owner's
+        // Promise continuation eventually drains this entry.
+        state.assertSendOwner();
+        const entry = Object.freeze(Object.create(null));
+        authorizedWebSocketStreamWrites.set(entry, {
+          socket,
+          chunk,
+        });
+        return entry as any;
+      },
+      close: () => {
+        if (!state.socket || !state.connected || !state.assertReleaseOwner) {
+          throw createInvalidStateError();
+        }
+        state.assertReleaseOwner();
+        state.writableCloseAdmitted = true;
+      },
+      abort: () => {
+        if (!state.socket || !state.connected || !state.assertReleaseOwner) {
+          throw createInvalidStateError();
+        }
+        state.assertReleaseOwner();
+        state.writableAbortAdmitted = true;
       },
     });
 
-    const socket = new WebSocket(urlString, options?.protocols);
-    socket.binaryType = 'arraybuffer';
-    socket._setIncomingFlowControl(true);
-    this._socket = socket;
+    const streamSocket = createWebSocketForStream(
+      urlString,
+      options?.protocols,
+      (bytesSent) => webSocketStreamHandleBytesSent.call(
+        this,
+        bytesSent,
+        webSocketStreamInternalKey
+      ),
+      (byteSize, error) => webSocketStreamHandleSendFailure.call(
+        this,
+        byteSize,
+        error,
+        webSocketStreamInternalKey
+      )
+    );
+    const socket = streamSocket.socket;
+    state.socket = socket;
+    state.assertStateOwner = streamSocket.assertStateOwner;
+    state.assertSendOwner = streamSocket.assertSendOwner;
+    state.assertReleaseOwner = streamSocket.assertReleaseOwner;
+    state.constructing = false;
+    if (!webSocketStreamSocketBinaryTypeSetter) {
+      throw new TypeError('WebSocket binaryType setter is unavailable');
+    }
+    webSocketStreamSocketBinaryTypeSetter.call(socket, 'arraybuffer');
+    webSocketStreamSocketSetIncomingFlowControl.call(socket, true);
 
-    const originalHandleBytesSent = socket._handleBytesSent.bind(socket);
-    socket._handleBytesSent = (bytesSent: number) => {
-      originalHandleBytesSent(bytesSent);
-      this._handleBytesSent(bytesSent);
-    };
-
-    socket.addEventListener('open', () => {
-      this._connected = true;
+    webSocketStreamSocketAddEventListener.call(socket, 'open', () => {
+      // The open callback commits externally observable stream state. Bind it
+      // to the native handle owner before changing settlement flags.
+      state.assertReleaseOwner?.();
+      state.connected = true;
       if (signal) {
-        signal.removeEventListener('abort', abortListener);
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch (_removeAbortListenerError) {}
       }
-      this._resolveOpened({
-        readable: this._readable!,
-        writable: this._writable!,
-        protocol: socket.protocol,
-        extensions: socket.extensions,
-      });
+      webSocketStreamResolveOpened.call(this, {
+        readable: state.readable!,
+        writable: state.writable!,
+        protocol: webSocketStreamSocketProtocolGetter?.call(socket) || '',
+        extensions: webSocketStreamSocketExtensionsGetter?.call(socket) || '',
+      }, webSocketStreamInternalKey);
     });
 
-    socket.addEventListener('message', (event: any) => {
-      if (!this._readableController) {
+    webSocketStreamSocketAddEventListener.call(socket, 'message', (event: any) => {
+      if (!state.connected || !state.readableController || !state.assertStateOwner) {
         return;
       }
+      state.assertStateOwner();
+      let chunk: string | Uint8Array | undefined;
       if (typeof event.data === 'string') {
-        this._readableController.enqueue(event.data);
+        chunk = event.data;
       } else if (event.data instanceof ArrayBuffer) {
-        this._readableController.enqueue(new Uint8Array(event.data));
+        chunk = new Uint8Array(event.data);
       } else if (ArrayBuffer.isView(event.data)) {
-        this._readableController.enqueue(new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength));
+        chunk = new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength);
       }
-      this._syncReadableBackpressure();
+      if (chunk !== undefined) {
+        const entry = Object.freeze(Object.create(null));
+        authorizedWebSocketStreamReads.set(entry, { socket, chunk });
+        state.readableController.enqueue(entry as any);
+      }
+      webSocketStreamSyncReadableBackpressure.call(this, webSocketStreamInternalKey);
     });
 
-    socket.addEventListener('error', () => {
+    webSocketStreamSocketAddEventListener.call(socket, 'error', () => {
       // Close carries the structured outcome we care about.
     });
 
-    socket.addEventListener('close', (event: any) => {
+    webSocketStreamSocketAddEventListener.call(socket, 'close', (event: any) => {
       if (signal) {
-        signal.removeEventListener('abort', abortListener);
+        try {
+          signal.removeEventListener('abort', abortListener);
+        } catch (_removeAbortListenerError) {}
       }
-      this._handleSocketClose(event.code, event.reason || '', !!event.wasClean);
+      webSocketStreamHandleSocketClose.call(
+        this,
+        event.code,
+        event.reason || '',
+        !!event.wasClean,
+        webSocketStreamInternalKey
+      );
     });
 
     const abortListener = () => {
-      if (this._connected) {
+      if (state.connected) {
         return;
       }
+      // The native close is also the strict owner check. A foreign principal
+      // retaining the AbortSignal must not terminally settle this stream when
+      // that check rejects.
+      closeSocket(socket);
       const abortError = createAbortError();
-      this._ignoredTerminal = true;
-      this._rejectOpened(abortError);
-      this._rejectClosed(abortError);
-      try {
-        socket.close();
-      } catch (_abortCloseErr) {}
+      state.ignoredTerminal = true;
+      webSocketStreamRejectOpened.call(this, abortError, webSocketStreamInternalKey);
+      webSocketStreamRejectClosed.call(this, abortError, webSocketStreamInternalKey);
     };
 
     if (signal) {
@@ -362,14 +651,43 @@ export class WebSocketStream {
     }
   }
 
-  close(info?: WebSocketCloseInfo): void {
-    const normalized = normalizeCloseArguments(info);
-    void this._initiateClose(normalized.code, normalized.reason);
+  get url(): string {
+    return ownedWebSocketStreamPrivateState(this).url;
   }
 
-  _handleBytesSent(bytesSent: number): void {
-    let remainingBytes = bytesSent;
-    for (const request of this._pendingWriteRequests) {
+  get opened(): Promise<OpenedInfo> {
+    return ownedWebSocketStreamPrivateState(this).openedDeferred.promise;
+  }
+
+  get closed(): Promise<ClosedInfo> {
+    return ownedWebSocketStreamPrivateState(this).closedDeferred.promise;
+  }
+
+  close(info?: WebSocketCloseInfo): void {
+    const state = webSocketStreamPrivateState(this);
+    if (state.closedSettled || state.localCloseInitiated) {
+      return;
+    }
+    if (!state.socket || !state.assertReleaseOwner) {
+      throw createInvalidStateError();
+    }
+    // Validate authority before touching caller-controlled close option
+    // getters. A denied retained-wrapper call must be observationally inert.
+    state.assertReleaseOwner();
+    const normalized = normalizeCloseArguments(info);
+    void webSocketStreamInitiateClose.call(
+      this,
+      normalized.code,
+      normalized.reason,
+      webSocketStreamInternalKey
+    );
+  }
+
+  _handleBytesSent(bytesSent: number, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    let remainingBytes = Number.isFinite(bytesSent) && bytesSent > 0 ? bytesSent : 0;
+    for (const request of state.pendingWriteRequests) {
       if (remainingBytes <= 0) {
         break;
       }
@@ -384,215 +702,271 @@ export class WebSocketStream {
         remainingBytes = 0;
       }
     }
-    this._drainResolvedWrites();
+    webSocketStreamDrainResolvedWrites.call(this, webSocketStreamInternalKey);
   }
 
-  _syncReadableBackpressure(): void {
-    if (!this._socket || !this._connected || !this._readableController) {
+  _handleSendFailure(_byteSize: number, error: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    const request = state.pendingWriteRequests.shift();
+    if (!request) {
+      return;
+    }
+    webSocketStreamClearPendingWriteResolveTimer.call(this, webSocketStreamInternalKey);
+    request.reject(error);
+    webSocketStreamDrainResolvedWrites.call(this, webSocketStreamInternalKey);
+  }
+
+  _syncReadableBackpressure(internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (!state.socket || !state.connected || !state.readableController || !state.assertSendOwner) {
       return;
     }
 
-    const desiredSize = this._readableController.desiredSize;
+    state.assertSendOwner();
+
+    const desiredSize = state.readableController.desiredSize;
     if (desiredSize !== null && desiredSize <= 0) {
-      this._socket._pauseIncoming();
+      webSocketStreamSocketPauseIncoming.call(state.socket);
       return;
     }
 
-    this._socket._resumeIncoming();
+    webSocketStreamSocketResumeIncoming.call(state.socket);
   }
 
-  async _initiateClose(code?: number, reason?: string): Promise<void> {
-    if (this._closedSettled) {
+  _initiateClose(code?: number, reason?: string, internalKey?: unknown): Promise<void> | void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.closedSettled) {
       return;
     }
 
-    if (!this._socket) {
-      if (!this._closedSettled) {
+    if (!state.socket) {
+      if (!state.closedSettled) {
         const abortError = createAbortError();
-        this._rejectOpened(abortError);
-        this._rejectClosed(abortError);
+        webSocketStreamRejectOpened.call(this, abortError, webSocketStreamInternalKey);
+        webSocketStreamRejectClosed.call(this, abortError, webSocketStreamInternalKey);
       }
       return;
     }
 
-    if (!this._connected && !this._openedSettled) {
-      this._closedDuringHandshake = true;
-      this._localCloseInitiated = true;
+    if (!state.connected && !state.openedSettled) {
+      // Authorize/release the native handle before changing any public stream
+      // outcome. A rejected retained-wrapper close remains retryable.
+      closeSocket(state.socket, code, reason);
+      state.closedDuringHandshake = true;
+      state.localCloseInitiated = true;
       const error = createWebSocketCloseError('WebSocketStream closed during handshake', 1005, '');
-      this._ignoredTerminal = true;
-      this._rejectOpened(error);
-      this._rejectClosed(error);
-      try {
-        closeSocket(this._socket, code, reason);
-      } catch (_closeDuringHandshakeErr) {}
-      return;
+      state.ignoredTerminal = true;
+      webSocketStreamRejectOpened.call(this, error, webSocketStreamInternalKey);
+      webSocketStreamRejectClosed.call(this, error, webSocketStreamInternalKey);
+      return Promise.resolve();
     }
 
-    if (this._localCloseInitiated) {
-      return this.closed.then(() => undefined);
+    if (state.localCloseInitiated) {
+      return state.closedDeferred.promise.then(() => undefined);
     }
 
-    this._localCloseInitiated = true;
-    closeSocket(this._socket, code, reason);
-    return this.closed.then(() => undefined);
+    closeSocket(state.socket, code, reason);
+    state.localCloseInitiated = true;
+    return state.closedDeferred.promise.then(() => undefined);
   }
 
-  _handleSocketClose(code: number, reason: string, wasClean: boolean): void {
-    if (this._ignoredTerminal) {
+  _handleSocketClose(
+    code: number,
+    reason: string,
+    wasClean: boolean,
+    internalKey?: unknown
+  ): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.ignoredTerminal) {
       return;
     }
 
-    this._connected = false;
+    state.connected = false;
 
     const closeInfo = normalizeClosedInfo(code, reason);
     const closeError = createWebSocketCloseError(reason || 'WebSocket closed', closeInfo.closeCode, closeInfo.reason);
-    const hadPendingWrites = this._pendingWriteRequests.length > 0;
+    const hadPendingWrites = state.pendingWriteRequests.length > 0;
 
-    if (!this._openedSettled) {
-      this._rejectOpened(closeError);
-      this._rejectClosed(closeError);
-      this._rejectPendingWrites(createInvalidStateError());
-      this._errorReadable(closeError);
-      this._errorWritable(closeError);
+    if (!state.openedSettled) {
+      webSocketStreamRejectOpened.call(this, closeError, webSocketStreamInternalKey);
+      webSocketStreamRejectClosed.call(this, closeError, webSocketStreamInternalKey);
+      webSocketStreamRejectPendingWrites.call(this, createInvalidStateError(), webSocketStreamInternalKey);
+      webSocketStreamErrorReadable.call(this, closeError, webSocketStreamInternalKey);
+      webSocketStreamErrorWritable.call(this, closeError, webSocketStreamInternalKey);
       return;
     }
 
     if (!wasClean || closeInfo.closeCode === 1006) {
-      this._rejectClosed(closeError);
-      this._errorReadable(closeError);
+      webSocketStreamRejectClosed.call(this, closeError, webSocketStreamInternalKey);
+      webSocketStreamErrorReadable.call(this, closeError, webSocketStreamInternalKey);
       if (hadPendingWrites) {
-        const invalidStateError = this._getWritableInvalidStateError();
-        this._rejectPendingWrites(invalidStateError);
-        this._errorWritable(invalidStateError);
+        const invalidStateError = webSocketStreamGetWritableInvalidStateError.call(
+          this,
+          webSocketStreamInternalKey
+        );
+        webSocketStreamRejectPendingWrites.call(this, invalidStateError, webSocketStreamInternalKey);
+        webSocketStreamErrorWritable.call(this, invalidStateError, webSocketStreamInternalKey);
       } else {
-        this._errorWritable(closeError);
+        webSocketStreamErrorWritable.call(this, closeError, webSocketStreamInternalKey);
       }
       return;
     }
 
     if (hadPendingWrites) {
-      const invalidStateError = this._getWritableInvalidStateError();
-      this._rejectClosed(closeError);
-      this._closeReadable();
-      this._rejectPendingWrites(invalidStateError);
-      this._errorWritable(invalidStateError);
+      const invalidStateError = webSocketStreamGetWritableInvalidStateError.call(
+        this,
+        webSocketStreamInternalKey
+      );
+      webSocketStreamRejectClosed.call(this, closeError, webSocketStreamInternalKey);
+      webSocketStreamCloseReadable.call(this, webSocketStreamInternalKey);
+      webSocketStreamRejectPendingWrites.call(this, invalidStateError, webSocketStreamInternalKey);
+      webSocketStreamErrorWritable.call(this, invalidStateError, webSocketStreamInternalKey);
       return;
     }
 
-    this._resolveClosed(closeInfo);
-    this._closeReadable();
-    if (this._localCloseInitiated) {
-      this._finishWritableClose();
+    webSocketStreamResolveClosed.call(this, closeInfo, webSocketStreamInternalKey);
+    webSocketStreamCloseReadable.call(this, webSocketStreamInternalKey);
+    if (state.localCloseInitiated) {
+      webSocketStreamFinishWritableClose.call(this, webSocketStreamInternalKey);
     } else {
-      const invalidStateError = this._getWritableInvalidStateError();
-      this._rejectPendingWrites(invalidStateError);
-      this._errorWritable(invalidStateError);
+      const invalidStateError = webSocketStreamGetWritableInvalidStateError.call(
+        this,
+        webSocketStreamInternalKey
+      );
+      webSocketStreamRejectPendingWrites.call(this, invalidStateError, webSocketStreamInternalKey);
+      webSocketStreamErrorWritable.call(this, invalidStateError, webSocketStreamInternalKey);
     }
   }
 
-  _getWritableInvalidStateError(): DOMException {
-    if (!this._writableInvalidStateError) {
-      this._writableInvalidStateError = createInvalidStateError();
+  _getWritableInvalidStateError(internalKey?: unknown): DOMException {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (!state.writableInvalidStateError) {
+      state.writableInvalidStateError = createInvalidStateError();
     }
-    return this._writableInvalidStateError;
+    return state.writableInvalidStateError;
   }
 
-  _rejectPendingWrites(reason: unknown): void {
-    this._clearPendingWriteResolveTimer();
-    while (this._pendingWriteRequests.length > 0) {
-      const request = this._pendingWriteRequests.shift();
+  _rejectPendingWrites(reason: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    webSocketStreamClearPendingWriteResolveTimer.call(this, webSocketStreamInternalKey);
+    while (state.pendingWriteRequests.length > 0) {
+      const request = state.pendingWriteRequests.shift();
       request?.reject(reason);
     }
   }
 
-  _drainResolvedWrites(): void {
-    this._clearPendingWriteResolveTimer();
+  _drainResolvedWrites(internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    webSocketStreamClearPendingWriteResolveTimer.call(this, webSocketStreamInternalKey);
 
-    while (this._pendingWriteRequests.length > 0) {
-      const current = this._pendingWriteRequests[0];
+    while (state.pendingWriteRequests.length > 0) {
+      const current = state.pendingWriteRequests[0];
       if (current.remaining > 0) {
         return;
       }
 
       const delay = current.readyAt - getMonotonicNow();
       if (delay > 0) {
-        this._pendingWriteResolveTimer = setTimeout(() => {
-          this._pendingWriteResolveTimer = null;
-          this._drainResolvedWrites();
+        state.pendingWriteResolveTimer = setTimeout(() => {
+          state.pendingWriteResolveTimer = null;
+          webSocketStreamDrainResolvedWrites.call(this, webSocketStreamInternalKey);
         }, delay) as unknown as number;
         return;
       }
 
-      this._pendingWriteRequests.shift();
+      state.pendingWriteRequests.shift();
       current.resolve();
     }
   }
 
-  _clearPendingWriteResolveTimer(): void {
-    if (this._pendingWriteResolveTimer === null) {
+  _clearPendingWriteResolveTimer(internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.pendingWriteResolveTimer === null) {
       return;
     }
-    clearTimeout(this._pendingWriteResolveTimer);
-    this._pendingWriteResolveTimer = null;
+    clearTimeout(state.pendingWriteResolveTimer);
+    state.pendingWriteResolveTimer = null;
   }
 
-  _resolveOpened(value: OpenedInfo): void {
-    if (this._openedSettled) {
+  _resolveOpened(value: OpenedInfo, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.openedSettled) {
       return;
     }
-    this._openedSettled = true;
-    this._openedDeferred.resolve(value);
+    state.openedSettled = true;
+    state.openedDeferred.resolve(value);
   }
 
-  _rejectOpened(reason: unknown): void {
-    if (this._openedSettled) {
+  _rejectOpened(reason: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.openedSettled) {
       return;
     }
-    this._openedSettled = true;
-    this._openedDeferred.reject(reason);
+    state.openedSettled = true;
+    state.openedDeferred.reject(reason);
   }
 
-  _resolveClosed(value: ClosedInfo): void {
-    if (this._closedSettled) {
+  _resolveClosed(value: ClosedInfo, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.closedSettled) {
       return;
     }
-    this._closedSettled = true;
-    this._closedDeferred.resolve(value);
+    state.closedSettled = true;
+    state.closedDeferred.resolve(value);
   }
 
-  _rejectClosed(reason: unknown): void {
-    if (this._closedSettled) {
+  _rejectClosed(reason: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.closedSettled) {
       return;
     }
-    this._closedSettled = true;
-    this._closedDeferred.reject(reason);
+    state.closedSettled = true;
+    state.closedDeferred.reject(reason);
   }
 
-  _closeReadable(): void {
-    if (this._readableController) {
+  _closeReadable(internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (state.readableController) {
       try {
-        this._readableController.close();
+        state.readableController.close();
         return;
       } catch (_closeReadableErr) {}
     }
-    if (!this._readable) {
+    if (!state.readable) {
       return;
     }
-    (this._readable as any)._closeStream();
+    (state.readable as any)._closeStream();
   }
 
-  _errorReadable(reason: unknown): void {
-    if (!this._readable) {
+  _errorReadable(reason: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (!state.readable) {
       return;
     }
-    (this._readable as any)._errorStream(reason);
+    (state.readable as any)._errorStream(reason);
   }
 
-  _finishWritableClose(): void {
-    if (!this._writable) {
+  _finishWritableClose(internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (!state.writable) {
       return;
     }
-    const writable = this._writable as any;
+    const writable = state.writable as any;
     if (writable._state === 'closed' || writable._state === 'errored') {
       return;
     }
@@ -614,16 +988,39 @@ export class WebSocketStream {
     }
   }
 
-  _errorWritable(reason: unknown): void {
-    if (!this._writable) {
+  _errorWritable(reason: unknown, internalKey?: unknown): void {
+    assertWebSocketStreamInternal(internalKey);
+    const state = webSocketStreamPrivateState(this);
+    if (!state.writable) {
       return;
     }
-    (this._writable as any)._errorStream(reason);
+    (state.writable as any)._errorStream(reason);
   }
 
   get [Symbol.toStringTag](): string {
     return 'WebSocketStream';
   }
 }
+
+// Capture all internal state-machine entry points once. The closure-private
+// key rejects direct, saved, and base-prototype calls before they can mutate
+// private settlement or write-accounting state.
+const webSocketStreamHandleBytesSent = WebSocketStream.prototype._handleBytesSent;
+const webSocketStreamHandleSendFailure = WebSocketStream.prototype._handleSendFailure;
+const webSocketStreamSyncReadableBackpressure = WebSocketStream.prototype._syncReadableBackpressure;
+const webSocketStreamInitiateClose = WebSocketStream.prototype._initiateClose;
+const webSocketStreamHandleSocketClose = WebSocketStream.prototype._handleSocketClose;
+const webSocketStreamGetWritableInvalidStateError = WebSocketStream.prototype._getWritableInvalidStateError;
+const webSocketStreamRejectPendingWrites = WebSocketStream.prototype._rejectPendingWrites;
+const webSocketStreamDrainResolvedWrites = WebSocketStream.prototype._drainResolvedWrites;
+const webSocketStreamClearPendingWriteResolveTimer = WebSocketStream.prototype._clearPendingWriteResolveTimer;
+const webSocketStreamResolveOpened = WebSocketStream.prototype._resolveOpened;
+const webSocketStreamRejectOpened = WebSocketStream.prototype._rejectOpened;
+const webSocketStreamResolveClosed = WebSocketStream.prototype._resolveClosed;
+const webSocketStreamRejectClosed = WebSocketStream.prototype._rejectClosed;
+const webSocketStreamCloseReadable = WebSocketStream.prototype._closeReadable;
+const webSocketStreamErrorReadable = WebSocketStream.prototype._errorReadable;
+const webSocketStreamFinishWritableClose = WebSocketStream.prototype._finishWritableClose;
+const webSocketStreamErrorWritable = WebSocketStream.prototype._errorWritable;
 
 export default WebSocketStream;

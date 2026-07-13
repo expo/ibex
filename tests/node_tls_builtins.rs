@@ -203,6 +203,57 @@ console.log(JSON.stringify(out));
 }
 
 #[tokio::test]
+async fn node_tls_native_reads_ignore_replaced_retaining_buffer_constructors() {
+    // A native read reserves the Rust engine until its exact-size destination
+    // is ready. Replace both public constructors with valid but retaining
+    // wrappers: neither wrapper may run while that lease is live, or user code
+    // could keep the destination and observe TLS records after the host call.
+    let script = r#"
+require('tls');
+var id = __exactTlsEngineNew(JSON.stringify({ host: 'localhost', servername: 'localhost' }));
+var OriginalArrayBuffer = globalThis.ArrayBuffer;
+var OriginalUint8Array = globalThis.Uint8Array;
+var retained = [];
+var arrayBufferCalls = 0;
+var uint8ArrayCalls = 0;
+globalThis.ArrayBuffer = function RetainingArrayBuffer(size) {
+  arrayBufferCalls++;
+  var buffer = new OriginalArrayBuffer(size);
+  retained.push(buffer);
+  return buffer;
+};
+globalThis.Uint8Array = function RetainingUint8Array(buffer, offset, length) {
+  uint8ArrayCalls++;
+  var view = new OriginalUint8Array(buffer, offset, length);
+  retained.push(view);
+  return view;
+};
+var hello;
+try {
+  hello = __exactTlsEngineReadTls(id, 65536);
+} finally {
+  globalThis.ArrayBuffer = OriginalArrayBuffer;
+  globalThis.Uint8Array = OriginalUint8Array;
+  __exactTlsEngineClose(id);
+}
+console.log(JSON.stringify({
+  bytes: hello && hello.byteLength || 0,
+  arrayBufferCalls: arrayBufferCalls,
+  uint8ArrayCalls: uint8ArrayCalls,
+  retained: retained.length
+}));
+"#;
+    let v = run_script(script, 5).await;
+    assert!(
+        v["bytes"].as_u64().unwrap_or(0) > 0,
+        "engine should emit its initial ClientHello: {v}"
+    );
+    assert_eq!(v["arrayBufferCalls"], 0, "{v}");
+    assert_eq!(v["uint8ArrayCalls"], 0, "{v}");
+    assert_eq!(v["retained"], 0, "{v}");
+}
+
+#[tokio::test]
 async fn node_tls_socket_prototype_chain_extends_net_socket() {
     // ENG-23448 finding 3: setPrototypeOf was applied to the constructor only,
     // so `new tls.TLSSocket(sock) instanceof net.Socket` was false and none of
@@ -325,8 +376,9 @@ async fn node_tls_reject_unauthorized_false_still_reports_verification_result() 
     // authorized=true and clear authorizationError. Node v25.9.0 oracle for a
     // self-signed in-process server: secureConnect fires, but
     // authorized=false with authorizationError='DEPTH_ZERO_SELF_SIGNED_CERT'.
-    // The strict default (rejectUnauthorized unset => true) must still abort
-    // with the same code.
+    // The strict default must fail loudly: loopback compatibility mode does
+    // not exchange encrypted records or prove possession of the server key,
+    // so it cannot honestly report certificate authentication success.
     let script = r#"
 var tls = require('tls');
 var out = {};
@@ -378,7 +430,10 @@ server.listen(0, '127.0.0.1', function () {
         v["lax"]["authorizationError"], "DEPTH_ZERO_SELF_SIGNED_CERT",
         "{v}"
     );
-    assert_eq!(v["strict"]["error"], "DEPTH_ZERO_SELF_SIGNED_CERT", "{v}");
+    assert_eq!(
+        v["strict"]["error"], "ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED",
+        "{v}"
+    );
 }
 
 #[tokio::test]
@@ -556,8 +611,12 @@ mod tls_bridge_support {
                 let Ok(mut stream) = stream else { break };
                 let config = config.clone();
                 std::thread::spawn(move || {
+                    // The full test binary starts many audited ibex children
+                    // concurrently. Keep this fixture bounded, but do not let
+                    // scheduler contention close an otherwise healthy mTLS
+                    // handshake before the script's own watchdog can fire.
                     stream
-                        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                        .set_read_timeout(Some(std::time::Duration::from_secs(30)))
                         .ok();
                     let Ok(mut conn) = rustls::ServerConnection::new(config) else {
                         return;
@@ -565,13 +624,20 @@ mod tls_bridge_support {
                     let mut tls = rustls::Stream::new(&mut conn, &mut stream);
                     let mut request = Vec::new();
                     let mut buf = [0u8; 1024];
+                    // The mTLS test clients call TLSSocket.end(request), so
+                    // their close_notify can follow the request in a later
+                    // record. Drain that authenticated EOF before dropping
+                    // TcpStream; closing with unread ciphertext may emit a
+                    // TCP reset and race away our close_notify under load.
+                    let mut request_complete = false;
                     loop {
                         match tls.read(&mut buf) {
+                            Ok(0) if request_complete => break,
                             Ok(0) | Err(_) => return,
                             Ok(n) => {
                                 request.extend_from_slice(&buf[..n]);
                                 if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-                                    break;
+                                    request_complete = true;
                                 }
                             }
                         }
@@ -886,8 +952,9 @@ var sock = tls.connect({{
 }}, function () {{
   sock.pause();
   setTimeout(function () {{
-    out.retained = sock._bridgeCipherQueueBytes;
-    out.cap = sock._ciphertextHighWaterMark;
+    var stats = sock[Symbol.for('ibex.tls.flowControlStats')]();
+    out.retained = stats.retainedCiphertextBytes;
+    out.cap = stats.ciphertextHighWaterMark;
     out.bounded = out.retained <= out.cap;
     sock.on('data', function (chunk) {{ out.bytes += chunk.length; }});
     sock.resume();

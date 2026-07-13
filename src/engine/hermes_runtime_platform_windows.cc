@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <random>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -139,6 +140,79 @@ std::unordered_map<int, WindowsSocketEntry> g_windows_sockets;
 int g_windows_next_socket_handle = 1;
 std::mutex g_windows_sockets_mutex;
 
+struct WindowsNetOwnerStampEntry {
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
+};
+
+std::unordered_map<uint64_t, WindowsNetOwnerStampEntry> g_windows_net_owner_stamps;
+std::mutex g_windows_net_owner_stamp_mutex;
+
+uint64_t windowsNetOwnerStampForCurrentPrincipal() {
+  const uint64_t runtimeNonce = exactCurrentRuntimeNonce();
+  const uint64_t owner = currentPrincipalId();
+  if (runtimeNonce == 0) return 0;
+  std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+  for (const auto& item : g_windows_net_owner_stamps) {
+    if (item.second.runtimeNonce == runtimeNonce && item.second.owner == owner) {
+      return item.first;
+    }
+  }
+  static std::random_device randomDevice;
+  constexpr uint64_t kJsSafeMask = (uint64_t{1} << 53) - 1;
+  for (size_t attempt = 0; attempt < 128; ++attempt) {
+    uint64_t stamp =
+        ((static_cast<uint64_t>(randomDevice()) << 32) ^
+         static_cast<uint64_t>(randomDevice())) &
+        kJsSafeMask;
+    if (stamp == 0 || g_windows_net_owner_stamps.count(stamp) != 0) continue;
+    g_windows_net_owner_stamps.emplace(
+        stamp, WindowsNetOwnerStampEntry{runtimeNonce, owner});
+    return stamp;
+  }
+  return 0;
+}
+
+void requireWindowsNetOwnerStamp(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: numeric stamp required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 || number > kMaxSafeInteger ||
+      std::floor(number) != number) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid stamp");
+  }
+  const uint64_t stamp = static_cast<uint64_t>(number);
+  std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+  auto item = g_windows_net_owner_stamps.find(stamp);
+  if (item == g_windows_net_owner_stamps.end() ||
+      item->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      item->second.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: stamp belongs to another runtime or principal");
+  }
+}
+
+int requireWindowsNetOwnerSocketHandle(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: numeric handle required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 ||
+      number > kMaxSafeInteger || std::floor(number) != number ||
+      number > static_cast<double>(std::numeric_limits<int>::max())) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid handle");
+  }
+  return static_cast<int>(number);
+}
+
 int registerWindowsSocket(
     SOCKET socket,
     const std::string& capability,
@@ -169,11 +243,12 @@ WindowsSocketEntry requireWindowsSocket(
     throw facebook::jsi::JSError(
         runtime, std::string(operation) + ": handle belongs to a different runtime");
   }
+  // Permissive capability policy does not make numeric handles ambient.
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle belongs to a different principal");
+  }
   if (!isAllowAll()) {
-    if (entry.owner != currentPrincipalId()) {
-      throw facebook::jsi::JSError(
-          runtime, std::string(operation) + ": handle belongs to a different principal");
-    }
     if (requireLiveAuthority && !entry.capability.empty() &&
         !checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(
@@ -201,10 +276,16 @@ SOCKET removeWindowsSocket(facebook::jsi::Runtime& runtime, int handle, const ch
   // @ref LLP 0021#handles-dynamic-authority-and-generations — release checks
   // ownership and runtime identity, never a positive grant that may already
   // have been revoked.
-  (void)requireWindowsSocket(runtime, handle, operation, false);
+  auto expected = requireWindowsSocket(runtime, handle, operation, false);
   std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
   auto it = g_windows_sockets.find(handle);
   if (it == g_windows_sockets.end()) return INVALID_SOCKET;
+  if (it->second.runtimeNonce != expected.runtimeNonce ||
+      it->second.owner != expected.owner ||
+      it->second.socket != expected.socket) {
+    throw facebook::jsi::JSError(
+        runtime, std::string(operation) + ": handle identity changed during release");
+  }
   SOCKET socket = it->second.socket;
   g_windows_sockets.erase(it);
   return socket;
@@ -920,6 +1001,29 @@ std::string spawnSyncWindowsJson(
         jsonEscape(message) + "\"}";
   };
 
+  // This backend implements neither IPC nor descriptor duplication. Treating
+  // either mode as the generic fallback below silently inherited the parent's
+  // console for slots 0-2 or ignored later slots. Reject every occurrence
+  // before creating or selecting any handles, matching the async Windows
+  // backend's fail-closed behavior.
+  for (const auto& mode : stdioModes) {
+    if (mode == "ipc") {
+      return failJson(
+          "child_process IPC is not supported by the Windows sync spawn backend");
+    }
+    if (mode.size() > 3 && mode.substr(0, 3) == "fd:") {
+      return failJson(
+          "child_process fd:N stdio is not supported by the Windows sync spawn backend");
+    }
+  }
+
+  for (size_t i = 3; i < stdioModes.size(); ++i) {
+    if (stdioModes[i] != "ignore") {
+      return failJson(
+          "child_process extra stdio is not supported by the Windows sync spawn backend");
+    }
+  }
+
   if (pipeStdin) {
     HANDLE stdinRead = nullptr;
     HANDLE stdinWrite = nullptr;
@@ -1281,7 +1385,7 @@ std::string normalizeWindowsStdioMode(const std::string& value) {
 }
 
 std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson) {
-  std::vector<std::string> modes = {"pipe", "pipe", "pipe", "pipe"};
+  std::vector<std::string> modes = {"pipe", "pipe", "pipe"};
   size_t pos = 0;
   if (!findTopLevelJsonValue(optsJson, "stdio", pos)) return modes;
   if (pos >= optsJson.size()) return modes;
@@ -1290,7 +1394,6 @@ std::vector<std::string> parseWindowsStdioModes(const std::string& optsJson) {
     modes[0] = mode;
     modes[1] = mode;
     modes[2] = mode;
-    modes[3] = mode;
     return modes;
   }
   if (optsJson[pos] != '[') return modes;
@@ -1476,18 +1579,26 @@ std::string spawnAsyncWindowsJson(
   parseJsonStringProperty(optsJson, "cwd", cwd);
   auto environment = parseEnvFromOptionsJson(optsJson);
   auto stdioModes = parseWindowsStdioModes(optsJson);
-  if (stdioModes.size() > 3 && stdioModes[3] == "ipc") {
-    return spawnErrorJson(
-        "ENOTSUP",
-        -1,
-        "child_process IPC is not supported by the Windows async spawn backend");
-  }
-  for (size_t i = 0; i < stdioModes.size(); ++i) {
-    if (stdioModes[i].size() > 3 && stdioModes[i].substr(0, 3) == "fd:") {
+  for (const auto& mode : stdioModes) {
+    if (mode == "ipc") {
+      return spawnErrorJson(
+          "ENOTSUP",
+          -1,
+          "child_process IPC is not supported by the Windows async spawn backend");
+    }
+    if (mode.size() > 3 && mode.substr(0, 3) == "fd:") {
       return spawnErrorJson(
           "ENOTSUP",
           -1,
           "child_process fd:N stdio is not supported by the Windows async spawn backend");
+    }
+  }
+  for (size_t i = 3; i < stdioModes.size(); ++i) {
+    if (stdioModes[i] != "ignore") {
+      return spawnErrorJson(
+          "ENOTSUP",
+          -1,
+          "child_process extra stdio is not supported by the Windows async spawn backend");
     }
   }
 
@@ -1702,13 +1813,26 @@ std::string spawnAsyncWindowsJson(
 } // namespace
 
 void exactCleanupRuntimeSockets(uint64_t runtimeNonce) {
-  std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
-  for (auto it = g_windows_sockets.begin(); it != g_windows_sockets.end();) {
-    if (it->second.runtimeNonce == runtimeNonce) {
-      closesocket(it->second.socket);
-      it = g_windows_sockets.erase(it);
-    } else {
-      ++it;
+  {
+    std::lock_guard<std::mutex> lock(g_windows_sockets_mutex);
+    for (auto it = g_windows_sockets.begin(); it != g_windows_sockets.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        closesocket(it->second.socket);
+        it = g_windows_sockets.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_windows_net_owner_stamp_mutex);
+    for (auto it = g_windows_net_owner_stamps.begin();
+         it != g_windows_net_owner_stamps.end();) {
+      if (it->second.runtimeNonce == runtimeNonce) {
+        it = g_windows_net_owner_stamps.erase(it);
+      } else {
+        ++it;
+      }
     }
   }
 }
@@ -2446,6 +2570,43 @@ void installChildProcessHostFunctions(ExactHermesRuntime* handle) {
         return facebook::jsi::Value::undefined();
       });
   rt.global().setProperty(rt, "__exactSpawnDispose", std::move(spawnDisposeFn));
+}
+
+void installNetOwnerHostFunction(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  auto netOwnerFn = facebook::jsi::Function::createFromHostFunction(
+      rt,
+      facebook::jsi::PropNameID::forAscii(rt, "__exactNetOwner"),
+      3,
+      [](facebook::jsi::Runtime& runtime,
+         const facebook::jsi::Value&,
+         const facebook::jsi::Value* args,
+         size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactNetOwner: action required");
+        }
+        const std::string action = args[0].asString(runtime).utf8(runtime);
+        if (action == "new") {
+          const uint64_t stamp = windowsNetOwnerStampForCurrentPrincipal();
+          if (stamp == 0) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactNetOwner: stamp allocation failed");
+          }
+          return facebook::jsi::Value(static_cast<double>(stamp));
+        }
+        if (action != "assert" || count < 2) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactNetOwner: unsupported action");
+        }
+        requireWindowsNetOwnerStamp(runtime, args[1]);
+        if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+          requireWindowsSocket(
+              runtime, requireWindowsNetOwnerSocketHandle(runtime, args[2]),
+              "__exactNetOwner", false);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactNetOwner", std::move(netOwnerFn));
 }
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {

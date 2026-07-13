@@ -9,7 +9,11 @@
 //! @ref LLP 0021#handles-dynamic-authority-and-generations — negative-before-
 //! positive ordering and generation-bound authority
 
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -117,13 +121,51 @@ pub struct ProtectedObjectGuard {
     pub object: ObjectIdentity,
 }
 
+/// Arm-validated authority that retains its publication identity across cheap
+/// clones. Mutation uses copy-on-write, so a changed value necessarily has a
+/// different identity and cannot be published into an existing verified
+/// context.
+///
+/// @ref LLP 0021#policy-forms-and-digests — the armed snapshot is immutable
+/// after authentication
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImmutableAuthority<T>(Arc<T>);
+
+impl<T> ImmutableAuthority<T> {
+    fn same_publication_identity(&self, other: &Self) -> bool {
+        #[cfg(test)]
+        note_immutable_authority_identity_comparison();
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T> From<T> for ImmutableAuthority<T> {
+    fn from(value: T) -> Self {
+        Self(Arc::new(value))
+    }
+}
+
+impl<T> Deref for ImmutableAuthority<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Clone> DerefMut for ImmutableAuthority<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Arc::make_mut(&mut self.0)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecisionAuthorityState {
     pub generations: GenerationSet,
-    pub process_ceiling: AuthorityCeiling,
-    pub protected_objects: Vec<ProtectedObjectGuard>,
-    pub protected_resources: Vec<BoundAuthority>,
-    pub principal_policies: BTreeMap<Principal, PrincipalPolicy>,
+    pub process_ceiling: ImmutableAuthority<AuthorityCeiling>,
+    pub protected_objects: ImmutableAuthority<Vec<ProtectedObjectGuard>>,
+    pub protected_resources: ImmutableAuthority<Vec<BoundAuthority>>,
+    pub principal_policies: ImmutableAuthority<BTreeMap<Principal, PrincipalPolicy>>,
     pub revocations: Vec<Revocation>,
     pub handles: Vec<BearerHandle>,
     pub dynamic_grants: Vec<DynamicGrant>,
@@ -179,10 +221,18 @@ impl VerifiedDecisionContext {
     /// Publish a newly validated live authority state while preserving the
     /// authenticated semantic identity and definition set.
     pub fn with_authority(&self, authority: DecisionAuthorityState) -> Result<Self> {
-        if authority.process_ceiling != self.authority.process_ceiling
-            || authority.protected_objects != self.authority.protected_objects
-            || authority.protected_resources != self.authority.protected_resources
-            || authority.principal_policies != self.authority.principal_policies
+        if !authority
+            .process_ceiling
+            .same_publication_identity(&self.authority.process_ceiling)
+            || !authority
+                .protected_objects
+                .same_publication_identity(&self.authority.protected_objects)
+            || !authority
+                .protected_resources
+                .same_publication_identity(&self.authority.protected_resources)
+            || !authority
+                .principal_policies
+                .same_publication_identity(&self.authority.principal_policies)
         {
             return arm_refused("live publication attempted to replace immutable authority");
         }
@@ -1040,6 +1090,32 @@ fn occurrence_for_principal<'a>(
         .unwrap_or(&occurrences[effect_index])
 }
 
+#[cfg(test)]
+std::thread_local! {
+    static IMMUTABLE_AUTHORITY_IDENTITY_COMPARISONS: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+    static IMMUTABLE_AUTHORITY_VALIDATION_PASSES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn note_immutable_authority_identity_comparison() {
+    IMMUTABLE_AUTHORITY_IDENTITY_COMPARISONS.with(|count| count.set(count.get() + 1));
+}
+
+#[cfg(test)]
+fn reset_immutable_authority_test_counts() {
+    IMMUTABLE_AUTHORITY_IDENTITY_COMPARISONS.with(|count| count.set(0));
+    IMMUTABLE_AUTHORITY_VALIDATION_PASSES.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn immutable_authority_test_counts() -> (usize, usize) {
+    let comparisons = IMMUTABLE_AUTHORITY_IDENTITY_COMPARISONS.with(std::cell::Cell::get);
+    let validations = IMMUTABLE_AUTHORITY_VALIDATION_PASSES.with(std::cell::Cell::get);
+    (comparisons, validations)
+}
+
 fn validate_authority_state(
     identity: &SemanticIdentity,
     definitions: &DefinitionSet,
@@ -1054,6 +1130,8 @@ fn validate_immutable_authority_state(
     definitions: &DefinitionSet,
     state: &DecisionAuthorityState,
 ) -> Result<()> {
+    #[cfg(test)]
+    IMMUTABLE_AUTHORITY_VALIDATION_PASSES.with(|count| count.set(count.get() + 1));
     validate_ceiling(
         &state.process_ceiling,
         identity,
@@ -1075,7 +1153,7 @@ fn validate_immutable_authority_state(
         false,
         "protected resources",
     )?;
-    for (principal, policy) in &state.principal_policies {
+    for (principal, policy) in state.principal_policies.iter() {
         if principal.is_transparent_runtime_frame() {
             return arm_refused("transparent runtime principal has a policy row");
         }
@@ -1530,10 +1608,10 @@ mod tests {
                 dynamic: SafeUint::ZERO,
                 handle: SafeUint::ZERO,
             },
-            process_ceiling: AuthorityCeiling::Unbounded,
-            protected_objects: vec![],
-            protected_resources: vec![],
-            principal_policies: BTreeMap::new(),
+            process_ceiling: AuthorityCeiling::Unbounded.into(),
+            protected_objects: vec![].into(),
+            protected_resources: vec![].into(),
+            principal_policies: BTreeMap::new().into(),
             revocations: vec![],
             handles: vec![],
             dynamic_grants: vec![],
@@ -2226,7 +2304,8 @@ mod tests {
             "fs:write",
             principal.clone(),
             "protected",
-        )];
+        )]
+        .into();
         state.principal_policies.insert(
             principal.clone(),
             PrincipalPolicy {
@@ -2299,6 +2378,84 @@ mod tests {
         };
         *final_object = Some(guarded);
         assert!(protected_object_matches(&guard, &occurrence));
+    }
+
+    #[test]
+    fn live_publication_cost_is_independent_of_large_immutable_policy_state() {
+        const IMMUTABLE_POLICY_ROWS: usize = 4_096;
+
+        let mut state = empty_authority();
+        for index in 0..IMMUTABLE_POLICY_ROWS {
+            state.principal_policies.insert(
+                package(&format!("immutable-policy-{index:04}")),
+                PrincipalPolicy::default(),
+            );
+        }
+        let context = arm(state).unwrap();
+
+        reset_immutable_authority_test_counts();
+        let mut publication = context.authority().clone();
+        publication.generations.dynamic = SafeUint::new(1).unwrap();
+        let published = context.with_authority(publication).unwrap();
+
+        assert_eq!(
+            published.authority().principal_policies.len(),
+            IMMUTABLE_POLICY_ROWS
+        );
+        assert_eq!(
+            immutable_authority_test_counts(),
+            (4, 0),
+            "publication must compare four immutable identities and must not revalidate policy rows",
+        );
+
+        reset_immutable_authority_test_counts();
+        let mut tampered = published.authority().clone();
+        tampered.principal_policies.insert(
+            package("immutable-policy-tamper"),
+            PrincipalPolicy::default(),
+        );
+        assert!(matches!(
+            published.with_authority(tampered),
+            Err(Error::ArmRefused(message))
+                if message.contains("replace immutable authority")
+        ));
+        assert_eq!(
+            immutable_authority_test_counts(),
+            (4, 0),
+            "copy-on-write tamper must refuse by identity without scanning immutable rows",
+        );
+    }
+
+    #[test]
+    fn live_publication_still_fully_validates_changed_rows() {
+        let occurrence = env_occurrence();
+        let principal = occurrence.effect_owner.clone();
+        let mut state = empty_authority();
+        state.principal_policies.insert(
+            principal.clone(),
+            PrincipalPolicy {
+                escalation_ceiling: AuthorityCeiling::Unbounded,
+                ..PrincipalPolicy::default()
+            },
+        );
+        let context = arm(state).unwrap();
+
+        reset_immutable_authority_test_counts();
+        let mut publication = context.authority().clone();
+        publication.generations.dynamic = SafeUint::new(2).unwrap();
+        publication.dynamic_grants.push(DynamicGrant {
+            grant_id: NonEmptyString::new("stale-live-grant").unwrap(),
+            principal,
+            authority: authority(&occurrence, "stale-live-authority"),
+            observed_negative_generation: SafeUint::ZERO,
+            published_dynamic_generation: SafeUint::new(1).unwrap(),
+        });
+
+        assert!(matches!(
+            context.with_authority(publication),
+            Err(Error::ArmRefused(message)) if message.contains("stale generations")
+        ));
+        assert_eq!(immutable_authority_test_counts(), (4, 0));
     }
 
     #[test]

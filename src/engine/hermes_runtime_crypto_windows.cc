@@ -220,7 +220,7 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
   auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
-      5,
+      6,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -251,6 +251,8 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
         if (count > 4 && !args[4].isUndefined() && !args[4].isNull()) {
           dictionary = extractBytes(runtime, args[4]);
         }
+        const size_t outputLimit = ibex_zlib_streams::readZlibOutputLimit(
+            runtime, count > 5 ? &args[5] : nullptr);
 
         z_stream strm = {};
         int windowBits;
@@ -284,6 +286,11 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
             strm.avail_out = sizeof(outBuf);
             ret = inflate(&strm, Z_NO_FLUSH);
             size_t have = sizeof(outBuf) - strm.avail_out;
+            if (!ibex_zlib_streams::zlibOutputFits(
+                    output.size(), have, outputLimit)) {
+              inflateEnd(&strm);
+              ibex_zlib_streams::throwZlibOutputLimit(runtime, outputLimit);
+            }
             output.insert(output.end(), outBuf, outBuf + have);
             if (ret == Z_NEED_DICT) {
               if (dictionary.empty()) {
@@ -325,11 +332,12 @@ void installZlibHostFunctions(ExactHermesRuntime* handle) {
             const Bytef* nextIn = strm.next_in;
 
             if (remaining < 2 || nextIn[0] != 0x1f || nextIn[1] != 0x8b) {
+              if (ibex_zlib_streams::isZeroPadding(nextIn, remaining)) {
+                strm.avail_in = 0;
+                break;
+              }
               inflateEnd(&strm);
-              strm = {};
-              strm.next_in = const_cast<Bytef*>(nextIn);
-              strm.avail_in = remaining;
-              break;
+              throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
             }
 
             inflateEnd(&strm);

@@ -925,7 +925,7 @@ class DnsWorkerPool {
   size_t total_ = 0;
 
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > 0 || total_ >= kMaxWorkers) {
+    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;

@@ -685,6 +685,44 @@ describe('descriptor async fs native (ENG-23541)', () => {
     expect(asyncNativeCalls.open).toBe(2);
     expect(asyncNativeCalls.close).toBe(2);
   });
+
+  test('FileHandle keeps its private fd retryable after a rejected foreign close', async () => {
+    const p = nodePath.join(dir, 'owner-retry-close.txt');
+    nodeFs.writeFileSync(p, 'owner-data');
+    const fh = await fs.promises.open(p, 'r');
+    const ownerFd = fh.fd;
+    const originalCloseAsync = g.__exactFsCloseAsync;
+    let principal = 'foreign';
+    const attempts: Array<[string, number]> = [];
+    g.__exactFsCloseAsync = (fd: number) => {
+      attempts.push([principal, fd]);
+      if (principal === 'foreign') return Promise.reject(new Error('wrong principal'));
+      return originalCloseAsync(fd);
+    };
+    try {
+      expect(() => { fh.fd = ownerFd + 1; }).toThrow(/read-only/);
+      expect(() => { fh._closed = true; }).toThrow(/private/);
+      await expect(fh.close()).rejects.toThrow('wrong principal');
+      expect(fh.fd).toBe(ownerFd);
+      expect(fh._closed).toBe(false);
+      expect((await fh.stat()).size).toBe(10);
+
+      principal = 'owner';
+      await fh.close();
+      expect(fh.fd).toBeNull();
+      expect(fh._closed).toBe(true);
+      expect(attempts).toEqual([
+        ['foreign', ownerFd],
+        ['owner', ownerFd],
+      ]);
+    } finally {
+      g.__exactFsCloseAsync = originalCloseAsync;
+      if (fh.fd !== null) {
+        principal = 'owner';
+        await fh.close();
+      }
+    }
+  });
 });
 
 describe('async traversal fs APIs (ENG-23541)', () => {
@@ -749,6 +787,33 @@ describe('async traversal fs APIs (ENG-23541)', () => {
       setTimeout(() => nodeFs.writeFileSync(p, 'changed'), 40);
     });
     expect(asyncNativeCalls.stat).toBeGreaterThanOrEqual(2);
+  });
+
+  test('directory watch establishes its first snapshot without synthetic rename events', async () => {
+    const watched = nodePath.join(dir, 'watch-directory-baseline');
+    nodeFs.mkdirSync(watched);
+    nodeFs.writeFileSync(nodePath.join(watched, 'already-present.txt'), 'baseline');
+    const events: Array<[string, string | Buffer | null]> = [];
+    const watcher = fs.watch(watched, { interval: 10 }, (event: string, filename: any) => {
+      events.push([event, filename]);
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(events).toEqual([]);
+
+      const observed = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('directory watch timeout')), 1000);
+        watcher.once('change', () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+      nodeFs.writeFileSync(nodePath.join(watched, 'created-after-baseline.txt'), 'new');
+      await observed;
+      expect(events.some(([event]) => event === 'rename')).toBe(true);
+    } finally {
+      watcher.close();
+    }
   });
 
   test('non-recursive async rm rejects directories without deleting them', async () => {

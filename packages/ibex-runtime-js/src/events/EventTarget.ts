@@ -39,58 +39,165 @@ interface ListenerEntry {
   abortListener?: () => void; // the "abort" listener registered on `signal`
 }
 
+type EventTargetAdmission = (target: object) => void;
+
+// Some EventTargets front owner-bound native resources. Listener maps and
+// their admission hooks must not live in forgeable `_` fields: a retained
+// foreign wrapper could otherwise subscribe to inbound data by calling a
+// saved base-prototype method or by mutating the listener table directly.
+// @ref LLP 0004#retained-native-wrapper-invariant — event state and every internal path stay owner-authenticated and module-private
+const eventTargetListenerMaps = new WeakMap<object, Map<string, ListenerEntry[]>>();
+const eventTargetAdmissions = new WeakMap<object, EventTargetAdmission>();
+
+function assertEventTargetAccess(target: object): void {
+  eventTargetAdmissions.get(target)?.(target);
+}
+
+function eventTargetListenerMap(target: object): Map<string, ListenerEntry[]> {
+  assertEventTargetAccess(target);
+  let listeners = eventTargetListenerMaps.get(target);
+  if (!listeners) {
+    // Some builtins graft EventTarget's prototype onto their own class without
+    // running this constructor (for example Performance). Preserve that
+    // compatibility without storing authoritative state on the instance.
+    listeners = new Map();
+    eventTargetListenerMaps.set(target, listeners);
+  }
+  return listeners;
+}
+
+function deactivateEventTargetEntry(target: object, entry: ListenerEntry): void {
+  // AbortSignal callbacks may run later under a different principal. Admit
+  // before reading or mutating the closure-private listener entry.
+  assertEventTargetAccess(target);
+  if (entry.removed) {
+    return;
+  }
+  entry.removed = true;
+  const abortListener = entry.abortListener;
+  const signal = entry.signal;
+  entry.abortListener = undefined;
+  entry.signal = undefined;
+  if (signal && abortListener) {
+    try {
+      signal.removeEventListener("abort", abortListener);
+    } catch {
+      // Best-effort: never let signal cleanup break listener removal.
+    }
+  }
+}
+
+function compactEventTargetListeners(target: object, type: string): void {
+  const map = eventTargetListenerMap(target);
+  const listeners = map.get(type);
+  if (!listeners) {
+    return;
+  }
+
+  const activeListeners = listeners.filter((listener) => !listener.removed);
+  if (activeListeners.length === 0) {
+    map.delete(type);
+  } else if (activeListeners.length !== listeners.length) {
+    map.set(type, activeListeners);
+  }
+}
+
+function normalizeDispatchEventArgument(
+  event: Event | string | { type: string; [key: string]: unknown }
+): Event {
+  if (!event) {
+    throw new TypeError(
+      "Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type 'Event'."
+    );
+  }
+
+  if (typeof event === "string") {
+    event = new Event(event) as unknown as Event;
+  }
+
+  if (
+    typeof (event as any)._setTarget === "function" &&
+    typeof (event as any)._setCurrentTarget === "function" &&
+    typeof (event as any)._setEventPhase === "function" &&
+    typeof (event as any)._resetFlags === "function"
+  ) {
+    return event;
+  }
+
+  if (typeof (event as any).type !== "string") {
+    throw new TypeError(
+      "Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type 'Event'."
+    );
+  }
+
+  const source = event as Event & {
+    bubbles?: boolean;
+    cancelable?: boolean;
+    composed?: boolean;
+  };
+  const wrapped = new Event(source.type, {
+    bubbles: source.bubbles ?? false,
+    cancelable: source.cancelable ?? false,
+    composed: source.composed ?? false,
+  }) as Event;
+
+  for (const key of Object.keys(source as Record<string, unknown>)) {
+    if (
+      key === "type" ||
+      key === "bubbles" ||
+      key === "cancelable" ||
+      key === "composed" ||
+      key === "defaultPrevented" ||
+      key === "isTrusted" ||
+      key === "timeStamp" ||
+      key === "target" ||
+      key === "currentTarget" ||
+      key === "eventPhase" ||
+      key === "detail"
+    ) {
+      continue;
+    }
+
+    const wrappedDescriptor =
+      Object.getOwnPropertyDescriptor(wrapped, key) ||
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(wrapped), key);
+    if (
+      wrappedDescriptor &&
+      ((wrappedDescriptor.writable === false && wrappedDescriptor.set === undefined) ||
+        wrappedDescriptor.get !== undefined)
+    ) {
+      continue;
+    }
+    (wrapped as any)[key] = (source as Record<string, unknown>)[key];
+  }
+
+  return wrapped;
+}
+
 export class EventTarget {
-  private _listeners: Map<string, ListenerEntry[]> = new Map();
-
-  // Lazily resolve the listener storage. Some builtins graft EventTarget's
-  // prototype onto their own class via Object.setPrototypeOf WITHOUT running
-  // EventTarget's constructor (e.g. Performance, WebSocket) so the instance
-  // field initializer above never runs and `_listeners` is undefined. Accessing
-  // it through this helper means those instances get working listener storage
-  // instead of throwing on the first addEventListener/dispatchEvent. (ENG-22985)
-  private _listenerMap(): Map<string, ListenerEntry[]> {
-    if (!this._listeners) {
-      this._listeners = new Map();
-    }
-    return this._listeners;
-  }
-
-  // Deactivate a listener entry: mark it removed AND unregister the "abort"
-  // listener it installed on its AbortSignal (if any). Without unregistering,
-  // removing a listener (or a once-listener firing) leaves a closure on a
-  // long-lived signal that strongly retains this EventTarget until the signal
-  // aborts (possibly never) -- a per-render leak with `{signal}`. (ENG-22985)
-  private _deactivateEntry(entry: ListenerEntry): void {
-    if (entry.removed) {
-      return;
-    }
-    entry.removed = true;
-    const abortListener = entry.abortListener;
-    const signal = entry.signal;
-    entry.abortListener = undefined;
-    entry.signal = undefined;
-    if (signal && abortListener) {
-      try {
-        signal.removeEventListener("abort", abortListener);
-      } catch {
-        // Best-effort: never let signal cleanup break listener removal.
+  constructor(...internalAdmissions: EventTargetAdmission[]) {
+    const admission = internalAdmissions[0];
+    if (admission !== undefined) {
+      if (typeof admission !== "function") {
+        throw new TypeError("Internal EventTarget admission must be a function");
       }
+      eventTargetAdmissions.set(this, admission);
     }
+    eventTargetListenerMaps.set(this, new Map());
   }
 
-  private compactListeners(type: string): void {
-    const map = this._listenerMap();
-    const listeners = map.get(type);
-    if (!listeners) {
-      return;
-    }
+  // Preserve the historical compatibility field as an authenticated
+  // projection while keeping the authoritative map module-private.
+  private get _listeners(): Map<string, ListenerEntry[]> {
+    return eventTargetListenerMap(this);
+  }
 
-    const activeListeners = listeners.filter((l) => !l.removed);
-    if (activeListeners.length === 0) {
-      map.delete(type);
-    } else if (activeListeners.length !== listeners.length) {
-      map.set(type, activeListeners);
+  private set _listeners(value: Map<string, ListenerEntry[]>) {
+    assertEventTargetAccess(this);
+    if (!(value instanceof Map)) {
+      throw new TypeError("EventTarget listener map must be a Map");
     }
+    eventTargetListenerMaps.set(this, value);
   }
 
   addEventListener(
@@ -98,6 +205,7 @@ export class EventTarget {
     callback: EventListenerOrEventListenerObject | null,
     options?: AddEventListenerOptions | boolean
   ): void {
+    assertEventTargetAccess(this);
     if (callback === null) {
       return;
     }
@@ -115,7 +223,7 @@ export class EventTarget {
       return;
     }
 
-    const map = this._listenerMap();
+    const map = eventTargetListenerMap(this);
     let listeners = map.get(type);
     if (!listeners) {
       listeners = [];
@@ -145,8 +253,8 @@ export class EventTarget {
     // Handle abort signal
     if (signal) {
       const removeOnAbort = () => {
-        this._deactivateEntry(entry);
-        this.compactListeners(type);
+        deactivateEventTargetEntry(this, entry);
+        compactEventTargetListeners(this, type);
       };
       entry.abortListener = removeOnAbort;
       signal.addEventListener("abort", removeOnAbort, { once: true });
@@ -158,6 +266,7 @@ export class EventTarget {
     callback: EventListenerOrEventListenerObject | null,
     options?: EventListenerOptions | boolean
   ): void {
+    assertEventTargetAccess(this);
     if (callback === null) {
       return;
     }
@@ -165,7 +274,7 @@ export class EventTarget {
     const capture =
       typeof options === "boolean" ? options : options?.capture ?? false;
 
-    const listeners = this._listenerMap().get(type);
+    const listeners = eventTargetListenerMap(this).get(type);
     if (!listeners) {
       return;
     }
@@ -175,13 +284,14 @@ export class EventTarget {
     );
 
     if (index !== -1) {
-      this._deactivateEntry(listeners[index]);
-      this.compactListeners(type);
+      deactivateEventTargetEntry(this, listeners[index]);
+      compactEventTargetListeners(this, type);
     }
   }
 
   dispatchEvent(event: Event | string | { type: string; [key: string]: unknown }): boolean {
-    const dispatchEvent = this.normalizeDispatchEventArgument(event);
+    assertEventTargetAccess(this);
+    const dispatchEvent = normalizeDispatchEventArgument(event);
 
     // Per DOM spec, dispatching an Event whose dispatch flag is already set
     // throws InvalidStateError. This both matches the spec and stops a listener
@@ -205,7 +315,7 @@ export class EventTarget {
       (dispatchEvent as any)._setCurrentTarget(this);
       (dispatchEvent as any)._setEventPhase(Event.AT_TARGET);
 
-      const listeners = this._listenerMap().get(dispatchEvent.type);
+      const listeners = eventTargetListenerMap(this).get(dispatchEvent.type);
       if (listeners) {
         // Create a copy to iterate (listeners may be modified during iteration)
         const listenersCopy = [...listeners];
@@ -221,7 +331,7 @@ export class EventTarget {
 
           // Remove if once (also unregisters any AbortSignal cleanup listener)
           if (entry.once) {
-            this._deactivateEntry(entry);
+            deactivateEventTargetEntry(this, entry);
           }
 
           // Set passive flag before calling listener
@@ -242,7 +352,7 @@ export class EventTarget {
           }
         }
 
-        this.compactListeners(dispatchEvent.type);
+        compactEventTargetListeners(this, dispatchEvent.type);
       }
 
       // Reset event state for potential re-dispatch
@@ -265,83 +375,12 @@ export class EventTarget {
     }
   }
 
-  private normalizeDispatchEventArgument(
-    event: Event | string | { type: string; [key: string]: unknown }
-  ): Event {
-    if (!event) {
-      throw new TypeError(
-        "Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type 'Event'."
-      );
-    }
-
-    if (typeof event === "string") {
-      event = new Event(event) as unknown as Event;
-    }
-
-    if (
-      typeof (event as any)._setTarget === "function" &&
-      typeof (event as any)._setCurrentTarget === "function" &&
-      typeof (event as any)._setEventPhase === "function" &&
-      typeof (event as any)._resetFlags === "function"
-    ) {
-      return event;
-    }
-
-    if (typeof (event as any).type !== "string") {
-      throw new TypeError(
-        "Failed to execute 'dispatchEvent' on 'EventTarget': parameter 1 is not of type 'Event'."
-      );
-    }
-
-    const source = event as Event & {
-      bubbles?: boolean;
-      cancelable?: boolean;
-      composed?: boolean;
-    };
-    const wrapped = new Event(source.type, {
-      bubbles: source.bubbles ?? false,
-      cancelable: source.cancelable ?? false,
-      composed: source.composed ?? false,
-    }) as Event;
-
-    for (const key of Object.keys(source as Record<string, unknown>)) {
-      if (
-        key === "type" ||
-        key === "bubbles" ||
-        key === "cancelable" ||
-        key === "composed" ||
-        key === "defaultPrevented" ||
-        key === "isTrusted" ||
-        key === "timeStamp" ||
-        key === "target" ||
-        key === "currentTarget" ||
-        key === "eventPhase" ||
-        key === "detail"
-      ) {
-        continue;
-      }
-
-      const wrappedDescriptor =
-        Object.getOwnPropertyDescriptor(wrapped, key) ||
-        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(wrapped), key);
-      if (
-        wrappedDescriptor &&
-        ((wrappedDescriptor.writable === false && wrappedDescriptor.set === undefined) ||
-          wrappedDescriptor.get !== undefined)
-      ) {
-        continue;
-      }
-      (wrapped as any)[key] = (source as Record<string, unknown>)[key];
-    }
-
-    return wrapped;
-  }
-
   /**
    * Helper to check if there are any listeners for a type
    */
   protected hasListeners(type: string): boolean {
-    const listeners = this._listenerMap().get(type);
+    assertEventTargetAccess(this);
+    const listeners = eventTargetListenerMap(this).get(type);
     return listeners ? listeners.some((l) => !l.removed) : false;
   }
 }

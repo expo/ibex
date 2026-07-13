@@ -314,6 +314,139 @@ function _scheduleDrain(stream) {
   stream.emit('drain');
 }
 
+// Some builtins retain native resources whose numeric selectors are bound to
+// the creating package principal. Their public stream shape still inherits
+// generic methods, so checking only an override is bypassable with a saved
+// Writable/Transform/Stream prototype method. Keep the guard in stream-core
+// private state and invoke it before any generic entry point mutates lifecycle
+// or queues work.
+var _retainedOwnerGuards = new WeakMap();
+var _retainedOwnerState = new WeakMap();
+
+function _registerRetainedOwnerGuard(stream, guard) {
+  if (typeof guard !== 'function') return;
+  if (_retainedOwnerGuards.has(stream)) {
+    throw new Error('stream retained-owner guard is already registered');
+  }
+  _retainedOwnerGuards.set(stream, guard);
+}
+
+function _assertRetainedOwner(stream) {
+  var guard = _retainedOwnerGuards.get(stream);
+  if (guard) guard(stream);
+}
+
+function _findPropertyDescriptor(object, property) {
+  var current = object;
+  while (current) {
+    var descriptor = Object.getOwnPropertyDescriptor(current, property);
+    if (descriptor) return descriptor;
+    current = Object.getPrototypeOf(current);
+  }
+  return null;
+}
+
+function _sealRetainedOwnerProperty(stream, property) {
+  var ownDescriptor = Object.getOwnPropertyDescriptor(stream, property);
+  if (ownDescriptor && ownDescriptor.configurable === false) return;
+
+  var descriptor = ownDescriptor || _findPropertyDescriptor(Object.getPrototypeOf(stream), property);
+  var state = _retainedOwnerState.get(stream);
+  var cell;
+  if (descriptor && (typeof descriptor.get === 'function' || typeof descriptor.set === 'function')) {
+    cell = {
+      get: descriptor.get,
+      set: descriptor.set,
+      enumerable: !!(ownDescriptor && descriptor.enumerable)
+    };
+  } else {
+    cell = {
+      value: descriptor ? descriptor.value : stream[property],
+      writable: !descriptor || descriptor.writable !== false,
+      enumerable: !!(ownDescriptor && descriptor && descriptor.enumerable)
+    };
+  }
+  state.set(property, cell);
+
+  var projected = {
+    configurable: false,
+    enumerable: cell.enumerable,
+    get: function() {
+      _assertRetainedOwner(stream);
+      if (cell.get) return cell.get.call(stream);
+      return cell.value;
+    }
+  };
+  if (cell.set || cell.writable) {
+    projected.set = function(value) {
+      _assertRetainedOwner(stream);
+      if (cell.set) {
+        cell.set.call(stream, value);
+      } else {
+        cell.value = value;
+      }
+    };
+  }
+  Object.defineProperty(stream, property, projected);
+}
+
+function _sealRetainedOwnerState(stream) {
+  if (!_retainedOwnerGuards.has(stream)) return;
+  if (_retainedOwnerState.has(stream)) {
+    throw new Error('stream retained-owner state is already sealed');
+  }
+
+  // @ref LLP 0004#retained-native-wrapper-invariant — queues, listener maps,
+  // and authority-bearing continuations are private projections. Capturing the
+  // inherited methods also prevents a foreign compartment from planting an
+  // own `emit`, `push`, `_transform`, or similar callback that runs later in
+  // the owner's context with owner data.
+  _retainedOwnerState.set(stream, new Map());
+
+  Object.getOwnPropertyNames(stream).forEach(function(property) {
+    _sealRetainedOwnerProperty(stream, property);
+  });
+
+  var prototype = Object.getPrototypeOf(stream);
+  while (prototype && prototype !== Object.prototype) {
+    Object.getOwnPropertyNames(prototype).forEach(function(property) {
+      if (property === 'constructor') return;
+      var descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+      if (!descriptor) return;
+      if (typeof descriptor.value === 'function' || descriptor.get || descriptor.set) {
+        _sealRetainedOwnerProperty(stream, property);
+      }
+    });
+    if (typeof Object.getOwnPropertySymbols === 'function') {
+      Object.getOwnPropertySymbols(prototype).forEach(function(property) {
+        var descriptor = Object.getOwnPropertyDescriptor(prototype, property);
+        if (descriptor && (typeof descriptor.value === 'function' || descriptor.get || descriptor.set)) {
+          _sealRetainedOwnerProperty(stream, property);
+        }
+      });
+    }
+    prototype = Object.getPrototypeOf(prototype);
+  }
+
+  // These continuation slots may be absent at construction time but are read
+  // later by generic stream code. Reserve them now so defineProperty/assignment
+  // cannot inject an unguarded owner-context callback between turns.
+  [
+    '_construct',
+    '_destroy',
+    '_final',
+    '_flush',
+    '_pendingDestroyAfterConstruct',
+    '_read',
+    '_readFromSource',
+    '_transform',
+    '_write',
+    '_writev'
+  ].forEach(function(property) {
+    _sealRetainedOwnerProperty(stream, property);
+  });
+}
+
 function Stream() {
   EventEmitter.call(this);
   if (!this._events || typeof this._events !== 'object') {
@@ -566,6 +699,7 @@ Stream.prototype._emitClose = function() {
 };
 
 Stream.prototype._close = function(force) {
+  _assertRetainedOwner(this);
   if (this._closed) {
     return;
   }
@@ -596,6 +730,7 @@ Stream.prototype._close = function(force) {
 };
 
 Stream.prototype._undestroy = function() {
+  _assertRetainedOwner(this);
   this._destroyed = false;
   this.destroyed = false;
   this._closed = false;
@@ -660,6 +795,7 @@ Stream.prototype._undestroy = function() {
 };
 
 Stream.prototype.destroy = function(error, callback) {
+  _assertRetainedOwner(this);
   if (this._destroyed || this.destroyed) {
     if (typeof callback === 'function') {
       setTimeout(function() { callback(); }, 0);
@@ -1019,6 +1155,7 @@ Object.defineProperties(Readable.prototype, {
 
 // Override emit to track when 'end' event is consumed by a listener
 Readable.prototype.emit = function(event) {
+  _assertRetainedOwner(this);
   if (event === 'end' && this._readableState && this.listenerCount('end') > 0) {
     this._readableState.endConsumed = true;
   }
@@ -1461,6 +1598,7 @@ Readable.prototype._emitReadableIfNeeded = function() {
 };
 
 Readable.prototype._readFromSource = function(size) {
+  _assertRetainedOwner(this);
   var state = this._readableState;
   if (this.readableFlowing === true ||
       this._destroyed ||
@@ -1486,6 +1624,7 @@ Readable.prototype._readFromSource = function(size) {
 };
 
 Readable.prototype.push = function(chunk, encoding) {
+  _assertRetainedOwner(this);
   if (this._destroyed) return false;
   var state = this._readableState;
   var self = this;
@@ -1717,6 +1856,7 @@ Readable.prototype.push = function(chunk, encoding) {
 };
 
 Readable.prototype.read = function(size) {
+  _assertRetainedOwner(this);
   if (this._destroyed) return null;
   var state = this._readableState;
   var n = _coerceReadSize(size);
@@ -1885,6 +2025,7 @@ Readable.prototype.read = function(size) {
 };
 
 Readable.prototype.unshift = function(chunk, encoding) {
+  _assertRetainedOwner(this);
   var state = this._readableState;
   if (chunk === null) {
     state.reading = false;
@@ -1942,12 +2083,14 @@ Readable.prototype.unshift = function(chunk, encoding) {
 };
 
 Readable.prototype.setEncoding = function(enc) {
+  _assertRetainedOwner(this);
   _setReadableEncoding(this._readableState, enc);
   this.readableEncoding = this._readableState.encoding;
   return this;
 };
 
 Readable.prototype.resume = function() {
+  _assertRetainedOwner(this);
   if (this.readableFlowing !== true) {
     // (ENG-23482) Node emits 'resume' on every resume_() run, including the
     // first transition from the initial flowing === null state (e.g. via
@@ -1991,6 +2134,7 @@ Readable.prototype.resume = function() {
 };
 
 Readable.prototype.pause = function() {
+  _assertRetainedOwner(this);
   if (this.readableFlowing !== false) {
     this.readableFlowing = false;
     this._syncReadableState();
@@ -2000,6 +2144,7 @@ Readable.prototype.pause = function() {
 };
 
 Readable.prototype.on = function(event, listener) {
+  _assertRetainedOwner(this);
   if (event === 'readable' && arguments.length === 1) {
     var state = this._readableState;
     this.readableFlowing = false;
@@ -2044,6 +2189,7 @@ Readable.prototype.on = function(event, listener) {
 Readable.prototype.addListener = Readable.prototype.on;
 
 Readable.prototype.isPaused = function() {
+  _assertRetainedOwner(this);
   return this.readableFlowing === false;
 };
 
@@ -4817,6 +4963,7 @@ Object.defineProperty(Writable, Symbol.hasInstance, {
 });
 
 Writable.prototype._write = function(chunk, encoding, callback) {
+  _assertRetainedOwner(this);
   if (typeof this._writev === 'function') {
     // If _writev is implemented but _write is not, delegate single writes through _writev
     this._writev([{ chunk: chunk, encoding: encoding }], callback);
@@ -4833,6 +4980,7 @@ Writable.prototype.pipe = function() {
 };
 
 Writable.prototype.write = function(chunk, encoding, callback) {
+  _assertRetainedOwner(this);
   if (typeof encoding === 'function') { callback = encoding; encoding = undefined; }
   var state = this._writableState;
 
@@ -5151,6 +5299,7 @@ Writable.prototype.write = function(chunk, encoding, callback) {
 };
 
 Writable.prototype._flushWriteQueue = function() {
+  _assertRetainedOwner(this);
   if (!this._writeQueue || this._writeQueue.length === 0) {
     return;
   }
@@ -5313,6 +5462,7 @@ Writable.prototype._flushWriteQueue = function() {
 };
 
 Writable.prototype.end = function(chunk, encoding, callback) {
+  _assertRetainedOwner(this);
   if (typeof chunk === 'function') { callback = chunk; chunk = null; encoding = null; }
   if (typeof encoding === 'function') { callback = encoding; encoding = null; }
   var state = this._writableState;
@@ -5534,9 +5684,11 @@ Writable.prototype.end = function(chunk, encoding, callback) {
 };
 
 Writable.prototype.cork = function() {
+  _assertRetainedOwner(this);
   this.writableCorked++;
 };
 Writable.prototype.uncork = function() {
+  _assertRetainedOwner(this);
   if (this.writableCorked > 0) {
     this.writableCorked--;
     if (this.writableCorked <= 0) {
@@ -5545,6 +5697,7 @@ Writable.prototype.uncork = function() {
   }
 };
 Writable.prototype.setDefaultEncoding = function(enc) {
+  _assertRetainedOwner(this);
   if (!this._writableState) return this;
   if (typeof enc !== 'string') {
     var encStr;
@@ -5712,8 +5865,9 @@ function _transformDefaultFinal(callback) {
   }
 }
 
-function Transform(options) {
-  if (!(this instanceof Transform)) return new Transform(options);
+function Transform(options, retainedOwnerGuard) {
+  if (!(this instanceof Transform)) return new Transform(options, retainedOwnerGuard);
+  _registerRetainedOwnerGuard(this, retainedOwnerGuard);
   Duplex.call(this, options);
   if (!this._writableState) {
     Writable.call(this, options);
@@ -5743,6 +5897,7 @@ function Transform(options) {
       _transformDefaultFinal.call(_self);
     }
   });
+  _sealRetainedOwnerState(this);
 }
 Transform.prototype = Object.create(Duplex.prototype);
 Transform.prototype.constructor = Transform;
@@ -5754,6 +5909,7 @@ Transform.prototype._transform = function(chunk, encoding, callback) {
 };
 
 Transform.prototype.push = function(chunk, encoding) {
+  _assertRetainedOwner(this);
   var ret = Duplex.prototype.push.call(this, chunk, encoding);
   var state = this._transformState;
   if (state && state.transforming && ret === false) {
@@ -5763,6 +5919,7 @@ Transform.prototype.push = function(chunk, encoding) {
 };
 
 Transform.prototype._write = function(chunk, encoding, callback) {
+  _assertRetainedOwner(this);
   var self = this;
   var callbackCalled = false;
   var state = self._transformState || {};
@@ -5851,6 +6008,7 @@ PassThrough.prototype._transform = function(chunk, encoding, callback) {
 };
 
 Stream.prototype.pipe = function(dest, options) {
+  _assertRetainedOwner(this);
   var source = this;
   var state = source._readableState;
   var hasDrainListener = false;
@@ -6161,6 +6319,7 @@ Stream.prototype.pipe = function(dest, options) {
 };
 
 Stream.prototype.unpipe = function(dest) {
+  _assertRetainedOwner(this);
   var state = this._readableState;
   var cleanupBuckets = this._pipeCleanups;
   if (state) {
@@ -6233,6 +6392,7 @@ Stream.prototype.unpipe = function(dest) {
 
 // wrap() - wrap old-style stream as Readable
 Readable.prototype.wrap = function(stream) {
+  _assertRetainedOwner(this);
   var self = this;
   stream.on('data', function(chunk) {
     self.push(chunk);

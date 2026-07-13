@@ -414,10 +414,10 @@ impl ArmedSnapshot {
                 dynamic: self.generations.dynamic,
                 handle: self.generations.handle,
             },
-            process_ceiling,
-            protected_objects,
-            protected_resources,
-            principal_policies,
+            process_ceiling: process_ceiling.into(),
+            protected_objects: protected_objects.into(),
+            protected_resources: protected_resources.into(),
+            principal_policies: principal_policies.into(),
             revocations: Vec::new(),
             handles: Vec::new(),
             dynamic_grants: Vec::new(),
@@ -441,26 +441,37 @@ impl ArmedSnapshot {
         Ok(policies)
     }
 
-    /// Serialize authenticated package endowments into the engine's internal
-    /// compartment bootstrap format. Ambient process values never participate;
-    /// this projection comes only from the immutable armed document.
-    pub fn endowment_groups(&self) -> Result<Vec<String>> {
+    /// Serialize authenticated package endowments into the engine's strict
+    /// compartment-bootstrap wire format. Ambient process values never
+    /// participate; this projection comes only from the immutable armed
+    /// document. JSON keeps locator and endowment bytes structural, so names
+    /// containing punctuation cannot manufacture another principal row.
+    /// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    pub fn compartment_endowments_json(&self) -> Result<String> {
         let principal_rows: Vec<SnapshotPrincipalRow> =
             serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
                 .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
-        let mut groups = Vec::new();
+        let mut rows = Vec::new();
+        let mut locators = BTreeSet::new();
         for row in principal_rows {
             require_sorted_unique_strings(&row.endowments, "principal endowments")?;
-            if row.endowments.is_empty() {
-                continue;
-            }
             let Principal::Package { locator, .. } = row.principal else {
+                if row.endowments.is_empty() {
+                    continue;
+                }
                 return refused("root principal cannot receive package compartment endowments");
             };
-            groups.push(format!("{}:{}", locator.as_str(), row.endowments.join(",")));
+            if !locators.insert(locator.as_str().to_owned()) {
+                return refused("armed snapshot contains duplicate compartment endowment locators");
+            }
+            rows.push(CompartmentEndowmentRow {
+                locator: locator.as_str().to_owned(),
+                endowments: row.endowments,
+            });
         }
-        groups.sort();
-        Ok(groups)
+        rows.sort_by(|left, right| left.locator.cmp(&right.locator));
+        serde_json::to_string(&rows)
+            .map_err(|error| invalid(format!("cannot serialize compartment endowments: {error}")))
     }
 
     /// Arm the neutral decision evaluator directly from the authenticated
@@ -488,7 +499,13 @@ struct SnapshotPrincipalRow {
     denials: Vec<AuthoritySelector>,
     escalation_ceiling: Vec<AuthoritySelector>,
     imports: PrincipalImportPolicy,
-    #[allow(dead_code)]
+    endowments: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CompartmentEndowmentRow {
+    locator: String,
     endowments: Vec<String>,
 }
 
@@ -1185,6 +1202,37 @@ mod tests {
     }
 
     #[test]
+    fn compartment_endowment_projection_keeps_delimiters_inside_the_locator() {
+        let (bytes, mut expected) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        let locator = "attacker@zz:fetch,Buffer;victim";
+
+        value["principals"][0]["imports"]["packages"][0] = Value::String(locator.to_owned());
+        value["principals"][1]["principal"]["locator"] = Value::String(locator.to_owned());
+        value["principals"][1]["endowments"] = serde_json::json!(["process"]);
+        value["packageGraph"]["nodes"][0]["principal"]["locator"] =
+            Value::String(locator.to_owned());
+        value["packageGraph"]["importEdges"][0]["imported"]["locator"] =
+            Value::String(locator.to_owned());
+        value["rootBindings"][0]["owner"]["locator"] = Value::String(locator.to_owned());
+
+        let digest = compute_checked_contract_digest(DigestKind::ArmedSnapshot, &value).unwrap();
+        value["armedSnapshotDigest"] = Value::String(digest.clone());
+        expected.armed_snapshot_digest = Digest::new(digest).unwrap();
+        let armed = ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
+
+        let projection: Value =
+            serde_json::from_str(&armed.compartment_endowments_json().unwrap()).unwrap();
+        assert_eq!(
+            projection,
+            serde_json::json!([{
+                "locator": locator,
+                "endowments": ["process"],
+            }])
+        );
+    }
+
+    #[test]
     fn maps_host_paths_through_exact_authenticated_root_bindings() {
         let (bytes, expected) = fixture();
         let armed = ArmedSnapshot::load(&bytes, &expected).unwrap();
@@ -1261,7 +1309,7 @@ mod tests {
         assert_eq!(package.static_floor[0].selector.action.as_str(), "fs:read");
         assert!(package.static_floor[0].package_root_owner.is_none());
         assert!(matches!(
-            authority.process_ceiling,
+            &*authority.process_ceiling,
             AuthorityCeiling::Unbounded
         ));
         let imports = armed.import_policies().unwrap();
@@ -1343,7 +1391,7 @@ mod tests {
         let snapshot =
             ArmedSnapshot::load(&serde_json::to_vec(&value).unwrap(), &expected).unwrap();
         let authority = snapshot.authority_state().unwrap();
-        let AuthorityCeiling::Bounded(rows) = authority.process_ceiling else {
+        let AuthorityCeiling::Bounded(rows) = &*authority.process_ceiling else {
             panic!("expected bounded process ceiling");
         };
         assert_eq!(rows.len(), 2);

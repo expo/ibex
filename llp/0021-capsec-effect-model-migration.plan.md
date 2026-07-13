@@ -416,6 +416,15 @@ cannot enter the dynamic overlay. Mode fallback can never mint a grant or
 handle. Revocation advances a negative generation before any later positive
 decision.
 
+Arm-time ceilings, protected-object/resource guards, and principal policies
+retain an identity-preserving copy-on-write backing after validation. A live
+publication must present those exact four immutable identities and then fully
+validates only the changed generations, revocations, handles, and dynamic
+grants. Cloning and publishing live authority is therefore constant-time in
+the size of the static policy; attempting to mutate any immutable component
+creates a new backing identity and refuses publication `[observed]`
+(ENG-24280).
+
 Decision caches key at least action, canonical resource bytes, constrained
 principal set, effect owner, stage, vocabulary/registry/policy/armed-snapshot
 digests, and negative/dynamic/handle generations. Repeated and live operations

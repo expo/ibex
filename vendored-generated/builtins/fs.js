@@ -4683,6 +4683,10 @@ function watch(filename, options, listener) {
 					watcher._prevState = {};
 					return;
 				}
+				if (watcher._prevState === null) {
+					watcher._prevState = nextState;
+					return;
+				}
 				if (!emitWatchDirectoryChanges(watcher, encoding, watcher._prevState, nextState) && watcher._prevState && nextState.__meta && watcher._prevState.__meta && nextState.__meta.mtime !== watcher._prevState.__meta.mtime) watcher.emit("change", "rename", null);
 				watcher._prevState = nextState;
 			}).finally(function() {
@@ -5278,25 +5282,76 @@ function _fileHandleErrorFromClosed() {
 	err.code = "ERR_FS_FILE_CLOSED";
 	return err;
 }
+var _fileHandlePromiseStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+function _fileHandlePromiseState(handle) {
+	var state = _fileHandlePromiseStates && _fileHandlePromiseStates.get(handle);
+	if (!state) {
+		var err = /* @__PURE__ */ new TypeError("Illegal FileHandle receiver");
+		err.code = "ERR_INVALID_THIS";
+		throw err;
+	}
+	return state;
+}
+function _fileHandlePromiseOpenFd(handle) {
+	var state = _fileHandlePromiseState(handle);
+	if (state.closed || state.fd === null) throw _fileHandleErrorFromClosed();
+	return state.fd;
+}
 function FileHandlePromise(fd, path, flags) {
-	this.fd = typeof fd === "number" ? fd : null;
+	if (!_fileHandlePromiseStates || typeof Object.defineProperty !== "function") throw new Error("FileHandle requires WeakMap-backed private state");
+	var state = {
+		fd: typeof fd === "number" ? fd : null,
+		closed: false,
+		closing: null
+	};
+	_fileHandlePromiseStates.set(this, state);
+	Object.defineProperty(this, "fd", {
+		enumerable: true,
+		configurable: false,
+		get: function() {
+			return state.fd;
+		},
+		set: function() {
+			throw new TypeError("FileHandle.fd is read-only");
+		}
+	});
+	Object.defineProperty(this, "_closed", {
+		enumerable: false,
+		configurable: false,
+		get: function() {
+			return state.closed;
+		},
+		set: function() {
+			throw new TypeError("FileHandle close state is private");
+		}
+	});
 	this.path = path;
 	this.flags = flags || "r";
-	this._closed = false;
 }
 FileHandlePromise.prototype._ensureOpen = function() {
-	if (this._closed || this.fd === null) throw _fileHandleErrorFromClosed();
+	_fileHandlePromiseOpenFd(this);
 };
 FileHandlePromise.prototype.close = function() {
-	var handle = this;
-	return _resolveAsync(function() {
-		handle._ensureOpen();
-		var fd = handle.fd;
-		handle._closed = true;
-		handle.fd = null;
+	var state = _fileHandlePromiseState(this);
+	if (state.closed || state.fd === null) return Promise.reject(_fileHandleErrorFromClosed());
+	if (state.closing) return state.closing;
+	var closeResult = _resolveAsync(function() {
 		var native = _fsAsyncNative("__exactFsCloseAsync");
-		return native ? _asyncClose(native, fd) : closeSync(fd);
+		return native ? _asyncClose(native, state.fd) : closeSync(state.fd);
 	})();
+	var closing = Promise.resolve(closeResult).then(function(result) {
+		if (state.closing === closing) {
+			state.closed = true;
+			state.fd = null;
+			state.closing = null;
+		}
+		return result;
+	}, function(err) {
+		if (state.closing === closing) state.closing = null;
+		throw err;
+	});
+	state.closing = closing;
+	return closing;
 };
 if (typeof Symbol !== "undefined" && typeof Symbol.asyncDispose === "symbol") FileHandlePromise.prototype[Symbol.asyncDispose] = function() {
 	return this.close();
@@ -5307,20 +5362,20 @@ else FileHandlePromise.prototype.asyncDispose = function() {
 FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		if (typeof buffer === "object" && buffer !== null && buffer.length !== void 0) {
 			var off = typeof offset === "number" ? offset : 0;
 			var len = typeof length === "number" ? length : buffer.length - off;
 			var pos = position === void 0 || position === null ? -1 : position;
 			var native = _fsAsyncNative("__exactFsReadAsync");
-			if (native) return _asyncReadIntoBuffer(native, handle.fd, buffer, off, len, pos).then(function(bytesRead) {
+			if (native) return _asyncReadIntoBuffer(native, fd, buffer, off, len, pos).then(function(bytesRead) {
 				return {
 					bytesRead,
 					buffer
 				};
 			});
 			return {
-				bytesRead: readSync(handle.fd, buffer, off, len, pos),
+				bytesRead: readSync(fd, buffer, off, len, pos),
 				buffer
 			};
 		}
@@ -5330,19 +5385,19 @@ FileHandlePromise.prototype.read = function(buffer, offset, length, position) {
 FileHandlePromise.prototype.write = function(buffer, offset, length, position) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var off = typeof offset === "number" ? offset : 0;
 		var len = typeof length === "number" ? length : buffer.length - off;
 		var pos = position === void 0 || position === null ? -1 : position;
 		var native = _fsAsyncNative("__exactFsWriteAsync");
-		if (native) return _asyncWriteFromArgs(native, handle.fd, buffer, off, len, pos).then(function(bytesWritten) {
+		if (native) return _asyncWriteFromArgs(native, fd, buffer, off, len, pos).then(function(bytesWritten) {
 			return {
 				bytesWritten,
 				buffer
 			};
 		});
 		return {
-			bytesWritten: writeSync(handle.fd, buffer, off, len, pos),
+			bytesWritten: writeSync(fd, buffer, off, len, pos),
 			buffer
 		};
 	})();
@@ -5350,16 +5405,16 @@ FileHandlePromise.prototype.write = function(buffer, offset, length, position) {
 FileHandlePromise.prototype.readv = function(buffers, position) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsReadvAsync");
-		if (native) return _asyncReadvIntoBuffers(native, handle.fd, buffers, position).then(function(bytesRead) {
+		if (native) return _asyncReadvIntoBuffers(native, fd, buffers, position).then(function(bytesRead) {
 			return {
 				bytesRead,
 				buffers
 			};
 		});
 		return {
-			bytesRead: readvSync(handle.fd, buffers, position),
+			bytesRead: readvSync(fd, buffers, position),
 			buffers
 		};
 	})();
@@ -5367,16 +5422,16 @@ FileHandlePromise.prototype.readv = function(buffers, position) {
 FileHandlePromise.prototype.writev = function(buffers, position) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsWritevAsync");
-		if (native) return _asyncWritevFromBuffers(native, handle.fd, buffers, position).then(function(bytesWritten) {
+		if (native) return _asyncWritevFromBuffers(native, fd, buffers, position).then(function(bytesWritten) {
 			return {
 				bytesWritten,
 				buffers
 			};
 		});
 		return {
-			bytesWritten: writevSync(handle.fd, buffers, position),
+			bytesWritten: writevSync(fd, buffers, position),
 			buffers
 		};
 	})();
@@ -5384,35 +5439,33 @@ FileHandlePromise.prototype.writev = function(buffers, position) {
 FileHandlePromise.prototype.readFile = function(options) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
-		return _promisesReadFileWithSignal(handle.fd, options);
+		return _promisesReadFileWithSignal(_fileHandlePromiseOpenFd(handle), options);
 	})();
 };
 FileHandlePromise.prototype.writeFile = function(data, options) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
-		return _promisesWriteFile(handle.fd, data, options);
+		return _promisesWriteFile(_fileHandlePromiseOpenFd(handle), data, options);
 	})();
 };
 FileHandlePromise.prototype.appendFile = function(data, options) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsWriteFileAsync");
 		if (native) {
 			_validateWriteData(data);
 			var writeOptions = _normalizeWriteOptions(options);
 			return _asyncWriteFileImpl(native, {
-				fd: handle.fd,
+				fd,
 				path: handle.path
 			}, data, writeOptions, "a").then(function() {});
 		}
-		appendFileSync(handle.fd, data, options);
+		appendFileSync(fd, data, options);
 	})();
 };
 FileHandlePromise.prototype.createReadStream = function(options) {
-	this._ensureOpen();
+	_fileHandlePromiseOpenFd(this);
 	var fileOptions = options ? _extend(options, {
 		fd: this,
 		autoClose: false
@@ -5423,7 +5476,7 @@ FileHandlePromise.prototype.createReadStream = function(options) {
 	return createReadStream(this.path, fileOptions);
 };
 FileHandlePromise.prototype.createWriteStream = function(options) {
-	this._ensureOpen();
+	_fileHandlePromiseOpenFd(this);
 	var fileOptions = options ? _extend(options, {
 		fd: this,
 		autoClose: false
@@ -5436,34 +5489,34 @@ FileHandlePromise.prototype.createWriteStream = function(options) {
 FileHandlePromise.prototype.truncate = function(len) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		len = _normalizeTruncateLen(len);
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "ftruncate", handle.fd, len) : ftruncateSync(handle.fd, len);
+		return native ? _asyncFdOp(native, "ftruncate", fd, len) : ftruncateSync(fd, len);
 	})();
 };
 FileHandlePromise.prototype.sync = function() {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "fsync", handle.fd) : _callFsyncSync(handle.fd);
+		return native ? _asyncFdOp(native, "fsync", fd) : _callFsyncSync(fd);
 	})();
 };
 FileHandlePromise.prototype.datasync = function() {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "fdatasync", handle.fd) : fdatasyncSync(handle.fd);
+		return native ? _asyncFdOp(native, "fdatasync", fd) : fdatasyncSync(fd);
 	})();
 };
 FileHandlePromise.prototype.readLines = function() {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsReadFileAsync");
-		var contents = native ? _asyncReadFileImpl(native, handle.fd, { encoding: "utf8" }) : readFileSync(handle.fd, "utf8");
+		var contents = native ? _asyncReadFileImpl(native, fd, { encoding: "utf8" }) : readFileSync(fd, "utf8");
 		return Promise.resolve(contents).then(function(text) {
 			var lines = text.split("\n");
 			if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
@@ -5474,42 +5527,42 @@ FileHandlePromise.prototype.readLines = function() {
 FileHandlePromise.prototype.stat = function(options) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsStatAsync");
 		if (native) {
 			_coerceStatOptions(options);
-			return _asyncStatImpl(native, handle.fd, "fstat", _extractStatOptions(options));
+			return _asyncStatImpl(native, fd, "fstat", _extractStatOptions(options));
 		}
-		return fstatSync(handle.fd, options);
+		return fstatSync(fd, options);
 	})();
 };
 FileHandlePromise.prototype.chmod = function(mode) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		mode = _coerceMode(mode);
 		_validateUint32("mode", mode);
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "fchmod", handle.fd, mode) : fchmodSync(handle.fd, mode);
+		return native ? _asyncFdOp(native, "fchmod", fd, mode) : fchmodSync(fd, mode);
 	})();
 };
 FileHandlePromise.prototype.chown = function(uid, gid) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		_validateUidOrGid("uid", uid);
 		_validateUidOrGid("gid", gid);
 		if (uid === -1 && gid === -1) return;
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "fchown", handle.fd, uid, gid) : fchownSync(handle.fd, uid, gid);
+		return native ? _asyncFdOp(native, "fchown", fd, uid, gid) : fchownSync(fd, uid, gid);
 	})();
 };
 FileHandlePromise.prototype.utimes = function(atime, mtime) {
 	var handle = this;
 	return _resolveAsync(function() {
-		handle._ensureOpen();
+		var fd = _fileHandlePromiseOpenFd(handle);
 		var native = _fsAsyncNative("__exactFsFdAsync");
-		return native ? _asyncFdOp(native, "futimes", handle.fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)) : futimesSync(handle.fd, atime, mtime);
+		return native ? _asyncFdOp(native, "futimes", fd, _toUnixTimestamp(atime), _toUnixTimestamp(mtime)) : futimesSync(fd, atime, mtime);
 	})();
 };
 function _makeAsyncIteratorFromArray(values) {

@@ -2461,22 +2461,25 @@ pub extern "C" fn ex_host_is_armed() -> i32 {
     with_host(|host| i32::from(host.armed_snapshot().is_some()), 0)
 }
 
-/// Return the authenticated snapshot endowments for the active Host context.
-/// Bootstrap consumes and frees this copy; no process-global environment
-/// channel participates in production authority.
+/// Return the authenticated snapshot endowments for the active Host context as
+/// a strict JSON array of `{locator,endowments}` rows. Bootstrap consumes and
+/// frees this copy; no process-global environment channel or delimiter parser
+/// participates in production authority.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
 #[no_mangle]
 pub extern "C" fn ex_host_armed_endowments() -> *mut c_char {
-    let groups = with_host(
+    let projection = with_host(
         |host| {
-            host.armed_snapshot()
-                .map_or(Ok(None), |snapshot| snapshot.endowment_groups().map(Some))
+            host.armed_snapshot().map_or(Ok(None), |snapshot| {
+                snapshot.compartment_endowments_json().map(Some)
+            })
         },
         Ok(None),
     );
-    let Ok(Some(groups)) = groups else {
+    let Ok(Some(projection)) = projection else {
         return ptr::null_mut();
     };
-    CString::new(groups.join(";"))
+    CString::new(projection)
         .map(CString::into_raw)
         .unwrap_or(ptr::null_mut())
 }

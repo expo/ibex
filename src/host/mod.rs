@@ -135,12 +135,14 @@ pub struct HostConfig {
     /// including root; policy grants compose *within* it and cannot widen past
     /// it. (ENG-23876) @ref LLP 0002#host-boundary-constraints
     pub root_dir: Option<std::path::PathBuf>,
-    /// Host-boundary fence for network access: when set, EVERY `network:*`
-    /// capability value must name one of these hosts (`host` or `host:port`
-    /// entries; a port-less entry covers the host across ports) or it is
-    /// denied. Same hard-fence semantics as `root_dir`: all modes, all
-    /// principals, not widenable by policy grants. An empty list denies all
-    /// network access. (ENG-23876) @ref LLP 0002#host-boundary-constraints
+    /// Host-boundary fence for outbound network access: when set, outbound
+    /// `network:*` capability values must name one of these remote hosts
+    /// (`host` or `host:port` entries; a port-less entry covers the host across
+    /// ports) or they are denied. `network:listen` is intentionally outside
+    /// this legacy remote-host fence and remains governed by its own policy.
+    /// Same hard-fence semantics as `root_dir`: all modes, all principals, not
+    /// widenable by policy grants. An empty list denies all outbound network
+    /// access. (ENG-23876, ENG-24285) @ref LLP 0002#host-boundary-constraints
     pub allowed_hosts: Option<Vec<String>>,
 }
 
@@ -3716,6 +3718,160 @@ mod tests {
                 .collect(),
         };
         ArmedSnapshot::load(&bytes, &expected).unwrap()
+    }
+
+    #[test]
+    fn every_protected_artifact_denies_write_replace_and_rename_before_mutation() {
+        use capsec_semantics::decision::{DecisionOutcome, DecisionReason};
+        use capsec_semantics::model::{FollowMode, NonEmptyString, ObjectState, Stage};
+        use capsec_semantics::registry::DecisionStratumId;
+        use std::io::Write as _;
+
+        #[derive(Clone, Copy, Debug)]
+        enum Mutation {
+            Write,
+            Replace,
+            Rename,
+        }
+
+        impl Mutation {
+            fn authorization(self) -> (&'static str, &'static str, Stage, Option<&'static str>) {
+                match self {
+                    Self::Write => (
+                        "protected-artifact-write",
+                        "surface.native.op.exactfsopen.05ao6wa",
+                        Stage::Commit,
+                        Some("fd:protected-artifact"),
+                    ),
+                    Self::Replace => (
+                        "protected-artifact-replace",
+                        "surface.native.op.exactwritefile.1h0gy8u",
+                        Stage::Discovery,
+                        None,
+                    ),
+                    Self::Rename => (
+                        "protected-artifact-rename",
+                        "surface.native.op.exactrename.10zwbcv",
+                        Stage::Discovery,
+                        None,
+                    ),
+                }
+            }
+        }
+
+        let fixture = tempfile::Builder::new()
+            .prefix("protected-artifact-guards-")
+            .tempdir_in(test_project_root())
+            .unwrap();
+        let roles = ["armed-policy", "engine-binary", "package-graph", "registry"];
+        let artifacts = roles
+            .iter()
+            .map(|role| {
+                let path = fixture.path().join(role);
+                let contents = format!("authenticated {role} contents").into_bytes();
+                std::fs::write(&path, &contents).unwrap();
+                let object = object_identity_for_host_path(&path).unwrap();
+                (*role, path, contents, object)
+            })
+            .collect::<Vec<_>>();
+
+        let host = example_armed_host_with(|value| {
+            for (role, _, _, object) in &artifacts {
+                let row = value["protectedObjects"]
+                    .as_array_mut()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|row| row["role"] == *role)
+                    .unwrap();
+                row["object"] = serde_json::to_value(object).unwrap();
+            }
+        });
+        let root = host.typed_principal_for_module("0").unwrap();
+        let parent_object = object_identity_for_host_path(fixture.path()).unwrap();
+
+        // @ref LLP 0021#decision-staging-and-principal-semantics — every
+        // protected object is a deny stratum ahead of ambient root, and each
+        // effect must authorize before its first irreversible mutation.
+        for (role, path, original, object) in &artifacts {
+            for mutation in [Mutation::Write, Mutation::Replace, Mutation::Rename] {
+                let (operation, edge, stage, retained_handle) = mutation.authorization();
+                let decision = host
+                    .authorize_typed_fs_open_stage(
+                        "0",
+                        operation,
+                        edge,
+                        vec![root.clone()],
+                        path,
+                        stage,
+                        ObjectState::Existing,
+                        FollowMode::FollowFinal,
+                        false,
+                        Some(fixture.path()),
+                        false,
+                        true,
+                        Some(parent_object.clone()),
+                        Some(object.clone()),
+                        retained_handle.map(|handle| NonEmptyString::new(handle).unwrap()),
+                        Vec::new(),
+                    )
+                    .unwrap();
+                let replacement = fixture.path().join(format!("{role}.replacement"));
+                let renamed = fixture.path().join(format!("{role}.renamed"));
+                std::fs::write(&replacement, b"attacker replacement").unwrap();
+                let mut mutation_reached = false;
+                if matches!(
+                    decision.outcome,
+                    DecisionOutcome::Allow | DecisionOutcome::AllowWithWouldDenyEvidence
+                ) {
+                    mutation_reached = true;
+                    match mutation {
+                        Mutation::Write => {
+                            let mut file =
+                                std::fs::OpenOptions::new().append(true).open(path).unwrap();
+                            file.write_all(b" attacker append").unwrap();
+                        }
+                        Mutation::Replace => std::fs::rename(&replacement, path).unwrap(),
+                        Mutation::Rename => std::fs::rename(path, &renamed).unwrap(),
+                    }
+                }
+
+                assert_eq!(
+                    decision.outcome,
+                    DecisionOutcome::Deny,
+                    "{role} {mutation:?} unexpectedly received write authority"
+                );
+                assert_eq!(
+                    decision.decisive_stratum,
+                    Some(DecisionStratumId::ProtectedResourceGuards),
+                    "{role} {mutation:?} was not decided by the protected-object guard"
+                );
+                assert!(
+                    decision
+                        .evidence
+                        .iter()
+                        .any(|entry| entry.reason == DecisionReason::ProtectedResource),
+                    "{role} {mutation:?} lacks protected-resource evidence"
+                );
+                assert!(
+                    !mutation_reached,
+                    "{role} {mutation:?} reached the filesystem mutation"
+                );
+                assert_eq!(
+                    std::fs::read(path).unwrap().as_slice(),
+                    original.as_slice(),
+                    "{role} {mutation:?} changed protected bytes"
+                );
+                assert!(
+                    replacement.exists(),
+                    "{role} {mutation:?} consumed the replacement file"
+                );
+                assert!(
+                    !renamed.exists(),
+                    "{role} {mutation:?} renamed the protected object"
+                );
+                std::fs::remove_file(replacement).unwrap();
+            }
+        }
     }
 
     #[test]

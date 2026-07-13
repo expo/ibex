@@ -643,7 +643,16 @@ mod tests {
             get_response_body(late, &cdp_id),
             json!({ "body": "", "base64Encoded": false })
         );
-        assert!(drain_events(late).is_empty());
+        // Parallel HTTP tests may legitimately enqueue their own requests after
+        // this client enables; only the earlier exchange must remain invisible.
+        let late_events = drain_events(late);
+        assert!(
+            late_events.iter().all(|event| {
+                let event: Value = serde_json::from_str(event).unwrap();
+                event["params"]["requestId"].as_str() != Some(cdp_id.as_str())
+            }),
+            "late client received events for request {cdp_id}: {late_events:?}"
+        );
 
         disable(first);
         assert!(is_enabled(), "second client must keep capture enabled");
@@ -651,7 +660,11 @@ mod tests {
         assert!(!drain_events(second).is_empty());
         disable(second);
         assert!(is_enabled(), "late client remains independently enabled");
-        assert_eq!(lock_or_recover(&state().exchanges).body_bytes, 0);
+        // Unrelated parallel requests may retain bodies for `late`; only this
+        // exchange, visible solely to the disabled clients, must be evicted.
+        assert!(!lock_or_recover(&state().exchanges)
+            .exchanges
+            .contains_key(&cdp_id));
         disable(late);
         assert!(!is_enabled());
     }

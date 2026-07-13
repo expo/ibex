@@ -52,6 +52,47 @@ function resolveTxt(resolver: any): Promise<string[][]> {
 }
 
 describe("Ibex custom DNS Resolver", () => {
+  test("default resolve4 with ttl falls back to native lookup without loading resolver files", async () => {
+    const dnsPath = `${import.meta.dir}/../../../src/builtins/dns.js`;
+    const probe = `
+      let lookupCalls = 0;
+      let serverReads = 0;
+      globalThis.__exactDnsLookup = function(hostname, family) {
+        lookupCalls++;
+        return JSON.stringify([{ address: "203.0.113.9", family: family }]);
+      };
+      globalThis.__exactDnsGetServers = function() {
+        serverReads++;
+        return "[]";
+      };
+      const dns = require(${JSON.stringify(dnsPath)});
+      dns.resolve4("ttl-fallback.test", { ttl: true }, function(error, addresses) {
+        if (error) {
+          console.error(error && error.stack || error);
+          process.exitCode = 1;
+          return;
+        }
+        console.log(JSON.stringify({ addresses, lookupCalls, serverReads }));
+      });
+    `;
+    const child = Bun.spawn([process.execPath, "-e", probe], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+
+    expect(exitCode, stderr).toBe(0);
+    expect(JSON.parse(stdout.trim())).toEqual({
+      addresses: ["203.0.113.9"],
+      lookupCalls: 1,
+      serverReads: 0,
+    });
+  });
+
   test("rejects invalid rrtypes before every custom resolver packet path", async () => {
     const resolver = new ibexDns.Resolver({ timeout: 25, tries: 1 });
     resolver.setServers(["127.0.0.1:9"]);

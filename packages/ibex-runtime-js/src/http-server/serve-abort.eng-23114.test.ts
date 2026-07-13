@@ -13,6 +13,7 @@ const g = globalThis as Record<string, unknown>;
 
 const STUBBED = [
   "__exactHttpServe",
+  "__exactHttpOwner",
   "__exactHttpPoll",
   "__exactHttpDrain",
   "__exactHttpWait",
@@ -40,6 +41,7 @@ function installHostStubs(overrides: Record<string, AnyFn>) {
   const pendingRequests: string[] = [];
   const defaults: Record<string, AnyFn> = {
     __exactHttpServe: () => JSON.stringify({ id: 7, port: 8099 }),
+    __exactHttpOwner: () => true,
     __exactHttpPoll: () => pendingRequests.shift() ?? null,
     __exactHttpDrain: () => null,
     // Park forever: dispatch continues via the sync poll fast-path only.

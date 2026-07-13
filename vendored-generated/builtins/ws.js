@@ -97,6 +97,72 @@ var READY_OPEN = 1;
 var READY_CLOSING = 2;
 var READY_CLOSED = 3;
 var DEFAULT_MAX_PAYLOAD = 100 * 1024 * 1024;
+var _wsConnectionStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _wsServerStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+function _installWsConnectionState(connection, handle) {
+	if (!_wsConnectionStates || typeof Object.defineProperty !== "function") throw new Error("WebSocketConnection requires WeakMap-backed private state");
+	var state = {
+		handle,
+		readyState: READY_OPEN
+	};
+	_wsConnectionStates.set(connection, state);
+	Object.defineProperty(connection, "_handle", {
+		configurable: false,
+		get: function() {
+			throw new Error("WebSocket native handle is private");
+		},
+		set: function() {
+			throw new Error("WebSocket native handle is private");
+		}
+	});
+	Object.defineProperty(connection, "_readyState", {
+		configurable: false,
+		get: function() {
+			return state.readyState;
+		},
+		set: function() {
+			throw new Error("WebSocket lifecycle state is private");
+		}
+	});
+	return state;
+}
+function _wsConnectionState(connection) {
+	var state = _wsConnectionStates && _wsConnectionStates.get(connection);
+	if (!state) throw new Error("Invalid WebSocketConnection receiver");
+	return state;
+}
+function _installWsServerState(server) {
+	if (!_wsServerStates || typeof Object.defineProperty !== "function") throw new Error("WebSocketServer requires WeakMap-backed private state");
+	var state = {
+		handle: null,
+		listening: false
+	};
+	_wsServerStates.set(server, state);
+	Object.defineProperty(server, "_handle", {
+		configurable: false,
+		get: function() {
+			throw new Error("WebSocketServer native handle is private");
+		},
+		set: function() {
+			throw new Error("WebSocketServer native handle is private");
+		}
+	});
+	Object.defineProperty(server, "_listening", {
+		configurable: false,
+		get: function() {
+			return state.listening;
+		},
+		set: function() {
+			throw new Error("WebSocketServer lifecycle state is private");
+		}
+	});
+	return state;
+}
+function _wsServerState(server) {
+	var state = _wsServerStates && _wsServerStates.get(server);
+	if (!state) throw new Error("Invalid WebSocketServer receiver");
+	return state;
+}
 var CLOSE_CODE_MESSAGE_TOO_BIG = 1009;
 function hexToRaw(hex) {
 	var raw = "";
@@ -227,8 +293,7 @@ function _peekFramePayloadLength(bytes, start, end) {
 function WebSocketConnection(tcpHandle, req, options) {
 	if (!(this instanceof WebSocketConnection)) return new WebSocketConnection(tcpHandle, req, options);
 	this._events = {};
-	this._handle = tcpHandle;
-	this._readyState = READY_OPEN;
+	_installWsConnectionState(this, tcpHandle);
 	this._rbuf = null;
 	this._rstart = 0;
 	this._rend = 0;
@@ -251,7 +316,7 @@ function WebSocketConnection(tcpHandle, req, options) {
 }
 Object.defineProperty(WebSocketConnection.prototype, "readyState", {
 	get: function() {
-		return this._readyState;
+		return _wsConnectionState(this).readyState;
 	},
 	enumerable: true
 });
@@ -277,11 +342,11 @@ WebSocketConnection.prototype._startReading = function() {
 	var self = this;
 	var MAX_BYTES_PER_TICK = 4 * 1024 * 1024;
 	function poll() {
-		if (self._readyState === READY_CLOSED || self._handle == null) return;
+		if (_wsConnectionState(self).readyState === READY_CLOSED || _wsConnectionState(self).handle == null) return;
 		var drained = 0;
 		try {
 			while (drained < MAX_BYTES_PER_TICK) {
-				var data = __exactTcpRead(self._handle, 65536);
+				var data = __exactTcpRead(_wsConnectionState(self).handle, 65536);
 				if (data === null) {
 					self._handleTransportClose();
 					return;
@@ -293,13 +358,13 @@ WebSocketConnection.prototype._startReading = function() {
 			}
 			if (drained > 0) self._processBuffer();
 		} catch (e) {
-			if (self._readyState !== READY_CLOSED) {
+			if (_wsConnectionState(self).readyState !== READY_CLOSED) {
 				self.emit("error", e);
 				self._handleTransportClose();
 			}
 			return;
 		}
-		if (self._readyState !== READY_CLOSED && self._handle != null) self._pollTimer = setTimeout(poll, 5);
+		if (_wsConnectionState(self).readyState !== READY_CLOSED && _wsConnectionState(self).handle != null) self._pollTimer = setTimeout(poll, 5);
 	}
 	self._pollTimer = setTimeout(poll, 0);
 };
@@ -351,7 +416,7 @@ WebSocketConnection.prototype._processBuffer = function() {
 		if (!res) break;
 		this._rstart = res.next;
 		this._handleFrame(res.frame);
-		if (this._readyState === READY_CLOSED || !this._rbuf) return;
+		if (_wsConnectionState(this).readyState === READY_CLOSED || !this._rbuf) return;
 	}
 	if (this._rstart >= this._rend) {
 		this._rstart = 0;
@@ -422,15 +487,13 @@ WebSocketConnection.prototype._handleFrame = function(frame) {
 				this._sendFrame(OPCODE_CLOSE, closePayload);
 				this._closeFrameSent = true;
 			}
-			this._readyState = READY_CLOSED;
+			if (_wsConnectionState(this).handle != null) __exactTcpClose(_wsConnectionState(this).handle);
+			_wsConnectionState(this).readyState = READY_CLOSED;
 			if (this._pollTimer != null) {
 				clearTimeout(this._pollTimer);
 				this._pollTimer = null;
 			}
-			try {
-				if (this._handle != null) __exactTcpClose(this._handle);
-			} catch (e) {}
-			this._handle = null;
+			_wsConnectionState(this).handle = null;
 			this.emit("close", code, reason);
 			break;
 		case OPCODE_PING:
@@ -457,7 +520,7 @@ WebSocketConnection.prototype._deliverMessage = function(opcode, payload) {
 	else this.emit("message", payload, true);
 };
 WebSocketConnection.prototype._exceedMaxPayload = function() {
-	if (this._readyState === READY_CLOSED) return;
+	if (_wsConnectionState(this).readyState === READY_CLOSED) return;
 	this._fragments = [];
 	this._fragmentsTotal = 0;
 	this._fragmentOpcode = 0;
@@ -471,36 +534,33 @@ WebSocketConnection.prototype._exceedMaxPayload = function() {
 		this._sendFrame(OPCODE_CLOSE, [CLOSE_CODE_MESSAGE_TOO_BIG >> 8 & 255, CLOSE_CODE_MESSAGE_TOO_BIG & 255]);
 		this._closeFrameSent = true;
 	}
-	this._readyState = READY_CLOSED;
+	if (_wsConnectionState(this).handle != null) __exactTcpClose(_wsConnectionState(this).handle);
+	_wsConnectionState(this).readyState = READY_CLOSED;
 	if (this._pollTimer != null) {
 		clearTimeout(this._pollTimer);
 		this._pollTimer = null;
 	}
-	try {
-		if (this._handle != null) __exactTcpClose(this._handle);
-	} catch (e) {}
-	this._handle = null;
+	_wsConnectionState(this).handle = null;
 	this.emit("close", CLOSE_CODE_MESSAGE_TOO_BIG, "Max payload size exceeded");
 };
 WebSocketConnection.prototype._handleTransportClose = function() {
-	if (this._readyState === READY_CLOSED) return;
-	this._readyState = READY_CLOSED;
+	if (_wsConnectionState(this).readyState === READY_CLOSED) return;
+	if (_wsConnectionState(this).handle != null) __exactTcpClose(_wsConnectionState(this).handle);
+	_wsConnectionState(this).readyState = READY_CLOSED;
 	if (this._pollTimer != null) {
 		clearTimeout(this._pollTimer);
 		this._pollTimer = null;
 	}
-	try {
-		if (this._handle != null) __exactTcpClose(this._handle);
-	} catch (e) {}
-	this._handle = null;
+	_wsConnectionState(this).handle = null;
 	this.emit("close", 1006, "");
 };
-WebSocketConnection.prototype._sendFrame = function(opcode, payload) {
-	if (this._handle == null) return;
+WebSocketConnection.prototype._sendFrame = function(opcode, payload, throwOnError) {
+	if (_wsConnectionState(this).handle == null) return;
 	var frame = encodeFrame(opcode, payload);
 	try {
-		__exactTcpWrite(this._handle, frame);
+		__exactTcpWrite(_wsConnectionState(this).handle, frame);
 	} catch (e) {
+		if (throwOnError) throw e;
 		this.emit("error", e);
 	}
 };
@@ -510,8 +570,8 @@ WebSocketConnection.prototype.send = function(data, options, callback) {
 		options = {};
 	}
 	options = options || {};
-	if (this._readyState !== READY_OPEN) {
-		var err = /* @__PURE__ */ new Error("WebSocket is not open: readyState " + this._readyState);
+	if (_wsConnectionState(this).readyState !== READY_OPEN) {
+		var err = /* @__PURE__ */ new Error("WebSocket is not open: readyState " + _wsConnectionState(this).readyState);
 		if (typeof callback === "function") {
 			callback(err);
 			return;
@@ -544,8 +604,7 @@ WebSocketConnection.prototype.send = function(data, options, callback) {
 	if (typeof callback === "function") callback(null);
 };
 WebSocketConnection.prototype.close = function(code, reason) {
-	if (this._readyState === READY_CLOSED || this._readyState === READY_CLOSING) return;
-	this._readyState = READY_CLOSING;
+	if (_wsConnectionState(this).readyState === READY_CLOSED || _wsConnectionState(this).readyState === READY_CLOSING) return;
 	code = code || 1e3;
 	reason = reason || "";
 	var payload = [];
@@ -555,11 +614,12 @@ WebSocketConnection.prototype.close = function(code, reason) {
 		var encoded = new TextEncoder().encode(reason);
 		for (var i = 0; i < encoded.length; i++) payload.push(encoded[i]);
 	} else for (var i = 0; i < reason.length; i++) payload.push(reason.charCodeAt(i));
+	this._sendFrame(OPCODE_CLOSE, payload, true);
 	this._closeFrameSent = true;
-	this._sendFrame(OPCODE_CLOSE, payload);
+	_wsConnectionState(this).readyState = READY_CLOSING;
 	var self = this;
 	setTimeout(function() {
-		if (self._readyState !== READY_CLOSED) self._handleTransportClose();
+		if (_wsConnectionState(self).readyState !== READY_CLOSED) self._handleTransportClose();
 	}, 5e3);
 };
 WebSocketConnection.prototype.ping = function(data, mask, callback) {
@@ -571,7 +631,7 @@ WebSocketConnection.prototype.ping = function(data, mask, callback) {
 		callback = mask;
 		mask = void 0;
 	}
-	if (this._readyState !== READY_OPEN) return;
+	if (_wsConnectionState(this).readyState !== READY_OPEN) return;
 	this._sendFrame(OPCODE_PING, data || []);
 	if (typeof callback === "function") callback(null);
 };
@@ -584,21 +644,19 @@ WebSocketConnection.prototype.pong = function(data, mask, callback) {
 		callback = mask;
 		mask = void 0;
 	}
-	if (this._readyState !== READY_OPEN) return;
+	if (_wsConnectionState(this).readyState !== READY_OPEN) return;
 	this._sendFrame(OPCODE_PONG, data || []);
 	if (typeof callback === "function") callback(null);
 };
 WebSocketConnection.prototype.terminate = function() {
-	if (this._readyState === READY_CLOSED) return;
-	this._readyState = READY_CLOSED;
+	if (_wsConnectionState(this).readyState === READY_CLOSED) return;
+	if (_wsConnectionState(this).handle != null) __exactTcpClose(_wsConnectionState(this).handle);
+	_wsConnectionState(this).readyState = READY_CLOSED;
 	if (this._pollTimer != null) {
 		clearTimeout(this._pollTimer);
 		this._pollTimer = null;
 	}
-	try {
-		if (this._handle != null) __exactTcpClose(this._handle);
-	} catch (e) {}
-	this._handle = null;
+	_wsConnectionState(this).handle = null;
 	this.emit("close", 1006, "");
 };
 function WebSocketServer(options, callback) {
@@ -610,11 +668,10 @@ function WebSocketServer(options, callback) {
 	this._noServer = options.noServer || false;
 	this._server = options.server || null;
 	this._maxPayload = typeof options.maxPayload === "number" ? options.maxPayload : DEFAULT_MAX_PAYLOAD;
-	this._handle = null;
+	_installWsServerState(this);
 	this._acceptTimer = null;
 	this._port = options.port || 0;
 	this._host = options.host || "0.0.0.0";
-	this._listening = false;
 	if (typeof EventEmitter === "function" && EventEmitter.prototype) {
 		for (var k in EventEmitter.prototype) if (!this[k]) this[k] = EventEmitter.prototype[k];
 	}
@@ -627,7 +684,7 @@ function WebSocketServer(options, callback) {
 				if (ws) self.emit("connection", ws, req);
 			});
 		});
-		this._listening = true;
+		_wsServerState(this).listening = true;
 		var s = this;
 		setTimeout(function() {
 			s.emit("listening");
@@ -644,16 +701,16 @@ function WebSocketServer(options, callback) {
 	var self = this;
 	setTimeout(function() {
 		try {
-			self._handle = __exactTcpListen(self._host, self._port, 128);
+			_wsServerState(self).handle = __exactTcpListen(self._host, self._port, 128);
 			try {
-				var info = __exactTcpLocalAddr(self._handle);
+				var info = __exactTcpLocalAddr(_wsServerState(self).handle);
 				if (info) {
 					var addr = JSON.parse(info);
 					self._port = addr.port;
 					self._host = addr.address;
 				}
 			} catch (e) {}
-			self._listening = true;
+			_wsServerState(self).listening = true;
 			self.emit("listening");
 			self._startAccepting();
 		} catch (e) {
@@ -665,12 +722,12 @@ WebSocketServer.prototype._startAccepting = function() {
 	if (this._acceptTimer != null) return;
 	var self = this;
 	function acceptLoop() {
-		if (!self._listening || self._handle == null) return;
+		if (!_wsServerState(self).listening || _wsServerState(self).handle == null) return;
 		try {
-			var clientHandle = __exactTcpAccept(self._handle);
+			var clientHandle = __exactTcpAccept(_wsServerState(self).handle);
 			if (clientHandle !== -1) self._handleRawConnection(clientHandle);
 		} catch (e) {
-			if (self._listening) self.emit("error", e);
+			if (_wsServerState(self).listening) self.emit("error", e);
 			return;
 		}
 		self._acceptTimer = setTimeout(acceptLoop, 10);
@@ -808,18 +865,15 @@ WebSocketServer.prototype.handleUpgrade = function(req, socket, head, callback) 
 	if (typeof callback === "function") callback(ws);
 };
 WebSocketServer.prototype.close = function(callback) {
+	var state = _wsServerState(this);
+	if (state.handle != null && _hasTcpSupport()) __exactTcpClose(state.handle);
 	if (typeof callback === "function") this.once("close", callback);
-	this._listening = false;
+	state.listening = false;
 	if (this._acceptTimer != null) {
 		clearTimeout(this._acceptTimer);
 		this._acceptTimer = null;
 	}
-	if (this._handle != null && _hasTcpSupport()) {
-		try {
-			__exactTcpClose(this._handle);
-		} catch (e) {}
-		this._handle = null;
-	}
+	state.handle = null;
 	var clientsArr = [];
 	this.clients.forEach(function(ws) {
 		clientsArr.push(ws);
@@ -833,8 +887,8 @@ WebSocketServer.prototype.close = function(callback) {
 	}, 0);
 };
 WebSocketServer.prototype.address = function() {
-	if (this._handle != null && _hasTcpSupport()) try {
-		var info = __exactTcpLocalAddr(this._handle);
+	if (_wsServerState(this).handle != null && _hasTcpSupport()) try {
+		var info = __exactTcpLocalAddr(_wsServerState(this).handle);
 		if (info) return JSON.parse(info);
 	} catch (e) {}
 	return {

@@ -112,7 +112,9 @@ pub struct CapabilityManager {
     /// @ref LLP 0002#host-boundary-constraints
     fs_root: Option<String>,
     /// Host-boundary fence from `HostConfig.allowed_hosts`: normalized host
-    /// entries every `network:*` capability value must match. (ENG-23876)
+    /// entries every outbound `network:*` capability value must match. Local
+    /// listener authority is governed by `network:listen`, not this legacy
+    /// remote-host allowlist. (ENG-23876, ENG-24285)
     allowed_hosts: Option<Vec<String>>,
     /// Audit log of capability checks
     audit_log: RwLock<VecDeque<AuditEntry>>,
@@ -515,7 +517,7 @@ impl CapabilityManager {
     fn fence_denial(&self, capability: &str) -> Option<&'static str> {
         let mut parts = capability.splitn(3, ':');
         let scope = parts.next().unwrap_or("");
-        let _action = parts.next();
+        let action = parts.next().unwrap_or("");
         let resource = parts.next();
         match scope {
             "fs" => {
@@ -529,7 +531,7 @@ impl CapabilityManager {
                 });
                 (!inside).then_some("root_dir")
             }
-            "network" => {
+            "network" if action != "listen" => {
                 let hosts = self.allowed_hosts.as_deref()?;
                 // Endpoint values are `<host>` or `<host>:<port>`; an entry
                 // without a port covers the host across ports via the same
@@ -1661,7 +1663,7 @@ mod tests {
     }
 
     #[test]
-    fn host_boundary_allowed_hosts_fences_network_in_every_mode() {
+    fn host_boundary_allowed_hosts_fences_outbound_network_in_every_mode() {
         for mode in [
             SecurityMode::Permissive,
             SecurityMode::Audit,
@@ -1679,6 +1681,11 @@ mod tests {
             );
             // Not a generic string prefix.
             assert!(!manager.check("0", "network:fetch:api.example.com.evil"));
+            // `allowed_hosts` is an outbound remote-host compatibility fence,
+            // not a local bind-address fence. Listen authority remains an
+            // independent policy decision for both address families.
+            assert!(manager.check("0", "network:listen:127.0.0.1:8080"));
+            assert!(manager.check("0", "network:listen:[::1]:8080"));
             // Resource-less network capability claims any endpoint: denied.
             assert!(!manager.check("0", "network:fetch"));
             // A blanket grant cannot widen past the fence.
@@ -1691,11 +1698,23 @@ mod tests {
     }
 
     #[test]
-    fn host_boundary_empty_allowed_hosts_denies_all_network() {
+    fn host_boundary_empty_allowed_hosts_denies_all_outbound_network() {
         let mut manager = CapabilityManager::new(SecurityMode::Permissive);
         manager.set_host_boundary(None, Some(&[]));
         assert!(!manager.check("0", "network:fetch:api.example.com"));
-        assert!(!manager.check("0", "network:listen:127.0.0.1:8080"));
+        assert!(!manager.check("0", "network:connect:127.0.0.1:8080"));
+        assert!(!manager.check("0", "network:connect:[::1]:8080"));
+        assert!(manager.check("0", "network:listen:127.0.0.1:8080"));
+        assert!(manager.check("0", "network:listen:[::1]:8080"));
+    }
+
+    #[test]
+    fn host_boundary_allowed_hosts_matches_ipv6_outbound_endpoints() {
+        let mut manager = CapabilityManager::new(SecurityMode::Permissive);
+        manager.set_host_boundary(None, Some(&["::1".to_string()]));
+        assert!(manager.check("0", "network:connect:[::1]:443"));
+        assert!(manager.check("0", "network:fetch:[::1]:443"));
+        assert!(!manager.check("0", "network:connect:[::2]:443"));
     }
 
     // The fence must hold at every checking chokepoint, not just `check`:

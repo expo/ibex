@@ -1207,7 +1207,11 @@ function _validateSpawnSyncOptions(options) {
     var mappedSyncStdio = [];
     for (var ssi = 0; ssi < syncStdio.length; ssi++) {
       var syncEntry = syncStdio[ssi];
-      if (typeof syncEntry === 'number' && isFinite(syncEntry) && syncEntry >= 0) {
+      if (syncEntry === null || syncEntry === undefined) {
+        // Node defaults only fd 0-2 to pipes. Empty extra entries are ignored,
+        // not synthesized as authority-bearing fd3+ pipes.
+        mappedSyncStdio[ssi] = ssi < 3 ? 'pipe' : 'ignore';
+      } else if (typeof syncEntry === 'number' && isFinite(syncEntry) && syncEntry >= 0) {
         var syncFdNum = Math.floor(syncEntry);
         mappedSyncStdio[ssi] = syncFdNum === ssi ? 'inherit' : 'fd:' + syncFdNum;
       } else {
@@ -2190,12 +2194,10 @@ function _normalizeSpawnOptions(options, command) {
     normalized.stdio = [
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
-      _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe')
     ];
   } else if (typeof stdio === 'number') {
     normalized.stdio = [
-      _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe'),
       _normalizeSpawnMode(stdio, 'pipe')
@@ -2209,7 +2211,7 @@ function _normalizeSpawnOptions(options, command) {
         if (!relayReadablePipes) relayReadablePipes = Object.create(null);
         relayReadablePipes[si] = stdio[si];
       } else {
-        rawStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+        rawStdio[si] = _normalizeSpawnMode(stdio[si], si < 3 ? 'pipe' : 'ignore');
       }
     }
     var ipcIndex = rawStdio.indexOf('ipc');
@@ -2244,12 +2246,15 @@ function _normalizeSpawnOptions(options, command) {
           if (!normalized.relayReadablePipes) normalized.relayReadablePipes = Object.create(null);
           normalized.relayReadablePipes[si2] = relayReadablePipes[si2];
         } else {
-          normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], 'pipe');
+          normalized.stdio[si2] = _normalizeSpawnMode(
+            stdio[si2],
+            si2 < 3 ? 'pipe' : 'ignore'
+          );
         }
       }
     }
   } else {
-    normalized.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
+    normalized.stdio = ['pipe', 'pipe', 'pipe'];
   }
   // (ENG-23485) fd:N where N equals its FINAL slot is exactly 'inherit'
   // (Node: stdio:[0,1,2] === 'inherit'). Resolve the equivalence here, in the
@@ -4384,7 +4389,7 @@ cp.fork = function fork(modulePath, args, options) {
       } else if (si < 3) {
         normalizedStdio[si] = _normalizeSpawnMode(stdio[si], silent ? 'pipe' : 'inherit');
       } else {
-        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], 'pipe');
+        normalizedStdio[si] = _normalizeSpawnMode(stdio[si], 'ignore');
       }
     }
     stdio = normalizedStdio;

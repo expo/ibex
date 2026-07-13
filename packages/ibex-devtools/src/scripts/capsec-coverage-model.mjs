@@ -159,6 +159,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactHttpAwaitWritableExecutor",
   "__exactHttpClose",
   "__exactHttpDrain",
+  "__exactHttpOwner",
   "__exactHttpPoll",
   "__exactHttpReadBody",
   "__exactHttpRespond",
@@ -200,6 +201,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactNativeFreeze",
   "__exactNativeModuleResolve",
   "__exactNativeModuleResolveMeta",
+  "__exactNetOwner",
   "__exactNotifyTypedAuthorityChange",
   "__exactOSRelease",
   "__exactOSVersion",
@@ -296,6 +298,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactTlsEngineTransportEof",
   "__exactTlsEngineWritePlain",
   "__exactTlsEngineWriteTls",
+  "__exactTlsOwnerToken",
   "__exactTrapSignal",
   "__exactTruncate",
   "__exactUdpAddress",
@@ -322,6 +325,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactWsSend",
   "__exactWsSetFlowControlled",
   "__exactX25519DeriveBits",
+  "__exactZlibCheckOwner",
   "__exactZlibClose",
   "__exactZlibCreate",
   "__exactZlibParams",
@@ -731,6 +735,8 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:exact_process:version",
   "export:exact_sqlite:Database",
   "export:exact_sqlite:Database._checkClosed",
+  "export:exact_sqlite:Database._closed",
+  "export:exact_sqlite:Database._handle",
   "export:exact_sqlite:Database.applyChanges",
   "export:exact_sqlite:Database.close",
   "export:exact_sqlite:Database.enableCrSqlite",
@@ -752,6 +758,9 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:exact_sqlite:SQLiteError.constructor",
   "export:exact_sqlite:Statement",
   "export:exact_sqlite:Statement._checkFinalized",
+  "export:exact_sqlite:Statement._db",
+  "export:exact_sqlite:Statement._finalized",
+  "export:exact_sqlite:Statement._handle",
   "export:exact_sqlite:Statement._normalizeParams",
   "export:exact_sqlite:Statement._recordExecution",
   "export:exact_sqlite:Statement.all",
@@ -767,6 +776,8 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:exact_sqlite:constants",
   "export:exact_sqlite:default",
   "export:exact_sqlite:default._checkClosed",
+  "export:exact_sqlite:default._closed",
+  "export:exact_sqlite:default._handle",
   "export:exact_sqlite:default.applyChanges",
   "export:exact_sqlite:default.close",
   "export:exact_sqlite:default.enableCrSqlite",
@@ -1272,8 +1283,10 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_constants:[[dynamic-table:signal-number-overlay]]",
   "export:node_constants:default",
   "export:node_dgram:Socket",
+  "export:node_dgram:Socket._closed",
   "export:node_dgram:Socket._fromFd",
   "export:node_dgram:Socket._getFd",
+  "export:node_dgram:Socket._handle",
   "export:node_dgram:Socket._startRecv",
   "export:node_dgram:Socket.addMembership",
   "export:node_dgram:Socket.addSourceSpecificMembership",
@@ -1841,6 +1854,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_http:ServerResponse._streamChunk",
   "export:node_http:ServerResponse._writeRaw",
   "export:node_http:ServerResponse.addTrailers",
+  "export:node_http:ServerResponse.appendHeader",
   "export:node_http:ServerResponse.assignSocket",
   "export:node_http:ServerResponse.connection",
   "export:node_http:ServerResponse.constructor",
@@ -1858,6 +1872,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_http:ServerResponse.removeHeader",
   "export:node_http:ServerResponse.setHeader",
   "export:node_http:ServerResponse.setTimeout",
+  "export:node_http:ServerResponse.socket",
   "export:node_http:ServerResponse.uncork",
   "export:node_http:ServerResponse.writableHighWaterMark",
   "export:node_http:ServerResponse.writableNeedDrain",
@@ -1936,9 +1951,11 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_net:Socket._deliverInboundData",
   "export:node_net:Socket._drainWriteQueue",
   "export:node_net:Socket._emitFlowingData",
+  "export:node_net:Socket._handle",
   "export:node_net:Socket._isFlowing",
   "export:node_net:Socket._isReadBufferOverHighWaterMark",
   "export:node_net:Socket._notifyOnreadEOF",
+  "export:node_net:Socket._pendingConnectHandle",
   "export:node_net:Socket._processOnreadBuffer",
   "export:node_net:Socket._resolveOnreadBuffer",
   "export:node_net:Socket._startPolling",
@@ -1951,6 +1968,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_net:Socket.connect",
   "export:node_net:Socket.cork",
   "export:node_net:Socket.destroy",
+  "export:node_net:Socket.destroyed",
   "export:node_net:Socket.end",
   "export:node_net:Socket.on",
   "export:node_net:Socket.pause",
@@ -1984,9 +2002,11 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_net:Stream._deliverInboundData",
   "export:node_net:Stream._drainWriteQueue",
   "export:node_net:Stream._emitFlowingData",
+  "export:node_net:Stream._handle",
   "export:node_net:Stream._isFlowing",
   "export:node_net:Stream._isReadBufferOverHighWaterMark",
   "export:node_net:Stream._notifyOnreadEOF",
+  "export:node_net:Stream._pendingConnectHandle",
   "export:node_net:Stream._processOnreadBuffer",
   "export:node_net:Stream._resolveOnreadBuffer",
   "export:node_net:Stream._startPolling",
@@ -1999,6 +2019,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_net:Stream.connect",
   "export:node_net:Stream.cork",
   "export:node_net:Stream.destroy",
+  "export:node_net:Stream.destroyed",
   "export:node_net:Stream.end",
   "export:node_net:Stream.on",
   "export:node_net:Stream.pause",
@@ -2363,12 +2384,17 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:DEFAULT_MAX_VERSION",
   "export:node_tls:DEFAULT_MIN_VERSION",
   "export:node_tls:SecureContext",
+  "export:node_tls:SecureContext.context",
   "export:node_tls:Server",
   "export:node_tls:Server.constructor",
   "export:node_tls:TLSSocket",
   "export:node_tls:TLSSocket._setSocket",
   "export:node_tls:TLSSocket.addListener",
   "export:node_tls:TLSSocket.address",
+  "export:node_tls:TLSSocket.allowHalfOpen",
+  "export:node_tls:TLSSocket.alpnProtocol",
+  "export:node_tls:TLSSocket.authorizationError",
+  "export:node_tls:TLSSocket.authorized",
   "export:node_tls:TLSSocket.bytesRead",
   "export:node_tls:TLSSocket.bytesWritten",
   "export:node_tls:TLSSocket.close",
@@ -2379,11 +2405,15 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:TLSSocket.destroy",
   "export:node_tls:TLSSocket.destroyed",
   "export:node_tls:TLSSocket.disableRenegotiation",
+  "export:node_tls:TLSSocket.emit",
   "export:node_tls:TLSSocket.enableTrace",
+  "export:node_tls:TLSSocket.encrypted",
   "export:node_tls:TLSSocket.end",
+  "export:node_tls:TLSSocket.eventNames",
   "export:node_tls:TLSSocket.getCertificate",
   "export:node_tls:TLSSocket.getCipher",
   "export:node_tls:TLSSocket.getFinished",
+  "export:node_tls:TLSSocket.getMaxListeners",
   "export:node_tls:TLSSocket.getPeerCertificate",
   "export:node_tls:TLSSocket.getPeerX509Certificate",
   "export:node_tls:TLSSocket.getProtocol",
@@ -2392,25 +2422,37 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:TLSSocket.getTLSTicket",
   "export:node_tls:TLSSocket.getX509Certificate",
   "export:node_tls:TLSSocket.isSessionReused",
+  "export:node_tls:TLSSocket.listenerCount",
+  "export:node_tls:TLSSocket.listeners",
   "export:node_tls:TLSSocket.localAddress",
   "export:node_tls:TLSSocket.localFamily",
   "export:node_tls:TLSSocket.localPort",
+  "export:node_tls:TLSSocket.off",
   "export:node_tls:TLSSocket.on",
+  "export:node_tls:TLSSocket.once",
   "export:node_tls:TLSSocket.pause",
   "export:node_tls:TLSSocket.pending",
   "export:node_tls:TLSSocket.pipe",
+  "export:node_tls:TLSSocket.prependListener",
+  "export:node_tls:TLSSocket.prependOnceListener",
   "export:node_tls:TLSSocket.push",
+  "export:node_tls:TLSSocket.rawListeners",
   "export:node_tls:TLSSocket.read",
   "export:node_tls:TLSSocket.readable",
+  "export:node_tls:TLSSocket.readableHighWaterMark",
   "export:node_tls:TLSSocket.readyState",
   "export:node_tls:TLSSocket.ref",
   "export:node_tls:TLSSocket.remoteAddress",
   "export:node_tls:TLSSocket.remoteFamily",
   "export:node_tls:TLSSocket.remotePort",
+  "export:node_tls:TLSSocket.removeAllListeners",
+  "export:node_tls:TLSSocket.removeListener",
   "export:node_tls:TLSSocket.renegotiate",
   "export:node_tls:TLSSocket.resume",
+  "export:node_tls:TLSSocket.servername",
   "export:node_tls:TLSSocket.setEncoding",
   "export:node_tls:TLSSocket.setKeepAlive",
+  "export:node_tls:TLSSocket.setMaxListeners",
   "export:node_tls:TLSSocket.setMaxSendFragment",
   "export:node_tls:TLSSocket.setNoDelay",
   "export:node_tls:TLSSocket.setSession",
@@ -2419,6 +2461,7 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:node_tls:TLSSocket.unref",
   "export:node_tls:TLSSocket.unshift",
   "export:node_tls:TLSSocket.writable",
+  "export:node_tls:TLSSocket.writableHighWaterMark",
   "export:node_tls:TLSSocket.write",
   "export:node_tls:checkServerIdentity",
   "export:node_tls:connect",
@@ -2734,7 +2777,9 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:ws:OPEN",
   "export:ws:Server",
   "export:ws:Server._completeUpgrade",
+  "export:ws:Server._handle",
   "export:ws:Server._handleRawConnection",
+  "export:ws:Server._listening",
   "export:ws:Server._startAccepting",
   "export:ws:Server.address",
   "export:ws:Server.close",
@@ -2747,9 +2792,11 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:ws:WebSocket._appendData",
   "export:ws:WebSocket._deliverMessage",
   "export:ws:WebSocket._exceedMaxPayload",
+  "export:ws:WebSocket._handle",
   "export:ws:WebSocket._handleFrame",
   "export:ws:WebSocket._handleTransportClose",
   "export:ws:WebSocket._processBuffer",
+  "export:ws:WebSocket._readyState",
   "export:ws:WebSocket._sendFrame",
   "export:ws:WebSocket._startReading",
   "export:ws:WebSocket.binaryType",
@@ -2761,7 +2808,9 @@ const REVIEWED_BUILTIN_EXPORT_NAMES = new Set([
   "export:ws:WebSocket.terminate",
   "export:ws:WebSocketServer",
   "export:ws:WebSocketServer._completeUpgrade",
+  "export:ws:WebSocketServer._handle",
   "export:ws:WebSocketServer._handleRawConnection",
+  "export:ws:WebSocketServer._listening",
   "export:ws:WebSocketServer._startAccepting",
   "export:ws:WebSocketServer.address",
   "export:ws:WebSocketServer.close",
@@ -4343,16 +4392,9 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "CONNECTING",
     "OPEN",
     "[[Symbol.toStringTag]]",
-    "_binaryType",
-    "_bufferedAmount",
     "_callEventHandler",
-    "_closeEventPending",
     "_connectNative",
     "_enqueueEventTask",
-    "_eventQueue",
-    "_eventQueueOffset",
-    "_eventQueueScheduled",
-    "_extensions",
     "_handleBytesSent",
     "_handleClose",
     "_handleCloseInternal",
@@ -4360,28 +4402,13 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "_handleErrorInternal",
     "_handleMessage",
     "_handleOpen",
-    "_incomingFlowControlled",
-    "_incomingPaused",
-    "_isSendingQueue",
-    "_onclose",
-    "_onerror",
-    "_onmessage",
-    "_onopen",
     "_pauseIncoming",
-    "_pendingSendAckOffset",
-    "_pendingSendAcks",
-    "_protocol",
     "_queueSend",
-    "_readyState",
     "_resolvePendingSendAcks",
     "_resumeIncoming",
     "_sendNative",
-    "_sendQueue",
-    "_sendQueueOffset",
     "_setIncomingFlowControl",
     "_simulateConnection",
-    "_socketId",
-    "_url",
     "binaryType",
     "bufferedAmount",
     "close",
@@ -4402,35 +4429,21 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "[[Symbol.toStringTag]]",
     "_clearPendingWriteResolveTimer",
     "_closeReadable",
-    "_closedDeferred",
-    "_closedDuringHandshake",
-    "_closedSettled",
-    "_connected",
     "_drainResolvedWrites",
     "_errorReadable",
     "_errorWritable",
     "_finishWritableClose",
     "_getWritableInvalidStateError",
     "_handleBytesSent",
+    "_handleSendFailure",
     "_handleSocketClose",
-    "_ignoredTerminal",
     "_initiateClose",
-    "_localCloseInitiated",
-    "_openedDeferred",
-    "_openedSettled",
-    "_pendingWriteRequests",
-    "_pendingWriteResolveTimer",
-    "_readable",
-    "_readableController",
     "_rejectClosed",
     "_rejectOpened",
     "_rejectPendingWrites",
     "_resolveClosed",
     "_resolveOpened",
-    "_socket",
     "_syncReadableBackpressure",
-    "_writable",
-    "_writableInvalidStateError",
     "close",
     "closed",
     "opened",
@@ -6454,6 +6467,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_TEST_FS_WORKER_MAX_QUEUE",
     "env:IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
     "env:IBEX_TEST_HBC_COMPILE_BARRIER",
+    "env:IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
     "env:IBEX_TEST_TRANSPILE_INPUT_BARRIER",
     "env:IBEX_TRANSPILE_CACHE_MAX_BYTES",
     "env:IBEX_WATCH_SHUTDOWN_TIMEOUT_MS",
@@ -6525,6 +6539,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "install-route:translation-unit-fallback:installLegacyLazyBootstrapGetters",
     "install-route:translation-unit-fallback:installModuleLoader",
     "install-route:translation-unit-fallback:installNetHostFunctions",
+    "install-route:translation-unit-fallback:installNetOwnerHostFunction",
     "install-route:translation-unit-fallback:installOsInfoGlobals",
     "install-route:translation-unit-fallback:installProcessSetup",
     "install-route:translation-unit-fallback:installSqliteHostFunctions",
@@ -6546,6 +6561,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installLegacyLazyBootstrapGetters",
     "installer:installModuleLoader",
     "installer:installNetHostFunctions",
+    "installer:installNetOwnerHostFunction",
     "installer:installOsInfoGlobals",
     "installer:installProcessSetup",
     "installer:installSharedRuntimeBundle",
@@ -8045,7 +8061,7 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("module-reachability-only", "WP5");
     }
     if (
-      /^(?:checkclosed|databasecheckclosed|statementcheckfinalized|statementnormalizeparams|statementas|statementcolumntypes|statementdeclaredtypes|statementnative|statementtostring|databaseintransaction|intransaction|deserialize)$/u.test(
+      /^(?:checkclosed|closed|databasecheckclosed|databaseclosed|statementcheckfinalized|statementfinalized|statementnormalizeparams|statementas|statementcolumntypes|statementdeclaredtypes|statementnative|statementtostring|databaseintransaction|intransaction|deserialize)$/u.test(
         name,
       )
     ) {
@@ -8068,7 +8084,7 @@ function builtinExportClassification(surface) {
         "SQLite extension loading is closed with the other native-extension escape surfaces.",
       );
     }
-    if (/^(?:databasehandle|handle)$/u.test(name)) {
+    if (/^(?:databasehandle|handle|statementdb|statementhandle)$/u.test(name)) {
       return closedSpec(
         "ffi:load",
         "WP7",
@@ -8561,7 +8577,7 @@ function builtinExportClassification(surface) {
       return nonCapabilitySpec("authority-control-plane", "WP6");
     }
     if (
-      /^socket(?:address|constructor|getrecvbuffersize|getsendbuffersize|remoteaddress)$/u.test(
+      /^socket(?:address|closed|constructor|getrecvbuffersize|getsendbuffersize|handle|remoteaddress)$/u.test(
         name,
       )
     ) {
@@ -8609,6 +8625,9 @@ function builtinExportClassification(surface) {
   }
 
   if (source === "node_tls") {
+    if (/^(?:securecontext(?:context)?|createsecurecontext)$/u.test(name)) {
+      return nonCapabilitySpec("pure-in-memory-compute", "WP6");
+    }
     if (/^setdefaultcacertificates$/u.test(name)) {
       return closedSpec(
         "runtime:inspect",
@@ -8798,7 +8817,7 @@ function builtinExportClassification(surface) {
       );
     }
     if (
-      /^(?:closed|closing|connecting|open|websocketclosed|websocketclosing|websocketconnecting|websocketopen|websocketbinarytype|websocketreadystate)$/u.test(
+      /^(?:closed|closing|connecting|open|websocketclosed|websocketclosing|websocketconnecting|websocketopen|websocketbinarytype|websockethandle|websocketreadystate)$/u.test(
         name,
       )
     ) {
@@ -8975,7 +8994,7 @@ function builtinExportClassification(surface) {
 }
 
 const REVIEWED_BUILTIN_INHERITED_SHAPE_ID =
-  "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc";
+  "sha256-92e80596e19cbd5fa2167c0374f84e695fb493ad9caa022e5ef97d48c80a7a04";
 
 function builtinClassification(surface) {
   const isExport = surface.metadata?.surfaceType === "export";
@@ -9609,6 +9628,7 @@ const HARNESS_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "IBEX_TEST_FS_WORKER_MAX_QUEUE",
   "IBEX_TEST_FS_WORKER_THROW_ENQUEUE",
   "IBEX_TEST_HBC_COMPILE_BARRIER",
+  "IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS",
   "IBEX_TEST_TRANSPILE_INPUT_BARRIER",
 ]);
 
@@ -10003,7 +10023,7 @@ function startupClassification(surface) {
 
   if (surface.metadata?.evidenceType === "startup-installer-call-route") {
     const fallbackMatch =
-      /^install-route:translation-unit-fallback:(installChildProcessHostFunctions|installCryptoHostFunctions|installDnsHostFunctions|installFetchGlobals|installFsHostFunctions|installHttpHostFunctions|installIpcListenerPatch|installLegacyLazyBootstrapGetters|installModuleLoader|installNetHostFunctions|installOsInfoGlobals|installProcessSetup|installSqliteHostFunctions|installWebSocketGlobals)$/u.exec(
+      /^install-route:translation-unit-fallback:(installChildProcessHostFunctions|installCryptoHostFunctions|installDnsHostFunctions|installFetchGlobals|installFsHostFunctions|installHttpHostFunctions|installIpcListenerPatch|installLegacyLazyBootstrapGetters|installModuleLoader|installNetHostFunctions|installNetOwnerHostFunction|installOsInfoGlobals|installProcessSetup|installSqliteHostFunctions|installWebSocketGlobals)$/u.exec(
         surface.name,
       );
     if (fallbackMatch) {
@@ -10083,6 +10103,7 @@ function startupClassification(surface) {
         "installer:installlegacylazybootstrapgetters",
         "installer:installmoduleloader",
         "installer:installnethostfunctions",
+        "installer:installnetownerhostfunction",
         "installer:installosinfoglobals",
         "installer:installprocesssetup",
         "installer:installsharedruntimebundle",
@@ -12242,19 +12263,29 @@ function classifyConcreteSurface(surface) {
       "Timer ref-state mutation accepts a process-global sequential identifier without authenticating the timer owner.",
     );
   }
-  if (/^exacttlsengine/u.test(name)) {
-    return closedSpec(
-      "runtime:inspect",
-      "WP7",
-      "TLS engine operations accept process-global sequential identifiers without principal ownership binding, exposing peer, plaintext, and mutable connection state.",
-    );
+  if (/^exacttlsownertoken$/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
   }
-  if (/^exactzlib(?:create|write|params|close)$/u.test(name)) {
-    return closedSpec(
-      "runtime:inspect",
-      "WP7",
-      "Streaming zlib operations accept process-global sequential identifiers without principal ownership binding.",
-    );
+  if (/^exactnetowner$/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (/^exacthttpowner$/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (/^exacttlsengineclose$/u.test(name)) {
+    return nonCapabilitySpec("authority-release", "WP8");
+  }
+  if (/^exacttlsengine/u.test(name)) {
+    return nonCapabilitySpec("internal-data-transform", "WP1");
+  }
+  if (/^exactzlibcheckowner$/u.test(name)) {
+    return nonCapabilitySpec("authority-control-plane", "WP8");
+  }
+  if (/^exactzlibclose$/u.test(name)) {
+    return nonCapabilitySpec("authority-release", "WP8");
+  }
+  if (/^exactzlib(?:create|write|params)$/u.test(name)) {
+    return nonCapabilitySpec("internal-data-transform", "WP1");
   }
 
   if (/tcpreset/u.test(name)) {

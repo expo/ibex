@@ -382,6 +382,7 @@ mod tests {
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
+        fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
         fn ex_hermes_callback_backlog(runtime: *mut HermesRuntimeOpaque) -> u32;
@@ -525,6 +526,61 @@ mod tests {
     }
 
     #[test]
+    fn native_owner_hosts_reject_non_integral_or_unsafe_numeric_selectors() {
+        let _host_guard = crate::host::abi::host_test_lock();
+        crate::host::abi::install_host(crate::host::Host::strict());
+
+        unsafe {
+            #[cfg(target_os = "windows")]
+            ex_host_install();
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+
+            let (status, value) = eval(
+                runtime,
+                r#"
+                (function() {
+                  var invalid = [
+                    NaN, Infinity, -Infinity, 0, -1, 1.5,
+                    9007199254740992, undefined, '1'
+                  ];
+                  var httpRejected = invalid.every(function(value) {
+                    return __exactHttpOwner(value) === false;
+                  });
+                  var stamp = __exactNetOwner('new');
+                  __exactNetOwner('assert', stamp);
+                  var stampsRejected = invalid.every(function(value) {
+                    try {
+                      __exactNetOwner('assert', value);
+                      return false;
+                    } catch (_) {
+                      return true;
+                    }
+                  });
+                  var invalidHandles = [
+                    NaN, Infinity, -Infinity, 0, -1, 1.5,
+                    9007199254740992, '1'
+                  ];
+                  var handlesRejected = invalidHandles.every(function(value) {
+                    try {
+                      __exactNetOwner('assert', stamp, value);
+                      return false;
+                    } catch (_) {
+                      return true;
+                    }
+                  });
+                  return String(httpRejected) + ':' +
+                    String(stampsRejected) + ':' + String(handlesRejected);
+                })()
+                "#,
+            );
+            assert_eq!(status, 0, "owner-host selector probe failed: {value:?}");
+            assert_eq!(value.as_deref(), Some("true:true:true"));
+            ex_hermes_destroy(runtime);
+        }
+    }
+
+    #[test]
     fn host_policy_is_pinned_to_each_runtime_context() {
         let _host_guard = crate::host::abi::host_test_lock();
         let allow = crate::host::Host::strict();
@@ -597,13 +653,26 @@ mod tests {
                 second,
                 &format!(
                     "try {{ __exactTlsEngineStatus({first_id}); 'leaked' }} \
-                     catch (error) {{ String(error).includes('unknown engine handle') ? 'isolated' : String(error) }}"
+                     catch (error) {{ String(error).includes('belongs to another runtime or principal') ? 'isolated' : String(error) }}"
                 ),
             );
             assert_eq!(status, 0, "cross-runtime probe failed: {value:?}");
             assert_eq!(value.as_deref(), Some("isolated"));
 
             ex_hermes_destroy(first);
+
+            let (status, value) = eval(
+                second,
+                &format!(
+                    "try {{ __exactTlsEngineStatus({first_id}); 'retained' }} \
+                     catch (error) {{ String(error).includes('unknown engine handle') ? 'cleaned' : String(error) }}"
+                ),
+            );
+            assert_eq!(
+                status, 0,
+                "destroyed-runtime cleanup probe failed: {value:?}"
+            );
+            assert_eq!(value.as_deref(), Some("cleaned"));
 
             let (status, value) = eval(
                 second,
@@ -655,6 +724,120 @@ mod tests {
             assert_eq!(value.as_deref(), Some("1"));
 
             ex_hermes_destroy(runtime);
+        }
+    }
+
+    /// Embedded hosts opt into report-and-continue behavior for errors escaping
+    /// async callbacks. A `nextTick` queued by a timer is drained from
+    /// `ex_hermes_poll`, not the arming eval, so this directly pins the
+    /// keep-alive policy at the poll-time nextTick drain. @ref LLP 0003#the-event-loop
+    #[test]
+    fn keep_alive_policy_continues_after_poll_time_next_tick_throw() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            ex_hermes_set_keep_alive_on_async_error(runtime, 1);
+
+            let (status, value) = eval(
+                runtime,
+                "globalThis.__r1TickOrder = [];\n\
+                 setTimeout(function () {\n\
+                   process.nextTick(function () {\n\
+                     globalThis.__r1TickOrder.push('threw');\n\
+                     throw new Error('keep-alive-next-tick');\n\
+                   });\n\
+                   process.nextTick(function () {\n\
+                     globalThis.__r1TickOrder.push('continued');\n\
+                   });\n\
+                 }, 0);\n\
+                 'armed';",
+            );
+            assert_eq!(status, 0, "arming eval failed: {value:?}");
+
+            let poll_status = ex_hermes_poll(runtime, u64::MAX / 2);
+            let (state_status, state) = eval(runtime, "globalThis.__r1TickOrder.join(',')");
+            ex_hermes_destroy(runtime);
+
+            assert_eq!(
+                poll_status, 1,
+                "keep-alive nextTick throw must not make the observing poll fatal"
+            );
+            assert_eq!(
+                state_status, 0,
+                "runtime must remain evaluable after the throw"
+            );
+            assert_eq!(
+                state.as_deref(),
+                Some("threw,continued"),
+                "the nextTick drain must continue after the throwing callback"
+            );
+        }
+    }
+
+    /// The native signal watcher delivers through `pushRuntimeCallback`, the
+    /// same cross-thread callback queue used by HTTP, WebSocket, DNS, and fs.
+    /// Replacing its JS dispatcher with a throwing function makes the throw
+    /// escape the queued callback itself, exercising `drainCallbackQueue`
+    /// without a network race or a test-only production hook. @ref LLP 0003#the-event-loop
+    #[cfg(unix)]
+    #[test]
+    fn keep_alive_policy_continues_after_cross_thread_callback_throw() {
+        unsafe {
+            let runtime = ex_hermes_create_diagnostic();
+            assert!(!runtime.is_null());
+            ex_hermes_set_keep_alive_on_async_error(runtime, 1);
+
+            let signal = libc::SIGUSR2;
+            let (status, value) = eval(
+                runtime,
+                &format!(
+                    "globalThis.__r1CrossThreadRuns = 0;\n\
+                     globalThis.__exactDispatchPendingSignals = function () {{\n\
+                       globalThis.__r1CrossThreadRuns++;\n\
+                       throw new Error('keep-alive-cross-thread');\n\
+                     }};\n\
+                     __exactTrapSignal({signal});\n\
+                     'armed';"
+                ),
+            );
+            assert_eq!(status, 0, "signal callback setup failed: {value:?}");
+            assert_eq!(
+                libc::raise(signal),
+                0,
+                "failed to raise trapped test signal"
+            );
+
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            let mut backlog = ex_hermes_callback_backlog(runtime);
+            while backlog == 0 && std::time::Instant::now() < deadline {
+                std::thread::yield_now();
+                backlog = ex_hermes_callback_backlog(runtime);
+            }
+
+            let poll_status = if backlog == 0 {
+                None
+            } else {
+                Some(ex_hermes_poll(runtime, ex_hermes_now_ms()))
+            };
+            let (state_status, state) = eval(runtime, "String(globalThis.__r1CrossThreadRuns)");
+            // Restore the process-wide disposition before assertions can panic.
+            let _ = eval(runtime, &format!("__exactResetSignal({signal}); 'reset'"));
+            ex_hermes_destroy(runtime);
+
+            assert!(
+                backlog > 0,
+                "signal watcher did not enqueue its runtime callback"
+            );
+            assert_eq!(
+                poll_status,
+                Some(0),
+                "keep-alive cross-thread throw must not make the observing poll fatal"
+            );
+            assert_eq!(
+                state_status, 0,
+                "runtime must remain evaluable after the throw"
+            );
+            assert_eq!(state.as_deref(), Some("1"));
         }
     }
 

@@ -155,8 +155,8 @@ function _emitPromiseRejection(emitter, err, eventName, args) {
 	});
 }
 function _maybeCaptureRejection(emitter, result, eventName, args) {
-	if (!result || typeof result.then !== "function") return;
 	if (!(emitter && (emitter.captureRejections === true || EventEmitter.captureRejections === true))) return;
+	if (!result || typeof result.then !== "function") return;
 	result.then(void 0, function(err) {
 		_emitPromiseRejection(emitter, err, eventName, args);
 	});

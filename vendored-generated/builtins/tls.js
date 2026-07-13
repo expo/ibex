@@ -4,6 +4,11 @@ try {
 	net = require("net");
 } catch (e) {}
 var _kReinitializeHandle = Symbol.for("nodejs.net.kReinitializeHandle");
+var _kRunOwnedServer = Symbol.for("ibex.tls.runOwnedServer");
+var _kCloseOwnedServer = Symbol.for("ibex.tls.closeOwnedServer");
+var _kRegisterNetServerOwnerGuard = Symbol.for("ibex.net.registerServerOwnerGuard");
+var _kSetHttpResetAsEof = Symbol.for("ibex.tls.setHttpResetAsEof");
+var _kFlowControlStats = Symbol.for("ibex.tls.flowControlStats");
 var eventsModule;
 try {
 	eventsModule = require("events");
@@ -21,6 +26,7 @@ try {
 	} catch (_decoderErr2) {}
 }
 var EventEmitter = eventsModule && (eventsModule.EventEmitter || eventsModule);
+var _tlsErrorMonitor = eventsModule && eventsModule.errorMonitor;
 var hasOwn = Object.prototype.hasOwnProperty;
 var CLIENT_RENEG_LIMIT = 3;
 var CLIENT_RENEG_WINDOW = 600;
@@ -30,6 +36,15 @@ var DEFAULT_MAX_VERSION = "TLSv1.3";
 var DEFAULT_CIPHERS = "TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384";
 var _defaultTlsCipher = "TLS_AES_256_GCM_SHA384";
 var _tlsServersByPort = Object.create(null);
+var _tlsServerStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _tlsSocketPrivateStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _tlsTransportIdentities = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _secureContextStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var MAX_PENDING_TLS_HANDSHAKES = 1024;
+var TLS_LOOPBACK_HANDSHAKE_TIMEOUT_MS = 3e4;
+var _nativeTlsEngineIds = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _nativeTlsOwnerTokens = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
+var _tlsPipeBackpressureStates = typeof WeakMap === "function" ? /* @__PURE__ */ new WeakMap() : null;
 var _defaultTls13CipherPriority = [
 	"TLS_AES_256_GCM_SHA384",
 	"TLS_CHACHA20_POLY1305_SHA256",
@@ -127,6 +142,23 @@ function _cloneOwnProperties(source) {
 	return target;
 }
 function _defineOwnDataProperty(target, name, value) {
+	var protectedState = _tlsSocketPrivateStates && _tlsSocketPrivateStates.get(target);
+	if (protectedState && typeof Object.defineProperty === "function") {
+		protectedState.publicValues[name] = value;
+		Object.defineProperty(target, name, {
+			enumerable: true,
+			configurable: false,
+			get: function() {
+				_tlsAssertOwner(target);
+				return protectedState.publicValues[name];
+			},
+			set: function(nextValue) {
+				_tlsAssertMutableOwner(target);
+				protectedState.publicValues[name] = nextValue;
+			}
+		});
+		return;
+	}
 	if (typeof Object.defineProperty === "function") try {
 		Object.defineProperty(target, name, {
 			value,
@@ -137,6 +169,171 @@ function _defineOwnDataProperty(target, name, value) {
 		return;
 	} catch (_definePropErr) {}
 	target[name] = value;
+}
+var _tlsPrivatePropertyNames = [
+	"_events",
+	"_socket",
+	"_boundSocket",
+	"_boundSocketListeners",
+	"_tlsOptions",
+	"_authorizationErrorObject",
+	"_protocol",
+	"_session",
+	"_sessionReused",
+	"_peerCertificate",
+	"_localCertificate",
+	"_readableHighWaterMark",
+	"_writableHighWaterMark",
+	"_bufferedBytes",
+	"_bridgeNeedDrain",
+	"_secureEstablished",
+	"_tlsApplicationReady",
+	"_tlsUserPaused",
+	"_tlsErrorEmitted",
+	"_tlsCloseEmitted",
+	"_tlsDeferredTransportClose",
+	"_tlsDeferredCloseHadError",
+	"_pending",
+	"_servername",
+	"_cipher",
+	"_writeHeld",
+	"_heldWrites",
+	"_heldWriteBytes",
+	"_heldEnd",
+	"_tlsTransportUndecided",
+	"_tlsAwaitingConnectEvent",
+	"_tlsUndecidedEvents",
+	"_tlsUndecidedData",
+	"_tlsUndecidedDataBytes",
+	"_tlsUndecidedInputPaused",
+	"_tlsUndecidedTransportEnded",
+	"_tlsUndecidedTransportClosed",
+	"_tlsPendingTerminalError",
+	"_tlsFailureError",
+	"_tlsSuppressRawClose",
+	"_bridged",
+	"_bridgePendingWrites",
+	"_bridgePendingWriteBytes",
+	"_bridgeHeldEnd",
+	"_bridgeTransportBackpressured",
+	"_bridgeCipherQueue",
+	"_bridgeCipherQueueBytes",
+	"_bridgeReadQueue",
+	"_bridgeReadQueueBytes",
+	"_bridgeReadQueueOffset",
+	"_bridgeDecodedTail",
+	"_bridgeDecoder",
+	"_bridgeEncoding",
+	"_bridgePaused",
+	"_bridgeInputPaused",
+	"_bridgeEndEmitted",
+	"_bridgeEndScheduled",
+	"_bridgeShutdownQueued",
+	"_bridgeNativeEnded",
+	"_bridgeDecoderFinalized",
+	"_bridgeWriteRetryScheduled",
+	"_bridgeTransportEofApplied",
+	"_bridgeTransportEnded",
+	"_bridgeProcessingCipher",
+	"_bridgeDrainingPlain",
+	"_bridgeDrainScheduled",
+	"_bridgeReadDepth",
+	"_bridgeFailed",
+	"_bridgeCipherSuites",
+	"_bridgePumpActive",
+	"_bridgePumpAgain",
+	"_bridgeWriteInFlight",
+	"_bridgeDrainDuringWrite",
+	"_ciphertextHighWaterMark",
+	"_tlsHandshakeFinalizing",
+	"_tlsLoopbackConnectionKey",
+	"_server",
+	"_renegotiationDisabled",
+	"_maxSendFragment",
+	"_isWriting",
+	"_writeQueue",
+	"_captureRejections"
+];
+function _installTlsPrivateState(target) {
+	if (!_tlsSocketPrivateStates || typeof Object.defineProperty !== "function") throw _createError("ERR_TLS_PRIVATE_STATE_UNAVAILABLE", "TLSSocket requires WeakMap-backed private state");
+	var state = {
+		values: Object.create(null),
+		publicValues: Object.create(null)
+	};
+	_tlsSocketPrivateStates.set(target, state);
+	for (var i = 0; i < _tlsPrivatePropertyNames.length; i++) (function(name) {
+		if (hasOwn.call(target, name)) state.values[name] = target[name];
+		try {
+			delete target[name];
+		} catch (_deletePrivateErr) {}
+		Object.defineProperty(target, name, {
+			enumerable: false,
+			configurable: false,
+			get: function() {
+				if (name === "_events") {
+					_tlsAssertOwner(target);
+					return state.values[name];
+				}
+				throw _createError("ERR_TLS_PRIVATE_STATE", "TLSSocket internal state is not publicly accessible");
+			},
+			set: function(_value) {
+				if (name === "_events") {
+					_tlsAssertMutableOwner(target);
+					state.values[name] = _value;
+					return;
+				}
+				throw _createError("ERR_TLS_PRIVATE_STATE", "TLSSocket internal state is not publicly mutable");
+			}
+		});
+	})(_tlsPrivatePropertyNames[i]);
+}
+function _tlsPriv(target) {
+	var state = _tlsSocketPrivateStates && _tlsSocketPrivateStates.get(target);
+	if (!state) throw _createError("ERR_TLS_INVALID_SOCKET", "Invalid TLSSocket receiver");
+	return state.values;
+}
+function _tlsPub(target) {
+	var state = _tlsSocketPrivateStates && _tlsSocketPrivateStates.get(target);
+	if (!state) throw _createError("ERR_TLS_INVALID_SOCKET", "Invalid TLSSocket receiver");
+	return state.publicValues;
+}
+function _tlsListenerCountInternal(socket, eventName) {
+	var events = _tlsPriv(socket)._events;
+	var listener = events && events[eventName];
+	if (!listener) return 0;
+	return typeof listener === "function" ? 1 : listener.length || 0;
+}
+function _tlsEmitInternal(socket, eventName, args) {
+	_tlsAssertOwner(socket);
+	var eventArgs = args || [];
+	var events = _tlsPriv(socket)._events;
+	var captureRejections = eventName !== "error" && !!(_tlsPriv(socket)._captureRejections || EventEmitter && EventEmitter.captureRejections || eventsModule && eventsModule.captureRejections);
+	function invoke(listener) {
+		var result = listener.apply(socket, eventArgs);
+		if (!captureRejections || !result || typeof result.then !== "function") return;
+		result.then(void 0, function(error) {
+			_tlsEmitInternal(socket, "error", [error]);
+		});
+	}
+	function dispatch(name) {
+		var handler = events && events[name];
+		if (!handler) return false;
+		if (typeof handler === "function") {
+			invoke(handler);
+			return true;
+		}
+		var listeners = handler.slice ? handler.slice() : [];
+		for (var i = 0; i < listeners.length; i++) if (typeof listeners[i] === "function") invoke(listeners[i]);
+		return listeners.length > 0;
+	}
+	if (eventName === "error" && _tlsErrorMonitor) dispatch(_tlsErrorMonitor);
+	var handled = dispatch(eventName);
+	if (!handled && eventName === "error") {
+		var error = eventArgs[0];
+		if (error instanceof Error) throw error;
+		throw _createError("ERR_UNHANDLED_ERROR", "Unhandled error event");
+	}
+	return handled;
 }
 function _validateProtocolVersion(kind, value) {
 	if (value === null || typeof value === "undefined") return;
@@ -235,16 +432,34 @@ function _resolveCipherSuites(options, mode) {
 	if (!suites.length) throw _createNoCipherMatchError();
 	return suites;
 }
-function _selectNegotiatedCipher(clientOptions, serverOptions) {
+function _negotiateTlsVersion(clientOptions, serverOptions) {
+	var order = [
+		"TLSv1",
+		"TLSv1.1",
+		"TLSv1.2",
+		"TLSv1.3"
+	];
+	var clientMin = order.indexOf(clientOptions && clientOptions.minVersion || DEFAULT_MIN_VERSION);
+	var clientMax = order.indexOf(clientOptions && clientOptions.maxVersion || DEFAULT_MAX_VERSION);
+	var serverMin = order.indexOf(serverOptions && serverOptions.minVersion || DEFAULT_MIN_VERSION);
+	var serverMax = order.indexOf(serverOptions && serverOptions.maxVersion || DEFAULT_MAX_VERSION);
+	var minimum = Math.max(clientMin, serverMin);
+	var maximum = Math.min(clientMax, serverMax);
+	return minimum <= maximum ? order[maximum] : null;
+}
+function _selectNegotiatedCipher(clientOptions, serverOptions, negotiatedProtocol) {
 	var clientSuites = _resolveCipherSuites(clientOptions, "client");
 	var serverSuites = _resolveCipherSuites(serverOptions, "server");
 	var clientSet = Object.create(null);
 	var serverSet = Object.create(null);
 	for (var i = 0; i < clientSuites.length; i++) clientSet[clientSuites[i]] = true;
 	for (var j = 0; j < serverSuites.length; j++) serverSet[serverSuites[j]] = true;
-	for (var k = 0; k < _supportedTls13CipherPriority.length; k++) {
-		var tls13Cipher = _supportedTls13CipherPriority[k];
-		if (clientSet[tls13Cipher] && serverSet[tls13Cipher]) return tls13Cipher;
+	if (negotiatedProtocol === "TLSv1.3") {
+		for (var k = 0; k < _supportedTls13CipherPriority.length; k++) {
+			var tls13Cipher = _supportedTls13CipherPriority[k];
+			if (clientSet[tls13Cipher] && serverSet[tls13Cipher]) return tls13Cipher;
+		}
+		return null;
 	}
 	for (var m = 0; m < _legacyCipherPriority.length; m++) {
 		var legacyCipher = _legacyCipherPriority[m];
@@ -252,32 +467,285 @@ function _selectNegotiatedCipher(clientOptions, serverOptions) {
 	}
 	return null;
 }
+function _tlsServerState(server) {
+	if (!_tlsServerStates || !server) return null;
+	var state = _tlsServerStates.get(server);
+	if (!state) {
+		state = {
+			server,
+			options: {},
+			advertisedOptions: {},
+			pendingSockets: [],
+			pendingHandshakes: [],
+			registeredEntry: null,
+			ownerPump: null,
+			ownerToken: null,
+			closed: true,
+			retired: false
+		};
+		_tlsServerStates.set(server, state);
+	}
+	return state;
+}
+function _tlsAdvertisedServerOptions(options) {
+	var source = options || {};
+	return {
+		cert: source.cert || null,
+		ca: source.ca,
+		hasPfx: source.pfx !== void 0 && source.pfx !== null,
+		hasKey: source.key !== void 0 && source.key !== null,
+		ciphers: source.ciphers,
+		minVersion: source.minVersion,
+		maxVersion: source.maxVersion,
+		requestCert: source.requestCert === true,
+		rejectUnauthorized: source.rejectUnauthorized === true
+	};
+}
+function _tlsAdvertisedClientOptions(options) {
+	var source = options || {};
+	return {
+		cert: source.cert || null,
+		pfx: source.pfx !== void 0 && source.pfx !== null ? true : null,
+		hasKey: source.key !== void 0 && source.key !== null
+	};
+}
+function _normalizeTlsRegistryAddress(address) {
+	if (address === void 0 || address === null) return null;
+	var value = String(address).toLowerCase();
+	if (value.charAt(0) === "[" && value.charAt(value.length - 1) === "]") value = value.slice(1, -1);
+	var scope = value.indexOf("%");
+	if (scope !== -1) value = value.slice(0, scope);
+	if (value.indexOf("::ffff:") === 0 && /^::ffff:\d+\.\d+\.\d+\.\d+$/.test(value)) value = value.slice(7);
+	return value;
+}
+function _tlsAddressFamily(address, family) {
+	if (address && /^\d+\.\d+\.\d+\.\d+$/.test(address)) return "ipv4";
+	var normalizedFamily = family && String(family).toLowerCase();
+	if (normalizedFamily === "ipv4" || normalizedFamily === "4") return "ipv4";
+	if (normalizedFamily === "ipv6" || normalizedFamily === "6") return "ipv6";
+	return address && address.indexOf(":") !== -1 ? "ipv6" : "ipv4";
+}
+function _removeTlsRegistryEntry(entry) {
+	if (!entry) return;
+	var key = String(entry.port);
+	var bucket = _tlsServersByPort[key];
+	if (!bucket) return;
+	var index = bucket.indexOf(entry);
+	if (index !== -1) bucket.splice(index, 1);
+	if (!bucket.length) delete _tlsServersByPort[key];
+}
+function _tlsServerAccessibleFromCurrentPrincipal(entry) {
+	if (!entry || !entry.server) return false;
+	var state = _tlsServerState(entry.server);
+	if (!state || state.closed) return false;
+	if (state.ownerToken == null || typeof __exactTlsOwnerToken !== "function") return true;
+	try {
+		__exactTlsOwnerToken("assert", state.ownerToken);
+		return true;
+	} catch (_wrongServerOwner) {
+		return false;
+	}
+}
+function _tlsAssertServerOwner(server) {
+	var state = _tlsServerState(server);
+	if (!state || typeof __exactTlsOwnerToken !== "function") return;
+	if (state.ownerToken == null) throw _createError("ERR_TLS_SERVER_CLOSED", "TLS server owner capability is not active; call listen() before using the server again");
+	__exactTlsOwnerToken("assert", state.ownerToken);
+}
 function _registerTlsServer(server) {
 	if (!server || typeof server.address !== "function") return;
 	var address = server.address();
+	var state = _tlsServerState(server);
+	if (!state) return;
+	state.closed = false;
 	if (!address || typeof address.port === "undefined" || address.port === null) return;
-	if (server._tlsRegisteredPort !== void 0 && server._tlsRegisteredPort !== null && _tlsServersByPort[String(server._tlsRegisteredPort)] === server) delete _tlsServersByPort[String(server._tlsRegisteredPort)];
-	server._tlsRegisteredPort = Number(address.port);
-	_tlsServersByPort[String(server._tlsRegisteredPort)] = server;
+	_removeTlsRegistryEntry(state.registeredEntry);
+	var normalizedAddress = _normalizeTlsRegistryAddress(address.address);
+	var entry = {
+		server,
+		port: Number(address.port),
+		address: normalizedAddress,
+		family: _tlsAddressFamily(normalizedAddress, address.family)
+	};
+	var key = String(entry.port);
+	if (!_tlsServersByPort[key]) _tlsServersByPort[key] = [];
+	_tlsServersByPort[key].push(entry);
+	state.registeredEntry = entry;
 }
 function _unregisterTlsServer(server) {
-	if (!server) return;
-	var port = server._tlsRegisteredPort;
-	if (port !== void 0 && port !== null && _tlsServersByPort[String(port)] === server) delete _tlsServersByPort[String(port)];
-	server._tlsRegisteredPort = null;
+	var state = _tlsServerState(server);
+	if (!state) return;
+	state.closed = true;
+	_removeTlsRegistryEntry(state.registeredEntry);
+	state.registeredEntry = null;
 }
-function _lookupTlsServer(port) {
+function _lookupTlsServer(port, destinationAddress, destinationFamily) {
 	if (port === void 0 || port === null) return null;
-	return _tlsServersByPort[String(Number(port))] || null;
+	var bucket = _tlsServersByPort[String(Number(port))];
+	if (!bucket || !bucket.length) return null;
+	var address = _normalizeTlsRegistryAddress(destinationAddress);
+	var family = _tlsAddressFamily(address, destinationFamily);
+	for (var i = 0; i < bucket.length; i++) if (address && bucket[i].address === address && _tlsServerAccessibleFromCurrentPrincipal(bucket[i])) return bucket[i].server;
+	var wildcard = family === "ipv6" ? "::" : "0.0.0.0";
+	for (var j = 0; j < bucket.length; j++) if (bucket[j].family === family && bucket[j].address === wildcard) {
+		if (_tlsServerAccessibleFromCurrentPrincipal(bucket[j])) return bucket[j].server;
+	}
+	if (family === "ipv4") {
+		var dualStack = null;
+		var hasIpv4 = false;
+		for (var k = 0; k < bucket.length; k++) {
+			if (bucket[k].family === "ipv4") hasIpv4 = true;
+			if (bucket[k].family === "ipv6" && bucket[k].address === "::") {
+				if (_tlsServerAccessibleFromCurrentPrincipal(bucket[k])) dualStack = bucket[k].server;
+			}
+		}
+		if (!hasIpv4 && dualStack) return dualStack;
+	}
+	return !address && bucket.length === 1 && _tlsServerAccessibleFromCurrentPrincipal(bucket[0]) ? bucket[0].server : null;
 }
-function _shiftPendingServerSocket(server) {
-	if (!server || !server._pendingTlsSockets || !server._pendingTlsSockets.length) return null;
-	return server._pendingTlsSockets.shift() || null;
+function _tlsConnectionEndpoint(address, family, port) {
+	var normalizedAddress = _normalizeTlsRegistryAddress(address);
+	if (!normalizedAddress || port === void 0 || port === null) return null;
+	return _tlsAddressFamily(normalizedAddress, family) + ":" + normalizedAddress + ":" + String(Number(port));
 }
-function _queuePendingServerHandshake(server, handshake) {
-	if (!server) return;
-	if (!server._pendingTlsHandshakes) server._pendingTlsHandshakes = [];
-	server._pendingTlsHandshakes.push(handshake);
+function _tlsClientConnectionKey(identity, peerPort) {
+	if (!identity) return null;
+	var local = _tlsConnectionEndpoint(identity.localAddress, identity.localFamily, identity.localPort);
+	var remote = _tlsConnectionEndpoint(identity.remoteAddress, identity.remoteFamily, peerPort);
+	return local && remote ? local + ">" + remote : null;
+}
+function _tlsServerConnectionKey(rawSocket) {
+	if (!rawSocket) return null;
+	var remote = _tlsConnectionEndpoint(rawSocket.remoteAddress, rawSocket.remoteFamily, rawSocket.remotePort);
+	var local = _tlsConnectionEndpoint(rawSocket.localAddress, rawSocket.localFamily, rawSocket.localPort);
+	return remote && local ? remote + ">" + local : null;
+}
+function _captureTlsTransportIdentity(wrapper, rawSocket) {
+	if (!_tlsTransportIdentities || !wrapper || !rawSocket) return null;
+	var existing = _tlsTransportIdentities.get(wrapper);
+	if (existing) return existing;
+	var identity = {
+		localAddress: rawSocket.localAddress || null,
+		localPort: rawSocket.localPort,
+		localFamily: rawSocket.localFamily || null,
+		remoteAddress: rawSocket.remoteAddress || null,
+		remotePort: rawSocket.remotePort,
+		remoteFamily: rawSocket.remoteFamily || null
+	};
+	if (typeof Object.freeze === "function") Object.freeze(identity);
+	_tlsTransportIdentities.set(wrapper, identity);
+	return identity;
+}
+function _shiftPendingServerSocket(server, connectionKey) {
+	var state = _tlsServerState(server);
+	if (!state || !state.pendingSockets.length) return null;
+	for (var i = 0; i < state.pendingSockets.length;) {
+		var entry = state.pendingSockets[i];
+		var candidate = entry && entry.socket;
+		if (!candidate || _tlsPub(candidate).destroyed) {
+			state.pendingSockets.splice(i, 1);
+			continue;
+		}
+		if (connectionKey && _tlsPriv(candidate)._tlsLoopbackConnectionKey === connectionKey || !connectionKey && !_tlsPriv(candidate)._tlsLoopbackConnectionKey) {
+			state.pendingSockets.splice(i, 1);
+			return entry;
+		}
+		i++;
+	}
+	return null;
+}
+function _shiftPendingServerHandshake(server, connectionKey) {
+	var state = _tlsServerState(server);
+	if (!state) return null;
+	for (var i = 0; i < state.pendingHandshakes.length; i++) {
+		var handshake = state.pendingHandshakes[i];
+		if (connectionKey && handshake.connectionKey === connectionKey || !connectionKey && !handshake.connectionKey) {
+			state.pendingHandshakes.splice(i, 1);
+			if (handshake.timeout) clearTimeout(handshake.timeout);
+			handshake.timeout = null;
+			return handshake;
+		}
+	}
+	return null;
+}
+function _queuePendingServerHandshake(server, handshake, connectionKey) {
+	var state = _tlsServerState(server);
+	if (!state || state.closed || state.pendingHandshakes.length >= MAX_PENDING_TLS_HANDSHAKES) return false;
+	handshake.connectionKey = connectionKey || null;
+	state.pendingHandshakes.push(handshake);
+	handshake.timeout = setTimeout(function() {
+		if (handshake.clientSocket) _tlsAssertOwner(handshake.clientSocket);
+		var index = state.pendingHandshakes.indexOf(handshake);
+		if (index === -1) return;
+		state.pendingHandshakes.splice(index, 1);
+		var err = _createError("ERR_TLS_HANDSHAKE_TIMEOUT", "TLS loopback handshake timed out");
+		_clearLoopbackClientCloseWatch(handshake);
+		if (handshake.clientSocket && !handshake.clientSocket.destroyed) _destroyTlsSocketWithError(handshake.clientSocket, err, false);
+	}, TLS_LOOPBACK_HANDSHAKE_TIMEOUT_MS);
+	if (handshake.timeout && typeof handshake.timeout.unref === "function") handshake.timeout.unref();
+	return true;
+}
+function _watchLoopbackClientClose(handshake) {
+	if (!handshake || !handshake.clientSocket || handshake.clientCloseListener) return;
+	handshake.clientCloseListener = function() {
+		if (handshake.delivered) return;
+		handshake.ok = false;
+		handshake.serverError = _createError("ECONNRESET", "TLS client closed before the server handshake completed");
+	};
+	handshake.clientSocket.once("close", handshake.clientCloseListener);
+}
+function _clearLoopbackClientCloseWatch(handshake) {
+	if (!handshake || !handshake.clientCloseListener) return;
+	if (handshake.clientSocket && typeof handshake.clientSocket.removeListener === "function") handshake.clientSocket.removeListener("close", handshake.clientCloseListener);
+	handshake.clientCloseListener = null;
+	handshake.delivered = true;
+}
+function _deliverServerHandshake(server, connectionKey, handshake) {
+	var deliveryState = _tlsServerState(server);
+	if (!deliveryState || deliveryState.closed) return false;
+	_watchLoopbackClientClose(handshake);
+	var pendingEntry = _shiftPendingServerSocket(server, connectionKey);
+	if (pendingEntry) {
+		pendingEntry.handshake = handshake;
+		deliveryState.pendingSockets.push(pendingEntry);
+		return "accepted";
+	}
+	return _queuePendingServerHandshake(server, handshake, connectionKey) ? "queued" : false;
+}
+function _publishLoopbackClientHandshake(socket, handshake) {
+	if (!handshake || handshake.clientPublished) return !!(handshake && handshake.ok);
+	handshake.clientPublished = true;
+	handshake.resumeClient = null;
+	_tlsAssertOwner(socket);
+	if (_tlsPub(socket).destroyed || _tlsRawTransportDestroyed(socket)) {
+		if (!_tlsPub(socket).destroyed) _terminateTlsForDestroyedTransport(socket);
+		_tlsReleaseHeldWrites(socket, "drop");
+		handshake.ok = false;
+		handshake.serverError = _createError("ECONNRESET", "TLS client closed before secureConnect");
+		return false;
+	}
+	_tlsEmitInternal(socket, "secureConnect");
+	if (_tlsPub(socket).destroyed || _tlsRawTransportDestroyed(socket)) {
+		if (!_tlsPub(socket).destroyed) _terminateTlsForDestroyedTransport(socket);
+		_tlsReleaseHeldWrites(socket, "drop");
+		handshake.ok = false;
+		handshake.serverError = _createError("ECONNRESET", "TLS client closed during secureConnect");
+		return false;
+	}
+	_tlsEmitInternal(socket, "secure", [true]);
+	if (_tlsPub(socket).destroyed || _tlsRawTransportDestroyed(socket)) {
+		if (!_tlsPub(socket).destroyed) _terminateTlsForDestroyedTransport(socket);
+		_tlsReleaseHeldWrites(socket, "drop");
+		handshake.ok = false;
+		handshake.serverError = _createError("ECONNRESET", "TLS client closed during secure");
+		return false;
+	}
+	if (!_tlsReleaseHeldWrites(socket, "raw")) {
+		handshake.ok = false;
+		handshake.serverError = _createError("ECONNRESET", "TLS client transport failed while releasing queued writes");
+		return false;
+	}
+	return true;
 }
 function _normalizeCipherName(ciphers) {
 	if (typeof ciphers !== "string" || !ciphers) return _defaultTlsCipher;
@@ -376,6 +844,26 @@ function _generateFingerprint(seed, algorithm) {
 	}
 }
 var _certificateParseCache = typeof Map !== "undefined" ? /* @__PURE__ */ new Map() : null;
+var _certificateParseCacheBytes = 0;
+var MAX_CERTIFICATE_PARSE_CACHE_ENTRIES = 256;
+var MAX_CERTIFICATE_PARSE_CACHE_BYTES = 4 * 1024 * 1024;
+function _cacheParsedCertificate(pem, parsed) {
+	if (!_certificateParseCache) return;
+	var size = pem.length * 2 + _byteLength(parsed && parsed.raw);
+	if (size > MAX_CERTIFICATE_PARSE_CACHE_BYTES / 4) return;
+	while (_certificateParseCache.size >= MAX_CERTIFICATE_PARSE_CACHE_ENTRIES || _certificateParseCacheBytes + size > MAX_CERTIFICATE_PARSE_CACHE_BYTES) {
+		var oldest = _certificateParseCache.keys().next();
+		if (oldest.done) break;
+		var evicted = _certificateParseCache.get(oldest.value);
+		_certificateParseCache.delete(oldest.value);
+		_certificateParseCacheBytes = Math.max(0, _certificateParseCacheBytes - (evicted && evicted.cacheBytes || 0));
+	}
+	_certificateParseCache.set(pem, {
+		certificate: parsed,
+		cacheBytes: size
+	});
+	_certificateParseCacheBytes += size;
+}
 function _pemSourceToString(source) {
 	if (source == null) return "";
 	if (typeof source === "string") return source;
@@ -810,7 +1298,12 @@ function _nameKey(name) {
 }
 function _parsePemCertificate(pem, host, port) {
 	if (typeof pem !== "string" || pem.indexOf("BEGIN CERTIFICATE") === -1) return null;
-	if (_certificateParseCache && _certificateParseCache.has(pem)) return _cloneCertificate(_certificateParseCache.get(pem), true);
+	if (_certificateParseCache && _certificateParseCache.has(pem)) {
+		var cached = _certificateParseCache.get(pem);
+		_certificateParseCache.delete(pem);
+		_certificateParseCache.set(pem, cached);
+		return _cloneCertificate(cached.certificate, true);
+	}
 	try {
 		var der = _bufferFromBase64(pem.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, ""));
 		var bytes = der;
@@ -847,7 +1340,7 @@ function _parsePemCertificate(pem, host, port) {
 		for (var key in keyInfo) if (hasOwn.call(keyInfo, key) && keyInfo[key] !== void 0) parsed[key] = keyInfo[key];
 		if (extensionInfo.infoAccess !== void 0) parsed.infoAccess = extensionInfo.infoAccess;
 		if (extensionInfo.subjectaltname !== void 0) parsed.subjectaltname = extensionInfo.subjectaltname;
-		if (_certificateParseCache) _certificateParseCache.set(pem, parsed);
+		_cacheParsedCertificate(pem, parsed);
 		return _cloneCertificate(parsed, true);
 	} catch (_parseErr) {
 		return null;
@@ -891,8 +1384,7 @@ function _buildPeerCertificate(host, port, remoteOptions, localOptions) {
 }
 function _buildLocalCertificate(host, port, options) {
 	var local = options || {};
-	if (local.cert || local.pfx) return _buildCertificateChain(host, port, local.cert || local.pfx, local.ca, null);
-	if (local.key) return _buildSyntheticCertificate(host, port, local.key);
+	if (local.cert) return _buildCertificateChain(host, port, local.cert, local.ca, null);
 	return null;
 }
 function _buildSyntheticCertificate(host, port, certSource) {
@@ -903,7 +1395,7 @@ function _buildSyntheticCertificate(host, port, certSource) {
 	var seed = identity + (port ? ":" + port : "") + String(now.getTime());
 	return {
 		subject: { CN: identity },
-		issuer: { CN: certSource || "ExactTLS" },
+		issuer: { CN: "ExactTLS" },
 		subjectaltname: "DNS:" + identity,
 		valid_from: validFrom.toUTCString(),
 		valid_to: validTo.toUTCString(),
@@ -914,19 +1406,17 @@ function _buildSyntheticCertificate(host, port, certSource) {
 	};
 }
 function _isIpAddress(host) {
-	if (!host || typeof host !== "string") return false;
-	if (host.indexOf(":") !== -1) return /^([0-9a-f:.]+)$/i.test(host);
-	return /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+	return _canonicalizeIp(host) !== void 0;
 }
 function _isLoopbackHost(host) {
 	if (!host || typeof host !== "string") return false;
 	var normalized = _unfqdn(host).toLowerCase();
 	if (normalized === "localhost" || normalized === "ip6-localhost") return true;
-	if (normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") return true;
-	if (normalized === "::" || normalized === "0.0.0.0") return true;
-	if (/^127(\.\d{1,3}){3}$/.test(normalized)) return true;
-	if (normalized.indexOf("::ffff:127.") === 0) return true;
-	return false;
+	var canonical = _canonicalizeIp(normalized);
+	if (!canonical) return false;
+	if (canonical.indexOf(".") !== -1) return canonical === "0.0.0.0" || canonical.indexOf("127.") === 0;
+	if (canonical === "0000:0000:0000:0000:0000:0000:0000:0000" || canonical === "0000:0000:0000:0000:0000:0000:0000:0001") return true;
+	return /^0000:0000:0000:0000:0000:ffff:7f[0-9a-f]{2}:/.test(canonical);
 }
 function _unfqdn(host) {
 	return String(host || "").replace(/[.]$/, "");
@@ -988,9 +1478,41 @@ function _splitEscapedAltNames(altNames) {
 	return result;
 }
 function _canonicalizeIp(host) {
-	host = String(host || "");
-	if (!_isIpAddress(host)) return void 0;
-	return host;
+	var value = String(host || "");
+	var version = net && typeof net.isIP === "function" ? net.isIP(value) : 0;
+	if (version === 4) return value.split(".").map(function(octet) {
+		return String(Number(octet));
+	}).join(".");
+	if (version !== 6) return void 0;
+	var zoneIndex = value.indexOf("%");
+	if (zoneIndex !== -1) value = value.slice(0, zoneIndex);
+	value = value.toLowerCase();
+	var lastColon = value.lastIndexOf(":");
+	if (lastColon !== -1 && value.slice(lastColon + 1).indexOf(".") !== -1) {
+		var tail = value.slice(lastColon + 1).split(".");
+		var high = Number(tail[0]) << 8 | Number(tail[1]);
+		var low = Number(tail[2]) << 8 | Number(tail[3]);
+		value = value.slice(0, lastColon + 1) + high.toString(16) + ":" + low.toString(16);
+	}
+	var doubleColon = value.indexOf("::");
+	var leftText = doubleColon === -1 ? value : value.slice(0, doubleColon);
+	var rightText = doubleColon === -1 ? "" : value.slice(doubleColon + 2);
+	var left = leftText ? leftText.split(":") : [];
+	var right = rightText ? rightText.split(":") : [];
+	var words;
+	if (doubleColon === -1) {
+		if (left.length !== 8) return void 0;
+		words = left;
+	} else {
+		var omitted = 8 - left.length - right.length;
+		if (omitted < 1) return void 0;
+		words = left.slice();
+		for (var i = 0; i < omitted; i++) words.push("0");
+		words = words.concat(right);
+	}
+	if (words.length !== 8) return void 0;
+	for (var j = 0; j < words.length; j++) words[j] = ("0000" + Number.parseInt(words[j], 16).toString(16)).slice(-4);
+	return words.join(":");
 }
 function _createAltNameError(reason, hostname, cert) {
 	var err = /* @__PURE__ */ new Error("Hostname/IP does not match certificate's altnames: " + reason);
@@ -1164,25 +1686,174 @@ function translatePeerCertificate(cert, seen) {
 }
 function _copySocketMetadata(socket, rawSocket) {
 	if (!socket || !rawSocket) return;
-	if (typeof rawSocket.remoteAddress !== "undefined") socket.remoteAddress = rawSocket.remoteAddress;
-	if (typeof rawSocket.remotePort !== "undefined") socket.remotePort = rawSocket.remotePort;
-	if (typeof rawSocket.remoteFamily !== "undefined") socket.remoteFamily = rawSocket.remoteFamily;
-	if (typeof rawSocket.localAddress !== "undefined") socket.localAddress = rawSocket.localAddress;
-	if (typeof rawSocket.localPort !== "undefined") socket.localPort = rawSocket.localPort;
-	if (typeof rawSocket.localFamily !== "undefined") socket.localFamily = rawSocket.localFamily;
-	if (typeof rawSocket.readable === "boolean") socket.readable = rawSocket.readable;
-	if (typeof rawSocket.writable === "boolean") socket.writable = rawSocket.writable;
-	if (typeof rawSocket.destroyed === "boolean") socket.destroyed = rawSocket.destroyed;
-	if (typeof rawSocket.connecting === "boolean") socket.connecting = rawSocket.connecting;
-	if (typeof rawSocket._isWriting === "boolean") socket._isWriting = rawSocket._isWriting;
-	if (rawSocket._writeQueue) socket._writeQueue = rawSocket._writeQueue;
+	if (typeof rawSocket.remoteAddress !== "undefined") _tlsPub(socket).remoteAddress = rawSocket.remoteAddress;
+	if (typeof rawSocket.remotePort !== "undefined") _tlsPub(socket).remotePort = rawSocket.remotePort;
+	if (typeof rawSocket.remoteFamily !== "undefined") _tlsPub(socket).remoteFamily = rawSocket.remoteFamily;
+	if (typeof rawSocket.localAddress !== "undefined") _tlsPub(socket).localAddress = rawSocket.localAddress;
+	if (typeof rawSocket.localPort !== "undefined") _tlsPub(socket).localPort = rawSocket.localPort;
+	if (typeof rawSocket.localFamily !== "undefined") _tlsPub(socket).localFamily = rawSocket.localFamily;
+	if (!_tlsPriv(socket)._tlsTransportUndecided && typeof rawSocket.readable === "boolean") _tlsPub(socket).readable = rawSocket.readable;
+	if (typeof rawSocket.writable === "boolean") _tlsPub(socket).writable = rawSocket.writable;
+	if (!_tlsPriv(socket)._tlsTransportUndecided && typeof rawSocket.destroyed === "boolean") _tlsPub(socket).destroyed = rawSocket.destroyed;
+	if (typeof rawSocket.connecting === "boolean") _tlsPub(socket).connecting = rawSocket.connecting;
+	if (typeof rawSocket._isWriting === "boolean") _tlsPriv(socket)._isWriting = rawSocket._isWriting;
+	if (rawSocket._writeQueue) _tlsPriv(socket)._writeQueue = rawSocket._writeQueue;
+}
+function _holdUndecidedTlsData(wrapper, rawSocket, chunk) {
+	var copy = _tlsWriteBuffer(chunk);
+	var length = _byteLength(copy);
+	var retained = _tlsPriv(wrapper)._tlsUndecidedDataBytes || 0;
+	if (length > Math.max(512 * 1024, Math.min(1024 * 1024, (_tlsPriv(wrapper)._readableHighWaterMark || 16384) * 8)) - retained) {
+		if (rawSocket && typeof rawSocket.pause === "function") rawSocket.pause();
+		_destroyTlsSocketWithError(wrapper, _createError("ERR_TLS_BUFFER_OVERFLOW", "TLS transport sent too much data before the handshake path was selected"), false);
+		return;
+	}
+	if (!_tlsPriv(wrapper)._tlsUndecidedData) _tlsPriv(wrapper)._tlsUndecidedData = [];
+	_tlsPriv(wrapper)._tlsUndecidedData.push(copy);
+	if (!_tlsPriv(wrapper)._tlsUndecidedEvents) _tlsPriv(wrapper)._tlsUndecidedEvents = [];
+	_tlsPriv(wrapper)._tlsUndecidedEvents.push({
+		type: "data",
+		chunk: copy
+	});
+	_tlsPriv(wrapper)._tlsUndecidedDataBytes = retained + length;
+	if (!_tlsPriv(wrapper)._tlsUndecidedInputPaused && rawSocket && typeof rawSocket.pause === "function") {
+		_tlsPriv(wrapper)._tlsUndecidedInputPaused = true;
+		rawSocket.pause();
+	}
+}
+function _holdUndecidedTlsTerminal(wrapper, eventName, hadError) {
+	if (!_tlsPriv(wrapper)._tlsUndecidedEvents) _tlsPriv(wrapper)._tlsUndecidedEvents = [];
+	_tlsPriv(wrapper)._tlsUndecidedEvents.push({
+		type: eventName,
+		hadError: hadError === true
+	});
+	if (eventName === "end") _tlsPriv(wrapper)._tlsUndecidedTransportEnded = true;
+	if (eventName === "close") _tlsPriv(wrapper)._tlsUndecidedTransportClosed = true;
+}
+function _drainUndecidedTlsData(socket) {
+	var events = _tlsPriv(socket)._tlsUndecidedEvents || [];
+	var pending = [];
+	for (var i = 0; i < events.length; i++) if (events[i].type === "data") pending.push(events[i].chunk);
+	var inputPaused = _tlsPriv(socket)._tlsUndecidedInputPaused === true;
+	var transportEnded = _tlsPriv(socket)._tlsUndecidedTransportEnded === true;
+	var transportClosed = _tlsPriv(socket)._tlsUndecidedTransportClosed === true;
+	_tlsPriv(socket)._tlsUndecidedEvents = [];
+	_tlsPriv(socket)._tlsUndecidedData = [];
+	_tlsPriv(socket)._tlsUndecidedDataBytes = 0;
+	_tlsPriv(socket)._tlsUndecidedTransportEnded = false;
+	_tlsPriv(socket)._tlsUndecidedTransportClosed = false;
+	return {
+		events,
+		pending,
+		inputPaused,
+		transportEnded,
+		transportClosed
+	};
+}
+function _takeUndecidedTlsData(socket) {
+	var batch = _drainUndecidedTlsData(socket);
+	_tlsPriv(socket)._tlsTransportUndecided = false;
+	_tlsPriv(socket)._tlsUndecidedEvents = null;
+	_tlsPriv(socket)._tlsUndecidedData = null;
+	_tlsPriv(socket)._tlsUndecidedDataBytes = 0;
+	_tlsPriv(socket)._tlsUndecidedInputPaused = false;
+	return batch;
+}
+function _emitTlsErrorOnce(socket, err) {
+	if (_tlsPriv(socket)._tlsErrorEmitted) return;
+	_tlsPriv(socket)._tlsErrorEmitted = true;
+	_tlsEmitInternal(socket, "error", [err]);
+}
+function _detachBoundSocketListeners(socket) {
+	var values = _tlsPriv(socket);
+	var listeners = values._boundSocketListeners || [];
+	values._boundSocketListeners = [];
+	for (var i = 0; i < listeners.length; i++) {
+		var entry = listeners[i];
+		if (!entry || !entry.rawSocket) continue;
+		try {
+			if (typeof entry.rawSocket.removeListener === "function") entry.rawSocket.removeListener(entry.eventName, entry.listener);
+			else if (typeof entry.rawSocket.off === "function") entry.rawSocket.off(entry.eventName, entry.listener);
+		} catch (_detachRawListenerErr) {}
+	}
+}
+function _emitTlsCloseOnce(socket, hadError) {
+	if (_tlsPriv(socket)._tlsCloseEmitted) {
+		_tlsReleaseOwner(socket);
+		return;
+	}
+	_tlsBridgeRelease(socket);
+	_tlsPriv(socket)._tlsCloseEmitted = true;
+	_detachBoundSocketListeners(socket);
+	_tlsPub(socket).destroyed = true;
+	_tlsPub(socket).readable = false;
+	_tlsPub(socket).writable = false;
+	try {
+		_tlsEmitInternal(socket, "close", [hadError === true]);
+	} finally {
+		var privateState = _tlsSocketPrivateStates && _tlsSocketPrivateStates.get(socket);
+		if (privateState) {
+			var values = privateState.values;
+			values._tlsOptions = null;
+			values._socket = null;
+			values._boundSocket = null;
+			values._boundSocketListeners = null;
+			values._peerCertificate = null;
+			values._localCertificate = null;
+			values._heldWrites = null;
+			values._heldEnd = null;
+			values._bridgePendingWrites = null;
+			values._bridgeHeldEnd = null;
+			values._bridgeReadQueue = null;
+			values._bridgeCipherQueue = null;
+			values._tlsUndecidedEvents = null;
+			values._tlsUndecidedData = null;
+			values._bridgeDecoder = null;
+			values._bridgeDecodedTail = null;
+			var terminalEvents = Object.create(null);
+			if (typeof Object.freeze === "function") Object.freeze(terminalEvents);
+			values._events = terminalEvents;
+		}
+		_tlsReleaseOwner(socket);
+	}
+}
+function _destroyTlsSocketWithError(socket, err, replayHeldClose) {
+	_tlsPriv(socket)._tlsPendingTerminalError = err;
+	var synthesize = function() {
+		var unhandled = null;
+		try {
+			_emitTlsErrorOnce(socket, err);
+		} catch (emitErr) {
+			unhandled = emitErr;
+		}
+		_emitTlsCloseOnce(socket, true);
+		if (unhandled) throw unhandled;
+	};
+	if (replayHeldClose) {
+		_tlsPriv(socket)._tlsSuppressRawClose = true;
+		try {
+			socket.destroy(err);
+		} finally {
+			_tlsPriv(socket)._tlsSuppressRawClose = false;
+		}
+		synthesize();
+	} else {
+		socket.destroy(err);
+		setTimeout(function() {
+			_tlsAssertOwner(socket);
+			if (!_tlsPriv(socket)._tlsErrorEmitted || !_tlsPriv(socket)._tlsCloseEmitted) synthesize();
+		}, 0);
+	}
 }
 function _bindSocket(wrapper, rawSocket) {
 	if (!wrapper || !rawSocket) return rawSocket;
-	wrapper._socket = rawSocket;
+	if (_tlsPriv(wrapper)._boundSocket && _tlsPriv(wrapper)._boundSocket !== rawSocket) throw _createError("ERR_TLS_SOCKET_ALREADY_BOUND", "A TLSSocket transport cannot be replaced after it has been bound");
+	_tlsPriv(wrapper)._socket = rawSocket;
 	_copySocketMetadata(wrapper, rawSocket);
-	if (wrapper._boundSocket === rawSocket || typeof rawSocket.on !== "function") return rawSocket;
-	wrapper._boundSocket = rawSocket;
+	if (rawSocket.connecting === false) _captureTlsTransportIdentity(wrapper, rawSocket);
+	if (_tlsPriv(wrapper)._boundSocket === rawSocket || typeof rawSocket.on !== "function") return rawSocket;
+	_tlsPriv(wrapper)._boundSocket = rawSocket;
+	if (!_tlsPriv(wrapper)._boundSocketListeners) _tlsPriv(wrapper)._boundSocketListeners = [];
 	var events = [
 		"data",
 		"end",
@@ -1195,8 +1866,62 @@ function _bindSocket(wrapper, rawSocket) {
 		"connect"
 	];
 	for (var i = 0; i < events.length; i++) (function(eventName) {
-		rawSocket.on(eventName, function() {
-			if (wrapper._bridged) {
+		var listener = function() {
+			if (_tlsPriv(wrapper)._tlsCloseEmitted) return;
+			_tlsAssertOwner(wrapper);
+			if (_tlsPub(wrapper).destroyed && eventName !== "close") return;
+			if (eventName === "connect") _captureTlsTransportIdentity(wrapper, rawSocket);
+			if (_tlsPriv(wrapper)._tlsTransportUndecided && eventName === "data") {
+				_holdUndecidedTlsData(wrapper, rawSocket, arguments[0]);
+				return;
+			}
+			if (_tlsPriv(wrapper)._tlsTransportUndecided && eventName === "end") {
+				_holdUndecidedTlsTerminal(wrapper, "end");
+				return;
+			}
+			if (_tlsPriv(wrapper)._tlsTransportUndecided && eventName === "close") {
+				if (_tlsPriv(wrapper)._tlsAwaitingConnectEvent) {
+					var connectCloseError = _tlsPriv(wrapper)._tlsPendingTerminalError;
+					if (!connectCloseError && arguments[0] === true) {
+						connectCloseError = _createError("ECONNRESET", "read ECONNRESET");
+						_tlsPriv(wrapper)._tlsPendingTerminalError = connectCloseError;
+					}
+					var connectCloseUnhandled = null;
+					if (connectCloseError && !_tlsPriv(wrapper)._tlsErrorEmitted) try {
+						_emitTlsErrorOnce(wrapper, connectCloseError);
+					} catch (emitErr) {
+						connectCloseUnhandled = emitErr;
+					}
+					_takeUndecidedTlsData(wrapper);
+					_tlsPriv(wrapper)._tlsAwaitingConnectEvent = false;
+					_tlsPub(wrapper).connecting = false;
+					_tlsReleaseHeldWrites(wrapper, "drop");
+					_tlsDropBridgeWrites(wrapper);
+					_emitTlsCloseOnce(wrapper, arguments[0] === true || !!connectCloseError);
+					if (connectCloseUnhandled) throw connectCloseUnhandled;
+					return;
+				}
+				_holdUndecidedTlsTerminal(wrapper, "close", arguments[0]);
+				return;
+			}
+			if (_tlsPriv(wrapper)._tlsSuppressRawClose && eventName === "close") {
+				_tlsPriv(wrapper)._tlsDeferredCloseHadError = _tlsPriv(wrapper)._tlsDeferredCloseHadError || arguments[0] === true;
+				return;
+			}
+			if (_tlsPub(wrapper).destroyed && eventName === "end") return;
+			if (_tlsPub(wrapper).destroyed && eventName === "close") {
+				var destroyedCloseUnhandled = null;
+				var destroyedCloseError = _tlsPriv(wrapper)._tlsFailureError || _tlsPriv(wrapper)._tlsPendingTerminalError;
+				if (destroyedCloseError && !_tlsPriv(wrapper)._tlsErrorEmitted) try {
+					_emitTlsErrorOnce(wrapper, destroyedCloseError);
+				} catch (emitErr) {
+					destroyedCloseUnhandled = emitErr;
+				}
+				_emitTlsCloseOnce(wrapper, arguments[0] === true || !!destroyedCloseError);
+				if (destroyedCloseUnhandled) throw destroyedCloseUnhandled;
+				return;
+			}
+			if (_tlsPriv(wrapper)._bridged) {
 				if (eventName === "data") {
 					_tlsBridgeOnCiphertext(wrapper, arguments[0]);
 					return;
@@ -1209,85 +1934,174 @@ function _bindSocket(wrapper, rawSocket) {
 					_tlsBridgeOnTransportEnd(wrapper);
 					return;
 				}
-				if (eventName === "close") _tlsBridgeRelease(wrapper);
+				if (eventName === "close") {
+					_tlsPriv(wrapper)._tlsDeferredTransportClose = true;
+					_tlsPriv(wrapper)._tlsDeferredCloseHadError = _tlsPriv(wrapper)._tlsDeferredCloseHadError || arguments[0] === true;
+					_tlsBridgeOnTransportEnd(wrapper);
+					return;
+				}
 			}
-			if (eventName === "connect") wrapper.connecting = false;
-			if (eventName === "end") wrapper.readable = false;
-			if (eventName === "close") wrapper.destroyed = true;
+			if (eventName === "error") {
+				if (_tlsPriv(wrapper)._tlsErrorEmitted) return;
+				_tlsPriv(wrapper)._tlsPendingTerminalError = arguments[0];
+				_tlsPriv(wrapper)._tlsErrorEmitted = true;
+			}
+			if (eventName === "close" && _tlsPriv(wrapper)._tlsCloseEmitted) return;
+			if (eventName === "connect") _tlsPub(wrapper).connecting = false;
+			if (eventName === "end") _tlsPub(wrapper).readable = false;
 			_copySocketMetadata(wrapper, rawSocket);
-			if (typeof wrapper.emit === "function") wrapper.emit.apply(wrapper, [eventName].concat(Array.prototype.slice.call(arguments)));
+			if (eventName === "close") {
+				var unhandledBridgeError = null;
+				var pendingCloseError = _tlsPriv(wrapper)._tlsFailureError || _tlsPriv(wrapper)._tlsPendingTerminalError;
+				if (pendingCloseError && !_tlsPriv(wrapper)._tlsErrorEmitted) try {
+					_emitTlsErrorOnce(wrapper, pendingCloseError);
+				} catch (emitErr) {
+					unhandledBridgeError = emitErr;
+				}
+				_tlsBridgeRelease(wrapper);
+				_emitTlsCloseOnce(wrapper, arguments[0] === true || !!pendingCloseError);
+				if (unhandledBridgeError) throw unhandledBridgeError;
+				return;
+			}
+			_tlsEmitInternal(wrapper, eventName, Array.prototype.slice.call(arguments));
+		};
+		_tlsPriv(wrapper)._boundSocketListeners.push({
+			rawSocket,
+			eventName,
+			listener
 		});
+		rawSocket.on(eventName, listener);
 	})(events[i]);
 	return rawSocket;
 }
 function _callSocketMethod(wrapper, methodName, args, fallback) {
-	if (wrapper && wrapper._socket && typeof wrapper._socket[methodName] === "function") return wrapper._socket[methodName].apply(wrapper._socket, args || []);
+	if (wrapper && _tlsPriv(wrapper)._socket && typeof _tlsPriv(wrapper)._socket[methodName] === "function") return _tlsPriv(wrapper)._socket[methodName].apply(_tlsPriv(wrapper)._socket, args || []);
 	return fallback;
 }
+function _tlsRawTransportDestroyed(socket) {
+	return !!(socket && _tlsPriv(socket)._socket && _tlsPriv(socket)._socket.destroyed);
+}
+function _tlsRawTransportUnexpectedlyDestroyed(socket) {
+	return _tlsRawTransportDestroyed(socket) && !_tlsPriv(socket)._tlsDeferredTransportClose;
+}
+function _tlsTransportTerminatedSince(socket, rawWasDestroyed, closeWasDeferred) {
+	return !rawWasDestroyed && _tlsRawTransportDestroyed(socket) || !closeWasDeferred && _tlsPriv(socket)._tlsDeferredTransportClose;
+}
+function _tlsPendingWriteError(socket) {
+	return _tlsPriv(socket)._tlsFailureError || _createError("ERR_STREAM_DESTROYED", "TLS socket was destroyed before the pending write completed");
+}
+function _tlsSettleWriteCallbacks(items, endCallback, err) {
+	var callbacks = [];
+	var pending = items || [];
+	for (var i = 0; i < pending.length; i++) if (typeof pending[i].callback === "function") {
+		callbacks.push(pending[i].callback);
+		pending[i].callback = null;
+	}
+	if (typeof endCallback === "function") callbacks.push(endCallback);
+	for (var j = 0; j < callbacks.length; j++) (function(callback) {
+		setTimeout(function() {
+			callback(err);
+		}, 0);
+	})(callbacks[j]);
+}
+function _tlsTerminateIfTransportChanged(socket, rawWasDestroyed, closeWasDeferred) {
+	if (!_tlsTransportTerminatedSince(socket, rawWasDestroyed, closeWasDeferred)) return false;
+	_tlsDropBridgeWrites(socket);
+	if (!_tlsPub(socket).destroyed) _terminateTlsForDestroyedTransport(socket);
+	return true;
+}
+function _tlsDropBridgeWrites(socket) {
+	_tlsSettleWriteCallbacks(_tlsPriv(socket)._bridgePendingWrites, _tlsPriv(socket)._bridgeHeldEnd, _tlsPendingWriteError(socket));
+	_tlsPriv(socket)._bridgePendingWrites = null;
+	_tlsPriv(socket)._bridgePendingWriteBytes = 0;
+	_tlsPriv(socket)._bridgeHeldEnd = null;
+	_tlsBridgeUpdateBufferedBytes(socket);
+}
+function _terminateTlsForDestroyedTransport(socket) {
+	var hadError = _tlsPriv(socket)._tlsDeferredCloseHadError === true;
+	_tlsReleaseHeldWrites(socket, "drop");
+	if (!_tlsPub(socket).destroyed) socket.destroy();
+	_emitTlsCloseOnce(socket, hadError);
+}
 function _finalizeHandshake(socket, peerOptions, negotiatedCipher) {
-	var opts = socket._tlsOptions || {};
+	var opts = _tlsPriv(socket)._tlsOptions || {};
 	var remoteOptions = peerOptions || {};
-	var host = socket._servername || socket.remoteAddress || "localhost";
-	socket._peerCertificate = _buildPeerCertificate(host, socket.remotePort, remoteOptions, opts);
-	socket._localCertificate = _buildLocalCertificate(host, socket.remotePort, opts);
-	socket._cipher = {
+	var host = _tlsPriv(socket)._servername || _tlsPub(socket).remoteAddress || "localhost";
+	_tlsPriv(socket)._peerCertificate = _buildPeerCertificate(host, _tlsPub(socket).remotePort, remoteOptions, opts);
+	_tlsPriv(socket)._localCertificate = _buildLocalCertificate(host, _tlsPub(socket).remotePort, opts);
+	_tlsPriv(socket)._cipher = {
 		name: negotiatedCipher || _normalizeCipherName(remoteOptions.ciphers || opts.ciphers),
-		version: socket._protocol
+		version: _tlsPriv(socket)._protocol
 	};
-	socket._authorizationErrorObject = null;
-	var authorizationError = _validatePeerAuthorization(socket._peerCertificate, opts, host, socket.remotePort, remoteOptions);
+	_tlsPriv(socket)._authorizationErrorObject = null;
+	var authorizationError = _validatePeerAuthorization(_tlsPriv(socket)._peerCertificate, opts, host, _tlsPub(socket).remotePort, remoteOptions);
 	if (authorizationError) {
-		socket.authorizationError = authorizationError.code || authorizationError.message || String(authorizationError);
-		socket._authorizationErrorObject = authorizationError;
-		socket.authorized = false;
+		_tlsPub(socket).authorizationError = authorizationError.code || authorizationError.message || String(authorizationError);
+		_tlsPriv(socket)._authorizationErrorObject = authorizationError;
+		_tlsPub(socket).authorized = false;
 		return false;
 	}
 	var check = opts.checkServerIdentity || checkServerIdentity;
 	var result = null;
 	try {
-		result = _normalizeCheckError(check(host, socket._peerCertificate, opts));
+		result = _normalizeCheckError(check(host, _tlsPriv(socket)._peerCertificate, opts));
 	} catch (error) {
 		result = _normalizeCheckError(error);
 	}
 	if (result) {
-		socket.authorizationError = result.code || result.message || String(result);
-		socket._authorizationErrorObject = result;
-		socket.authorized = false;
+		_tlsPub(socket).authorizationError = result.code || result.message || String(result);
+		_tlsPriv(socket)._authorizationErrorObject = result;
+		_tlsPub(socket).authorized = false;
 		return false;
 	}
-	socket.authorizationError = null;
-	socket._authorizationErrorObject = null;
-	socket.authorized = true;
+	_tlsPub(socket).authorizationError = null;
+	_tlsPriv(socket)._authorizationErrorObject = null;
+	_tlsPub(socket).authorized = true;
 	return true;
 }
-function _finalizeServerHandshake(socket, clientOptions, negotiatedCipher) {
-	var serverOptions = socket._tlsOptions || {};
-	var host = socket.remoteAddress || socket.servername || "localhost";
-	socket._peerCertificate = clientOptions && (clientOptions.cert || clientOptions.pfx) ? _buildPeerCertificate(host, socket.remotePort, clientOptions, serverOptions) : null;
-	socket._localCertificate = _buildLocalCertificate(host, socket.remotePort, serverOptions);
-	socket._cipher = {
+function _loopbackClientAuthorizationError(serverOptions, clientOptions, host, port) {
+	if (!serverOptions.requestCert) return null;
+	if (!clientOptions || !(clientOptions.cert || clientOptions.pfx)) return _createError("ERR_TLS_CERT_REQUIRED", "TLS client certificate required");
+	if (clientOptions.pfx) return _createError("ERR_TLS_PFX_UNSUPPORTED", "Loopback TLS emulation cannot verify a PFX client identity");
+	return _createError("ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED", "Loopback TLS emulation cannot cryptographically verify a client identity");
+}
+function _finalizeServerHandshake(socket, clientOptions, negotiatedCipher, negotiatedProtocol) {
+	var serverOptions = _tlsPriv(socket)._tlsOptions || {};
+	var host = _tlsPub(socket).remoteAddress || _tlsPub(socket).servername || "localhost";
+	_tlsPriv(socket)._peerCertificate = clientOptions && (clientOptions.cert || clientOptions.pfx) ? _buildPeerCertificate(host, _tlsPub(socket).remotePort, clientOptions, serverOptions) : null;
+	_tlsPriv(socket)._localCertificate = _buildLocalCertificate(host, _tlsPub(socket).remotePort, serverOptions);
+	_tlsPriv(socket)._cipher = {
 		name: negotiatedCipher || _normalizeCipherName(serverOptions.ciphers),
-		version: socket._protocol
+		version: negotiatedProtocol || _tlsPriv(socket)._protocol
 	};
-	socket.connecting = false;
-	socket.pending = false;
-	socket._secureEstablished = true;
-	socket.authorizationError = null;
-	socket.authorized = !socket._server || !socket._server.requestCert;
+	if (negotiatedProtocol) _tlsPriv(socket)._protocol = negotiatedProtocol;
+	_tlsPub(socket).connecting = false;
+	_tlsPriv(socket)._pending = false;
+	_tlsPriv(socket)._secureEstablished = true;
+	var clientAuthorizationError = _loopbackClientAuthorizationError(serverOptions, clientOptions, host, _tlsPub(socket).remotePort);
+	_tlsPub(socket).authorizationError = clientAuthorizationError ? clientAuthorizationError.code || clientAuthorizationError.message : null;
+	_tlsPriv(socket)._authorizationErrorObject = clientAuthorizationError;
+	_tlsPub(socket).authorized = !clientAuthorizationError;
+	return !clientAuthorizationError || !serverOptions.rejectUnauthorized;
 }
 function _applyPendingServerHandshake(server, tlsSocket, handshake) {
 	if (!server || !tlsSocket || !handshake) return;
+	_clearLoopbackClientCloseWatch(handshake);
 	if (handshake.ok) {
-		_finalizeServerHandshake(tlsSocket, handshake.clientOptions, handshake.cipher);
-		tlsSocket.emit("secure", true);
+		if (!_finalizeServerHandshake(tlsSocket, handshake.clientOptions, handshake.cipher, handshake.protocol)) {
+			var clientCertErr = _tlsPriv(tlsSocket)._authorizationErrorObject || _createError("ERR_TLS_CERT_REQUIRED", "TLS client certificate rejected");
+			server.emit("tlsClientError", clientCertErr, tlsSocket);
+			tlsSocket.destroy();
+			return;
+		}
+		_tlsEmitInternal(tlsSocket, "secure", [true]);
 		server.emit("secureConnection", tlsSocket);
+		if (!_tlsPub(tlsSocket).destroyed && _tlsPriv(tlsSocket)._socket && typeof _tlsPriv(tlsSocket)._socket.resume === "function") _tlsPriv(tlsSocket)._socket.resume();
 		return;
 	}
-	tlsSocket.authorizationError = handshake.serverError && handshake.serverError.message ? handshake.serverError.message : "handshake failure";
-	if (tlsSocket._socket && typeof tlsSocket._socket.destroy === "function") try {
-		tlsSocket._socket.destroy(handshake.serverError);
-	} catch (_destroyTlsSocketErr) {}
+	_tlsPub(tlsSocket).authorizationError = handshake.serverError && handshake.serverError.message ? handshake.serverError.message : "handshake failure";
 	server.emit("tlsClientError", handshake.serverError, tlsSocket);
+	tlsSocket.destroy();
 }
 function _decorateSecureContext(target, options) {
 	var normalized = _cloneOwnProperties(options || {});
@@ -1295,46 +2109,70 @@ function _decorateSecureContext(target, options) {
 	_validateProtocolVersion("maximum", normalized.maxVersion);
 	normalized._cipherSuites = _resolveCipherSuites(normalized, "server");
 	if (hasOwn.call(normalized, "ALPNProtocols") && normalized.ALPNProtocols !== null && typeof normalized.ALPNProtocols !== "undefined") normalized.ALPNProtocols = convertALPNProtocols(normalized.ALPNProtocols);
-	target.context = normalized;
-	target._options = normalized;
+	var opaqueContext = {};
+	if (typeof Object.freeze === "function") Object.freeze(opaqueContext);
+	var state = {
+		options: normalized,
+		secureContext: target,
+		opaqueContext
+	};
+	if (_secureContextStates) {
+		_secureContextStates.set(target, state);
+		_secureContextStates.set(opaqueContext, state);
+	}
+	if (typeof Object.defineProperty === "function") Object.defineProperty(target, "context", {
+		value: opaqueContext,
+		enumerable: true,
+		configurable: false,
+		writable: false
+	});
+	else target.context = opaqueContext;
 	return target;
 }
 function SecureContext(options) {
 	if (!(this instanceof SecureContext)) return new SecureContext(options);
-	this.context = {};
-	this._options = this.context;
-	if (options && typeof options === "object") _decorateSecureContext(this, options);
+	_decorateSecureContext(this, options && typeof options === "object" ? options : {});
 }
 function createSecureContext(options) {
 	if (options instanceof SecureContext) return options;
 	return new SecureContext(options || {});
 }
-function TLSSocket(socket, options) {
+function TLSSocket(socket, options, deferSocketBinding) {
 	if (!(this instanceof TLSSocket)) return new TLSSocket(socket, options);
 	options = options || {};
 	this._events = {};
 	_mixinEventEmitter(this);
-	this._socket = null;
-	this._boundSocket = null;
-	this._tlsOptions = _cloneOwnProperties(options);
-	this.encrypted = true;
-	this.authorized = false;
-	this.authorizationError = null;
-	this._authorizationErrorObject = null;
-	this._protocol = options.minVersion || options.maxVersion || DEFAULT_MAX_VERSION;
-	this._session = null;
-	this._sessionReused = false;
-	this._peerCertificate = null;
-	this._localCertificate = null;
-	this._readableHighWaterMark = _normalizeTlsHighWaterMark(options.readableHighWaterMark, socket && socket.readableHighWaterMark);
-	this._writableHighWaterMark = _normalizeTlsHighWaterMark(options.writableHighWaterMark, socket && socket.writableHighWaterMark);
-	this._bufferedBytes = 0;
-	this._bridgeNeedDrain = false;
-	this._secureEstablished = false;
-	this._pending = true;
-	this._servername = options.servername || options.host || options.hostname || null;
-	this.servername = this._servername;
-	this.alpnProtocol = null;
+	_installTlsPrivateState(this);
+	_tlsPriv(this)._socket = null;
+	_tlsPriv(this)._boundSocket = null;
+	_tlsPriv(this)._boundSocketListeners = [];
+	_tlsPriv(this)._tlsOptions = _cloneOwnProperties(options);
+	_defineOwnDataProperty(this, "encrypted", true);
+	_defineOwnDataProperty(this, "allowHalfOpen", options.allowHalfOpen === true);
+	_defineOwnDataProperty(this, "authorized", false);
+	_defineOwnDataProperty(this, "authorizationError", null);
+	_tlsPriv(this)._authorizationErrorObject = null;
+	_tlsPriv(this)._protocol = options.minVersion || options.maxVersion || DEFAULT_MAX_VERSION;
+	_tlsPriv(this)._session = null;
+	_tlsPriv(this)._sessionReused = false;
+	_tlsPriv(this)._peerCertificate = null;
+	_tlsPriv(this)._localCertificate = null;
+	_tlsPriv(this)._readableHighWaterMark = _normalizeTlsHighWaterMark(options.readableHighWaterMark, socket && socket.readableHighWaterMark);
+	_tlsPriv(this)._writableHighWaterMark = _normalizeTlsHighWaterMark(options.writableHighWaterMark, socket && socket.writableHighWaterMark);
+	_tlsPriv(this)._bufferedBytes = 0;
+	_tlsPriv(this)._bridgeNeedDrain = false;
+	_tlsPriv(this)._secureEstablished = false;
+	_tlsPriv(this)._tlsApplicationReady = false;
+	_tlsPriv(this)._tlsUserPaused = false;
+	_tlsPriv(this)._tlsErrorEmitted = false;
+	_tlsPriv(this)._tlsCloseEmitted = false;
+	_tlsPriv(this)._tlsDeferredTransportClose = false;
+	_tlsPriv(this)._tlsDeferredCloseHadError = false;
+	_tlsPriv(this)._captureRejections = options.captureRejections === true;
+	_tlsPriv(this)._pending = true;
+	_tlsPriv(this)._servername = options.servername || options.host || options.hostname || null;
+	_defineOwnDataProperty(this, "servername", _tlsPriv(this)._servername);
+	_defineOwnDataProperty(this, "alpnProtocol", null);
 	_defineOwnDataProperty(this, "connecting", true);
 	_defineOwnDataProperty(this, "readable", true);
 	_defineOwnDataProperty(this, "writable", true);
@@ -1345,70 +2183,106 @@ function TLSSocket(socket, options) {
 	_defineOwnDataProperty(this, "localAddress", null);
 	_defineOwnDataProperty(this, "localPort", null);
 	_defineOwnDataProperty(this, "localFamily", "IPv4");
-	this._cipher = {
+	_tlsPriv(this)._cipher = {
 		name: _normalizeCipherName(options.ciphers),
-		version: this._protocol
+		version: _tlsPriv(this)._protocol
 	};
-	if (socket) {
-		this.connecting = !!socket.connecting;
-		this._pending = !!socket.connecting;
-		_bindSocket(this, socket);
+	if (socket) _tlsCaptureOwner(this);
+	try {
+		if (socket) {
+			_tlsPub(this).connecting = !!socket.connecting;
+			_tlsPriv(this)._pending = !!socket.connecting;
+			if (!deferSocketBinding) _bindSocket(this, socket);
+		}
+	} catch (bindErr) {
+		_tlsReleaseOwner(this);
+		throw bindErr;
 	}
 }
 if (net && net.Socket && typeof Object.setPrototypeOf === "function") Object.setPrototypeOf(TLSSocket, net.Socket);
 TLSSocket.prototype.constructor = TLSSocket;
 TLSSocket.prototype._setSocket = function(socket) {
+	_tlsAssertMutableOwner(this);
+	_tlsCaptureOwner(this);
+	if (_tlsPriv(this)._boundSocket && _tlsPriv(this)._boundSocket !== socket) throw _createError("ERR_TLS_SOCKET_ALREADY_BOUND", "A TLSSocket transport cannot be replaced after it has been bound");
 	_bindSocket(this, socket);
 	return this;
 };
 TLSSocket.prototype[_kReinitializeHandle] = function() {
+	_tlsAssertOwner(this);
 	return this;
 };
+TLSSocket.prototype[_kSetHttpResetAsEof] = function(enabled) {
+	_tlsAssertMutableOwner(this);
+	var socket = _tlsPriv(this)._socket;
+	if (socket) socket._allowResetAsEof = enabled === true;
+};
+TLSSocket.prototype[_kFlowControlStats] = function() {
+	_tlsAssertOwner(this);
+	var result = {
+		retainedCiphertextBytes: _tlsPriv(this)._bridgeCipherQueueBytes || 0,
+		ciphertextHighWaterMark: _tlsPriv(this)._ciphertextHighWaterMark || 0
+	};
+	return typeof Object.freeze === "function" ? Object.freeze(result) : result;
+};
 TLSSocket.prototype.getPeerCertificate = function(detailed) {
-	return this._peerCertificate ? _cloneCertificate(this._peerCertificate, detailed === true) : {};
+	_tlsAssertOwner(this);
+	return _tlsPriv(this)._peerCertificate ? _cloneCertificate(_tlsPriv(this)._peerCertificate, detailed === true) : {};
 };
 TLSSocket.prototype.getPeerX509Certificate = function() {
-	return _toX509Certificate(this._peerCertificate, true);
+	_tlsAssertOwner(this);
+	return _toX509Certificate(_tlsPriv(this)._peerCertificate, true);
 };
 TLSSocket.prototype.getCertificate = function() {
-	return this._localCertificate ? _cloneCertificate(this._localCertificate, true) : {};
+	_tlsAssertOwner(this);
+	return _tlsPriv(this)._localCertificate ? _cloneCertificate(_tlsPriv(this)._localCertificate, true) : {};
 };
 TLSSocket.prototype.getX509Certificate = function() {
-	return _toX509Certificate(this._localCertificate, false);
+	_tlsAssertOwner(this);
+	return _toX509Certificate(_tlsPriv(this)._localCertificate, false);
 };
 TLSSocket.prototype.getCipher = function() {
-	return this._cipher || {
-		name: _normalizeCipherName(this._tlsOptions && this._tlsOptions.ciphers),
-		version: this._protocol
+	_tlsAssertOwner(this);
+	return _tlsPriv(this)._cipher || {
+		name: _normalizeCipherName(_tlsPriv(this)._tlsOptions && _tlsPriv(this)._tlsOptions.ciphers),
+		version: _tlsPriv(this)._protocol
 	};
 };
 TLSSocket.prototype.getProtocol = function() {
-	return this._protocol;
+	_tlsAssertOwner(this);
+	return _tlsPriv(this)._protocol;
 };
 TLSSocket.prototype.getSession = function() {
-	return this._session;
+	_tlsAssertOwner(this);
+	return _tlsPriv(this)._session;
 };
 TLSSocket.prototype.setSession = function(session) {
-	this._session = session || null;
+	_tlsAssertMutableOwner(this);
+	_tlsPriv(this)._session = session || null;
 	return this;
 };
 TLSSocket.prototype.isSessionReused = function() {
-	return !!this._sessionReused;
+	_tlsAssertOwner(this);
+	return !!_tlsPriv(this)._sessionReused;
 };
 TLSSocket.prototype.getFinished = function() {
+	_tlsAssertOwner(this);
 	return null;
 };
 TLSSocket.prototype.getTLSTicket = function() {
+	_tlsAssertOwner(this);
 	return null;
 };
 TLSSocket.prototype.getSharedSigalgs = function() {
+	_tlsAssertOwner(this);
 	return [];
 };
 TLSSocket.prototype.renegotiate = function(options, callback) {
+	_tlsAssertOwner(this);
 	if (options === null || typeof options !== "object") throw _createError("ERR_INVALID_ARG_TYPE", "The \"options\" argument must be of type object. Received " + (options === null ? "null" : typeof options));
 	if (callback !== void 0 && typeof callback !== "function") throw _createError("ERR_INVALID_ARG_TYPE", "The \"callback\" argument must be of type function. Received " + typeof callback);
-	if (this.destroyed) return void 0;
-	if (this._protocol === "TLSv1.3") {
+	if (_tlsPub(this).destroyed) return void 0;
+	if (_tlsPriv(this)._protocol === "TLSv1.3") {
 		if (typeof callback === "function") {
 			var err = _createError("ERR_SSL_WRONG_SSL_VERSION", "error:0A00010A:SSL routines::wrong ssl version");
 			err.library = "SSL routines";
@@ -1425,97 +2299,134 @@ TLSSocket.prototype.renegotiate = function(options, callback) {
 	return true;
 };
 TLSSocket.prototype.disableRenegotiation = function() {
-	this._renegotiationDisabled = true;
+	_tlsAssertMutableOwner(this);
+	_tlsPriv(this)._renegotiationDisabled = true;
 };
 TLSSocket.prototype.enableTrace = function() {
+	_tlsAssertMutableOwner(this);
 	return _callSocketMethod(this, "enableTrace", [], void 0);
 };
 TLSSocket.prototype.setMaxSendFragment = function(size) {
+	_tlsAssertMutableOwner(this);
 	if (typeof size !== "number" || size !== (size | 0) || size < 512 || size > 16384) return false;
-	this._maxSendFragment = size;
+	_tlsPriv(this)._maxSendFragment = size;
 	return true;
 };
 TLSSocket.prototype.setEncoding = function(enc) {
-	this._bridgeEncoding = enc || null;
-	this._bridgeDecoder = enc && StringDecoder ? new StringDecoder(enc) : null;
-	this._bridgeDecoderFinalized = false;
-	this._bridgeDecodedTail = null;
-	if (this._bridged || this._writeHeld || this.connecting || this.pending) return this;
+	_tlsAssertMutableOwner(this);
+	_tlsPriv(this)._bridgeEncoding = enc || null;
+	_tlsPriv(this)._bridgeDecoder = enc && StringDecoder ? new StringDecoder(enc) : null;
+	_tlsPriv(this)._bridgeDecoderFinalized = false;
+	_tlsPriv(this)._bridgeDecodedTail = null;
+	if (_tlsPriv(this)._bridged || _tlsPriv(this)._writeHeld || _tlsPub(this).connecting || _tlsPriv(this)._pending) return this;
 	_callSocketMethod(this, "setEncoding", [enc], this);
 	return this;
 };
 TLSSocket.prototype.read = function(size) {
-	if (this._writeHeld && !this._bridged) return null;
-	if (this._bridged) {
-		this._bridgeReadDepth = (this._bridgeReadDepth || 0) + 1;
+	_tlsAssertMutableOwner(this);
+	if (_tlsPriv(this)._writeHeld && !_tlsPriv(this)._bridged) return null;
+	if (_tlsPriv(this)._bridged) {
+		_tlsPriv(this)._bridgeReadDepth = (_tlsPriv(this)._bridgeReadDepth || 0) + 1;
 		try {
-			_tlsBridgeDrainPlain(this);
-			var queue = this._bridgeReadQueue || [];
+			var queuedBeforeRead = _tlsPriv(this)._bridgeReadQueueBytes || 0;
+			var readLowWater = Math.max(1, Math.floor(_tlsPriv(this)._readableHighWaterMark / 2));
+			if (queuedBeforeRead === 0 || !_tlsPriv(this)._bridgePaused && _tlsPriv(this)._bridgeInputPaused && queuedBeforeRead <= readLowWater) _tlsBridgeDrainPlain(this);
+			var queue = _tlsPriv(this)._bridgeReadQueue || [];
 			if (!queue.length) {
-				if (this._bridgeDecodedTail !== null && this._bridgeDecodedTail !== void 0) {
-					var decoderTail = this._bridgeDecodedTail;
-					this._bridgeDecodedTail = null;
+				if (_tlsPriv(this)._bridgeDecodedTail !== null && _tlsPriv(this)._bridgeDecodedTail !== void 0) {
+					var decoderTail = _tlsPriv(this)._bridgeDecodedTail;
+					_tlsPriv(this)._bridgeDecodedTail = null;
 					_tlsBridgeMaybeEmitEnd(this);
 					return decoderTail;
 				}
 				return null;
 			}
-			var available = this._bridgeReadQueueBytes || 0;
-			if (typeof size === "number" && size > available && !this._bridgeNativeEnded) return null;
+			var available = _tlsPriv(this)._bridgeReadQueueBytes || 0;
+			if (typeof size === "number" && size > available && !_tlsPriv(this)._bridgeNativeEnded) return null;
 			var wanted = typeof size === "number" && size > 0 ? Math.min(size, available) : available;
-			var combined = typeof Buffer !== "undefined" && Buffer.concat ? Buffer.concat(queue, available) : queue[0];
-			var result = wanted === available ? combined : combined.slice(0, wanted);
-			var remainder = wanted === available ? null : combined.slice(wanted);
-			this._bridgeReadQueue = remainder && remainder.length ? [remainder] : [];
-			this._bridgeReadQueueBytes = available - wanted;
+			var offset = _tlsPriv(this)._bridgeReadQueueOffset || 0;
+			var firstAvailable = _byteLength(queue[0]) - offset;
+			var result;
+			if (wanted <= firstAvailable) {
+				result = queue[0].slice(offset, offset + wanted);
+				offset += wanted;
+				if (offset >= _byteLength(queue[0])) {
+					queue.shift();
+					offset = 0;
+				}
+			} else {
+				result = typeof Buffer !== "undefined" && typeof Buffer.allocUnsafe === "function" ? Buffer.allocUnsafe(wanted) : new Uint8Array(wanted);
+				var copied = 0;
+				while (copied < wanted && queue.length) {
+					var source = queue[0];
+					var take = Math.min(wanted - copied, _byteLength(source) - offset);
+					var slice = source.slice(offset, offset + take);
+					if (typeof slice.copy === "function") slice.copy(result, copied);
+					else result.set(slice, copied);
+					copied += take;
+					offset += take;
+					if (offset >= _byteLength(source)) {
+						queue.shift();
+						offset = 0;
+					}
+				}
+			}
+			_tlsPriv(this)._bridgeReadQueue = queue;
+			_tlsPriv(this)._bridgeReadQueueOffset = offset;
+			_tlsPriv(this)._bridgeReadQueueBytes = available - wanted;
 			var encodedResult = _tlsBridgeEncode(this, result);
 			_tlsBridgeMaybeResumeInput(this);
 			_tlsBridgeMaybeEmitEnd(this);
 			return encodedResult;
 		} finally {
-			this._bridgeReadDepth = Math.max(0, (this._bridgeReadDepth || 1) - 1);
+			_tlsPriv(this)._bridgeReadDepth = Math.max(0, (_tlsPriv(this)._bridgeReadDepth || 1) - 1);
 		}
 	}
 	return _callSocketMethod(this, "read", [size], null);
 };
 TLSSocket.prototype.push = function(chunk, encoding) {
+	_tlsAssertMutableOwner(this);
 	return _callSocketMethod(this, "push", [chunk, encoding], false);
 };
 TLSSocket.prototype.unshift = function(chunk) {
+	_tlsAssertMutableOwner(this);
 	return _callSocketMethod(this, "unshift", [chunk], void 0);
 };
 TLSSocket.prototype.close = function(err) {
 	return this.destroy(err);
 };
 TLSSocket.prototype.connect = function() {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "connect", Array.prototype.slice.call(arguments), this);
 	return this;
 };
 TLSSocket.prototype.write = function(data, encoding, callback) {
+	_tlsAssertMutableOwner(this);
 	if (typeof encoding === "function") {
 		callback = encoding;
 		encoding = void 0;
 	}
-	if (this._writeHeld) {
-		if (!this._heldWrites) this._heldWrites = [];
+	if (_tlsPriv(this)._writeHeld) {
+		if (!_tlsPriv(this)._heldWrites) _tlsPriv(this)._heldWrites = [];
 		var heldBuffer = _tlsWriteBuffer(data, encoding);
 		var heldLength = _byteLength(heldBuffer);
-		this._heldWrites.push({
+		_tlsPriv(this)._heldWrites.push({
 			buffer: heldBuffer,
 			offset: 0,
 			callback
 		});
-		this._heldWriteBytes = (this._heldWriteBytes || 0) + heldLength;
-		this._bufferedBytes = this._heldWriteBytes;
-		if (this._heldWriteBytes >= this._writableHighWaterMark) this._bridgeNeedDrain = true;
-		return this._heldWriteBytes < this._writableHighWaterMark;
+		_tlsPriv(this)._heldWriteBytes = (_tlsPriv(this)._heldWriteBytes || 0) + heldLength;
+		_tlsPriv(this)._bufferedBytes = _tlsPriv(this)._heldWriteBytes;
+		if (_tlsPriv(this)._heldWriteBytes >= _tlsPriv(this)._writableHighWaterMark) _tlsPriv(this)._bridgeNeedDrain = true;
+		return _tlsPriv(this)._heldWriteBytes < _tlsPriv(this)._writableHighWaterMark;
 	}
-	if (this._bridged) return _tlsBridgeWrite(this, data, encoding, callback);
-	if (this._socket && typeof this._socket.write === "function") return this._socket.write(data, encoding, callback);
+	if (_tlsPriv(this)._bridged) return _tlsBridgeWrite(this, data, encoding, callback);
+	if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.write === "function") return _tlsPriv(this)._socket.write(data, encoding, callback);
 	if (typeof callback === "function") setTimeout(callback, 0);
 	return true;
 };
 TLSSocket.prototype.end = function(data, encoding, callback) {
+	_tlsAssertMutableOwner(this);
 	if (typeof data === "function") {
 		callback = data;
 		data = void 0;
@@ -1525,138 +2436,350 @@ TLSSocket.prototype.end = function(data, encoding, callback) {
 		callback = encoding;
 		encoding = void 0;
 	}
-	if (this._writeHeld) {
+	if (_tlsPriv(this)._writeHeld) {
 		if (data !== void 0 && data !== null) this.write(data, encoding);
-		this.writable = false;
-		this._heldEnd = typeof callback === "function" ? callback : true;
+		_tlsPub(this).writable = false;
+		_tlsPriv(this)._heldEnd = typeof callback === "function" ? callback : true;
 		return this;
 	}
-	if (this._bridged) {
+	if (_tlsPriv(this)._bridged) {
 		if (data !== void 0 && data !== null) _tlsBridgeWrite(this, data, encoding, null);
-		this.writable = false;
-		this._bridgeHeldEnd = typeof callback === "function" ? callback : true;
+		_tlsPub(this).writable = false;
+		_tlsPriv(this)._bridgeHeldEnd = typeof callback === "function" ? callback : true;
 		_tlsBridgeMaybeFinishEnd(this);
 		return this;
 	}
-	this.writable = false;
-	if (this._socket && typeof this._socket.end === "function") {
-		this._socket.end(data, encoding, callback);
+	_tlsPub(this).writable = false;
+	if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.end === "function") {
+		_tlsPriv(this)._socket.end(data, encoding, callback);
 		return this;
 	}
 	if (typeof callback === "function") setTimeout(callback, 0);
 	return this;
 };
 TLSSocket.prototype.destroy = function(err) {
-	this.destroyed = true;
-	this.readable = false;
-	this.writable = false;
-	this._writeHeld = false;
-	this._heldWrites = null;
-	this._heldWriteBytes = 0;
-	this._heldEnd = null;
-	this._bridgePendingWrites = null;
-	this._bridgePendingWriteBytes = 0;
-	this._bridgeHeldEnd = null;
-	this._bridgeReadQueue = null;
-	this._bridgeReadQueueBytes = 0;
-	this._bridgeDecoder = null;
-	this._bridgeDecodedTail = null;
-	this._bridgeCipherQueue = null;
-	this._bridgeCipherQueueBytes = 0;
+	_tlsAssertMutableOwner(this);
 	_tlsBridgeRelease(this);
-	if (this._socket && typeof this._socket.destroy === "function") this._socket.destroy(err);
+	if (err && !_tlsPriv(this)._tlsFailureError) _tlsPriv(this)._tlsFailureError = err;
+	_tlsReleaseHeldWrites(this, "drop");
+	_tlsDropBridgeWrites(this);
+	_tlsPub(this).destroyed = true;
+	_tlsPub(this).readable = false;
+	_tlsPub(this).writable = false;
+	_tlsPriv(this)._writeHeld = false;
+	_tlsPriv(this)._heldWrites = null;
+	_tlsPriv(this)._heldWriteBytes = 0;
+	_tlsPriv(this)._heldEnd = null;
+	_tlsPriv(this)._bridgePendingWrites = null;
+	_tlsPriv(this)._bridgePendingWriteBytes = 0;
+	_tlsPriv(this)._bridgeHeldEnd = null;
+	_tlsPriv(this)._bridgeReadQueue = null;
+	_tlsPriv(this)._bridgeReadQueueBytes = 0;
+	_tlsPriv(this)._bridgeReadQueueOffset = 0;
+	_tlsPriv(this)._bridgeDecoder = null;
+	_tlsPriv(this)._bridgeDecodedTail = null;
+	_tlsPriv(this)._bridgeCipherQueue = null;
+	_tlsPriv(this)._bridgeCipherQueueBytes = 0;
+	_tlsPriv(this)._tlsTransportUndecided = false;
+	_tlsPriv(this)._tlsAwaitingConnectEvent = false;
+	_tlsPriv(this)._tlsUndecidedEvents = null;
+	_tlsPriv(this)._tlsUndecidedData = null;
+	_tlsPriv(this)._tlsUndecidedDataBytes = 0;
+	_tlsPriv(this)._tlsUndecidedInputPaused = false;
+	_tlsPriv(this)._tlsUndecidedTransportEnded = false;
+	_tlsPriv(this)._tlsUndecidedTransportClosed = false;
+	var rawDestroyError = null;
+	if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.destroy === "function") try {
+		_tlsPriv(this)._socket.destroy(err);
+	} catch (destroyErr) {
+		rawDestroyError = destroyErr;
+	}
+	var destroyedSocket = this;
+	var terminalError = err || rawDestroyError;
+	setTimeout(function() {
+		_tlsAssertOwner(destroyedSocket);
+		var unhandled = null;
+		if (terminalError && !_tlsPriv(destroyedSocket)._tlsErrorEmitted) try {
+			_emitTlsErrorOnce(destroyedSocket, terminalError);
+		} catch (emitErr) {
+			unhandled = emitErr;
+		}
+		if (!_tlsPriv(destroyedSocket)._tlsCloseEmitted) _emitTlsCloseOnce(destroyedSocket, !!terminalError);
+		if (unhandled) throw unhandled;
+	}, 0);
 	return this;
 };
 TLSSocket.prototype.setTimeout = function(timeout, callback) {
+	_tlsAssertMutableOwner(this);
 	if (typeof callback === "function" && typeof this.once === "function") this.once("timeout", callback);
 	_callSocketMethod(this, "setTimeout", [timeout], this);
 	return this;
 };
 TLSSocket.prototype.setNoDelay = function(noDelay) {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "setNoDelay", [noDelay], this);
 	return this;
 };
 TLSSocket.prototype.setKeepAlive = function(enable, initialDelay) {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "setKeepAlive", [enable, initialDelay], this);
 	return this;
 };
 TLSSocket.prototype.ref = function() {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "ref", [], this);
 	return this;
 };
 TLSSocket.prototype.unref = function() {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "unref", [], this);
 	return this;
 };
 TLSSocket.prototype.address = function() {
-	if (this._socket && typeof this._socket.address === "function") return this._socket.address();
+	_tlsAssertOwner(this);
+	if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.address === "function") return _tlsPriv(this)._socket.address();
 	return {
-		address: this.localAddress || this.remoteAddress,
-		port: this.localPort || this.remotePort,
-		family: this.localFamily || this.remoteFamily || "IPv4"
+		address: _tlsPub(this).localAddress || _tlsPub(this).remoteAddress,
+		port: _tlsPub(this).localPort || _tlsPub(this).remotePort,
+		family: _tlsPub(this).localFamily || _tlsPub(this).remoteFamily || "IPv4"
 	};
 };
 TLSSocket.prototype.pause = function() {
-	if (this._bridged) this._bridgePaused = true;
+	_tlsAssertMutableOwner(this);
+	_tlsPriv(this)._tlsUserPaused = true;
+	if (_tlsPriv(this)._bridged) {
+		_tlsPriv(this)._bridgePaused = true;
+		_tlsBridgePauseInput(this);
+		return this;
+	}
 	_callSocketMethod(this, "pause", [], this);
 	return this;
 };
 TLSSocket.prototype.resume = function() {
-	if (this._bridged) {
-		this._bridgePaused = false;
+	_tlsAssertMutableOwner(this);
+	_tlsPriv(this)._tlsUserPaused = false;
+	if (_tlsPriv(this)._tlsTransportUndecided) {
+		if (!_tlsPriv(this)._tlsUndecidedInputPaused) _callSocketMethod(this, "resume", [], this);
+		return this;
+	}
+	if (_tlsPriv(this)._bridged) {
+		_tlsPriv(this)._bridgePaused = false;
 		_tlsBridgeFlushReadQueue(this);
 		_tlsBridgeMaybeResumeInput(this);
+		return this;
 	}
 	_callSocketMethod(this, "resume", [], this);
 	return this;
 };
 TLSSocket.prototype.on = function(eventName, listener) {
+	_tlsAssertMutableOwner(this);
 	var result = EventEmitter && EventEmitter.prototype && EventEmitter.prototype.on ? EventEmitter.prototype.on.call(this, eventName, listener) : this;
-	if (this._bridged && eventName === "data") {
-		this._bridgePaused = false;
+	var pipeBackpressure = _tlsPipeBackpressureStates && _tlsPipeBackpressureStates.get(this);
+	if (_tlsPriv(this)._bridged && eventName === "data" && !_tlsPriv(this)._tlsUserPaused && (!pipeBackpressure || pipeBackpressure.awaiting === 0)) {
+		_tlsPriv(this)._bridgePaused = false;
 		_tlsBridgeFlushReadQueue(this);
 		_tlsBridgeMaybeResumeInput(this);
 	}
 	return result;
 };
 TLSSocket.prototype.addListener = TLSSocket.prototype.on;
+TLSSocket.prototype.once = function(eventName, listener) {
+	_tlsAssertMutableOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.once ? EventEmitter.prototype.once.call(this, eventName, listener) : this.on(eventName, listener);
+};
+TLSSocket.prototype.prependListener = function(eventName, listener) {
+	_tlsAssertMutableOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.prependListener ? EventEmitter.prototype.prependListener.call(this, eventName, listener) : this.on(eventName, listener);
+};
+TLSSocket.prototype.prependOnceListener = function(eventName, listener) {
+	_tlsAssertMutableOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.prependOnceListener ? EventEmitter.prototype.prependOnceListener.call(this, eventName, listener) : this.once(eventName, listener);
+};
+TLSSocket.prototype.removeListener = function(eventName, listener) {
+	_tlsAssertOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.removeListener ? EventEmitter.prototype.removeListener.call(this, eventName, listener) : this;
+};
+TLSSocket.prototype.off = TLSSocket.prototype.removeListener;
+TLSSocket.prototype.removeAllListeners = function(eventName) {
+	_tlsAssertOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.removeAllListeners ? EventEmitter.prototype.removeAllListeners.call(this, eventName) : this;
+};
+TLSSocket.prototype.emit = function() {
+	_tlsAssertMutableOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.emit ? EventEmitter.prototype.emit.apply(this, arguments) : false;
+};
+TLSSocket.prototype.setMaxListeners = function() {
+	_tlsAssertMutableOwner(this);
+	return EventEmitter && EventEmitter.prototype && EventEmitter.prototype.setMaxListeners ? EventEmitter.prototype.setMaxListeners.apply(this, arguments) : this;
+};
+var _tlsEmitterReadMethods = [
+	"getMaxListeners",
+	"eventNames",
+	"listenerCount",
+	"listeners",
+	"rawListeners"
+];
+for (var _tlsEmitterReadIndex = 0; _tlsEmitterReadIndex < _tlsEmitterReadMethods.length; _tlsEmitterReadIndex++) (function(name) {
+	TLSSocket.prototype[name] = function() {
+		_tlsAssertOwner(this);
+		var method = EventEmitter && EventEmitter.prototype && EventEmitter.prototype[name];
+		if (typeof method === "function") return method.apply(this, arguments);
+		return name === "getMaxListeners" || name === "listenerCount" ? 0 : [];
+	};
+})(_tlsEmitterReadMethods[_tlsEmitterReadIndex]);
 TLSSocket.prototype.pipe = function(dest, options) {
-	if (this._bridged || this._writeHeld) {
+	_tlsAssertMutableOwner(this);
+	if (_tlsPriv(this)._bridged || _tlsPriv(this)._writeHeld) {
 		var source = this;
 		var shouldEnd = !options || options.end !== false;
+		var backpressureState = _tlsPipeBackpressureStates && _tlsPipeBackpressureStates.get(source);
+		if (!backpressureState) {
+			backpressureState = { awaiting: 0 };
+			if (_tlsPipeBackpressureStates) _tlsPipeBackpressureStates.set(source, backpressureState);
+		}
+		var awaitingDrain = false;
+		var activeWrite = null;
+		var cleaned = false;
+		function remove(emitter, eventName, listener) {
+			if (emitter && typeof emitter.removeListener === "function") emitter.removeListener(eventName, listener);
+		}
+		function cleanup() {
+			if (cleaned) return;
+			cleaned = true;
+			remove(source, "data", onData);
+			remove(source, "end", onEnd);
+			remove(source, "close", onSourceClose);
+			if (_tlsErrorMonitor) remove(source, _tlsErrorMonitor, onSourceErrorMonitor);
+			remove(dest, "drain", onDrain);
+			remove(dest, "close", onDestClose);
+			remove(dest, "finish", onDestFinish);
+			if (_tlsErrorMonitor) remove(dest, _tlsErrorMonitor, onDestErrorMonitor);
+			releaseBackpressure();
+		}
+		function pauseForPipe() {
+			if (_tlsPriv(source)._bridged) _tlsPriv(source)._bridgePaused = true;
+			_callSocketMethod(source, "pause", [], source);
+		}
+		function resumeForPipe() {
+			if (_tlsPriv(source)._tlsUserPaused) return;
+			if (_tlsPriv(source)._tlsTransportUndecided && _tlsPriv(source)._tlsUndecidedInputPaused) return;
+			if (_tlsPriv(source)._bridged) {
+				_tlsPriv(source)._bridgePaused = false;
+				_tlsBridgeFlushReadQueue(source);
+				_tlsBridgeMaybeResumeInput(source);
+				return;
+			}
+			_callSocketMethod(source, "resume", [], source);
+		}
+		function applyBackpressure() {
+			if (awaitingDrain) return;
+			awaitingDrain = true;
+			backpressureState.awaiting++;
+			if (backpressureState.awaiting === 1) pauseForPipe();
+		}
+		function releaseBackpressure() {
+			if (!awaitingDrain) return;
+			awaitingDrain = false;
+			backpressureState.awaiting = Math.max(0, backpressureState.awaiting - 1);
+			if (backpressureState.awaiting === 0) resumeForPipe();
+		}
 		function onData(chunk) {
-			if (dest && typeof dest.write === "function" && dest.write(chunk) === false) source.pause();
+			var accepted = true;
+			var previousWrite = activeWrite;
+			var writeFrame = { drained: false };
+			activeWrite = writeFrame;
+			try {
+				if (dest && typeof dest.write === "function") accepted = dest.write(chunk);
+			} catch (writeErr) {
+				cleanup();
+				throw writeErr;
+			} finally {
+				activeWrite = previousWrite;
+			}
+			if (!cleaned && accepted === false && !writeFrame.drained) applyBackpressure();
 		}
 		function onDrain() {
-			source.resume();
+			if (activeWrite) activeWrite.drained = true;
+			releaseBackpressure();
 		}
 		function onEnd() {
 			if (shouldEnd && dest && typeof dest.end === "function") dest.end();
+			cleanup();
 		}
-		source.on("data", onData);
+		function onSourceClose() {
+			cleanup();
+		}
+		function onSourceErrorMonitor() {
+			cleanup();
+		}
+		function onDestErrorMonitor() {
+			cleanup();
+		}
+		function onDestClose() {
+			cleanup();
+		}
+		function onDestFinish() {
+			cleanup();
+		}
 		source.once("end", onEnd);
-		if (dest && typeof dest.on === "function") dest.on("drain", onDrain);
-		source.resume();
+		source.once("close", onSourceClose);
+		if (_tlsErrorMonitor) source.on(_tlsErrorMonitor, onSourceErrorMonitor);
+		if (dest && typeof dest.on === "function") {
+			dest.on("drain", onDrain);
+			var addDestTerminal = typeof dest.once === "function" ? function(name, listener) {
+				dest.once(name, listener);
+			} : function(name, listener) {
+				dest.on(name, listener);
+			};
+			addDestTerminal("close", onDestClose);
+			addDestTerminal("finish", onDestFinish);
+			if (_tlsErrorMonitor) dest.on(_tlsErrorMonitor, onDestErrorMonitor);
+			if (typeof dest.emit === "function") dest.emit("pipe", source);
+		}
+		if (dest && dest.destroyed) cleanup();
+		if (!cleaned) source.on("data", onData);
+		if (!cleaned && backpressureState.awaiting === 0) resumeForPipe();
 		return dest;
 	}
-	if (this._socket && typeof this._socket.pipe === "function") return this._socket.pipe(dest, options);
+	if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.pipe === "function") return _tlsPriv(this)._socket.pipe(dest, options);
 	return dest;
 };
 TLSSocket.prototype.cork = function() {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "cork", [], this);
 	return this;
 };
 TLSSocket.prototype.uncork = function() {
+	_tlsAssertMutableOwner(this);
 	_callSocketMethod(this, "uncork", [], this);
 	return this;
 };
 if (typeof Object.defineProperty === "function") {
+	Object.defineProperty(TLSSocket.prototype, "readableHighWaterMark", {
+		configurable: true,
+		enumerable: false,
+		get: function() {
+			if (this === TLSSocket.prototype) return void 0;
+			_tlsAssertOwner(this);
+			return _tlsPriv(this)._readableHighWaterMark;
+		}
+	});
+	Object.defineProperty(TLSSocket.prototype, "writableHighWaterMark", {
+		configurable: true,
+		enumerable: false,
+		get: function() {
+			if (this === TLSSocket.prototype) return void 0;
+			_tlsAssertOwner(this);
+			return _tlsPriv(this)._writableHighWaterMark;
+		}
+	});
 	Object.defineProperty(TLSSocket.prototype, "bytesRead", {
 		configurable: true,
 		enumerable: true,
 		get: function() {
 			if (this === TLSSocket.prototype) return void 0;
-			if (this._socket && typeof this._socket.bytesRead === "number") return this._socket.bytesRead;
+			_tlsAssertOwner(this);
+			if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.bytesRead === "number") return _tlsPriv(this)._socket.bytesRead;
 			return 0;
 		}
 	});
@@ -1665,7 +2788,8 @@ if (typeof Object.defineProperty === "function") {
 		enumerable: true,
 		get: function() {
 			if (this === TLSSocket.prototype) return void 0;
-			if (this._socket && typeof this._socket.bytesWritten === "number") return this._socket.bytesWritten;
+			_tlsAssertOwner(this);
+			if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.bytesWritten === "number") return _tlsPriv(this)._socket.bytesWritten;
 			return 0;
 		}
 	});
@@ -1673,19 +2797,22 @@ if (typeof Object.defineProperty === "function") {
 		configurable: true,
 		enumerable: true,
 		get: function() {
-			return typeof this._pending === "boolean" ? this._pending : !this._secureEstablished;
+			_tlsAssertOwner(this);
+			return typeof _tlsPriv(this)._pending === "boolean" ? _tlsPriv(this)._pending : !_tlsPriv(this)._secureEstablished;
 		},
 		set: function(value) {
-			this._pending = !!value;
+			_tlsAssertMutableOwner(this);
+			_tlsPriv(this)._pending = !!value;
 		}
 	});
 	Object.defineProperty(TLSSocket.prototype, "readyState", {
 		configurable: true,
 		enumerable: true,
 		get: function() {
-			if (this._socket && typeof this._socket.readyState === "string") return this._socket.readyState;
-			if (this.destroyed) return "closed";
-			return this.connecting ? "opening" : "open";
+			_tlsAssertOwner(this);
+			if (_tlsPriv(this)._socket && typeof _tlsPriv(this)._socket.readyState === "string") return _tlsPriv(this)._socket.readyState;
+			if (_tlsPub(this).destroyed) return "closed";
+			return _tlsPub(this).connecting ? "opening" : "open";
 		}
 	});
 }
@@ -1756,7 +2883,66 @@ function _normalizeTlsConnectArguments(args) {
 	};
 }
 function _tlsBridgeAvailable() {
-	return typeof __exactTlsEngineNew === "function" && typeof __exactTlsEngineWriteTls === "function" && typeof __exactTlsEngineReadTls === "function" && typeof __exactTlsEngineReadPlain === "function" && typeof __exactTlsEngineWritePlain === "function" && typeof __exactTlsEngineStatus === "function";
+	return _nativeTlsEngineIds !== null && _nativeTlsOwnerTokens !== null && typeof __exactTlsOwnerToken === "function" && typeof __exactTlsEngineNew === "function" && typeof __exactTlsEngineWriteTls === "function" && typeof __exactTlsEngineReadTls === "function" && typeof __exactTlsEngineReadPlain === "function" && typeof __exactTlsEngineWritePlain === "function" && typeof __exactTlsEngineStatus === "function" && typeof __exactTlsEngineTransportEof === "function" && typeof __exactTlsEngineShutdown === "function" && typeof __exactTlsEnginePeerCerts === "function" && typeof __exactTlsEngineClose === "function";
+}
+function _tlsGetEngineId(socket) {
+	return _nativeTlsEngineIds ? _nativeTlsEngineIds.get(socket) : void 0;
+}
+function _tlsSetEngineId(socket, id) {
+	if (_nativeTlsEngineIds) _nativeTlsEngineIds.set(socket, id);
+}
+function _tlsDeleteEngineId(socket) {
+	if (_nativeTlsEngineIds) _nativeTlsEngineIds.delete(socket);
+}
+function _tlsAssertOwner(socket) {
+	var token = _nativeTlsOwnerTokens ? _nativeTlsOwnerTokens.get(socket) : void 0;
+	if (token != null) {
+		__exactTlsOwnerToken("assert", token);
+		return;
+	}
+	var id = _tlsGetEngineId(socket);
+	if (id == null) return;
+	__exactTlsEngineStatus(id);
+}
+function _tlsAssertMutableOwner(socket) {
+	_tlsAssertOwner(socket);
+	var token = _nativeTlsOwnerTokens ? _nativeTlsOwnerTokens.get(socket) : void 0;
+	var privateState = _tlsSocketPrivateStates && _tlsSocketPrivateStates.get(socket);
+	if (token == null && privateState && privateState.values._tlsCloseEmitted) throw _createError("ERR_TLS_SOCKET_CLOSED", "A closed TLSSocket cannot be mutated or reused");
+}
+function _tlsCaptureOwner(socket) {
+	if (!_nativeTlsOwnerTokens || typeof __exactTlsOwnerToken !== "function") return;
+	if (_nativeTlsOwnerTokens.has(socket)) {
+		_tlsAssertOwner(socket);
+		return;
+	}
+	_nativeTlsOwnerTokens.set(socket, __exactTlsOwnerToken("new"));
+}
+function _tlsReleaseOwner(socket) {
+	var token = _nativeTlsOwnerTokens ? _nativeTlsOwnerTokens.get(socket) : void 0;
+	if (token == null) return;
+	__exactTlsOwnerToken("close", token);
+	_nativeTlsOwnerTokens.delete(socket);
+}
+function _tlsNativeEngineConfig(options, host, cipherSuites) {
+	var servername = options.servername || options.sni || null;
+	var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
+	var caSource = options.ca !== void 0 && options.ca !== null ? options.ca : _defaultCACertificates.length ? _defaultCACertificates : null;
+	return {
+		servername: servername ? String(servername) : null,
+		host: host ? String(host) : null,
+		alpn: _alpnProtocolsToList(options.ALPNProtocols),
+		ca: caSource !== null ? _pemSourceToString(caSource) : null,
+		cert: options.cert !== void 0 && options.cert !== null ? _pemSourceToString(options.cert) : null,
+		key: options.key !== void 0 && options.key !== null ? _pemSourceToString(options.key) : null,
+		passphrase: pfxIdentity ? pfxIdentity.passphrase : options.passphrase !== void 0 && options.passphrase !== null ? String(options.passphrase) : null,
+		pfx: pfxIdentity ? pfxIdentity.encoded : null,
+		rejectUnauthorized: options.rejectUnauthorized !== false,
+		hasSession: options.session !== void 0 && options.session !== null,
+		cipherSuites: cipherSuites || _resolveCipherSuites(options, "client"),
+		minVersion: options.minVersion || null,
+		maxVersion: options.maxVersion || null
+	};
 }
 function _alpnProtocolsToList(protocols) {
 	if (!protocols) return [];
@@ -1817,142 +3003,220 @@ function _refineBridgeVerifyError(verify, peerCert) {
 	return _createAuthorizationError(code, verify.reason || "certificate verification failed");
 }
 function _tlsBridgeStatus(socket) {
-	if (socket._tlsEngineId == null) return null;
-	try {
-		return JSON.parse(__exactTlsEngineStatus(socket._tlsEngineId));
-	} catch (e) {
-		return null;
-	}
+	var id = _tlsGetEngineId(socket);
+	if (id == null) return null;
+	var status = JSON.parse(__exactTlsEngineStatus(id));
+	if (!status || typeof status !== "object" || Array.isArray(status)) throw _createError("ERR_TLS_ENGINE_STATUS", "Native TLS engine returned an invalid status");
+	return status;
 }
 function _tlsBridgeRelease(socket) {
-	if (socket._tlsEngineId == null) return;
-	var id = socket._tlsEngineId;
-	socket._tlsEngineId = null;
-	if (typeof __exactTlsEngineClose === "function") try {
-		__exactTlsEngineClose(id);
-	} catch (e) {}
+	var id = _tlsGetEngineId(socket);
+	if (id == null) return;
+	__exactTlsEngineClose(id);
+	_tlsDeleteEngineId(socket);
 }
 function _tlsBridgeFail(socket, err) {
+	var replayHeldClose = _tlsPriv(socket)._tlsDeferredTransportClose === true;
 	_tlsBridgeRelease(socket);
-	if (socket.destroyed) return;
-	socket.destroy(err);
+	_tlsPriv(socket)._bridgeFailed = true;
+	_tlsPriv(socket)._tlsFailureError = err;
+	if (_tlsPub(socket).destroyed) return;
+	_destroyTlsSocketWithError(socket, err, replayHeldClose);
+	_tlsPriv(socket)._tlsDeferredTransportClose = false;
 }
 function _tlsBridgeErrorFromStatus(socket, fallbackMessage) {
-	var status = _tlsBridgeStatus(socket);
+	var status;
+	try {
+		status = _tlsBridgeStatus(socket);
+	} catch (statusErr) {
+		return statusErr;
+	}
+	if (status && status.verify && status.verify.checked && !status.verify.chainOk && status.verify.code) {
+		var peer = _tlsPriv(socket)._peerCertificate;
+		if (!peer) try {
+			peer = _buildBridgedPeerChain(JSON.parse(__exactTlsEnginePeerCerts(_tlsGetEngineId(socket))) || []);
+		} catch (peerErr) {
+			return peerErr;
+		}
+		return _refineBridgeVerifyError(status.verify, peer);
+	}
 	var message = status && status.error || fallbackMessage || "TLS handshake failed";
 	return _createError(status && status.errorCode || "ERR_TLS_HANDSHAKE_FAILURE", message);
 }
 function _tlsBridgePumpOut(socket) {
-	if (socket._tlsEngineId == null || socket._bridgeTransportBackpressured) return false;
-	for (;;) {
-		var raw = socket._socket;
-		if (!raw || typeof raw.write !== "function" || raw.destroyed) {
-			if (!socket.destroyed) _tlsBridgeFail(socket, _createError("ERR_TLS_SOCKET_CLOSED", "TLS transport is not writable"));
-			return false;
+	if (_tlsPriv(socket)._bridgePumpActive) {
+		_tlsPriv(socket)._bridgePumpAgain = true;
+		return !_tlsPriv(socket)._bridgeTransportBackpressured;
+	}
+	if (_tlsGetEngineId(socket) == null || _tlsPriv(socket)._bridgeTransportBackpressured) return false;
+	_tlsPriv(socket)._bridgePumpActive = true;
+	try {
+		for (;;) {
+			var raw = _tlsPriv(socket)._socket;
+			if (!raw || typeof raw.write !== "function" || raw.destroyed) {
+				if (!_tlsPub(socket).destroyed && !_tlsPriv(socket)._tlsDeferredTransportClose) _tlsBridgeFail(socket, _createError("ERR_TLS_SOCKET_CLOSED", "TLS transport is not writable"));
+				return false;
+			}
+			var chunk;
+			try {
+				var engineId = _tlsGetEngineId(socket);
+				if (engineId == null) return false;
+				chunk = __exactTlsEngineReadTls(engineId, 65536);
+			} catch (e) {
+				_tlsBridgeFail(socket, e);
+				return false;
+			}
+			if (!chunk || typeof chunk === "string" || !chunk.byteLength) return true;
+			var accepted;
+			_tlsPriv(socket)._bridgeWriteInFlight = true;
+			_tlsPriv(socket)._bridgeDrainDuringWrite = false;
+			try {
+				accepted = raw.write(_bufferFromBytes(chunk));
+			} catch (writeErr) {
+				_tlsBridgeFail(socket, writeErr);
+				return false;
+			} finally {
+				_tlsPriv(socket)._bridgeWriteInFlight = false;
+			}
+			if (_tlsPub(socket).destroyed || _tlsGetEngineId(socket) == null) return false;
+			if (raw.destroyed) {
+				if (!_tlsPriv(socket)._tlsDeferredTransportClose) _tlsBridgeFail(socket, _createError("ERR_TLS_SOCKET_CLOSED", "TLS transport closed while writing ciphertext"));
+				return false;
+			}
+			if (accepted === false) {
+				if (!_tlsPriv(socket)._bridgeDrainDuringWrite) {
+					_tlsPriv(socket)._bridgeTransportBackpressured = true;
+					_tlsPriv(socket)._bridgeNeedDrain = true;
+					return false;
+				}
+				_tlsPriv(socket)._bridgeDrainDuringWrite = false;
+			}
 		}
-		var chunk;
-		try {
-			chunk = __exactTlsEngineReadTls(socket._tlsEngineId, 65536);
-		} catch (e) {
-			return false;
-		}
-		if (!chunk || typeof chunk === "string" || !chunk.byteLength) return true;
-		if (raw.write(_bufferFromBytes(chunk)) === false) {
-			socket._bridgeTransportBackpressured = true;
-			socket._bridgeNeedDrain = true;
-			return false;
-		}
+	} finally {
+		_tlsPriv(socket)._bridgePumpActive = false;
 	}
 }
 function _tlsBridgeEncode(socket, data) {
-	if (!socket._bridgeEncoding || !data || typeof data.toString !== "function") return data;
-	if (socket._bridgeDecoder && typeof socket._bridgeDecoder.write === "function") return socket._bridgeDecoder.write(data);
-	return data.toString(socket._bridgeEncoding);
+	if (!_tlsPriv(socket)._bridgeEncoding || !data || typeof data.toString !== "function") return data;
+	if (_tlsPriv(socket)._bridgeDecoder && typeof _tlsPriv(socket)._bridgeDecoder.write === "function") return _tlsPriv(socket)._bridgeDecoder.write(data);
+	return data.toString(_tlsPriv(socket)._bridgeEncoding);
 }
 function _tlsBridgeEmitData(socket, data) {
 	var encoded = _tlsBridgeEncode(socket, data);
-	if (typeof encoded === "string" && encoded.length === 0) return;
-	if (typeof socket.emit === "function") socket.emit("data", encoded);
+	if (typeof encoded === "string" && encoded.length === 0) return true;
+	var rawWasDestroyed = _tlsRawTransportDestroyed(socket);
+	var closeWasDeferred = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+	_tlsEmitInternal(socket, "data", [encoded]);
+	if (_tlsTerminateIfTransportChanged(socket, rawWasDestroyed, closeWasDeferred)) return false;
+	if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) _terminateTlsForDestroyedTransport(socket);
+	return !_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null;
 }
 function _tlsBridgeIsFlowing(socket) {
-	return !socket._bridgePaused && typeof socket.listenerCount === "function" && socket.listenerCount("data") > 0;
+	return !_tlsPriv(socket)._bridgePaused && _tlsListenerCountInternal(socket, "data") > 0;
 }
 function _tlsBridgePauseInput(socket) {
-	if (socket._bridgeInputPaused) return;
-	socket._bridgeInputPaused = true;
-	var raw = socket._socket;
+	if (_tlsPriv(socket)._bridgeInputPaused) return;
+	_tlsPriv(socket)._bridgeInputPaused = true;
+	var raw = _tlsPriv(socket)._socket;
 	if (raw && typeof raw.pause === "function") raw.pause();
 }
 function _tlsBridgeDrainPlain(socket) {
-	if (socket._tlsEngineId == null) return false;
+	if (!_tlsPriv(socket)._tlsApplicationReady || _tlsGetEngineId(socket) == null) return false;
+	if (_tlsPriv(socket)._bridgeDrainingPlain) return false;
+	_tlsPriv(socket)._bridgeDrainingPlain = true;
 	var madeProgress = false;
-	for (;;) {
-		var flowing = _tlsBridgeIsFlowing(socket);
-		var capacity = flowing ? 65536 : Math.max(0, socket._readableHighWaterMark - (socket._bridgeReadQueueBytes || 0));
-		if (capacity <= 0) {
-			_tlsBridgePauseInput(socket);
-			return madeProgress;
+	try {
+		for (;;) {
+			var flowing = _tlsBridgeIsFlowing(socket);
+			var capacity = flowing ? 65536 : Math.max(0, _tlsPriv(socket)._readableHighWaterMark - (_tlsPriv(socket)._bridgeReadQueueBytes || 0));
+			if (capacity <= 0) {
+				_tlsBridgePauseInput(socket);
+				return madeProgress;
+			}
+			var chunk;
+			try {
+				var engineId = _tlsGetEngineId(socket);
+				if (engineId == null) return madeProgress;
+				chunk = __exactTlsEngineReadPlain(engineId, Math.min(65536, capacity));
+			} catch (e) {
+				_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, e && e.message));
+				return madeProgress;
+			}
+			if (chunk === null) {
+				_tlsPriv(socket)._bridgeNativeEnded = true;
+				_tlsBridgeMaybeEmitEnd(socket);
+				return madeProgress;
+			}
+			if (!chunk || typeof chunk === "string" || !chunk.byteLength) return madeProgress;
+			madeProgress = true;
+			if (_tlsGetEngineId(socket) == null || _tlsPub(socket).destroyed) return madeProgress;
+			var data = _bufferFromBytes(chunk);
+			if (flowing) {
+				if (!_tlsBridgeEmitData(socket, data)) return madeProgress;
+			} else {
+				if (!_tlsPriv(socket)._bridgeReadQueue) _tlsPriv(socket)._bridgeReadQueue = [];
+				_tlsPriv(socket)._bridgeReadQueue.push(data);
+				_tlsPriv(socket)._bridgeReadQueueBytes = (_tlsPriv(socket)._bridgeReadQueueBytes || 0) + _byteLength(data);
+				var rawWasDestroyed = _tlsRawTransportDestroyed(socket);
+				var closeWasDeferred = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+				_tlsEmitInternal(socket, "readable");
+				if (_tlsTerminateIfTransportChanged(socket, rawWasDestroyed, closeWasDeferred)) return madeProgress;
+				if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) {
+					_terminateTlsForDestroyedTransport(socket);
+					return madeProgress;
+				}
+			}
 		}
-		var chunk;
-		try {
-			chunk = __exactTlsEngineReadPlain(socket._tlsEngineId, Math.min(65536, capacity));
-		} catch (e) {
-			_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, "TLS record processing failed"));
-			return madeProgress;
-		}
-		if (chunk === null) {
-			socket._bridgeNativeEnded = true;
-			_tlsBridgeMaybeEmitEnd(socket);
-			return madeProgress;
-		}
-		if (!chunk || typeof chunk === "string" || !chunk.byteLength) return madeProgress;
-		madeProgress = true;
-		if (socket._tlsEngineId == null || socket.destroyed) return madeProgress;
-		var data = _bufferFromBytes(chunk);
-		if (flowing && typeof socket.emit === "function") _tlsBridgeEmitData(socket, data);
-		else {
-			if (!socket._bridgeReadQueue) socket._bridgeReadQueue = [];
-			socket._bridgeReadQueue.push(data);
-			socket._bridgeReadQueueBytes = (socket._bridgeReadQueueBytes || 0) + _byteLength(data);
-			if (typeof socket.emit === "function") socket.emit("readable");
-		}
+	} finally {
+		_tlsPriv(socket)._bridgeDrainingPlain = false;
 	}
 }
 function _tlsBridgeFlushReadQueue(socket) {
-	if (socket._bridgePaused || !socket._bridgeReadQueue || !socket._bridgeReadQueue.length || typeof socket.listenerCount !== "function" || socket.listenerCount("data") === 0) return;
-	var pending = socket._bridgeReadQueue;
-	socket._bridgeReadQueue = [];
-	socket._bridgeReadQueueBytes = 0;
+	if (_tlsPriv(socket)._bridgePaused || !_tlsPriv(socket)._bridgeReadQueue || !_tlsPriv(socket)._bridgeReadQueue.length || _tlsListenerCountInternal(socket, "data") === 0) return;
+	var pending = _tlsPriv(socket)._bridgeReadQueue;
+	var firstOffset = _tlsPriv(socket)._bridgeReadQueueOffset || 0;
+	_tlsPriv(socket)._bridgeReadQueue = [];
+	_tlsPriv(socket)._bridgeReadQueueBytes = 0;
+	_tlsPriv(socket)._bridgeReadQueueOffset = 0;
 	var i = 0;
-	for (; i < pending.length && !socket._bridgePaused; i++) _tlsBridgeEmitData(socket, pending[i]);
-	if (i < pending.length) {
-		socket._bridgeReadQueue = pending.slice(i);
-		for (; i < pending.length; i++) socket._bridgeReadQueueBytes += _byteLength(pending[i]);
+	for (; i < pending.length && !_tlsPriv(socket)._bridgePaused && !_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null; i++) if (!_tlsBridgeEmitData(socket, i === 0 && firstOffset ? pending[i].slice(firstOffset) : pending[i])) return;
+	if (i < pending.length && !_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null) {
+		_tlsPriv(socket)._bridgeReadQueue = pending.slice(i);
+		for (; i < pending.length; i++) _tlsPriv(socket)._bridgeReadQueueBytes += _byteLength(pending[i]);
 	}
-	_tlsBridgeMaybeEmitEnd(socket);
+	if (!_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null) _tlsBridgeMaybeEmitEnd(socket);
 }
 function _tlsBridgeFlushPendingWrites(socket) {
+	if (_tlsRawTransportUnexpectedlyDestroyed(socket)) {
+		_terminateTlsForDestroyedTransport(socket);
+		return;
+	}
+	if (_tlsRawTransportDestroyed(socket)) {
+		_tlsDropBridgeWrites(socket);
+		return;
+	}
 	_tlsBridgeDrainApplicationWrites(socket);
 	_tlsBridgeMaybeFinishEnd(socket);
 }
 function _tlsBridgeUpdateBufferedBytes(socket) {
-	socket._bufferedBytes = (socket._heldWriteBytes || 0) + (socket._bridgePendingWriteBytes || 0);
+	_tlsPriv(socket)._bufferedBytes = (_tlsPriv(socket)._heldWriteBytes || 0) + (_tlsPriv(socket)._bridgePendingWriteBytes || 0);
 }
 function _tlsBridgeMaybeEmitDrain(socket) {
-	if (!socket._bridgeNeedDrain || socket._bridgeTransportBackpressured || (socket._bridgePendingWriteBytes || 0) >= socket._writableHighWaterMark || !socket._secureEstablished || socket.destroyed) return;
-	socket._bridgeNeedDrain = false;
-	if (socket._bridgeDrainScheduled) return;
-	socket._bridgeDrainScheduled = true;
+	if (!_tlsPriv(socket)._bridgeNeedDrain || _tlsPriv(socket)._bridgeTransportBackpressured || (_tlsPriv(socket)._bridgePendingWriteBytes || 0) >= _tlsPriv(socket)._writableHighWaterMark || !_tlsPriv(socket)._tlsApplicationReady || _tlsPub(socket).destroyed) return;
+	_tlsPriv(socket)._bridgeNeedDrain = false;
+	if (_tlsPriv(socket)._bridgeDrainScheduled) return;
+	_tlsPriv(socket)._bridgeDrainScheduled = true;
 	setTimeout(function() {
-		socket._bridgeDrainScheduled = false;
-		if (!socket.destroyed && typeof socket.emit === "function") socket.emit("drain");
+		_tlsAssertOwner(socket);
+		_tlsPriv(socket)._bridgeDrainScheduled = false;
+		if (!_tlsPub(socket).destroyed) _tlsEmitInternal(socket, "drain");
 	}, 0);
 }
 function _tlsBridgeDrainApplicationWrites(socket) {
-	if (!socket._secureEstablished || socket._tlsEngineId == null || socket._bridgeTransportBackpressured || socket.destroyed) return;
-	var pending = socket._bridgePendingWrites || [];
+	if (!_tlsPriv(socket)._tlsApplicationReady || _tlsGetEngineId(socket) == null || _tlsPriv(socket)._bridgeTransportBackpressured || _tlsPub(socket).destroyed) return;
+	var pending = _tlsPriv(socket)._bridgePendingWrites || [];
 	var zeroProgressRetries = 0;
-	while (pending.length && !socket._bridgeTransportBackpressured && !socket.destroyed) {
+	while (pending.length && !_tlsPriv(socket)._bridgeTransportBackpressured && !_tlsPub(socket).destroyed) {
 		var item = pending[0];
 		var total = _byteLength(item.buffer);
 		if (item.offset >= total) {
@@ -1963,9 +3227,11 @@ function _tlsBridgeDrainApplicationWrites(socket) {
 		var chunk = item.offset === 0 ? item.buffer : item.buffer.slice(item.offset);
 		var accepted;
 		try {
-			accepted = __exactTlsEngineWritePlain(socket._tlsEngineId, chunk);
+			var engineId = _tlsGetEngineId(socket);
+			accepted = engineId == null ? -1 : __exactTlsEngineWritePlain(engineId, chunk);
 		} catch (e) {
-			accepted = -1;
+			_tlsBridgeFail(socket, e);
+			return;
 		}
 		if (accepted < 0) {
 			_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, "TLS write failed"));
@@ -1973,12 +3239,13 @@ function _tlsBridgeDrainApplicationWrites(socket) {
 		}
 		if (accepted === 0) {
 			_tlsBridgePumpOut(socket);
-			if (socket._bridgeTransportBackpressured || socket.destroyed) return;
+			if (_tlsPriv(socket)._bridgeTransportBackpressured || _tlsPub(socket).destroyed) return;
 			if (++zeroProgressRetries <= 1) continue;
-			if (!socket._bridgeWriteRetryScheduled) {
-				socket._bridgeWriteRetryScheduled = true;
+			if (!_tlsPriv(socket)._bridgeWriteRetryScheduled) {
+				_tlsPriv(socket)._bridgeWriteRetryScheduled = true;
 				setTimeout(function() {
-					socket._bridgeWriteRetryScheduled = false;
+					_tlsAssertOwner(socket);
+					_tlsPriv(socket)._bridgeWriteRetryScheduled = false;
 					_tlsBridgeDrainApplicationWrites(socket);
 				}, 0);
 			}
@@ -1986,228 +3253,379 @@ function _tlsBridgeDrainApplicationWrites(socket) {
 		}
 		zeroProgressRetries = 0;
 		item.offset += accepted;
-		socket._bridgePendingWriteBytes = Math.max(0, (socket._bridgePendingWriteBytes || 0) - accepted);
+		_tlsPriv(socket)._bridgePendingWriteBytes = Math.max(0, (_tlsPriv(socket)._bridgePendingWriteBytes || 0) - accepted);
 		_tlsBridgeUpdateBufferedBytes(socket);
 		_tlsBridgePumpOut(socket);
 	}
-	socket._bridgePendingWrites = pending;
+	_tlsPriv(socket)._bridgePendingWrites = pending;
 	_tlsBridgeMaybeEmitDrain(socket);
 	_tlsBridgeMaybeFinishEnd(socket);
 }
 function _tlsBridgeMaybeFinishEnd(socket) {
-	if (!socket._bridgeHeldEnd || !socket._secureEstablished || socket.destroyed || socket._bridgePendingWrites && socket._bridgePendingWrites.length) return;
-	if (!socket._bridgeShutdownQueued) {
-		socket._bridgeShutdownQueued = true;
-		if (socket._tlsEngineId != null && typeof __exactTlsEngineShutdown === "function") try {
-			__exactTlsEngineShutdown(socket._tlsEngineId);
-		} catch (e) {}
+	if (!_tlsPriv(socket)._bridgeHeldEnd || !_tlsPriv(socket)._tlsApplicationReady || _tlsPub(socket).destroyed || _tlsPriv(socket)._bridgePendingWrites && _tlsPriv(socket)._bridgePendingWrites.length) return;
+	if (!_tlsPriv(socket)._bridgeShutdownQueued) {
+		_tlsPriv(socket)._bridgeShutdownQueued = true;
+		var engineId = _tlsGetEngineId(socket);
+		if (engineId != null && typeof __exactTlsEngineShutdown === "function") try {
+			__exactTlsEngineShutdown(engineId);
+		} catch (shutdownErr) {
+			_tlsPriv(socket)._bridgeShutdownQueued = false;
+			throw shutdownErr;
+		}
 	}
 	_tlsBridgePumpOut(socket);
-	var status = _tlsBridgeStatus(socket);
-	if (socket._bridgeTransportBackpressured || status && status.wantsWrite) return;
-	var callback = socket._bridgeHeldEnd;
-	socket._bridgeHeldEnd = null;
-	var raw = socket._socket;
+	var status;
+	try {
+		status = _tlsBridgeStatus(socket);
+	} catch (statusErr) {
+		_tlsBridgeFail(socket, statusErr);
+		return;
+	}
+	if (status && status.error) {
+		_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket, "TLS shutdown failed"));
+		return;
+	}
+	if (_tlsPriv(socket)._bridgeTransportBackpressured || status && status.wantsWrite) return;
+	var callback = _tlsPriv(socket)._bridgeHeldEnd;
+	_tlsPriv(socket)._bridgeHeldEnd = null;
+	var raw = _tlsPriv(socket)._socket;
 	if (raw && typeof raw.end === "function") raw.end(typeof callback === "function" ? callback : void 0);
 	else if (typeof callback === "function") setTimeout(callback, 0);
 }
 function _tlsBridgeOnRawDrain(socket) {
-	socket._bridgeTransportBackpressured = false;
+	if (_tlsPriv(socket)._bridgeWriteInFlight) {
+		_tlsPriv(socket)._bridgeDrainDuringWrite = true;
+		_tlsPriv(socket)._bridgeTransportBackpressured = false;
+		_tlsPriv(socket)._bridgePumpAgain = true;
+		return;
+	}
+	_tlsPriv(socket)._bridgeTransportBackpressured = false;
 	_tlsBridgePumpOut(socket);
-	if (!socket._bridgeTransportBackpressured) _tlsBridgeDrainApplicationWrites(socket);
+	if (!_tlsPriv(socket)._bridgeTransportBackpressured) _tlsBridgeProcessCipherQueue(socket);
+	if (!_tlsPriv(socket)._bridgeTransportBackpressured) _tlsBridgeDrainApplicationWrites(socket);
 	_tlsBridgeMaybeFinishEnd(socket);
 	_tlsBridgeMaybeEmitDrain(socket);
 }
 function _tlsReleaseHeldWrites(socket, mode) {
-	if (!socket._writeHeld) return;
-	socket._writeHeld = false;
-	var held = socket._heldWrites || [];
-	socket._heldWrites = null;
-	socket._heldWriteBytes = 0;
-	var heldEnd = socket._heldEnd;
-	socket._heldEnd = null;
+	if (!_tlsPriv(socket)._writeHeld) return true;
+	_tlsPriv(socket)._writeHeld = false;
+	var held = _tlsPriv(socket)._heldWrites || [];
+	_tlsPriv(socket)._heldWrites = null;
+	_tlsPriv(socket)._heldWriteBytes = 0;
+	var heldEnd = _tlsPriv(socket)._heldEnd;
+	_tlsPriv(socket)._heldEnd = null;
 	if (mode === "drop") {
+		_tlsSettleWriteCallbacks(held, heldEnd, _tlsPendingWriteError(socket));
 		_tlsBridgeUpdateBufferedBytes(socket);
-		return;
+		return true;
 	}
 	if (mode === "bridge") {
-		if (!socket._bridgePendingWrites) socket._bridgePendingWrites = [];
+		if (!_tlsPriv(socket)._bridgePendingWrites) _tlsPriv(socket)._bridgePendingWrites = [];
 		for (var i = 0; i < held.length; i++) {
-			socket._bridgePendingWrites.push(held[i]);
-			socket._bridgePendingWriteBytes = (socket._bridgePendingWriteBytes || 0) + Math.max(0, _byteLength(held[i].buffer) - (held[i].offset || 0));
+			_tlsPriv(socket)._bridgePendingWrites.push(held[i]);
+			_tlsPriv(socket)._bridgePendingWriteBytes = (_tlsPriv(socket)._bridgePendingWriteBytes || 0) + Math.max(0, _byteLength(held[i].buffer) - (held[i].offset || 0));
 		}
 		_tlsBridgeUpdateBufferedBytes(socket);
-		if (heldEnd) socket._bridgeHeldEnd = heldEnd;
-		return;
+		if (heldEnd) _tlsPriv(socket)._bridgeHeldEnd = heldEnd;
+		return true;
 	}
-	var raw = socket._socket;
-	if (socket._bridgeEncoding && raw && typeof raw.setEncoding === "function") raw.setEncoding(socket._bridgeEncoding);
-	for (var j = 0; j < held.length; j++) if (raw && typeof raw.write === "function") raw.write(held[j].buffer, held[j].callback);
-	else if (typeof held[j].callback === "function") setTimeout(held[j].callback, 0);
-	if (heldEnd && raw && typeof raw.end === "function") raw.end(typeof heldEnd === "function" ? heldEnd : void 0);
+	var raw = _tlsPriv(socket)._socket;
+	if (!raw || raw.destroyed) {
+		_tlsSettleWriteCallbacks(held, heldEnd, _tlsPendingWriteError(socket));
+		_tlsBridgeUpdateBufferedBytes(socket);
+		return false;
+	}
+	var flushError = null;
+	try {
+		if (_tlsPriv(socket)._bridgeEncoding && typeof raw.setEncoding === "function") raw.setEncoding(_tlsPriv(socket)._bridgeEncoding);
+	} catch (encodingErr) {
+		flushError = encodingErr;
+	}
+	for (var j = 0; !flushError && j < held.length; j++) {
+		if (raw.destroyed) {
+			flushError = _tlsPendingWriteError(socket);
+			break;
+		}
+		var item = held[j];
+		var originalCallback = item.callback;
+		if (typeof originalCallback === "function") item.callback = (function(entry, callback) {
+			var settled = false;
+			return function(err) {
+				if (settled) return;
+				settled = true;
+				entry.callback = null;
+				callback(err);
+			};
+		})(item, originalCallback);
+		try {
+			if (typeof raw.write === "function") raw.write(item.buffer, item.callback);
+			else if (typeof item.callback === "function") setTimeout(item.callback, 0);
+		} catch (writeErr) {
+			flushError = writeErr;
+		}
+		if (!flushError && raw.destroyed) flushError = _tlsPendingWriteError(socket);
+		if (flushError) {
+			if (typeof item.callback === "function") item.callback(flushError);
+			_tlsSettleWriteCallbacks(held.slice(j + 1), heldEnd, flushError);
+		}
+	}
+	if (!flushError && heldEnd && typeof raw.end === "function") try {
+		if (!raw.destroyed) raw.end(typeof heldEnd === "function" ? heldEnd : void 0);
+		if (raw.destroyed && typeof heldEnd === "function") heldEnd(_tlsPendingWriteError(socket));
+	} catch (endErr) {
+		flushError = endErr;
+		if (typeof heldEnd === "function") heldEnd(endErr);
+	}
+	_tlsBridgeUpdateBufferedBytes(socket);
+	if (!flushError) return true;
+	if (!_tlsPub(socket).destroyed) _destroyTlsSocketWithError(socket, flushError, false);
+	return false;
 }
 function _tlsBridgeWrite(socket, data, encoding, callback) {
-	if (socket.destroyed || socket._tlsEngineId == null) {
-		if (typeof callback === "function") setTimeout(callback, 0);
+	if (_tlsPub(socket).destroyed || _tlsGetEngineId(socket) == null) {
+		if (typeof callback === "function") {
+			var destroyedErr = _tlsPendingWriteError(socket);
+			setTimeout(function() {
+				callback(destroyedErr);
+			}, 0);
+		}
 		return false;
 	}
 	var buf = _tlsWriteBuffer(data, encoding);
 	var length = _byteLength(buf);
-	if (!socket._bridgePendingWrites) socket._bridgePendingWrites = [];
-	socket._bridgePendingWrites.push({
+	if (!_tlsPriv(socket)._bridgePendingWrites) _tlsPriv(socket)._bridgePendingWrites = [];
+	_tlsPriv(socket)._bridgePendingWrites.push({
 		buffer: buf,
 		offset: 0,
 		callback
 	});
-	socket._bridgePendingWriteBytes = (socket._bridgePendingWriteBytes || 0) + length;
+	_tlsPriv(socket)._bridgePendingWriteBytes = (_tlsPriv(socket)._bridgePendingWriteBytes || 0) + length;
 	_tlsBridgeUpdateBufferedBytes(socket);
-	if (socket._secureEstablished) _tlsBridgeDrainApplicationWrites(socket);
-	var backpressured = socket._bridgeTransportBackpressured || socket._bridgePendingWriteBytes >= socket._writableHighWaterMark;
-	if (backpressured) socket._bridgeNeedDrain = true;
+	if (_tlsPriv(socket)._tlsApplicationReady) _tlsBridgeDrainApplicationWrites(socket);
+	var backpressured = _tlsPriv(socket)._bridgeTransportBackpressured || _tlsPriv(socket)._bridgePendingWriteBytes >= _tlsPriv(socket)._writableHighWaterMark;
+	if (backpressured) _tlsPriv(socket)._bridgeNeedDrain = true;
 	return !backpressured;
 }
 function _finalizeBridgedHandshake(socket) {
-	if (socket._secureEstablished || socket.destroyed) return;
-	var opts = socket._tlsOptions || {};
-	var status = _tlsBridgeStatus(socket);
-	if (!status) return;
+	if (_tlsPriv(socket)._secureEstablished || _tlsPriv(socket)._tlsHandshakeFinalizing || _tlsPub(socket).destroyed) return;
+	var opts = _tlsPriv(socket)._tlsOptions || {};
+	var status;
+	try {
+		status = _tlsBridgeStatus(socket);
+	} catch (statusErr) {
+		_tlsBridgeFail(socket, statusErr);
+		return;
+	}
 	if (status.error) {
 		_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket));
 		return;
 	}
 	if (status.handshaking) return;
-	socket._secureEstablished = true;
-	socket.pending = false;
-	socket.encrypted = true;
-	if (status.protocol) socket._protocol = status.protocol;
-	socket._cipher = {
-		name: status.cipher || null,
-		standardName: status.cipherStandard || status.cipher || null,
-		version: status.protocol || socket._protocol
-	};
-	socket.alpnProtocol = status.alpn || false;
-	if (!(opts.servername || opts.sni)) socket.servername = false;
-	socket._session = null;
-	socket._sessionReused = false;
-	var derChain = [];
+	_tlsPriv(socket)._tlsHandshakeFinalizing = true;
 	try {
-		derChain = JSON.parse(__exactTlsEnginePeerCerts(socket._tlsEngineId)) || [];
-	} catch (e) {
-		derChain = [];
-	}
-	socket._peerCertificate = _buildBridgedPeerChain(derChain);
-	socket._localCertificate = opts.cert ? _buildLocalCertificate(socket._servername || socket.remoteAddress || "localhost", socket.remotePort, opts) : null;
-	var verifyError = null;
-	if (!status.verify || !status.verify.checked || !socket._peerCertificate) verifyError = _createAuthorizationError("UNABLE_TO_VERIFY_CERT", "certificate verification failed");
-	else if (!status.verify.chainOk) verifyError = _refineBridgeVerifyError(status.verify, socket._peerCertificate);
-	if (!verifyError) {
-		var check = opts.checkServerIdentity || checkServerIdentity;
-		var identityHost = socket._servername || socket.remoteAddress || "localhost";
+		_tlsPub(socket).encrypted = true;
+		if (status.protocol) _tlsPriv(socket)._protocol = status.protocol;
+		_tlsPriv(socket)._cipher = {
+			name: status.cipher || null,
+			standardName: status.cipherStandard || status.cipher || null,
+			version: status.protocol || _tlsPriv(socket)._protocol
+		};
+		_tlsPub(socket).alpnProtocol = status.alpn || false;
+		if (!(opts.servername || opts.sni)) _tlsPub(socket).servername = false;
+		_tlsPriv(socket)._session = null;
+		_tlsPriv(socket)._sessionReused = false;
+		var derChain = [];
 		try {
-			verifyError = _normalizeCheckError(check(identityHost, socket._peerCertificate, opts));
-		} catch (checkErr) {
-			verifyError = _normalizeCheckError(checkErr);
+			derChain = JSON.parse(__exactTlsEnginePeerCerts(_tlsGetEngineId(socket))) || [];
+		} catch (peerCertErr) {
+			_tlsBridgeFail(socket, peerCertErr);
+			return;
 		}
-	}
-	if (verifyError) {
-		socket.authorized = false;
-		socket.authorizationError = verifyError.code || verifyError.message || String(verifyError);
-		socket._authorizationErrorObject = verifyError;
-	} else {
-		socket.authorized = true;
-		socket.authorizationError = null;
-		socket._authorizationErrorObject = null;
-	}
-	if (socket.authorized || opts.rejectUnauthorized === false) {
-		if (typeof socket.emit === "function") {
-			socket.emit("secure", true);
-			socket.emit("secureConnect");
+		_tlsPriv(socket)._peerCertificate = _buildBridgedPeerChain(derChain);
+		_tlsPriv(socket)._localCertificate = opts.cert ? _buildLocalCertificate(_tlsPriv(socket)._servername || _tlsPub(socket).remoteAddress || "localhost", _tlsPub(socket).remotePort, opts) : null;
+		var verifyError = null;
+		if (!status.verify || !status.verify.checked || !_tlsPriv(socket)._peerCertificate) verifyError = _createAuthorizationError("UNABLE_TO_VERIFY_CERT", "certificate verification failed");
+		else if (!status.verify.chainOk) verifyError = _refineBridgeVerifyError(status.verify, _tlsPriv(socket)._peerCertificate);
+		var rawDestroyedBeforeIdentity = _tlsRawTransportDestroyed(socket);
+		var closeDeferredBeforeIdentity = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+		if (!verifyError) {
+			var check = opts.checkServerIdentity || checkServerIdentity;
+			var identityHost = _tlsPriv(socket)._servername || _tlsPub(socket).remoteAddress || "localhost";
+			try {
+				verifyError = _normalizeCheckError(check(identityHost, _tlsPriv(socket)._peerCertificate, opts));
+			} catch (checkErr) {
+				verifyError = _normalizeCheckError(checkErr);
+			}
 		}
-		_tlsBridgeFlushPendingWrites(socket);
-		return;
+		if (_tlsTerminateIfTransportChanged(socket, rawDestroyedBeforeIdentity, closeDeferredBeforeIdentity)) return;
+		if (verifyError) {
+			_tlsPub(socket).authorized = false;
+			_tlsPub(socket).authorizationError = verifyError.code || verifyError.message || String(verifyError);
+			_tlsPriv(socket)._authorizationErrorObject = verifyError;
+		} else {
+			_tlsPub(socket).authorized = true;
+			_tlsPub(socket).authorizationError = null;
+			_tlsPriv(socket)._authorizationErrorObject = null;
+		}
+		if (_tlsPub(socket).destroyed || _tlsRawTransportUnexpectedlyDestroyed(socket) || _tlsGetEngineId(socket) == null) {
+			if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) _terminateTlsForDestroyedTransport(socket);
+			_tlsDropBridgeWrites(socket);
+			return;
+		}
+		if (_tlsPub(socket).authorized || opts.rejectUnauthorized === false) {
+			_tlsPriv(socket)._secureEstablished = true;
+			_tlsPriv(socket)._pending = false;
+			var rawDestroyedBeforeSecureConnect = _tlsRawTransportDestroyed(socket);
+			var closeDeferredBeforeSecureConnect = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+			_tlsEmitInternal(socket, "secureConnect");
+			if (_tlsTerminateIfTransportChanged(socket, rawDestroyedBeforeSecureConnect, closeDeferredBeforeSecureConnect)) return;
+			if (_tlsPub(socket).destroyed || _tlsRawTransportUnexpectedlyDestroyed(socket) || _tlsGetEngineId(socket) == null) {
+				if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) _terminateTlsForDestroyedTransport(socket);
+				_tlsDropBridgeWrites(socket);
+				return;
+			}
+			var rawDestroyedBeforeSecure = _tlsRawTransportDestroyed(socket);
+			var closeDeferredBeforeSecure = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+			_tlsEmitInternal(socket, "secure", [true]);
+			if (_tlsTerminateIfTransportChanged(socket, rawDestroyedBeforeSecure, closeDeferredBeforeSecure)) return;
+			if (_tlsPub(socket).destroyed || _tlsRawTransportUnexpectedlyDestroyed(socket) || _tlsGetEngineId(socket) == null) {
+				if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) _terminateTlsForDestroyedTransport(socket);
+				_tlsDropBridgeWrites(socket);
+				return;
+			}
+			_tlsPriv(socket)._tlsApplicationReady = true;
+			_tlsBridgeFlushPendingWrites(socket);
+			return;
+		}
+		_tlsPriv(socket)._bridgePendingWrites = null;
+		_tlsBridgeFail(socket, _tlsPriv(socket)._authorizationErrorObject || _createError("UNABLE_TO_VERIFY_CERT", "certificate verification failed"));
+	} finally {
+		_tlsPriv(socket)._tlsHandshakeFinalizing = false;
 	}
-	socket._bridgePendingWrites = null;
-	_tlsBridgeFail(socket, socket._authorizationErrorObject || _createError("UNABLE_TO_VERIFY_CERT", "certificate verification failed"));
 }
 function _tlsBridgeScheduleEnd(socket) {
-	if (socket._bridgeEndScheduled || socket._bridgeEndEmitted || socket.destroyed) return;
-	socket._bridgeEndScheduled = true;
+	if (_tlsPriv(socket)._bridgeEndScheduled || _tlsPriv(socket)._bridgeEndEmitted || _tlsPub(socket).destroyed) return;
+	_tlsPriv(socket)._bridgeEndScheduled = true;
 	var finish = function() {
-		socket._bridgeEndScheduled = false;
-		if (!socket.destroyed) _tlsBridgeMaybeEmitEnd(socket);
+		_tlsAssertOwner(socket);
+		_tlsPriv(socket)._bridgeEndScheduled = false;
+		if (!_tlsPub(socket).destroyed) _tlsBridgeMaybeEmitEnd(socket);
 	};
 	if (typeof process === "object" && process && typeof process.nextTick === "function") process.nextTick(finish);
 	else setTimeout(finish, 0);
 }
+function _tlsBridgeMaybeFinalizeDeferredClose(socket) {
+	if (!_tlsPriv(socket)._tlsDeferredTransportClose || _tlsPriv(socket)._tlsCloseEmitted || !_tlsPriv(socket)._bridgeEndEmitted || (_tlsPriv(socket)._bridgeReadQueueBytes || 0) > 0 || _tlsPriv(socket)._bridgeDecodedTail !== null && _tlsPriv(socket)._bridgeDecodedTail !== void 0) return;
+	var hadError = _tlsPriv(socket)._tlsDeferredCloseHadError === true;
+	_tlsBridgeRelease(socket);
+	_tlsPriv(socket)._tlsDeferredTransportClose = false;
+	_tlsPriv(socket)._tlsDeferredCloseHadError = false;
+	_emitTlsCloseOnce(socket, hadError);
+}
 function _tlsBridgeMaybeEmitEnd(socket) {
-	if (!socket._bridgeNativeEnded || socket._bridgeEndEmitted || (socket._bridgeReadQueueBytes || 0) > 0) return;
-	if ((socket._bridgeReadDepth || 0) > 0) {
+	if (_tlsPub(socket).destroyed || _tlsGetEngineId(socket) == null) return;
+	if (_tlsRawTransportUnexpectedlyDestroyed(socket)) {
+		_terminateTlsForDestroyedTransport(socket);
+		return;
+	}
+	if (_tlsPriv(socket)._bridgeEndEmitted) {
+		_tlsBridgeMaybeFinalizeDeferredClose(socket);
+		return;
+	}
+	if (!_tlsPriv(socket)._bridgeNativeEnded || (_tlsPriv(socket)._bridgeReadQueueBytes || 0) > 0) return;
+	if ((_tlsPriv(socket)._bridgeReadDepth || 0) > 0) {
 		_tlsBridgeScheduleEnd(socket);
 		return;
 	}
-	if (socket._bridgeDecoder && !socket._bridgeDecoderFinalized && typeof socket._bridgeDecoder.end === "function") {
-		socket._bridgeDecoderFinalized = true;
-		var trailing = socket._bridgeDecoder.end();
-		if (trailing) if (_tlsBridgeIsFlowing(socket) && typeof socket.emit === "function") socket.emit("data", trailing);
-		else {
-			socket._bridgeDecodedTail = trailing;
-			if (typeof socket.emit === "function") socket.emit("readable");
+	if (_tlsPriv(socket)._bridgeDecoder && !_tlsPriv(socket)._bridgeDecoderFinalized && typeof _tlsPriv(socket)._bridgeDecoder.end === "function") {
+		_tlsPriv(socket)._bridgeDecoderFinalized = true;
+		var trailing = _tlsPriv(socket)._bridgeDecoder.end();
+		if (trailing) if (_tlsBridgeIsFlowing(socket)) {
+			var rawWasDestroyed = _tlsRawTransportDestroyed(socket);
+			var closeWasDeferred = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+			_tlsEmitInternal(socket, "data", [trailing]);
+			if (_tlsTerminateIfTransportChanged(socket, rawWasDestroyed, closeWasDeferred)) return;
+			if (_tlsPub(socket).destroyed || _tlsRawTransportUnexpectedlyDestroyed(socket) || _tlsGetEngineId(socket) == null) return;
+		} else {
+			_tlsPriv(socket)._bridgeDecodedTail = trailing;
+			var rawWasDestroyedReadable = _tlsRawTransportDestroyed(socket);
+			var closeWasDeferredReadable = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+			_tlsEmitInternal(socket, "readable");
+			if (_tlsTerminateIfTransportChanged(socket, rawWasDestroyedReadable, closeWasDeferredReadable)) return;
+			if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) _terminateTlsForDestroyedTransport(socket);
 			return;
 		}
 	}
-	if (socket._bridgeDecodedTail !== null && socket._bridgeDecodedTail !== void 0) return;
-	socket._bridgeEndEmitted = true;
-	socket._bridgeEndScheduled = false;
-	socket.readable = false;
-	if (typeof socket.emit === "function") socket.emit("end");
+	if (_tlsPriv(socket)._bridgeDecodedTail !== null && _tlsPriv(socket)._bridgeDecodedTail !== void 0) return;
+	_tlsPriv(socket)._bridgeEndEmitted = true;
+	_tlsPriv(socket)._bridgeEndScheduled = false;
+	_tlsPub(socket).readable = false;
+	var rawWasDestroyedEnd = _tlsRawTransportDestroyed(socket);
+	var closeWasDeferredEnd = _tlsPriv(socket)._tlsDeferredTransportClose === true;
+	_tlsEmitInternal(socket, "end");
+	if (_tlsTerminateIfTransportChanged(socket, rawWasDestroyedEnd, closeWasDeferredEnd)) return;
+	if (!_tlsPub(socket).destroyed && _tlsRawTransportUnexpectedlyDestroyed(socket)) {
+		_terminateTlsForDestroyedTransport(socket);
+		return;
+	}
+	if (!_tlsPub(socket).allowHalfOpen && _tlsPub(socket).writable && !_tlsPriv(socket)._tlsDeferredTransportClose && !_tlsRawTransportDestroyed(socket)) {
+		_tlsPub(socket).writable = false;
+		_tlsPriv(socket)._bridgeHeldEnd = true;
+		_tlsBridgeMaybeFinishEnd(socket);
+	}
+	_tlsBridgeMaybeFinalizeDeferredClose(socket);
 }
 function _tlsBridgeReadBackpressured(socket) {
-	return !_tlsBridgeIsFlowing(socket) && (socket._bridgeReadQueueBytes || 0) >= socket._readableHighWaterMark;
+	return !_tlsBridgeIsFlowing(socket) && (_tlsPriv(socket)._bridgeReadQueueBytes || 0) >= _tlsPriv(socket)._readableHighWaterMark;
 }
 function _tlsBridgeResumeRawInput(socket) {
-	if (socket._bridgePaused || _tlsBridgeReadBackpressured(socket) || socket._bridgeCipherQueue && socket._bridgeCipherQueue.length || socket.destroyed) return;
-	if (socket._bridgeInputPaused) {
-		socket._bridgeInputPaused = false;
-		var raw = socket._socket;
+	if (_tlsPriv(socket)._bridgePaused || _tlsBridgeReadBackpressured(socket) || _tlsPriv(socket)._bridgeCipherQueue && _tlsPriv(socket)._bridgeCipherQueue.length || _tlsPub(socket).destroyed || _tlsPriv(socket)._tlsTransportUndecided) return;
+	if (_tlsPriv(socket)._bridgeInputPaused) {
+		_tlsPriv(socket)._bridgeInputPaused = false;
+		var raw = _tlsPriv(socket)._socket;
 		if (raw && typeof raw.resume === "function" && !raw.destroyed) raw.resume();
 	}
 }
 function _tlsBridgeProcessCipherQueue(socket) {
-	if (socket._bridgeProcessingCipher || socket._tlsEngineId == null || socket.destroyed) return;
-	socket._bridgeProcessingCipher = true;
+	if (_tlsPriv(socket)._bridgeProcessingCipher || _tlsGetEngineId(socket) == null || _tlsPub(socket).destroyed) return;
+	_tlsPriv(socket)._bridgeProcessingCipher = true;
 	var stalls = 0;
 	try {
 		_tlsBridgeDrainPlain(socket);
-		while (socket._bridgeCipherQueue && socket._bridgeCipherQueue.length && socket._tlsEngineId != null && !socket.destroyed) {
+		while (_tlsPriv(socket)._bridgeCipherQueue && _tlsPriv(socket)._bridgeCipherQueue.length && _tlsGetEngineId(socket) != null && !_tlsPub(socket).destroyed) {
 			if (_tlsBridgeReadBackpressured(socket)) {
 				_tlsBridgePauseInput(socket);
 				return;
 			}
-			var item = socket._bridgeCipherQueue[0];
+			var item = _tlsPriv(socket)._bridgeCipherQueue[0];
 			var total = _byteLength(item.buffer);
 			if (item.offset >= total) {
-				socket._bridgeCipherQueue.shift();
+				_tlsPriv(socket)._bridgeCipherQueue.shift();
 				continue;
 			}
 			var remainder = item.offset === 0 ? item.buffer : item.buffer.slice(item.offset);
 			var consumed;
 			try {
-				consumed = __exactTlsEngineWriteTls(socket._tlsEngineId, remainder);
+				consumed = __exactTlsEngineWriteTls(_tlsGetEngineId(socket), remainder);
 			} catch (e) {
-				consumed = -1;
+				_tlsBridgeFail(socket, e);
+				return;
 			}
 			_tlsBridgePumpOut(socket);
 			if (consumed < 0) {
 				_tlsBridgeFail(socket, _tlsBridgeErrorFromStatus(socket));
 				return;
 			}
-			if (!socket._secureEstablished) _finalizeBridgedHandshake(socket);
-			if (socket._tlsEngineId == null || socket.destroyed) return;
+			if (!_tlsPriv(socket)._secureEstablished) _finalizeBridgedHandshake(socket);
+			if (_tlsGetEngineId(socket) == null || _tlsPub(socket).destroyed) return;
 			var drained = _tlsBridgeDrainPlain(socket);
 			if (consumed > 0) {
 				item.offset += consumed;
-				socket._bridgeCipherQueueBytes = Math.max(0, (socket._bridgeCipherQueueBytes || 0) - consumed);
+				_tlsPriv(socket)._bridgeCipherQueueBytes = Math.max(0, (_tlsPriv(socket)._bridgeCipherQueueBytes || 0) - consumed);
 				stalls = 0;
+			} else if (_tlsPriv(socket)._bridgeTransportBackpressured) {
+				_tlsBridgePauseInput(socket);
+				return;
 			} else if (_tlsBridgeReadBackpressured(socket)) {
 				_tlsBridgePauseInput(socket);
 				return;
@@ -2218,15 +3636,27 @@ function _tlsBridgeProcessCipherQueue(socket) {
 			}
 		}
 	} finally {
-		socket._bridgeProcessingCipher = false;
+		_tlsPriv(socket)._bridgeProcessingCipher = false;
 	}
-	if (socket._bridgeTransportEnded && !socket._bridgeTransportEofApplied) {
-		socket._bridgeTransportEofApplied = true;
-		try {
-			__exactTlsEngineTransportEof(socket._tlsEngineId);
-		} catch (e) {}
-		if (!socket._secureEstablished) {
-			var status = _tlsBridgeStatus(socket);
+	if (_tlsPriv(socket)._bridgeTransportEnded && !_tlsPriv(socket)._bridgeTransportEofApplied) {
+		var engineId = _tlsGetEngineId(socket);
+		if (engineId != null) {
+			try {
+				__exactTlsEngineTransportEof(engineId);
+			} catch (e) {
+				_tlsBridgeFail(socket, e);
+				return;
+			}
+			_tlsPriv(socket)._bridgeTransportEofApplied = true;
+		} else return;
+		if (!_tlsPriv(socket)._secureEstablished) {
+			var status;
+			try {
+				status = _tlsBridgeStatus(socket);
+			} catch (statusErr) {
+				_tlsBridgeFail(socket, statusErr);
+				return;
+			}
 			_tlsBridgeFail(socket, status && status.error ? _tlsBridgeErrorFromStatus(socket) : _createError("ECONNRESET", "read ECONNRESET"));
 			return;
 		}
@@ -2236,125 +3666,156 @@ function _tlsBridgeProcessCipherQueue(socket) {
 	_tlsBridgeMaybeEmitEnd(socket);
 }
 function _tlsBridgeMaybeResumeInput(socket) {
-	if (socket.destroyed || socket._bridgePaused) return;
-	_tlsBridgeDrainPlain(socket);
+	if (_tlsPub(socket).destroyed || _tlsPriv(socket)._bridgePaused) return;
+	var queued = _tlsPriv(socket)._bridgeReadQueueBytes || 0;
+	var lowWater = Math.max(1, Math.floor(_tlsPriv(socket)._readableHighWaterMark / 2));
+	if (queued === 0 || _tlsPriv(socket)._bridgeInputPaused && queued <= lowWater) _tlsBridgeDrainPlain(socket);
 	if (_tlsBridgeReadBackpressured(socket)) {
 		_tlsBridgePauseInput(socket);
 		return;
 	}
-	_tlsBridgeProcessCipherQueue(socket);
+	if (_tlsPriv(socket)._bridgeCipherQueue && _tlsPriv(socket)._bridgeCipherQueue.length) _tlsBridgeProcessCipherQueue(socket);
 	_tlsBridgeResumeRawInput(socket);
 }
 function _tlsBridgeOnCiphertext(socket, chunk) {
-	if (socket._tlsEngineId == null) return;
+	if (_tlsGetEngineId(socket) == null) return;
 	var input = _bufferFromBytes(chunk);
 	var inputLength = _byteLength(input);
-	var retained = socket._bridgeCipherQueueBytes || 0;
-	if (inputLength > socket._ciphertextHighWaterMark - retained) {
+	var retained = _tlsPriv(socket)._bridgeCipherQueueBytes || 0;
+	if (inputLength > _tlsPriv(socket)._ciphertextHighWaterMark - retained) {
 		_tlsBridgePauseInput(socket);
 		_tlsBridgeFail(socket, _createError("ERR_TLS_BUFFER_OVERFLOW", "TLS ciphertext buffer exceeded its high water mark"));
 		return;
 	}
-	if (!socket._bridgeCipherQueue) socket._bridgeCipherQueue = [];
-	socket._bridgeCipherQueue.push({
+	if (!_tlsPriv(socket)._bridgeCipherQueue) _tlsPriv(socket)._bridgeCipherQueue = [];
+	_tlsPriv(socket)._bridgeCipherQueue.push({
 		buffer: input,
 		offset: 0
 	});
-	socket._bridgeCipherQueueBytes = retained + inputLength;
+	_tlsPriv(socket)._bridgeCipherQueueBytes = retained + inputLength;
 	_tlsBridgeProcessCipherQueue(socket);
-	if (socket._bridgeCipherQueue.length) _tlsBridgePauseInput(socket);
+	if (!_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null && _tlsPriv(socket)._bridgeCipherQueue && _tlsPriv(socket)._bridgeCipherQueue.length) _tlsBridgePauseInput(socket);
 }
 function _tlsBridgeOnTransportEnd(socket) {
-	if (socket._tlsEngineId == null) {
-		socket.readable = false;
-		if (!socket._bridgeEndEmitted && typeof socket.emit === "function") {
-			socket._bridgeEndEmitted = true;
-			socket.emit("end");
+	if (_tlsPub(socket).destroyed) return;
+	if (_tlsGetEngineId(socket) == null) {
+		if (_tlsPriv(socket)._bridgeFailed) return;
+		_tlsPub(socket).readable = false;
+		if (!_tlsPriv(socket)._bridgeEndEmitted) {
+			_tlsPriv(socket)._bridgeEndEmitted = true;
+			_tlsEmitInternal(socket, "end");
 		}
 		return;
 	}
-	socket._bridgeTransportEnded = true;
+	_tlsPriv(socket)._bridgeTransportEnded = true;
 	_tlsBridgeProcessCipherQueue(socket);
 }
 function _startTlsBridge(socket, netSocket, options, host, port) {
-	socket._bridged = true;
-	socket._bridgeEndEmitted = false;
-	if (socket._bridgeEncoding === void 0) socket._bridgeEncoding = null;
-	if (socket._bridgeEncoding && !socket._bridgeDecoder && StringDecoder) socket._bridgeDecoder = new StringDecoder(socket._bridgeEncoding);
-	socket._bridgePendingWrites = [];
-	socket._bridgePendingWriteBytes = 0;
-	socket._bridgeReadQueue = [];
-	socket._bridgeReadQueueBytes = 0;
-	socket._bridgeCipherQueue = [];
-	socket._bridgeCipherQueueBytes = 0;
-	socket._ciphertextHighWaterMark = Math.max(512 * 1024, Math.min(1024 * 1024, socket._readableHighWaterMark * 8));
-	socket._bridgePaused = false;
-	socket._bridgeInputPaused = false;
-	socket._bridgeTransportBackpressured = false;
-	socket._bridgeTransportEnded = false;
-	socket._bridgeTransportEofApplied = false;
-	socket._bridgeNativeEnded = false;
-	socket._bridgeReadDepth = 0;
-	socket._bridgeEndScheduled = false;
-	socket._bridgeDecoderFinalized = false;
-	socket._bridgeDecodedTail = null;
-	socket._bridgeShutdownQueued = false;
-	socket.pending = true;
-	socket._secureEstablished = false;
-	var engineId;
-	try {
-		var servername = options.servername || options.sni || null;
-		var pfxIdentity = _normalizePfxIdentity(options.pfx, options.passphrase);
-		var config = {
-			servername: servername ? String(servername) : null,
-			host: host ? String(host) : null,
-			alpn: _alpnProtocolsToList(options.ALPNProtocols),
-			ca: options.ca !== void 0 && options.ca !== null ? _pemSourceToString(options.ca) : null,
-			cert: options.cert !== void 0 && options.cert !== null ? _pemSourceToString(options.cert) : null,
-			key: options.key !== void 0 && options.key !== null ? _pemSourceToString(options.key) : null,
-			passphrase: pfxIdentity ? pfxIdentity.passphrase : options.passphrase !== void 0 && options.passphrase !== null ? String(options.passphrase) : null,
-			pfx: pfxIdentity ? pfxIdentity.encoded : null,
-			hasSession: options.session !== void 0 && options.session !== null,
-			cipherSuites: socket._bridgeCipherSuites || _resolveCipherSuites(options, "client"),
-			minVersion: options.minVersion || null,
-			maxVersion: options.maxVersion || null
-		};
-		engineId = __exactTlsEngineNew(JSON.stringify(config));
-	} catch (engineErr) {
-		socket.destroy(engineErr);
+	_tlsAssertOwner(socket);
+	if ((options.pfx != null || options.cert != null || options.key != null) && options.rejectUnauthorized !== false && typeof options.checkServerIdentity === "function" && options.checkServerIdentity !== checkServerIdentity) {
+		var customIdentityErr = _createError("ERR_TLS_CLIENT_IDENTITY_CUSTOM_CHECK_UNSUPPORTED", "Strict TLS client identities cannot use a custom checkServerIdentity in this transport");
+		var customIdentityTransport = _takeUndecidedTlsData(socket);
+		_tlsReleaseHeldWrites(socket, "drop");
+		_destroyTlsSocketWithError(socket, customIdentityErr, customIdentityTransport.transportClosed);
 		return;
 	}
-	socket._tlsEngineId = engineId;
+	_tlsPriv(socket)._bridged = true;
+	_tlsPriv(socket)._bridgeEndEmitted = false;
+	if (_tlsPriv(socket)._bridgeEncoding === void 0) _tlsPriv(socket)._bridgeEncoding = null;
+	if (_tlsPriv(socket)._bridgeEncoding && !_tlsPriv(socket)._bridgeDecoder && StringDecoder) _tlsPriv(socket)._bridgeDecoder = new StringDecoder(_tlsPriv(socket)._bridgeEncoding);
+	_tlsPriv(socket)._bridgePendingWrites = [];
+	_tlsPriv(socket)._bridgePendingWriteBytes = 0;
+	_tlsPriv(socket)._bridgeReadQueue = [];
+	_tlsPriv(socket)._bridgeReadQueueBytes = 0;
+	_tlsPriv(socket)._bridgeReadQueueOffset = 0;
+	_tlsPriv(socket)._bridgeCipherQueue = [];
+	_tlsPriv(socket)._bridgeCipherQueueBytes = 0;
+	_tlsPriv(socket)._ciphertextHighWaterMark = Math.max(512 * 1024, Math.min(1024 * 1024, _tlsPriv(socket)._readableHighWaterMark * 8));
+	_tlsPriv(socket)._bridgePaused = _tlsPriv(socket)._tlsUserPaused === true;
+	_tlsPriv(socket)._bridgeInputPaused = false;
+	_tlsPriv(socket)._bridgeTransportBackpressured = false;
+	_tlsPriv(socket)._bridgeTransportEnded = false;
+	_tlsPriv(socket)._bridgeTransportEofApplied = false;
+	_tlsPriv(socket)._bridgeNativeEnded = false;
+	_tlsPriv(socket)._bridgeReadDepth = 0;
+	_tlsPriv(socket)._bridgeEndScheduled = false;
+	_tlsPriv(socket)._bridgeDecoderFinalized = false;
+	_tlsPriv(socket)._bridgeDecodedTail = null;
+	_tlsPriv(socket)._bridgeShutdownQueued = false;
+	_tlsPriv(socket)._pending = true;
+	_tlsPriv(socket)._secureEstablished = false;
+	_tlsPriv(socket)._tlsApplicationReady = false;
+	var engineId = _tlsGetEngineId(socket);
+	if (engineId == null) {
+		try {
+			engineId = __exactTlsEngineNew(JSON.stringify(_tlsNativeEngineConfig(options, host, _tlsPriv(socket)._bridgeCipherSuites)));
+		} catch (engineErr) {
+			var failedUndecided = _takeUndecidedTlsData(socket);
+			_tlsReleaseHeldWrites(socket, "drop");
+			_destroyTlsSocketWithError(socket, engineErr, failedUndecided.transportClosed);
+			return;
+		}
+		_tlsSetEngineId(socket, engineId);
+	} else _tlsAssertOwner(socket);
 	_tlsReleaseHeldWrites(socket, "bridge");
+	for (;;) {
+		var undecided = _drainUndecidedTlsData(socket);
+		if (undecided.inputPaused) _tlsPriv(socket)._bridgeInputPaused = true;
+		if (!undecided.events.length) break;
+		for (var scan = 0; scan < undecided.events.length; scan++) if (undecided.events[scan].type === "close") {
+			_tlsPriv(socket)._tlsDeferredTransportClose = true;
+			_tlsPriv(socket)._tlsDeferredCloseHadError = _tlsPriv(socket)._tlsDeferredCloseHadError || undecided.events[scan].hadError === true;
+			break;
+		}
+		for (var i = 0; i < undecided.events.length && !_tlsPub(socket).destroyed && _tlsGetEngineId(socket) != null; i++) {
+			var event = undecided.events[i];
+			if (event.type === "data") _tlsBridgeOnCiphertext(socket, event.chunk);
+			else _tlsBridgeOnTransportEnd(socket);
+		}
+		if (_tlsPub(socket).destroyed || _tlsGetEngineId(socket) == null) return;
+	}
+	if (_takeUndecidedTlsData(socket).inputPaused) _tlsPriv(socket)._bridgeInputPaused = true;
 	_tlsBridgePumpOut(socket);
+	_tlsBridgeMaybeResumeInput(socket);
 }
 function connect() {
 	var parsed = _normalizeTlsConnectArguments(arguments);
 	var options = parsed.options || {};
 	var cb = parsed.callback;
+	_validateProtocolVersion("minimum", options.minVersion);
+	_validateProtocolVersion("maximum", options.maxVersion);
 	var bridgeCipherSuites = _resolveCipherSuites(options, "client");
 	if (options.session !== void 0 && options.session !== null) throw _createError("ERR_TLS_SESSION_UNSUPPORTED", "TLS session resumption input is not supported by this transport");
 	if (options.maxVersion === "TLSv1" || options.maxVersion === "TLSv1.1") throw _createError("ERR_TLS_INVALID_PROTOCOL_VERSION", "This TLS transport supports maximum versions TLSv1.2 and TLSv1.3");
-	var socket = new TLSSocket(options.socket || null, options);
-	socket._bridgeCipherSuites = bridgeCipherSuites;
+	var socket = new TLSSocket(options.socket || null, options, true);
+	_tlsCaptureOwner(socket);
+	_tlsPriv(socket)._tlsTransportUndecided = true;
+	_tlsPriv(socket)._tlsAwaitingConnectEvent = true;
+	_tlsPriv(socket)._tlsUndecidedEvents = [];
+	_tlsPriv(socket)._tlsUndecidedData = [];
+	_tlsPriv(socket)._tlsUndecidedDataBytes = 0;
+	_tlsPriv(socket)._tlsUndecidedInputPaused = false;
+	_tlsPriv(socket)._tlsUndecidedTransportEnded = false;
+	_tlsPriv(socket)._tlsUndecidedTransportClosed = false;
+	_tlsPriv(socket)._bridgeCipherSuites = bridgeCipherSuites;
 	if (typeof cb === "function" && typeof socket.once === "function") socket.once("secureConnect", cb);
-	socket._writeHeld = true;
-	socket._heldWrites = [];
-	socket._heldWriteBytes = 0;
+	_tlsPriv(socket)._writeHeld = true;
+	_tlsPriv(socket)._heldWrites = [];
+	_tlsPriv(socket)._heldWriteBytes = 0;
 	var host = options.host || options.hostname || "localhost";
 	var port = typeof options.port === "undefined" ? 443 : options.port;
 	if (typeof port === "string") port = Number(port);
-	socket.remoteAddress = host;
-	socket.remotePort = port;
-	socket.connecting = true;
-	socket.pending = true;
+	_tlsPub(socket).remoteAddress = host;
+	_tlsPub(socket).remotePort = port;
+	_tlsPub(socket).connecting = true;
+	_tlsPriv(socket)._pending = true;
 	if (options.servername || options.sni) {
-		socket.servername = options.servername || options.sni;
-		socket._servername = socket.servername;
+		_tlsPub(socket).servername = options.servername || options.sni;
+		_tlsPriv(socket)._servername = _tlsPub(socket).servername;
 	}
-	socket._protocol = options.minVersion || options.maxVersion || DEFAULT_MAX_VERSION;
-	socket.authorized = false;
-	socket.authorizationError = null;
+	_tlsPriv(socket)._protocol = options.minVersion || options.maxVersion || DEFAULT_MAX_VERSION;
+	_tlsPub(socket).authorized = false;
+	_tlsPub(socket).authorizationError = null;
 	try {
 		var connectOptions = _cloneOwnProperties(options);
 		if (!options.socket) if (connectOptions.path) {
@@ -2370,93 +3831,179 @@ function connect() {
 		var netSocket = options.socket || (net && typeof net.connect === "function" ? net.connect(connectOptions) : null);
 		if (!netSocket) {
 			setTimeout(function() {
+				_tlsAssertOwner(socket);
 				var err = /* @__PURE__ */ new Error("net module not available for TLS transport");
 				err.code = "ECONNREFUSED";
-				socket.emit("error", err);
+				_destroyTlsSocketWithError(socket, err, false);
 			}, 0);
 			return socket;
 		}
+		_tlsPriv(socket)._tlsAwaitingConnectEvent = netSocket.connecting !== false;
 		socket._setSocket(netSocket);
 		var completed = false;
 		function onConnect() {
 			if (completed) return;
+			_tlsAssertOwner(socket);
 			completed = true;
-			socket.connecting = false;
-			socket.pending = false;
-			socket.encrypted = true;
-			socket._secureEstablished = true;
-			_copySocketMetadata(socket, netSocket);
-			socket.remoteAddress = host;
-			socket.remotePort = port;
-			socket.servername = options.servername || options.host || options.hostname || socket.servername;
-			socket._session = null;
-			socket._sessionReused = false;
-			var peerHost = host;
-			var peerPort = port;
-			if (options.socket && netSocket) {
-				if (netSocket.remoteAddress) peerHost = netSocket.remoteAddress;
-				if (netSocket.remotePort !== void 0 && netSocket.remotePort !== null) peerPort = netSocket.remotePort;
+			_tlsPriv(socket)._tlsAwaitingConnectEvent = false;
+			if (_tlsPub(socket).destroyed) {
+				_takeUndecidedTlsData(socket);
+				_tlsReleaseHeldWrites(socket, "drop");
+				return;
 			}
-			var tlsServer = _isLoopbackHost(peerHost) ? _lookupTlsServer(peerPort) : null;
+			if (_tlsRawTransportDestroyed(socket) && !_tlsPriv(socket)._tlsUndecidedTransportEnded && !_tlsPriv(socket)._tlsUndecidedTransportClosed) {
+				_takeUndecidedTlsData(socket);
+				_terminateTlsForDestroyedTransport(socket);
+				return;
+			}
+			_tlsPub(socket).connecting = false;
+			_tlsPriv(socket)._pending = false;
+			_tlsPub(socket).encrypted = true;
+			_tlsPriv(socket)._secureEstablished = true;
+			_copySocketMetadata(socket, netSocket);
+			_tlsPub(socket).remoteAddress = host;
+			_tlsPub(socket).remotePort = port;
+			_tlsPub(socket).servername = options.servername || options.host || options.hostname || _tlsPub(socket).servername;
+			_tlsPriv(socket)._session = null;
+			_tlsPriv(socket)._sessionReused = false;
+			var transportIdentity = _tlsTransportIdentities && _tlsTransportIdentities.get(socket);
+			var peerHost = transportIdentity && transportIdentity.remoteAddress || host;
+			var peerPort = transportIdentity && transportIdentity.remotePort !== void 0 && transportIdentity.remotePort !== null ? transportIdentity.remotePort : port;
+			var peerFamily = transportIdentity && transportIdentity.remoteFamily;
+			var tlsServer = !options.socket && _isLoopbackHost(peerHost) ? _lookupTlsServer(peerPort, peerHost, peerFamily) : null;
+			var loopbackConnectionKey = tlsServer ? _tlsClientConnectionKey(transportIdentity, peerPort) : null;
+			if (tlsServer && !loopbackConnectionKey) tlsServer = null;
 			var serverHandshake = null;
 			if (tlsServer) {
-				var negotiatedCipher = _selectNegotiatedCipher(options, tlsServer._tlsOptions || {});
+				var loopbackState = _tlsServerState(tlsServer);
+				var serverOptions = loopbackState ? loopbackState.advertisedOptions : {};
+				var advertisedClientOptions = _tlsAdvertisedClientOptions(options);
+				var negotiatedProtocol = _negotiateTlsVersion(options, serverOptions);
+				var negotiatedCipher = negotiatedProtocol ? _selectNegotiatedCipher(options, serverOptions, negotiatedProtocol) : null;
 				if (!negotiatedCipher) {
 					var clientErr = _createTlsAlertHandshakeFailureError();
 					serverHandshake = {
 						ok: false,
-						clientOptions: options,
+						clientOptions: advertisedClientOptions,
 						cipher: null,
-						serverError: _createNoSharedCipherError()
+						protocol: null,
+						clientSocket: socket,
+						serverError: negotiatedProtocol ? _createNoSharedCipherError() : _createError("ERR_SSL_UNSUPPORTED_PROTOCOL", "no mutually supported TLS protocol")
 					};
-					var pendingErrorSocket = _shiftPendingServerSocket(tlsServer);
-					if (pendingErrorSocket) _applyPendingServerHandshake(tlsServer, pendingErrorSocket, serverHandshake);
-					else _queuePendingServerHandshake(tlsServer, serverHandshake);
-					socket.emit("error", clientErr);
-					socket.destroy(clientErr);
+					_deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					var failedCipherTransport = _takeUndecidedTlsData(socket);
+					_tlsReleaseHeldWrites(socket, "drop");
+					_destroyTlsSocketWithError(socket, clientErr, failedCipherTransport.transportClosed);
 					return;
 				}
 				serverHandshake = {
 					ok: true,
-					clientOptions: options,
+					clientOptions: advertisedClientOptions,
 					cipher: negotiatedCipher,
+					protocol: negotiatedProtocol,
+					clientSocket: socket,
 					serverError: null
 				};
-				var pendingServerSocket = _shiftPendingServerSocket(tlsServer);
-				if (pendingServerSocket) _applyPendingServerHandshake(tlsServer, pendingServerSocket, serverHandshake);
-				else _queuePendingServerHandshake(tlsServer, serverHandshake);
-				if (_finalizeHandshake(socket, tlsServer._tlsOptions || {}, negotiatedCipher) || options.rejectUnauthorized === false) {
-					socket.emit("secure", true);
-					socket.emit("secureConnect");
-					_tlsReleaseHeldWrites(socket, "raw");
-				} else if (socket.authorizationError) {
-					var localErr = socket._authorizationErrorObject || new Error(socket.authorizationError);
-					socket.emit("error", localErr);
-					socket.destroy(localErr);
+				_tlsPriv(socket)._protocol = negotiatedProtocol;
+				if (options.rejectUnauthorized !== false) {
+					var unsupportedAuthErr = _createError("ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED", "Loopback TLS emulation cannot cryptographically verify the server identity");
+					serverHandshake.ok = false;
+					serverHandshake.serverError = _createError("ECONNRESET", "TLS client rejected the synthetic loopback handshake");
+					_deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					_takeUndecidedTlsData(socket);
+					_tlsReleaseHeldWrites(socket, "drop");
+					_destroyTlsSocketWithError(socket, unsupportedAuthErr, false);
+					return;
+				}
+				var handshakeOkLocal = _finalizeHandshake(socket, serverOptions, negotiatedCipher);
+				if (handshakeOkLocal) {
+					var permissiveAuthErr = _createError("ERR_TLS_LOOPBACK_AUTH_UNSUPPORTED", "Loopback TLS emulation does not provide cryptographic peer authentication");
+					_tlsPub(socket).authorized = false;
+					_tlsPub(socket).authorizationError = permissiveAuthErr.code;
+					_tlsPriv(socket)._authorizationErrorObject = permissiveAuthErr;
+					handshakeOkLocal = false;
+				}
+				if (_tlsPub(socket).destroyed) {
+					_takeUndecidedTlsData(socket);
+					_tlsReleaseHeldWrites(socket, "drop");
+					return;
+				}
+				var earlyTransport = _takeUndecidedTlsData(socket);
+				if (earlyTransport.pending.length || earlyTransport.transportEnded || earlyTransport.transportClosed) {
+					var earlyErr = _createError("ERR_TLS_UNEXPECTED_EARLY_DATA", "TLS transport produced data or closed before the handshake path was selected");
+					serverHandshake.ok = false;
+					serverHandshake.serverError = earlyErr;
+					_deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					_tlsReleaseHeldWrites(socket, "drop");
+					_destroyTlsSocketWithError(socket, earlyErr, earlyTransport.transportClosed);
+					return;
+				}
+				if (_tlsRawTransportDestroyed(socket)) {
+					_terminateTlsForDestroyedTransport(socket);
+					return;
+				}
+				var loopbackClientAuthError = _loopbackClientAuthorizationError(serverOptions, options, peerHost, peerPort);
+				if (loopbackClientAuthError && serverOptions.rejectUnauthorized) {
+					serverHandshake.ok = false;
+					serverHandshake.serverError = loopbackClientAuthError;
+					_deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					var clientCertificateAlert = _createError("ERR_SSL_TLSV13_ALERT_CERTIFICATE_REQUIRED", "TLS server rejected the client certificate");
+					_tlsReleaseHeldWrites(socket, "drop");
+					_destroyTlsSocketWithError(socket, clientCertificateAlert, false);
+					return;
+				}
+				if (handshakeOkLocal || options.rejectUnauthorized === false) {
+					serverHandshake.resumeClient = function() {
+						return _publishLoopbackClientHandshake(socket, serverHandshake);
+					};
+					var delivery = _deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					if (!delivery) {
+						var queueErr = _createError("ERR_TLS_HANDSHAKE_QUEUE_FULL", "TLS loopback handshake queue is full");
+						_tlsReleaseHeldWrites(socket, "drop");
+						_destroyTlsSocketWithError(socket, queueErr, false);
+						return;
+					}
+					if (delivery === "queued") return;
+					_publishLoopbackClientHandshake(socket, serverHandshake);
+				} else if (_tlsPub(socket).authorizationError) {
+					serverHandshake.ok = false;
+					serverHandshake.serverError = _createError("ECONNRESET", "TLS client rejected the server identity");
+					_deliverServerHandshake(tlsServer, loopbackConnectionKey, serverHandshake);
+					var localErr = _tlsPriv(socket)._authorizationErrorObject || new Error(_tlsPub(socket).authorizationError);
+					_tlsReleaseHeldWrites(socket, "drop");
+					_destroyTlsSocketWithError(socket, localErr, false);
 				}
 				return;
 			}
 			if (_tlsBridgeAvailable()) {
+				if (_tlsPub(socket).destroyed) return;
 				_startTlsBridge(socket, netSocket, options, host, port);
 				return;
 			}
 			var emulationErr = _createError("ERR_TLS_EMULATION_LOOPBACK_ONLY", "tls.connect: this Ibex build lacks the native TLS bridge; refusing to fabricate a secure connection to " + peerHost + ":" + peerPort + ", which is not a tls.Server running in this process. Only loopback connections to an in-process tls.Server are supported here (LLP 0004; native TLS bridge: ENG-23492).");
-			socket.destroy(emulationErr);
+			var unavailableTransport = _takeUndecidedTlsData(socket);
+			_tlsReleaseHeldWrites(socket, "drop");
+			_destroyTlsSocketWithError(socket, emulationErr, unavailableTransport.transportClosed);
 		}
 		if (typeof netSocket.on === "function") netSocket.on("connect", onConnect);
 		if (netSocket.connecting === false) setTimeout(onConnect, 0);
 	} catch (e) {
 		setTimeout(function() {
-			socket.emit("error", e);
+			_tlsAssertOwner(socket);
+			if (!_tlsPub(socket).destroyed) _destroyTlsSocketWithError(socket, e, false);
 		}, 0);
 	}
 	return socket;
 }
 function addContext(serverName, context, server) {
-	if (!server || !server._contexts) return false;
+	var state = _tlsServerState(server);
+	if (!server || !state) return false;
+	_tlsAssertServerOwner(server);
 	if (typeof serverName !== "string" || !serverName) throw _createError("ERR_INVALID_ARG_TYPE", "The \"serverName\" argument must be a non-empty string");
-	var secureContext = context instanceof SecureContext ? context : createSecureContext(context && context.context ? context.context : context || {});
-	server._contexts[serverName] = secureContext;
+	var knownContextState = _secureContextStates && _secureContextStates.get(context);
+	if (!knownContextState && context && context.context) knownContextState = _secureContextStates && _secureContextStates.get(context.context);
+	var secureContext = context instanceof SecureContext ? context : knownContextState ? knownContextState.secureContext : createSecureContext(context || {});
+	state.contexts[serverName] = secureContext;
 	return true;
 }
 function _createBareServer() {
@@ -2480,65 +4027,423 @@ function _createBareServer() {
 	};
 	return server;
 }
+function _startTlsServerOwnerPump(server) {
+	var state = _tlsServerState(server);
+	if (!state || state.ownerPump || typeof setInterval !== "function") return;
+	state.ownerPump = setInterval(function() {
+		_tlsAssertServerOwner(server);
+		var now = Date.now();
+		for (var i = 0; i < state.pendingSockets.length;) {
+			var entry = state.pendingSockets[i];
+			var tlsSocket = entry && entry.socket;
+			if (!tlsSocket || _tlsPub(tlsSocket).destroyed) {
+				state.pendingSockets.splice(i, 1);
+				continue;
+			}
+			if (entry.handshake) {
+				state.pendingSockets.splice(i, 1);
+				var handshake = entry.handshake;
+				entry.handshake = null;
+				try {
+					_tlsAssertOwner(tlsSocket);
+					_applyPendingServerHandshake(server, tlsSocket, handshake);
+				} catch (handoffErr) {
+					server.emit("tlsClientError", handoffErr, tlsSocket);
+					try {
+						tlsSocket.destroy();
+					} catch (_handoffDestroyErr) {}
+				}
+				continue;
+			}
+			if (entry.deadline <= now) {
+				state.pendingSockets.splice(i, 1);
+				var timeoutErr = _createError("ERR_TLS_HANDSHAKE_TIMEOUT", "TLS loopback handshake timed out");
+				server.emit("tlsClientError", timeoutErr, tlsSocket);
+				try {
+					tlsSocket.destroy();
+				} catch (_timeoutDestroyErr) {}
+				continue;
+			}
+			i++;
+		}
+		if (!state.pendingSockets.length && state.ownerPump) {
+			clearInterval(state.ownerPump);
+			state.ownerPump = null;
+		}
+	}, 10);
+	if (state.ownerPump && typeof state.ownerPump.unref === "function") state.ownerPump.unref();
+}
+function _scheduleTlsServerRetirement(state) {
+	if (!state) return;
+	state.retired = true;
+	if (state.tokenCloseTimer) return;
+	var closingToken = state.ownerToken;
+	state.tokenCloseTimer = setTimeout(function() {
+		_tlsAssertServerOwner(state.server);
+		state.tokenCloseTimer = null;
+		if (state.ownerToken !== closingToken) return;
+		state.options = {};
+		state.advertisedOptions = {};
+		state.sharedCreds = null;
+		state.contexts = Object.create(null);
+		state.ticketKeys = null;
+		state.events = Object.create(null);
+		if (closingToken != null && typeof __exactTlsOwnerToken === "function") __exactTlsOwnerToken("close", closingToken);
+		state.ownerToken = null;
+	}, 0);
+	if (state.tokenCloseTimer && typeof state.tokenCloseTimer.unref === "function") state.tokenCloseTimer.unref();
+}
+function _stopTlsServerOwnerPump(server) {
+	var state = _tlsServerState(server);
+	if (!state) return;
+	if (state.ownerPump) clearInterval(state.ownerPump);
+	state.ownerPump = null;
+	var pending = state.pendingSockets.splice(0, state.pendingSockets.length);
+	for (var i = 0; i < pending.length; i++) if (pending[i].socket && !_tlsPub(pending[i].socket).destroyed) try {
+		pending[i].socket.destroy();
+	} catch (_pendingDestroyErr) {}
+	var handshakes = state.pendingHandshakes.splice(0, state.pendingHandshakes.length);
+	for (var j = 0; j < handshakes.length; j++) {
+		if (handshakes[j].timeout) clearTimeout(handshakes[j].timeout);
+		_clearLoopbackClientCloseWatch(handshakes[j]);
+		var clientSocket = handshakes[j].clientSocket;
+		if (clientSocket && !_tlsPub(clientSocket).destroyed) try {
+			_destroyTlsSocketWithError(clientSocket, _createError("ERR_TLS_SERVER_CLOSED", "TLS server closed during handshake"), false);
+		} catch (_clientCloseErr) {}
+	}
+	_scheduleTlsServerRetirement(state);
+}
+function _runTlsServerOwned(server, callback, args) {
+	_tlsAssertServerOwner(server);
+	return callback.apply(server, args || []);
+}
+function _guardTlsServerNetState(server, state) {
+	if (!server || !state || state.netStateGuarded || typeof Object.defineProperty !== "function") return;
+	state.netStateGuarded = true;
+	var registerOwnerGuard = server[_kRegisterNetServerOwnerGuard];
+	if (typeof registerOwnerGuard === "function") {
+		registerOwnerGuard.call(server, function() {
+			_tlsAssertServerOwner(server);
+		});
+		state.netOwnerGuardRegistered = true;
+	} else {
+		state.netValues = Object.create(null);
+		var names = [
+			"listening",
+			"maxConnections",
+			"_handle",
+			"_acceptTimer",
+			"_connections",
+			"_closing",
+			"_workers",
+			"_isUnix",
+			"_socketPath",
+			"_listenToken",
+			"_listeningPending",
+			"_readableAll",
+			"_writableAll",
+			"ipv6Only",
+			"allowHalfOpen",
+			"pauseOnConnect",
+			"noDelay",
+			"keepAlive",
+			"keepAliveInitialDelay",
+			"blockList",
+			"captureRejections",
+			"_connectionKey",
+			"_unrefed",
+			"_unref",
+			"_reusePort",
+			"_port",
+			"_requestedPort",
+			"_host",
+			"host"
+		];
+		for (var i = 0; i < names.length; i++) (function(name) {
+			state.netValues[name] = server[name];
+			try {
+				Object.defineProperty(server, name, {
+					enumerable: true,
+					configurable: false,
+					get: function() {
+						_tlsAssertServerOwner(server);
+						return state.netValues[name];
+					},
+					set: function(value) {
+						_tlsAssertServerOwner(server);
+						state.netValues[name] = value;
+					}
+				});
+			} catch (_netStateGuardErr) {}
+		})(names[i]);
+	}
+	try {
+		Object.defineProperty(server, _kRunOwnedServer, {
+			value: function(callback, args) {
+				return _runTlsServerOwned(server, callback, args);
+			},
+			enumerable: false,
+			configurable: false,
+			writable: false
+		});
+	} catch (_ownedRunnerGuardErr) {}
+	try {
+		Object.defineProperty(server, _kCloseOwnedServer, {
+			value: function(phase) {
+				_tlsAssertServerOwner(server);
+				if (phase === "retire") {
+					_scheduleTlsServerRetirement(state);
+					return;
+				}
+				state.retired = true;
+				if (!state.closed) {
+					_unregisterTlsServer(server);
+					state.closed = true;
+				}
+			},
+			enumerable: false,
+			configurable: false,
+			writable: false
+		});
+	} catch (_ownedCloseGuardErr) {}
+}
+function _guardTlsServerLifecycle(server, state) {
+	if (!server || !state || state.lifecycleGuarded) return;
+	state.lifecycleGuarded = true;
+	var originalListen = server.listen;
+	if (typeof originalListen === "function") {
+		var guardedListen = function() {
+			if (state.retired) throw _createError("ERR_TLS_SERVER_CLOSED", "A closed TLS server cannot be listened on again in this runtime");
+			_tlsAssertServerOwner(server);
+			var wasClosed = state.closed;
+			state.closed = false;
+			try {
+				return _runTlsServerOwned(server, originalListen, Array.prototype.slice.call(arguments));
+			} catch (listenErr) {
+				state.closed = wasClosed;
+				throw listenErr;
+			}
+		};
+		if (typeof Object.defineProperty === "function") try {
+			Object.defineProperty(server, "listen", {
+				value: guardedListen,
+				enumerable: false,
+				configurable: false,
+				writable: false
+			});
+		} catch (_listenGuardErr) {
+			server.listen = guardedListen;
+		}
+		else server.listen = guardedListen;
+	}
+	var guardedMethods = [
+		"close",
+		"ref",
+		"unref",
+		"address",
+		"getConnections"
+	];
+	for (var i = 0; i < guardedMethods.length; i++) (function(name, original) {
+		if (typeof original !== "function") return;
+		var guarded = function() {
+			var args = Array.prototype.slice.call(arguments);
+			if (name === "close" && !state.netOwnerGuardRegistered && typeof server[_kCloseOwnedServer] === "function") {
+				server[_kCloseOwnedServer]("begin");
+				var fallbackCloseResult = _runTlsServerOwned(server, original, args);
+				server[_kCloseOwnedServer]("retire");
+				return fallbackCloseResult;
+			}
+			return _runTlsServerOwned(server, original, args);
+		};
+		if (typeof Object.defineProperty === "function") try {
+			Object.defineProperty(server, name, {
+				value: guarded,
+				enumerable: false,
+				configurable: false,
+				writable: false
+			});
+			return;
+		} catch (_lifecycleMethodGuardErr) {}
+		server[name] = guarded;
+	})(guardedMethods[i], server[guardedMethods[i]]);
+}
+function _guardTlsServerEventSurface(server, state) {
+	if (!server || !state || state.eventSurfaceGuarded) return;
+	state.eventSurfaceGuarded = true;
+	if (typeof Object.defineProperty === "function") {
+		state.events = server._events || Object.create(null);
+		try {
+			Object.defineProperty(server, "_events", {
+				enumerable: false,
+				configurable: false,
+				get: function() {
+					_tlsAssertServerOwner(server);
+					return state.events;
+				},
+				set: function(value) {
+					_tlsAssertServerOwner(server);
+					state.events = value;
+				}
+			});
+		} catch (_eventsGuardErr) {}
+	}
+	var methods = [
+		"on",
+		"addListener",
+		"once",
+		"prependListener",
+		"prependOnceListener",
+		"removeListener",
+		"off",
+		"removeAllListeners",
+		"emit",
+		"listenerCount",
+		"listeners",
+		"rawListeners"
+	];
+	for (var i = 0; i < methods.length; i++) (function(name, original) {
+		if (typeof original !== "function") return;
+		var guarded = function() {
+			_tlsAssertServerOwner(server);
+			return original.apply(server, arguments);
+		};
+		if (typeof Object.defineProperty === "function") try {
+			Object.defineProperty(server, name, {
+				value: guarded,
+				enumerable: false,
+				configurable: false,
+				writable: false
+			});
+			return;
+		} catch (_methodGuardErr) {}
+		server[name] = guarded;
+	})(methods[i], server[methods[i]]);
+}
+function _defineTlsServerStateProperty(server, state, name, value) {
+	if (typeof Object.defineProperty !== "function") {
+		server[name] = value;
+		return;
+	}
+	if (!state.publicValues) state.publicValues = Object.create(null);
+	state.publicValues[name] = value;
+	Object.defineProperty(server, name, {
+		enumerable: true,
+		configurable: false,
+		get: function() {
+			_tlsAssertServerOwner(server);
+			return state.publicValues[name];
+		},
+		set: function(nextValue) {
+			_tlsAssertServerOwner(server);
+			state.publicValues[name] = nextValue;
+		}
+	});
+}
+function _defineTlsServerMethod(server, name, implementation) {
+	var method = function() {
+		_tlsAssertServerOwner(server);
+		return implementation.apply(server, arguments);
+	};
+	if (typeof Object.defineProperty === "function") Object.defineProperty(server, name, {
+		value: method,
+		enumerable: false,
+		configurable: false,
+		writable: false
+	});
+	else server[name] = method;
+}
 function _decorateServer(server, options, secureConnectionListener) {
 	var serverOptions = options || {};
-	server._tlsOptions = _cloneOwnProperties(serverOptions);
-	server._sharedCreds = createSecureContext(serverOptions);
-	server._contexts = Object.create(null);
-	server._pendingTlsSockets = [];
-	server._pendingTlsHandshakes = [];
-	server.requestCert = !!serverOptions.requestCert;
-	server.rejectUnauthorized = !!serverOptions.rejectUnauthorized;
-	server.allowHalfOpen = !!serverOptions.allowHalfOpen;
-	server.addContext = function(serverName, context) {
+	var state = _tlsServerState(server);
+	if (state.ownerToken == null && typeof __exactTlsOwnerToken === "function") state.ownerToken = __exactTlsOwnerToken("new");
+	state.options = _cloneOwnProperties(serverOptions);
+	state.advertisedOptions = _tlsAdvertisedServerOptions(serverOptions);
+	state.sharedCreds = createSecureContext(serverOptions);
+	state.contexts = Object.create(null);
+	state.ticketKeys = null;
+	_guardTlsServerNetState(server, state);
+	_guardTlsServerLifecycle(server, state);
+	_guardTlsServerEventSurface(server, state);
+	_defineTlsServerStateProperty(server, state, "requestCert", !!serverOptions.requestCert);
+	_defineTlsServerStateProperty(server, state, "rejectUnauthorized", !!serverOptions.rejectUnauthorized);
+	_defineTlsServerMethod(server, "addContext", function(serverName, context) {
 		return addContext(serverName, context, server);
-	};
-	server.setSecureContext = function(nextOptions) {
-		server._tlsOptions = _cloneOwnProperties(nextOptions || {});
-		server._sharedCreds = createSecureContext(nextOptions || {});
+	});
+	_defineTlsServerMethod(server, "setSecureContext", function(nextOptions) {
+		state.options = _cloneOwnProperties(nextOptions || {});
+		state.advertisedOptions = _tlsAdvertisedServerOptions(nextOptions || {});
+		state.sharedCreds = createSecureContext(nextOptions || {});
 		return server;
-	};
-	server.getTicketKeys = function() {
-		return server._ticketKeys ? _cloneBufferLike(server._ticketKeys) : _getEmptyBuffer();
-	};
-	server.setTicketKeys = function(keys) {
+	});
+	_defineTlsServerMethod(server, "getTicketKeys", function() {
+		return state.ticketKeys ? _cloneBufferLike(state.ticketKeys) : _getEmptyBuffer();
+	});
+	_defineTlsServerMethod(server, "setTicketKeys", function(keys) {
 		if (!_isArrayBufferView(keys)) throw _createError("ERR_INVALID_ARG_TYPE", "The \"buffer\" argument must be an instance of Buffer, TypedArray, or DataView");
 		if (_byteLength(keys) !== 48) throw _createError("ERR_TLS_INVALID_TICKET_KEYS", "Session ticket keys must be a 48-byte buffer");
-		server._ticketKeys = _cloneBufferLike(keys);
+		state.ticketKeys = _cloneBufferLike(keys);
 		return server;
-	};
+	});
 	if (typeof secureConnectionListener === "function" && typeof server.on === "function") server.on("secureConnection", secureConnectionListener);
-	if (typeof server.on === "function" && !server._tlsRegistryHooksInstalled) {
-		server._tlsRegistryHooksInstalled = true;
+	if (typeof server.on === "function" && !state.registryHooksInstalled) {
+		state.registryHooksInstalled = true;
 		server.on("listening", function() {
 			_registerTlsServer(server);
 		});
 		server.on("close", function() {
 			_unregisterTlsServer(server);
+			_stopTlsServerOwnerPump(server);
 		});
 	}
 	return server;
 }
 function _createServerTLSSocket(server, rawSocket) {
-	var serverOptions = server._tlsOptions || {};
+	var state = _tlsServerState(server);
+	var serverOptions = state ? state.options : {};
+	if (state && state.pendingSockets.length >= MAX_PENDING_TLS_HANDSHAKES) {
+		var capacityErr = _createError("ERR_TLS_HANDSHAKE_QUEUE_FULL", "TLS loopback handshake queue is full");
+		server.emit("tlsClientError", capacityErr, rawSocket);
+		if (rawSocket && typeof rawSocket.destroy === "function") rawSocket.destroy();
+		return null;
+	}
+	if (rawSocket && typeof rawSocket.pause === "function") rawSocket.pause();
 	var tlsSocket = new TLSSocket(rawSocket, serverOptions);
-	tlsSocket._server = server;
+	_tlsPriv(tlsSocket)._server = server;
 	tlsSocket.server = server;
-	tlsSocket.connecting = false;
-	tlsSocket.pending = true;
-	tlsSocket._secureEstablished = false;
-	tlsSocket._protocol = serverOptions.minVersion || serverOptions.maxVersion || DEFAULT_MAX_VERSION;
+	_tlsPub(tlsSocket).connecting = false;
+	_tlsPriv(tlsSocket)._pending = true;
+	_tlsPriv(tlsSocket)._secureEstablished = false;
+	_tlsPriv(tlsSocket)._protocol = serverOptions.minVersion || serverOptions.maxVersion || DEFAULT_MAX_VERSION;
 	_copySocketMetadata(tlsSocket, rawSocket);
-	tlsSocket._peerCertificate = null;
-	tlsSocket._localCertificate = serverOptions.key || serverOptions.cert || serverOptions.pfx ? _buildSyntheticCertificate(tlsSocket.remoteAddress || "localhost", tlsSocket.remotePort, serverOptions.key || serverOptions.cert || serverOptions.pfx) : null;
-	tlsSocket._cipher = {
+	_tlsPriv(tlsSocket)._peerCertificate = null;
+	_tlsPriv(tlsSocket)._localCertificate = _buildLocalCertificate(_tlsPub(tlsSocket).remoteAddress || "localhost", _tlsPub(tlsSocket).remotePort, {
+		cert: serverOptions.cert,
+		ca: serverOptions.ca
+	});
+	_tlsPriv(tlsSocket)._cipher = {
 		name: _normalizeCipherName(serverOptions.ciphers),
-		version: tlsSocket._protocol
+		version: _tlsPriv(tlsSocket)._protocol
 	};
-	tlsSocket.authorized = false;
-	tlsSocket.authorizationError = null;
-	if (server._pendingTlsHandshakes && server._pendingTlsHandshakes.length) _applyPendingServerHandshake(server, tlsSocket, server._pendingTlsHandshakes.shift());
-	else server._pendingTlsSockets.push(tlsSocket);
+	_tlsPub(tlsSocket).authorized = false;
+	_tlsPub(tlsSocket).authorizationError = null;
+	_tlsPriv(tlsSocket)._tlsLoopbackConnectionKey = _tlsServerConnectionKey(rawSocket);
+	var pendingHandshake = _shiftPendingServerHandshake(server, _tlsPriv(tlsSocket)._tlsLoopbackConnectionKey);
+	if (pendingHandshake) {
+		if (pendingHandshake.ok && typeof pendingHandshake.resumeClient === "function") pendingHandshake.resumeClient();
+		_applyPendingServerHandshake(server, tlsSocket, pendingHandshake);
+	} else {
+		var entry = {
+			socket: tlsSocket,
+			handshake: null,
+			deadline: Date.now() + TLS_LOOPBACK_HANDSHAKE_TIMEOUT_MS
+		};
+		state.pendingSockets.push(entry);
+		_startTlsServerOwnerPump(server);
+		tlsSocket.once("close", function() {
+			var index = state.pendingSockets.indexOf(entry);
+			if (index !== -1) state.pendingSockets.splice(index, 1);
+		});
+	}
 	return tlsSocket;
 }
 function createServer(options, secureConnectionListener) {

@@ -548,7 +548,7 @@ bool exactConsumeTransferableFdForCurrentPrincipal(int fd) {
   auto it = g_transferable_fds.find(fd);
   if (it == g_transferable_fds.end() ||
       it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
-      (!isAllowAll() && it->second.principal != principal)) {
+      it->second.principal != principal) {
     return false;
   }
   struct stat sb = {};
@@ -1481,7 +1481,7 @@ class FsWorkerPool {
   }
 
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > 0 || total_ >= kMaxWorkers) {
+    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;

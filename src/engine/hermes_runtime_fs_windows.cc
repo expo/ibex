@@ -220,8 +220,9 @@ FileEntry getFileEntry(facebook::jsi::Runtime& runtime, int fd) {
   if (it == g_files.end() || !fileHandle(it->second)) {
     throw facebook::jsi::JSError(runtime, "bad file descriptor");
   }
+  // Allow-all bypasses path capabilities, not ownership of a numeric handle.
   if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
-      (!isAllowAll() && it->second.owner != currentPrincipalId())) {
+      it->second.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   return it->second;
@@ -376,7 +377,7 @@ class FsWorkerPool {
   size_t total_ = 0;
 
   void spawnWorkerIfNeededLocked() {
-    if (idle_ > 0 || total_ >= kMaxWorkers) {
+    if (idle_ > queue_.size() || total_ >= kMaxWorkers) {
       return;
     }
     total_ += 1;
@@ -1209,7 +1210,7 @@ void installFsHostFunctions(ExactHermesRuntime* handle) {
             throw facebook::jsi::JSError(runtime, "bad file descriptor");
           }
           if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
-              (!isAllowAll() && it->second.owner != currentPrincipalId())) {
+              it->second.owner != currentPrincipalId()) {
             throw facebook::jsi::JSError(runtime, "Permission denied");
           }
           entry = it->second;

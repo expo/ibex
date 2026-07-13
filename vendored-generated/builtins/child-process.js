@@ -975,7 +975,8 @@ cp.spawnSync = function spawnSync(command, args, options) {
 		var mappedSyncStdio = [];
 		for (var ssi = 0; ssi < syncStdio.length; ssi++) {
 			var syncEntry = syncStdio[ssi];
-			if (typeof syncEntry === "number" && isFinite(syncEntry) && syncEntry >= 0) {
+			if (syncEntry === null || syncEntry === void 0) mappedSyncStdio[ssi] = ssi < 3 ? "pipe" : "ignore";
+			else if (typeof syncEntry === "number" && isFinite(syncEntry) && syncEntry >= 0) {
 				var syncFdNum = Math.floor(syncEntry);
 				mappedSyncStdio[ssi] = syncFdNum === ssi ? "inherit" : "fd:" + syncFdNum;
 			} else mappedSyncStdio[ssi] = syncEntry;
@@ -1729,11 +1730,9 @@ function _normalizeSpawnOptions(options, command) {
 	if (typeof stdio === "string") normalized.stdio = [
 		_normalizeSpawnMode(stdio, "pipe"),
 		_normalizeSpawnMode(stdio, "pipe"),
-		_normalizeSpawnMode(stdio, "pipe"),
 		_normalizeSpawnMode(stdio, "pipe")
 	];
 	else if (typeof stdio === "number") normalized.stdio = [
-		_normalizeSpawnMode(stdio, "pipe"),
 		_normalizeSpawnMode(stdio, "pipe"),
 		_normalizeSpawnMode(stdio, "pipe"),
 		_normalizeSpawnMode(stdio, "pipe")
@@ -1745,7 +1744,7 @@ function _normalizeSpawnOptions(options, command) {
 			rawStdio[si] = "pipe";
 			if (!relayReadablePipes) relayReadablePipes = Object.create(null);
 			relayReadablePipes[si] = stdio[si];
-		} else rawStdio[si] = _normalizeSpawnMode(stdio[si], "pipe");
+		} else rawStdio[si] = _normalizeSpawnMode(stdio[si], si < 3 ? "pipe" : "ignore");
 		if (rawStdio.indexOf("ipc") !== -1) {
 			normalized.stdio = [
 				"pipe",
@@ -1775,10 +1774,9 @@ function _normalizeSpawnOptions(options, command) {
 				normalized.stdio[si2] = "pipe";
 				if (!normalized.relayReadablePipes) normalized.relayReadablePipes = Object.create(null);
 				normalized.relayReadablePipes[si2] = relayReadablePipes[si2];
-			} else normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], "pipe");
+			} else normalized.stdio[si2] = _normalizeSpawnMode(stdio[si2], si2 < 3 ? "pipe" : "ignore");
 		}
 	} else normalized.stdio = [
-		"pipe",
 		"pipe",
 		"pipe",
 		"pipe"
@@ -3388,7 +3386,7 @@ cp.fork = function fork(modulePath, args, options) {
 		var normalizedStdio = [];
 		for (var si = 0; si < Math.max(stdio.length, 3); si++) if (stdio[si] === "ipc") normalizedStdio[si] = "ipc";
 		else if (si < 3) normalizedStdio[si] = _normalizeSpawnMode(stdio[si], silent ? "pipe" : "inherit");
-		else normalizedStdio[si] = _normalizeSpawnMode(stdio[si], "pipe");
+		else normalizedStdio[si] = _normalizeSpawnMode(stdio[si], "ignore");
 		stdio = normalizedStdio;
 	}
 	var env = _normalizeForkEnv(options.env);

@@ -1,6 +1,7 @@
 #include "hermes_runtime_internal.h"
 
 #include <arpa/inet.h>
+#include <cmath>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -8,7 +9,9 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <limits>
 #include <poll.h>
+#include <random>
 #include <string>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -79,6 +82,89 @@ static int g_next_socket_handle = 1;
 static uint64_t g_next_socket_identity = 1;
 static std::mutex g_socket_mutex;
 
+struct NetOwnerStampEntry {
+  uint64_t runtimeNonce = 0;
+  uint64_t owner = 0;
+};
+
+static std::unordered_map<uint64_t, NetOwnerStampEntry> g_net_owner_stamps;
+static std::mutex g_net_owner_stamp_mutex;
+
+uint64_t netOwnerStampForCurrentPrincipal() {
+  const uint64_t runtimeNonce = exactCurrentRuntimeNonce();
+  const uint64_t owner = currentPrincipalId();
+  if (runtimeNonce == 0) return 0;
+  std::lock_guard<std::mutex> lock(g_net_owner_stamp_mutex);
+  for (const auto& item : g_net_owner_stamps) {
+    if (item.second.runtimeNonce == runtimeNonce && item.second.owner == owner) {
+      return item.first;
+    }
+  }
+  static std::random_device randomDevice;
+  constexpr uint64_t kJsSafeMask = (uint64_t{1} << 53) - 1;
+  for (size_t attempt = 0; attempt < 128; ++attempt) {
+    uint64_t stamp =
+        ((static_cast<uint64_t>(randomDevice()) << 32) ^
+         static_cast<uint64_t>(randomDevice())) &
+        kJsSafeMask;
+    if (stamp == 0 || g_net_owner_stamps.count(stamp) != 0) continue;
+    g_net_owner_stamps.emplace(stamp, NetOwnerStampEntry{runtimeNonce, owner});
+    return stamp;
+  }
+  return 0;
+}
+
+void requireNetOwnerStamp(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: numeric stamp required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 || number > kMaxSafeInteger ||
+      std::floor(number) != number) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid stamp");
+  }
+  const uint64_t stamp = static_cast<uint64_t>(number);
+  std::lock_guard<std::mutex> lock(g_net_owner_stamp_mutex);
+  auto item = g_net_owner_stamps.find(stamp);
+  if (item == g_net_owner_stamps.end() ||
+      item->second.runtimeNonce != exactCurrentRuntimeNonce() ||
+      item->second.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: stamp belongs to another runtime or principal");
+  }
+}
+
+int requireNetOwnerSocketHandle(
+    facebook::jsi::Runtime& runtime,
+    const facebook::jsi::Value& value) {
+  constexpr double kMaxSafeInteger = 9007199254740991.0;
+  if (!value.isNumber()) {
+    throw facebook::jsi::JSError(
+        runtime, "__exactNetOwner: numeric handle required");
+  }
+  const double number = value.asNumber();
+  if (!std::isfinite(number) || number < 1.0 ||
+      number > kMaxSafeInteger || std::floor(number) != number ||
+      number > static_cast<double>(std::numeric_limits<int>::max())) {
+    throw facebook::jsi::JSError(runtime, "__exactNetOwner: invalid handle");
+  }
+  return static_cast<int>(number);
+}
+
+void cleanupRuntimeNetOwnerStamps(uint64_t runtimeNonce) {
+  std::lock_guard<std::mutex> lock(g_net_owner_stamp_mutex);
+  for (auto item = g_net_owner_stamps.begin(); item != g_net_owner_stamps.end();) {
+    if (item->second.runtimeNonce == runtimeNonce) {
+      item = g_net_owner_stamps.erase(item);
+    } else {
+      ++item;
+    }
+  }
+}
+
 void captureSocketFdIdentity(SocketEntry& entry) {
   struct stat status = {};
   entry.fdIdentityKnown = entry.fd >= 0 && ::fstat(entry.fd, &status) == 0;
@@ -139,9 +225,6 @@ bool principalMayAdoptRawSocket(uint64_t principal) {
 }
 
 void requireRawSocketAdoptionAllowed(facebook::jsi::Runtime& runtime, int fd, const char* syscall) {
-  if (isAllowAll()) {
-    return;
-  }
   if (principalMayAdoptRawSocket(currentPrincipalId())) {
     return;
   }
@@ -316,10 +399,10 @@ LockedSocketIo requireSocketIo(
   if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
-  if (isAllowAll()) return LockedSocketIo(std::move(lock), entry.fd);
   if (entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
+  if (isAllowAll()) return LockedSocketIo(std::move(lock), entry.fd);
   if (!entry.typedConnect) {
     if (!entry.capability.empty() && !checkCapability(entry.capability)) {
       throw facebook::jsi::JSError(runtime, "Permission denied");
@@ -415,7 +498,7 @@ LockedSocketIo requireTypedUdpSendIo(
     throw facebook::jsi::JSError(runtime, "__exactUdpSend: stale handle");
   }
   if (entry.runtimeNonce != exactCurrentRuntimeNonce() ||
-      (!isAllowAll() && entry.owner != currentPrincipalId())) {
+      entry.owner != currentPrincipalId()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
 
@@ -637,10 +720,10 @@ SocketEntry requireSocketHandle(
   if (entry.runtimeNonce != exactCurrentRuntimeNonce()) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
+  if (entry.owner != currentPrincipalId()) {
+    throw facebook::jsi::JSError(runtime, "Permission denied");
+  }
   if (!isAllowAll()) {
-    if (entry.owner != currentPrincipalId()) {
-      throw facebook::jsi::JSError(runtime, "Permission denied");
-    }
     if (!requireLiveAuthority) {
       return entry;
     }
@@ -693,7 +776,7 @@ int takeSocketFd(facebook::jsi::Runtime& runtime, int handle, const char* syscal
     return -1;
   }
   if (it->second.runtimeNonce != exactCurrentRuntimeNonce() ||
-      (!isAllowAll() && it->second.owner != entry.owner)) {
+      it->second.owner != entry.owner) {
     throw facebook::jsi::JSError(runtime, "Permission denied");
   }
   if (!socketFdIdentityMatches(it->second)) {
@@ -746,7 +829,7 @@ void setSocketCapability(
   auto it = g_socket_handles.find(handle);
   if (it != g_socket_handles.end() &&
       it->second.runtimeNonce == exactCurrentRuntimeNonce() &&
-      (isAllowAll() || it->second.owner == entry.owner)) {
+      it->second.owner == entry.owner) {
     it->second.capability = capability;
   }
 }
@@ -755,6 +838,46 @@ void setSocketCapability(
 
 void exactCleanupRuntimeSockets(uint64_t runtimeNonce) {
   cleanupRuntimeSockets(runtimeNonce);
+  cleanupRuntimeNetOwnerStamps(runtimeNonce);
+}
+
+void installNetOwnerHostFunction(ExactHermesRuntime* handle) {
+  auto& rt = *handle->runtime;
+  // A retained JS Socket or WebSocket needs an owner identity before it has a
+  // native descriptor (notably while connect/DNS is pending). The stamp is
+  // opaque, random, runtime-bound, principal-bound, and shared by that
+  // principal; it carries no positive network authority and allocates no
+  // per-wrapper native resource. Passing an optional socket handle also proves
+  // adopted-handle alignment without requiring its live capability grant.
+  auto netOwnerFn = facebook::jsi::Function::createFromHostFunction(
+      rt, facebook::jsi::PropNameID::forAscii(rt, "__exactNetOwner"), 3,
+      [](facebook::jsi::Runtime& runtime, const facebook::jsi::Value&,
+         const facebook::jsi::Value* args, size_t count) -> facebook::jsi::Value {
+        if (count < 1 || !args[0].isString()) {
+          throw facebook::jsi::JSError(runtime, "__exactNetOwner: action required");
+        }
+        const std::string action = args[0].asString(runtime).utf8(runtime);
+        if (action == "new") {
+          const uint64_t stamp = netOwnerStampForCurrentPrincipal();
+          if (stamp == 0) {
+            throw facebook::jsi::JSError(
+                runtime, "__exactNetOwner: stamp allocation failed");
+          }
+          return facebook::jsi::Value(static_cast<double>(stamp));
+        }
+        if (action != "assert" || count < 2) {
+          throw facebook::jsi::JSError(
+              runtime, "__exactNetOwner: unsupported action");
+        }
+        requireNetOwnerStamp(runtime, args[1]);
+        if (count > 2 && !args[2].isUndefined() && !args[2].isNull()) {
+          requireSocketHandle(
+              runtime, requireNetOwnerSocketHandle(runtime, args[2]),
+              "__exactNetOwner", false, true, false);
+        }
+        return facebook::jsi::Value::undefined();
+      });
+  rt.global().setProperty(rt, "__exactNetOwner", std::move(netOwnerFn));
 }
 
 void installNetHostFunctions(ExactHermesRuntime* handle) {

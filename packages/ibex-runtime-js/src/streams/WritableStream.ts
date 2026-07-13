@@ -83,6 +83,118 @@ type PromiseRecord<T> = {
   reject: (reason?: any) => void;
 };
 
+// Authority-bearing adapters may need to authenticate the live caller before
+// this generic stream retains a chunk behind an in-flight write. Keep that
+// admission hook off the publicly mutable `_` fields: a retained stream may be
+// inspected or have lookalike fields forged by another principal.
+interface InternalWritableStreamAdmissions {
+  inspect?: () => void;
+  write?: (chunk: unknown) => unknown;
+  close?: () => void;
+  abort?: (reason: unknown) => void;
+}
+
+const writableStreamAdmissions = new WeakMap<
+  object,
+  InternalWritableStreamAdmissions
+>();
+
+function sealWritableCompatibilityFields(
+  target: any,
+  admission: InternalWritableStreamAdmissions,
+  fields: string[]
+): void {
+  // @ref LLP 0004#retained-native-wrapper-invariant — keep generic lifecycle
+  // projections from becoming a retained native wrapper's authority store.
+  if (typeof admission.inspect !== 'function') {
+    return;
+  }
+  const values: Record<string, any> = Object.create(null);
+  const enumerability: Record<string, boolean> = Object.create(null);
+  for (const field of fields) {
+    values[field] = target[field];
+    enumerability[field] = Object.prototype.propertyIsEnumerable.call(target, field);
+  }
+  const inspect = admission.inspect;
+  for (const field of fields) {
+    Object.defineProperty(target, field, {
+      get() { inspect(); return values[field]; },
+      set(value) { inspect(); values[field] = value; },
+      enumerable: enumerability[field],
+      configurable: false,
+    });
+  }
+}
+
+function sealWritableStreamCompatibilityState(stream: any): void {
+  const admission = writableStreamAdmissions.get(stream);
+  if (!admission) {
+    return;
+  }
+  sealWritableCompatibilityFields(stream, admission, [
+    '_state',
+    '_storedError',
+    '_writer',
+    '_controller',
+    '_writeAlgorithm',
+    '_closeAlgorithm',
+    '_abortAlgorithm',
+    '_started',
+    '_writing',
+    '_closeAlgorithmRunning',
+    '_inFlightWriteRequest',
+    '_inFlightWriteSize',
+    '_inFlightCloseRequest',
+    '_writeRequests',
+    '_pendingAbortRequest',
+    '_backpressure',
+    '_strategyHWM',
+    '_strategySizeAlgorithm',
+    '_queue',
+    '_queueTotalSize',
+    '_writeChunk',
+    '_closeStream',
+    '_abortStream',
+    '_hasOperationInFlight',
+    '_startErroring',
+    '_finishErroring',
+    '_dealWithRejection',
+    '_rejectClosedPromiseIfNeeded',
+    '_errorIfNeeded',
+    '_errorStream',
+    '_notifyWriterError',
+    '_advanceQueueIfNeeded',
+    '_finishClose',
+    '_updateBackpressure',
+  ]);
+}
+
+function sealWritableStreamWriterCompatibilityState(
+  writer: any,
+  stream: object
+): void {
+  const admission = writableStreamAdmissions.get(stream);
+  if (!admission) {
+    return;
+  }
+  sealWritableCompatibilityFields(writer, admission, [
+    '_stream',
+    '_releasedError',
+    '_closedPromise',
+    '_closedResolve',
+    '_closedReject',
+    '_closedPromiseRecord',
+    '_readyPromise',
+    '_readyResolve',
+    '_readyReject',
+    '_readyPromiseRecord',
+    '_setClosedPromiseRecord',
+    '_setReadyPromiseRecord',
+    '_ensureClosedPromiseRejected',
+    '_ensureReadyPromiseRejected',
+  ]);
+}
+
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -339,6 +451,7 @@ export class WritableStreamDefaultWriter<W = any> {
       this._setClosedPromiseRecord(createRejectedPromiseRecord(storedError));
       this._setReadyPromiseRecord(createRejectedPromiseRecord(storedError));
     }
+    sealWritableStreamWriterCompatibilityState(this, stream);
   }
 
   get closed(): Promise<undefined> {
@@ -362,34 +475,44 @@ export class WritableStreamDefaultWriter<W = any> {
   }
 
   write(chunk?: W): Promise<void> {
-    if (this._stream === undefined) {
-      return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
-    }
-    if (this._stream._state !== 'writable') {
-      if (this._stream._state === 'errored' || this._stream._state === 'erroring') {
-        return createHandledRejectedPromise(this._stream._storedError);
+    let stream: WritableStream<W> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
       }
-      return createHandledRejectedPromise(new TypeError('The stream is not in the writable state and cannot be written to'));
+      if (stream._state !== 'writable') {
+        if (stream._state === 'errored' || stream._state === 'erroring') {
+          return createHandledRejectedPromise(stream._storedError);
+        }
+        return createHandledRejectedPromise(new TypeError('The stream is not in the writable state and cannot be written to'));
+      }
+    } catch (error) {
+      return createHandledRejectedPromise(error);
     }
 
-    return this._stream._writeChunk(chunk as W);
+    return stream._writeChunk(chunk as W);
   }
 
   close(): Promise<void> {
-    if (this._stream === undefined) {
-      return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
-    }
-
-    const stream = this._stream;
-
-    if (stream._state !== 'writable') {
-      if (stream._state === 'closed') {
-        return createHandledRejectedPromise(new TypeError('The stream is already closed'));
+    let stream: WritableStream<W> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
       }
-      if (stream._state === 'closing') {
-        return createHandledRejectedPromise(new TypeError('The stream is already closing'));
+
+      if (stream._state !== 'writable') {
+        if (stream._state === 'closed') {
+          return createHandledRejectedPromise(new TypeError('The stream is already closed'));
+        }
+        if (stream._state === 'closing') {
+          return createHandledRejectedPromise(new TypeError('The stream is already closing'));
+        }
+        return createHandledRejectedPromise(new TypeError('The stream is not writable'));
       }
-      return createHandledRejectedPromise(new TypeError('The stream is not writable'));
+    } catch (error) {
+      return createHandledRejectedPromise(error);
     }
 
     const p = stream._closeStream();
@@ -398,11 +521,17 @@ export class WritableStreamDefaultWriter<W = any> {
   }
 
   abort(reason?: any): Promise<void> {
-    if (this._stream === undefined) {
-      return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
+    let stream: WritableStream<W> | undefined;
+    try {
+      stream = this._stream;
+      if (stream === undefined) {
+        return createHandledRejectedPromise(this._releasedError ?? createReleasedWriterError());
+      }
+    } catch (error) {
+      return createHandledRejectedPromise(error);
     }
 
-    const p = this._stream._abortStream(reason);
+    const p = stream._abortStream(reason);
     markPromiseHandled(p);
     return p;
   }
@@ -491,7 +620,16 @@ export class WritableStream<W = any> {
 
   constructor(
     underlyingSink?: UnderlyingSink<W>,
-    strategy?: QueuingStrategy<W>
+    strategy?: QueuingStrategy<W>,
+    ...internalAdmissions: Array<
+      ((chunk: W) => W) |
+      {
+        inspect?: () => void;
+        write?: (chunk: W) => W;
+        close?: () => void;
+        abort?: (reason: unknown) => void;
+      }
+    >
   ) {
     const sink = underlyingSink === undefined ? {} : Object(underlyingSink);
     const sinkAsAny = sink as any;
@@ -499,6 +637,25 @@ export class WritableStream<W = any> {
       throw new TypeError("Unsupported underlying sink type");
     }
     const strat = strategy === undefined ? {} : Object(strategy);
+
+    const admission = internalAdmissions[0];
+    if (admission !== undefined) {
+      if (typeof admission === 'function') {
+        writableStreamAdmissions.set(this, {
+          write: admission as (chunk: unknown) => unknown,
+        });
+      } else if (admission && typeof admission === 'object') {
+        for (const method of ['inspect', 'write', 'close', 'abort']) {
+          const candidate = (admission as any)[method];
+          if (candidate !== undefined && typeof candidate !== 'function') {
+            throw new TypeError(`Internal ${method} admission must be a function`);
+          }
+        }
+        writableStreamAdmissions.set(this, admission as InternalWritableStreamAdmissions);
+      } else {
+        throw new TypeError('Internal stream admission must be a function or object');
+      }
+    }
 
     if (sink.start !== undefined) {
       validateSinkMethod(sink, "start");
@@ -565,6 +722,7 @@ export class WritableStream<W = any> {
           self._started = true;
           self._dealWithRejection(startError);
         });
+        sealWritableStreamCompatibilityState(this);
         return;
       }
       promiseThen(resolveHandledPromise(startResult),
@@ -584,6 +742,7 @@ export class WritableStream<W = any> {
         self._advanceQueueIfNeeded();
       });
     }
+    sealWritableStreamCompatibilityState(this);
   }
 
   get locked(): boolean {
@@ -624,6 +783,20 @@ export class WritableStream<W = any> {
 
   /** @internal */
   _writeChunk(chunk: W): Promise<void> {
+    // This runs synchronously in WritableStreamDefaultWriter.write(), before
+    // size calculation, request allocation, queue mutation, or backpressure
+    // changes. The hook may also replace the queued representation with an
+    // opaque, principal-authorized entry for later deferred consumption.
+    let admittedChunk = chunk;
+    const writeAdmission = writableStreamAdmissions.get(this)?.write;
+    if (writeAdmission) {
+      try {
+        admittedChunk = writeAdmission(chunk) as W;
+      } catch (error) {
+        return createHandledRejectedPromise(error);
+      }
+    }
+
     // An abrupt or invalid size() completion runs
     // WritableStreamDefaultControllerErrorIfNeeded: the whole stream becomes
     // errored (ready rejects, later writes reject), not just this write.
@@ -648,8 +821,11 @@ export class WritableStream<W = any> {
 
     const self = this;
     const p = new Promise<void>(function (resolve, reject) {
-      self._writeRequests.push({ chunk: chunk, resolve: resolve, reject: reject });
-      self._queue.push({ chunk: chunk, size: size });
+      // Keep the request record aligned with the opaque queued representation.
+      // Retaining the caller's original chunk here would re-expose it through
+      // this compatibility field even though `_queue` was safely admitted.
+      self._writeRequests.push({ chunk: admittedChunk, resolve: resolve, reject: reject });
+      self._queue.push({ chunk: admittedChunk, size: size });
       self._queueTotalSize += size;
       self._updateBackpressure();
       self._advanceQueueIfNeeded();
@@ -660,6 +836,15 @@ export class WritableStream<W = any> {
 
   /** @internal */
   _closeStream(): Promise<void> {
+    const closeAdmission = writableStreamAdmissions.get(this)?.close;
+    if (closeAdmission) {
+      try {
+        closeAdmission();
+      } catch (error) {
+        return createHandledRejectedPromise(error);
+      }
+    }
+
     // WritableStreamClose step 6: once close is requested no further writes
     // can be queued, so a ready promise pending on backpressure resolves now
     // (otherwise `await writer.ready` after close() hangs forever with e.g.
@@ -695,6 +880,15 @@ export class WritableStream<W = any> {
     // A concurrent abort returns the in-flight abort's promise.
     if (this._pendingAbortRequest !== undefined) {
       return this._pendingAbortRequest.promise;
+    }
+
+    const abortAdmission = writableStreamAdmissions.get(this)?.abort;
+    if (abortAdmission) {
+      try {
+        abortAdmission(reason);
+      } catch (error) {
+        return createHandledRejectedPromise(error);
+      }
     }
 
     // Signal abort on the controller so sink code observing the signal can bail.

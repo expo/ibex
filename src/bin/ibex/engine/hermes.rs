@@ -5999,6 +5999,132 @@ cp \"$input\" \"$out\"\n";
         );
     }
 
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn authenticated_endowment_json_cannot_inject_or_overwrite_locator_buckets() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let attacker_locator = "attacker@zz:fetch,Buffer;victim";
+        let overwritten_locator = "attacker@zz";
+        let victim_locator = "victim@1.0.0";
+        let (host, digest) =
+            build_armed_test_host_custom(None, false, false, false, Vec::new(), None, |snapshot| {
+                let integrity = snapshot["principals"][1]["principal"]["integrity"].clone();
+                let attacker = serde_json::json!({
+                    "kind": "package",
+                    "name": "attacker",
+                    "integrity": integrity,
+                    "locator": attacker_locator,
+                });
+                let overwritten = serde_json::json!({
+                    "kind": "package",
+                    "name": "overwritten",
+                    "integrity": integrity,
+                    "locator": overwritten_locator,
+                });
+                let victim = serde_json::json!({
+                    "kind": "package",
+                    "name": "victim",
+                    "integrity": integrity,
+                    "locator": victim_locator,
+                });
+
+                snapshot["principals"][0]["imports"]["packages"] =
+                    serde_json::json!([overwritten_locator, attacker_locator, victim_locator]);
+                snapshot["principals"][1]["principal"] = attacker.clone();
+                snapshot["principals"][1]["endowments"] = serde_json::json!(["process"]);
+                let mut overwritten_row = snapshot["principals"][1].clone();
+                overwritten_row["principal"] = overwritten.clone();
+                overwritten_row["endowments"] = serde_json::json!(["Bun"]);
+                let mut victim_row = snapshot["principals"][1].clone();
+                victim_row["principal"] = victim.clone();
+                victim_row["endowments"] = serde_json::json!([]);
+                snapshot["principals"]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend([overwritten_row, victim_row]);
+
+                snapshot["packageGraph"]["nodes"] = serde_json::json!([
+                    {"principal": attacker},
+                    {"principal": overwritten},
+                    {"principal": victim},
+                ]);
+                let root = snapshot["rootIdentity"].clone();
+                snapshot["packageGraph"]["importEdges"] = serde_json::json!([
+                    {"importer": root, "imported": attacker},
+                    {"importer": root, "imported": overwritten},
+                    {"importer": root, "imported": victim},
+                ]);
+
+                snapshot["rootBindings"][0]["owner"] = attacker;
+                let mut overwritten_binding = snapshot["rootBindings"][0].clone();
+                overwritten_binding["owner"] = overwritten;
+                overwritten_binding["hostPath"]["components"]
+                    .as_array_mut()
+                    .unwrap()
+                    .last_mut()
+                    .unwrap()["value"] = serde_json::json!("overwritten");
+                overwritten_binding["object"]["file"] = serde_json::json!("file-201");
+                let mut victim_binding = snapshot["rootBindings"][0].clone();
+                victim_binding["owner"] = victim;
+                victim_binding["hostPath"]["components"]
+                    .as_array_mut()
+                    .unwrap()
+                    .last_mut()
+                    .unwrap()["value"] = serde_json::json!("victim");
+                victim_binding["object"]["file"] = serde_json::json!("file-202");
+                snapshot["rootBindings"]
+                    .as_array_mut()
+                    .unwrap()
+                    .extend([overwritten_binding, victim_binding]);
+            });
+        assert_ne!(crate::host::abi::install_host(host), 0);
+        let _reset = HostResetGuard;
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let script = format!(
+            r#"(function () {{
+              var registry = globalThis.__compartments;
+              var attacker = registry[{}];
+              var overwritten = registry[{}];
+              var victim = registry[{}];
+              var injectedBare = registry['victim'];
+              return JSON.stringify({{
+                attackerOwnsOnlyProcess:
+                  attacker.process === globalThis.process &&
+                  attacker.fetch === undefined && attacker.Buffer === undefined &&
+                  attacker.Bun === undefined,
+                otherExactBucketNotOverwritten:
+                  overwritten.Bun === globalThis.Bun &&
+                  overwritten.fetch === undefined && overwritten.Buffer === undefined &&
+                  overwritten.process === undefined,
+                emptyExactBucketBlocksBareInjection:
+                  victim.fetch === undefined && victim.Buffer === undefined &&
+                  victim.process === undefined && victim.Bun === undefined,
+                noInjectedBareBucket:
+                  injectedBare.fetch === undefined && injectedBare.Buffer === undefined &&
+                  injectedBare.process === undefined && injectedBare.Bun === undefined,
+                wireDeleted: typeof globalThis.__ibexEndowRaw === 'undefined'
+              }});
+            }})()"#,
+            serde_json::to_string(attacker_locator).unwrap(),
+            serde_json::to_string(overwritten_locator).unwrap(),
+            serde_json::to_string(victim_locator).unwrap(),
+        );
+        let encoded = engine.eval_immediate(&script).await.unwrap().unwrap();
+        let result: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "attackerOwnsOnlyProcess": true,
+                "otherExactBucketNotOverwritten": true,
+                "emptyExactBucketBlocksBareInjection": true,
+                "noInjectedBareBucket": true,
+                "wireDeleted": true,
+            })
+        );
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn compartment_baseline_finalizer_accepts_disabled_and_rejects_partial_state() {
         let _guard = hermes_engine_test_lock().lock().await;
@@ -7032,6 +7158,7 @@ cp \"$input\" \"$out\"\n";
     async fn http_wait_timeout_is_not_starved_by_existing_waiters() {
         let _guard = hermes_engine_test_lock().lock().await;
         let _host_guard = install_test_host_with_allow(&["network:listen:127.0.0.1:0"]);
+        let _idle_delay = TestEnvVar::set("IBEX_TEST_HTTP_WAIT_IDLE_DELAY_MS", "250");
         let engine = HermesEngine::new().unwrap();
 
         let setup = eval_json(
@@ -7045,14 +7172,8 @@ cp \"$input\" \"$out\"\n";
                 __exactHttpSetRef(result.id, 0);
                 globalThis.__exactWaitServerId = result.id;
                 globalThis.__exactWaitStatus = 'pending';
-                globalThis.__exactWaitKeepAlive = [
-                  __exactHttpWait(result.id, 0),
-                  __exactHttpWait(result.id, 0),
-                  __exactHttpWait(result.id, 0),
-                  __exactHttpWait(result.id, 0)
-                ];
-                __exactHttpWait(result.id, 50).then(function(value) {
-                  globalThis.__exactWaitStatus = value === null ? 'timeout' : 'request';
+                __exactHttpWait(result.id, 10).then(function(value) {
+                  globalThis.__exactWaitStatus = value === null ? 'warm' : 'request';
                 }).catch(function(err) {
                   globalThis.__exactWaitStatus =
                     'error:' + String(err && err.message ? err.message : err);
@@ -7063,6 +7184,44 @@ cp \"$input\" \"$out\"\n";
         .await;
 
         assert!(setup.get("error").is_none(), "server setup failed: {setup}");
+        let warmed = wait_for_exact_wait_status(&engine).await;
+        assert_eq!(
+            warmed.get("status").and_then(serde_json::Value::as_str),
+            Some("warm"),
+            "warm-up wait should create an idle native worker: {warmed}",
+        );
+
+        // Let the completed worker return to the pool's idle wait before the
+        // synchronous burst below. This is the state that used to strand the
+        // finite wait behind the first unbounded wait: every enqueue observed
+        // one idle worker even though that worker was already owed to an older
+        // queued task.
+        sleep(Duration::from_millis(25)).await;
+        let burst = eval_json(
+            &engine,
+            r#"(function() {
+                globalThis.__exactWaitStatus = 'pending';
+                globalThis.__exactWaitKeepAlive = [
+                  __exactHttpWait(globalThis.__exactWaitServerId, 0),
+                  __exactHttpWait(globalThis.__exactWaitServerId, 0),
+                  __exactHttpWait(globalThis.__exactWaitServerId, 0),
+                  __exactHttpWait(globalThis.__exactWaitServerId, 0)
+                ];
+                __exactHttpWait(globalThis.__exactWaitServerId, 50).then(function(value) {
+                  globalThis.__exactWaitStatus = value === null ? 'timeout' : 'request';
+                }).catch(function(err) {
+                  globalThis.__exactWaitStatus =
+                    'error:' + String(err && err.message ? err.message : err);
+                });
+                return JSON.stringify({ ok: true });
+            })()"#,
+        )
+        .await;
+
+        assert_eq!(
+            burst.get("ok").and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
 
         // CI runners can start the native wait task after the fixed pre-sleep,
         // so observe the JS-visible terminal state instead of assuming a

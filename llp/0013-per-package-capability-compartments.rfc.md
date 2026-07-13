@@ -15,6 +15,7 @@
 **Revised:** 2026-07-10 (ENG-24144 factual drift repair: manifest count is 57 after `network:resolve`; package-selector precedence and enforced host fences recorded; typed successor contract is LLP 0021)
 **Revised:** 2026-07-12 (ENG-24263 retirement reconciliation: the legacy binary policy suite and its string-policy fixtures were removed; every former case is mapped to a live named revision-2 test, production closure, or an explicitly migrated compatibility regression in `tests/fixtures/capsec-rev2/llp0013-retirement-map.json`)
 **Revised:** 2026-07-12 (ENG-24463 isolates post-bootstrap global property bindings and existence: native bootstrap installs a closure-private registry, the selected runtime path performs a required one-shot baseline refresh, package reads resolve against that detached view, and package lookup/binding failures refuse rather than falling back to the real global; ENG-24526 adds exact-importer lexical scope imports and strict flat chunks; shared nested descriptor values and all-free flat rewriting remain explicit follow-ups ENG-24514 and ENG-24527)
+**Revised:** 2026-07-13 (`allowed_hosts` remains a hard outbound fence but no longer conflates remote-host policy with local `network:listen` authority — ENG-24285)
 **Related:** LLP 0000; LLP 0002 (host ABI); LLP 0003 (Hermes bridge); LLP 0004 (module loading); LLP 0006 (design principles); LLP 0007 (transform pipeline); LLP 0014 (import-site grants and the generated policy artifact)
 
 > **Current implementation (2026-07-12):** LLP 0021 supersedes this RFC's
@@ -175,8 +176,9 @@ exists yet (this section serves as the interim record):
   LLP 0006 §"Capability-gated host").
 - **Boundary fences**: the historical `SecurityMode::Capability`/`Strict`
   split has been collapsed into canonical `Enforce` (the old strings remain
-  aliases). `HostConfig.root_dir` and `allowed_hosts` are now hard host-boundary
-  fences in every mode and cannot be widened by policy
+  aliases). `HostConfig.root_dir` and the outbound-only `allowed_hosts` remote
+  host allowlist are now hard host-boundary fences in every mode and cannot be
+  widened by policy; `network:listen` remains a separate policy decision
   `[observed]` (`src/host/capability.rs`).
 
 ## Threat model

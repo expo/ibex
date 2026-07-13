@@ -2970,10 +2970,12 @@ mod tests {
     }
 
     #[test]
-    fn await_writable_wakes_when_client_disconnects() {
-        // Dropping the hyper-side stream (peer disconnect) must wake a parked
-        // waiter via the unfold's drop guard so it observes is_closed()
-        // immediately. @ref https://linear.app/expo/issue/ENG-23114
+    fn idle_stream_disconnect_clears_owner_pipe_and_wakes_writer() {
+        // Dropping an idle hyper-side stream (for example, an SSE client that
+        // disconnects between events) must remove the owning server/request
+        // pipe as well as wake a parked writer. Otherwise the stale pipe keeps
+        // has_pending_requests true forever even though the peer is gone.
+        // @ref https://linear.app/expo/issue/ENG-23114
         let server_id = 90_018u32;
         let request_id = 118u32;
         let state = register_test_server(server_id);
@@ -2986,7 +2988,16 @@ mod tests {
                 drain: drain.clone(),
             },
         );
-        let body = streamed_body_response(body_rx, drain, None);
+        let body = streamed_body_response(body_rx, drain, Some((state.clone(), request_id)));
+        assert_eq!(state.runtime_nonce, current_runtime_nonce());
+        assert!(Arc::ptr_eq(
+            &server_for_current_runtime(server_id).expect("server belongs to current runtime"),
+            &state
+        ));
+        assert!(
+            has_outstanding_work(&state),
+            "the open response pipe must count as pending work"
+        );
         assert!(matches!(
             try_send_response_chunk(&state, request_id, RequestBodyChunk::Data(b"x".to_vec())),
             ChunkSend::Sent
@@ -2996,6 +3007,14 @@ mod tests {
             std::thread::spawn(move || ex_host_http_await_writable(server_id, request_id, 10_000));
         std::thread::sleep(Duration::from_millis(50));
         drop(body); // client went away: hyper drops the response stream
+        assert!(
+            !lock_or_recover(&state.response_bodies).contains_key(&request_id),
+            "disconnect must synchronously remove the owned response pipe"
+        );
+        assert!(
+            !has_outstanding_work(&state),
+            "disconnect must reduce this server's pending-work count to zero"
+        );
 
         let start = Instant::now();
         let result = waiter.join().expect("waiter thread should not panic");
@@ -3005,6 +3024,53 @@ mod tests {
             "the waiter must wake on disconnect, not run out its 10s timeout"
         );
         assert!(lock_or_recover(servers()).remove(&server_id).is_some());
+    }
+
+    #[test]
+    fn forced_close_notifies_response_body_drains() {
+        // The forced-close path drains the entire response-pipe map. Every
+        // pipe's drain signal must fire so workers parked on backpressure do
+        // not remain blocked until their timeout.
+        // @ref https://linear.app/expo/issue/ENG-23114
+        let server_id = 90_020u32;
+        let request_id = 120u32;
+        let state = register_test_server(server_id);
+        let (body_tx, _body_rx) = mpsc::channel::<RequestBodyChunk>(1);
+        let drain = Arc::new(DrainSignal::new());
+        lock_or_recover(&state.response_bodies).insert(
+            request_id,
+            ResponseBodyPipe {
+                sender: body_tx,
+                drain: drain.clone(),
+            },
+        );
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let observer = std::thread::spawn(move || {
+            let mut version = lock_or_recover(&drain.version);
+            let observed = *version;
+            ready_tx.send(()).expect("signal observer readiness");
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while *version == observed {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(
+                    !remaining.is_zero(),
+                    "forced close never notified the drain"
+                );
+                let waited = drain
+                    .condvar
+                    .wait_timeout(version, remaining)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                version = waited.0;
+            }
+        });
+        ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("drain observer should become ready");
+
+        assert_eq!(ex_host_http_close(server_id, 1), 0);
+        assert!(lock_or_recover(&state.response_bodies).is_empty());
+        observer.join().expect("drain observer should not panic");
     }
 
     #[test]

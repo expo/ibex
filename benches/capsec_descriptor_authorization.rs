@@ -78,10 +78,10 @@ fn context_and_decision() -> (VerifiedDecisionContext, DecisionSet, EffectGate) 
     );
     let authority = DecisionAuthorityState {
         generations,
-        process_ceiling: AuthorityCeiling::Unbounded,
-        protected_objects: Vec::new(),
-        protected_resources: Vec::new(),
-        principal_policies,
+        process_ceiling: AuthorityCeiling::Unbounded.into(),
+        protected_objects: Vec::new().into(),
+        protected_resources: Vec::new().into(),
+        principal_policies: principal_policies.into(),
         revocations: Vec::new(),
         handles: Vec::new(),
         dynamic_grants: Vec::new(),

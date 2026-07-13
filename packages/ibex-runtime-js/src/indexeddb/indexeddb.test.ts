@@ -1878,6 +1878,59 @@ describe('ENG-23134: collision-free store table names', () => {
 });
 
 describe('ENG-23134: structured-clone value fidelity', () => {
+  test('ENG-24277: put() and add() snapshot values synchronously at call time', async () => {
+    const factory = makeFactory();
+    const db = await openDb(factory, 'vals-call-time-snapshot', 1, (d) =>
+      d.createObjectStore('s'));
+    const putValue = {
+      label: 'put-before',
+      nested: { count: 1 },
+      bytes: new Uint8Array([1, 2, 3]),
+    };
+    const addValue = {
+      label: 'add-before',
+      nested: { count: 2 },
+      bytes: new Uint8Array([4, 5, 6]),
+    };
+    const tx = db.transaction('s', 'readwrite');
+    const store = tx.objectStore('s');
+    const putRequest = store.put(putValue, 'put');
+    const addRequest = store.add(addValue, 'add');
+    const putDone = reqDone(putRequest);
+    const addDone = reqDone(addRequest);
+    const transactionDone = txDone(tx);
+
+    // Mutate both ordinary objects and their backing buffers before the
+    // transaction gets a chance to execute either queued request.
+    putValue.label = 'put-after';
+    putValue.nested.count = 10;
+    putValue.bytes.fill(9);
+    addValue.label = 'add-after';
+    addValue.nested.count = 20;
+    addValue.bytes.fill(8);
+
+    expect(await putDone).toBe('put');
+    expect(await addDone).toBe('add');
+    await transactionDone;
+
+    const read = db.transaction('s', 'readonly').objectStore('s');
+    const [storedPut, storedAdd]: any[] = await Promise.all([
+      reqDone(read.get('put')),
+      reqDone(read.get('add')),
+    ]);
+    expect(storedPut).toEqual({
+      label: 'put-before',
+      nested: { count: 1 },
+      bytes: new Uint8Array([1, 2, 3]),
+    });
+    expect(storedAdd).toEqual({
+      label: 'add-before',
+      nested: { count: 2 },
+      bytes: new Uint8Array([4, 5, 6]),
+    });
+    db.close();
+  });
+
   test('Blob and File round-trip through put/get', async () => {
     const factory = makeFactory();
     const db = await openDb(factory, 'vals1', 1, (d) => d.createObjectStore('s'));

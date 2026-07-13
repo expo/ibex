@@ -87,7 +87,8 @@ bool registerWebSocket(
 WebSocketEntry requireWebSocketOwner(
     facebook::jsi::Runtime& runtime,
     uint32_t ws_id,
-    const char* syscall) {
+    const char* syscall,
+    bool requireLiveAuthority = true) {
   WebSocketEntry entry;
   {
     std::lock_guard<std::mutex> lock(g_websocket_mutex);
@@ -109,7 +110,8 @@ WebSocketEntry requireWebSocketOwner(
     throw facebook::jsi::JSError(
         runtime, std::string(syscall) + ": WebSocket belongs to a different principal");
   }
-  if (!entry.capability.empty() && !checkCapability(entry.capability)) {
+  if (requireLiveAuthority && !entry.capability.empty() &&
+      !checkCapability(entry.capability)) {
     throw facebook::jsi::JSError(runtime, std::string("Permission denied: ") + syscall);
   }
   if (entry.closing) {
@@ -498,7 +500,13 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
          size_t count) -> facebook::jsi::Value {
         if (count < 1 || !args[0].isNumber()) return facebook::jsi::Value::undefined();
         uint32_t ws_id = static_cast<uint32_t>(args[0].asNumber());
-        auto entry = requireWebSocketOwner(runtime, ws_id, "__exactWsClose");
+        // @ref LLP 0021#handles-dynamic-authority-and-generations — close is
+        // authority-reducing and survives positive grant revocation.
+        auto entry = requireWebSocketOwner(
+            runtime, ws_id, "__exactWsClose", false);
+        if (count > 3 && args[3].isBool() && args[3].getBool()) {
+          return facebook::jsi::Value::undefined();
+        }
         if (!markWebSocketClosing(ws_id, entry.runtime_nonce)) {
           return facebook::jsi::Value::undefined();
         }
@@ -566,7 +574,29 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
   // WinHTTP native bridge here.
   static const char* windowsWebSocketShim = R"JS(
 (function(g) {
-  if (typeof g.WebSocket === 'function' || typeof g.__exactWsConnect !== 'function') return;
+  var exactWsConnect = g.__exactWsConnect;
+  var exactWsSend = g.__exactWsSend;
+  var exactWsClose = g.__exactWsClose;
+  var exactNetOwner = g.__exactNetOwner;
+  if (typeof g.WebSocket === 'function' ||
+      typeof exactWsConnect !== 'function' ||
+      typeof exactWsSend !== 'function' ||
+      typeof exactWsClose !== 'function' ||
+      typeof exactNetOwner !== 'function') return;
+
+  var windowsWebSocketStates = new WeakMap();
+
+  function windowsWebSocketState(socket) {
+    var state = socket && windowsWebSocketStates.get(socket);
+    if (!state) throw new TypeError('Illegal invocation');
+    return state;
+  }
+
+  function ownedWindowsWebSocketState(socket) {
+    var state = windowsWebSocketState(socket);
+    exactNetOwner('assert', state.ownerStamp);
+    return state;
+  }
 
   function makeEvent(type, props) {
     var event = { type: type };
@@ -577,41 +607,94 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
     return event;
   }
 
+  function handleOpen(socket, protocol, extensions) {
+    var state = ownedWindowsWebSocketState(socket);
+    // A close() racing the end of the async handshake must not resurrect
+    // the socket (ENG-23469).
+    if (state.readyState !== WebSocket.CONNECTING) return;
+    state.readyState = WebSocket.OPEN;
+    state.protocol = protocol || '';
+    state.extensions = extensions || '';
+    if (typeof state.onopen === 'function') state.onopen.call(socket, makeEvent('open'));
+  }
+
+  function handleMessage(socket, data) {
+    var state = ownedWindowsWebSocketState(socket);
+    if (state.readyState !== WebSocket.OPEN) return;
+    if (typeof state.onmessage === 'function') {
+      state.onmessage.call(socket, makeEvent('message', { data: data }));
+    }
+  }
+
+  function handleClose(socket, code, reason, wasClean) {
+    var state = ownedWindowsWebSocketState(socket);
+    state.socketId = -1;
+    state.readyState = WebSocket.CLOSED;
+    if (typeof state.onclose === 'function') {
+      state.onclose.call(socket, makeEvent('close', {
+        code: code || 1005,
+        reason: reason || '',
+        wasClean: !!wasClean
+      }));
+    }
+  }
+
+  function handleError(socket, message) {
+    var state = ownedWindowsWebSocketState(socket);
+    if (typeof state.onerror === 'function') {
+      state.onerror.call(socket, makeEvent('error', { message: message || 'WebSocket error' }));
+    }
+  }
+
+  function handleBytesSent(socket, bytesSent) {
+    var state = ownedWindowsWebSocketState(socket);
+    state.bufferedAmount = Math.max(0, state.bufferedAmount - (bytesSent || 0));
+  }
+
   function WebSocket(url, protocols) {
     if (!(this instanceof WebSocket)) {
       throw new TypeError("Failed to construct 'WebSocket': constructor requires 'new'");
     }
-    this.url = String(url);
-    this.protocol = '';
-    this.extensions = '';
-    this.readyState = WebSocket.CONNECTING;
-    this.bufferedAmount = 0;
-    this.binaryType = 'arraybuffer';
-    this.onopen = null;
-    this.onmessage = null;
-    this.onerror = null;
-    this.onclose = null;
+    var state = {
+      url: String(url),
+      protocol: '',
+      extensions: '',
+      readyState: WebSocket.CONNECTING,
+      bufferedAmount: 0,
+      binaryType: 'arraybuffer',
+      socketId: -1,
+      ownerStamp: exactNetOwner('new'),
+      onopen: null,
+      onmessage: null,
+      onerror: null,
+      onclose: null
+    };
+    // @ref LLP 0013#delegation-and-authority-flow — a retained wrapper may
+    // cross a principal boundary, but its native selector remains private.
+    windowsWebSocketStates.set(this, state);
     var self = this;
-    this._handleOpen = function(protocol, extensions) {
-      WebSocket.prototype._handleOpen.call(self, protocol, extensions);
-    };
-    this._handleMessage = function(data) {
-      WebSocket.prototype._handleMessage.call(self, data);
-    };
-    this._handleClose = function(code, reason, wasClean) {
-      WebSocket.prototype._handleClose.call(self, code, reason, wasClean);
-    };
-    this._handleError = function(message) {
-      WebSocket.prototype._handleError.call(self, message);
-    };
-    this._handleBytesSent = function(bytesSent) {
-      WebSocket.prototype._handleBytesSent.call(self, bytesSent);
+    var bridge = {
+      _handleOpen: function(protocol, extensions) {
+        handleOpen(self, protocol, extensions);
+      },
+      _handleMessage: function(data) {
+        handleMessage(self, data);
+      },
+      _handleClose: function(code, reason, wasClean) {
+        handleClose(self, code, reason, wasClean);
+      },
+      _handleError: function(message) {
+        handleError(self, message);
+      },
+      _handleBytesSent: function(bytesSent) {
+        handleBytesSent(self, bytesSent);
+      }
     };
     var protocolList = Array.isArray(protocols) ? protocols.join(',') : (protocols || '');
-    var id = g.__exactWsConnect(this.url, String(protocolList), this);
-    this._socketId = typeof id === 'number' ? id : -1;
-    if (this._socketId < 0) {
-      this.readyState = WebSocket.CLOSED;
+    var id = exactWsConnect(state.url, String(protocolList), bridge);
+    state.socketId = typeof id === 'number' ? id : -1;
+    if (state.socketId < 0) {
+      state.readyState = WebSocket.CLOSED;
     }
   }
 
@@ -624,51 +707,103 @@ void installWebSocketGlobals(ExactHermesRuntime* handle) {
   WebSocket.prototype.CLOSING = 2;
   WebSocket.prototype.CLOSED = 3;
 
-  WebSocket.prototype._handleOpen = function(protocol, extensions) {
-    // A close() racing the end of the async handshake must not resurrect
-    // the socket (ENG-23469).
-    if (this.readyState !== WebSocket.CONNECTING) return;
-    this.readyState = WebSocket.OPEN;
-    this.protocol = protocol || '';
-    this.extensions = extensions || '';
-    if (typeof this.onopen === 'function') this.onopen(makeEvent('open'));
-  };
-  WebSocket.prototype._handleMessage = function(data) {
-    if (typeof this.onmessage === 'function') {
-      this.onmessage(makeEvent('message', { data: data }));
+  Object.defineProperties(WebSocket.prototype, {
+    url: {
+      get: function() { return ownedWindowsWebSocketState(this).url; },
+      enumerable: true,
+      configurable: true
+    },
+    protocol: {
+      get: function() { return ownedWindowsWebSocketState(this).protocol; },
+      enumerable: true,
+      configurable: true
+    },
+    extensions: {
+      get: function() { return ownedWindowsWebSocketState(this).extensions; },
+      enumerable: true,
+      configurable: true
+    },
+    readyState: {
+      get: function() { return ownedWindowsWebSocketState(this).readyState; },
+      enumerable: true,
+      configurable: true
+    },
+    bufferedAmount: {
+      get: function() { return ownedWindowsWebSocketState(this).bufferedAmount; },
+      enumerable: true,
+      configurable: true
+    },
+    binaryType: {
+      get: function() { return ownedWindowsWebSocketState(this).binaryType; },
+      set: function(value) {
+        if (value === 'blob' || value === 'arraybuffer') {
+          ownedWindowsWebSocketState(this).binaryType = value;
+        }
+      },
+      enumerable: true,
+      configurable: true
+    },
+    onopen: {
+      get: function() { return ownedWindowsWebSocketState(this).onopen; },
+      set: function(value) { ownedWindowsWebSocketState(this).onopen = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onmessage: {
+      get: function() { return ownedWindowsWebSocketState(this).onmessage; },
+      set: function(value) { ownedWindowsWebSocketState(this).onmessage = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onerror: {
+      get: function() { return ownedWindowsWebSocketState(this).onerror; },
+      set: function(value) { ownedWindowsWebSocketState(this).onerror = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
+    },
+    onclose: {
+      get: function() { return ownedWindowsWebSocketState(this).onclose; },
+      set: function(value) { ownedWindowsWebSocketState(this).onclose = typeof value === 'function' ? value : null; },
+      enumerable: true,
+      configurable: true
     }
-  };
-  WebSocket.prototype._handleClose = function(code, reason, wasClean) {
-    this.readyState = WebSocket.CLOSED;
-    if (typeof this.onclose === 'function') {
-      this.onclose(makeEvent('close', {
-        code: code || 1005,
-        reason: reason || '',
-        wasClean: !!wasClean
-      }));
-    }
-  };
-  WebSocket.prototype._handleError = function(message) {
-    if (typeof this.onerror === 'function') {
-      this.onerror(makeEvent('error', { message: message || 'WebSocket error' }));
-    }
-  };
-  WebSocket.prototype._handleBytesSent = function(bytesSent) {
-    this.bufferedAmount = Math.max(0, this.bufferedAmount - (bytesSent || 0));
-  };
+  });
+
   WebSocket.prototype.send = function(data) {
-    if (this.readyState === WebSocket.CONNECTING) {
+    var state = ownedWindowsWebSocketState(this);
+    if (state.readyState === WebSocket.CONNECTING) {
       throw new Error('WebSocket is not open');
     }
-    if (this.readyState !== WebSocket.OPEN) return;
-    if (typeof data === 'string') this.bufferedAmount += data.length;
-    else if (data && typeof data.byteLength === 'number') this.bufferedAmount += data.byteLength;
-    g.__exactWsSend(this._socketId, data);
+    if (state.readyState !== WebSocket.OPEN) return;
+    // Authenticate before inspecting caller-controlled data or reserving
+    // bufferedAmount. An unsupported payload reaches the shared native owner
+    // gate but never native_ws_send.
+    exactWsSend(state.socketId, undefined);
+    var bytes = 0;
+    if (typeof data === 'string') bytes = data.length;
+    else if (data && typeof data.byteLength === 'number') bytes = data.byteLength;
+    state.bufferedAmount += bytes;
+    try {
+      exactWsSend(state.socketId, data);
+    } catch (error) {
+      state.bufferedAmount = Math.max(0, state.bufferedAmount - bytes);
+      throw error;
+    }
   };
   WebSocket.prototype.close = function(code, reason) {
-    if (this.readyState === WebSocket.CLOSED || this.readyState === WebSocket.CLOSING) return;
-    this.readyState = WebSocket.CLOSING;
-    g.__exactWsClose(this._socketId, code || 1005, reason || '');
+    var state = ownedWindowsWebSocketState(this);
+    if (state.readyState === WebSocket.CLOSED || state.readyState === WebSocket.CLOSING) return;
+    // @ref LLP 0021#handles-dynamic-authority-and-generations — the native
+    // call is the strict owner check. Commit terminal JS state only after it
+    // succeeds so a denied retained-wrapper call leaves the owner a retry.
+    exactWsClose(
+      state.socketId,
+      code == null ? 1005 : code,
+      reason == null ? '' : String(reason)
+    );
+    if (state.readyState !== WebSocket.CLOSED) {
+      state.readyState = WebSocket.CLOSING;
+    }
   };
 
   Object.defineProperty(g, 'WebSocket', {

@@ -3514,12 +3514,12 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const inheritedRows = exports.filter(
       (row) => row.metadata.inheritedShape === true,
     );
-    expect(inheritedRows).toHaveLength(434);
+    expect(inheritedRows).toHaveLength(455);
     expect(
       new Set(inheritedRows.map((row) => row.metadata.inheritedShapeReviewId)),
     ).toEqual(
       new Set([
-        "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc",
+        "sha256-92e80596e19cbd5fa2167c0374f84e695fb493ad9caa022e5ef97d48c80a7a04",
       ]),
     );
     expect(
@@ -3656,7 +3656,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
       "src/engine/hermes_runtime_websocket.cc",
     );
     expect(fetchShim).toHaveLength(9);
-    expect(webSocketShim).toHaveLength(12);
+    expect(webSocketShim).toHaveLength(17);
     expect(fetchShim.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "global:Headers.append",
@@ -3667,9 +3667,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     expect(webSocketShim.map((row) => row.name)).toEqual(
       expect.arrayContaining([
         "global:WebSocket.CLOSED",
-        "global:WebSocket._handleOpen",
         "global:WebSocket.close",
+        "global:WebSocket.onmessage",
         "global:WebSocket.send",
+        "global:WebSocket.url",
       ]),
     );
     expect(

@@ -4,7 +4,9 @@ use capsec_semantics::strict_json::parse_strict;
 use proptest::prelude::*;
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 fn capsec_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../capsec")
@@ -65,6 +67,69 @@ fn jcs_number_vectors_match_ecmascript_tie_breaking() {
             to_jcs(&serde_json::Value::Number(number)).unwrap(),
             expected,
             "IEEE-754 bits {bits:016x}"
+        );
+    }
+}
+
+#[test]
+fn jcs_non_integer_doubles_match_javascript_differentially() {
+    const SAMPLE_COUNT: usize = 8_192;
+    const KNOWN_TIE_BREAK_MISMATCH: u64 = 0x42eb_dac0_2547_4844;
+
+    // Keep this corpus deterministic and bounded while sampling the full f64
+    // bit space. The known Rust Display/ECMAScript tie-break mismatch is first
+    // so the regression remains pinned independently of the pseudo-random run.
+    // @ref LLP 0021#canonicalization-and-digest-domains — both planes must emit
+    // identical RFC 8785 bytes for every accepted I-JSON number.
+    let mut samples = vec![KNOWN_TIE_BREAK_MISMATCH];
+    let mut state = 0x6a09_e667_f3bc_c909_u64;
+    while samples.len() < SAMPLE_COUNT {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut bits = state;
+        bits = (bits ^ (bits >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        bits = (bits ^ (bits >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        bits ^= bits >> 31;
+
+        let value = f64::from_bits(bits);
+        if value.is_finite() && value.fract() != 0.0 {
+            samples.push(bits);
+        }
+    }
+
+    let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/jcs-number-js-oracle.mjs");
+    let mut child = Command::new("bun")
+        .arg(script)
+        .current_dir(repo_root)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn Bun JCS number oracle");
+    {
+        let stdin = child.stdin.as_mut().expect("open Bun oracle stdin");
+        for bits in &samples {
+            writeln!(stdin, "{bits:016x}").expect("write f64 bits to Bun oracle");
+        }
+    }
+    let output = child.wait_with_output().expect("wait for Bun JCS oracle");
+    assert!(
+        output.status.success(),
+        "Bun JCS oracle failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let javascript: Vec<String> =
+        serde_json::from_slice(&output.stdout).expect("parse Bun JCS oracle output");
+    assert_eq!(javascript.len(), samples.len());
+    assert_eq!(javascript[0], "245010723912258.12");
+
+    for (index, (&bits, javascript)) in samples.iter().zip(&javascript).enumerate() {
+        let number = serde_json::Number::from_f64(f64::from_bits(bits)).unwrap();
+        let rust = to_jcs(&Value::Number(number)).unwrap();
+        assert_eq!(
+            rust, *javascript,
+            "JCS number mismatch at sample {index}, IEEE-754 bits {bits:016x}"
         );
     }
 }

@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -166,10 +166,12 @@ embedding API):
   (compared symlink-resolved on both sides, same normalization as path-scoped
   grants). Module loading is included: the `module-loader` principal's reads
   are fenced like everyone else's.
-- `allowed_hosts`: every `network:*` capability value must name a listed host.
-  Entries are `host` or `host:port`; a port-less entry covers the host across
-  ports via the same scope-specific endpoint matcher grants use. An empty list
-  denies all network access.
+- `allowed_hosts`: every outbound `network:*` capability value must name a
+  listed remote host. Entries are `host` or `host:port`; a port-less entry
+  covers the host across ports via the same scope-specific endpoint matcher
+  grants use. This compatibility fence does not gate `network:listen`: local
+  bind authority remains an independent policy decision. An empty list denies
+  all outbound network access `[observed]` (ENG-24285).
 
 Composition with the capability policy: the fence is checked first and is a
 **hard ceiling** — policy grants compose *within* it and cannot widen past it,

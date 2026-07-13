@@ -1414,6 +1414,10 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
   var getProto = Object.getPrototypeOf;
   var objectCreate = Object.create;
   var hasOwn = Object.prototype.hasOwnProperty;
+  var jsonObject = JSON;
+  var jsonParse = JSON.parse;
+  var arrayObject = Array;
+  var arrayIsArray = Array.isArray;
   var ProxyCtor = Proxy;
   function owns(value, key) {
     return reflectApply(hasOwn, value, [key]);
@@ -1518,27 +1522,76 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
   var POWERFUL_SET = objectCreate(null);
   for (var pwi = 0; pwi < POWERFUL.length; pwi++) POWERFUL_SET[POWERFUL[pwi]] = true;
   var endowMap = objectCreate(null);
-  // Programmatic/policy injection: { "pkg": ["fetch", ...], ... }
+  function malformedEndowments(message) {
+    throw new Error('malformed compartment endowments: ' + message);
+  }
+  function isArray(value) {
+    return reflectApply(arrayIsArray, arrayObject, [value]);
+  }
+  function installEndowmentRow(locator, endowments) {
+    if (typeof locator !== 'string' || locator.length === 0) {
+      malformedEndowments('locator must be a non-empty string');
+    }
+    if (!isArray(endowments)) {
+      malformedEndowments('endowments must be an array');
+    }
+    if (owns(endowMap, locator)) {
+      malformedEndowments('duplicate locator ' + locator);
+    }
+    var seen = objectCreate(null);
+    var copied = [];
+    for (var eri = 0; eri < endowments.length; eri++) {
+      var endowment = endowments[eri];
+      if (typeof endowment !== 'string' || endowment.length === 0) {
+        malformedEndowments('endowment names must be non-empty strings');
+      }
+      if (owns(seen, endowment)) {
+        malformedEndowments('duplicate endowment ' + endowment);
+      }
+      seen[endowment] = true;
+      copied[copied.length] = endowment;
+    }
+    endowMap[locator] = copied;
+  }
+
+  // Retain the diagnostic bootstrap object's shape, but validate it through
+  // the same private map builder so it cannot collide with authenticated rows.
   var raw = g.__ibexEndowments;
   if (raw && typeof raw === 'object') {
     var keys = getOwnPropNames(raw);
-    for (var i = 0; i < keys.length; i++) { endowMap[keys[i]] = raw[keys[i]]; }
+    for (var i = 0; i < keys.length; i++) {
+      installEndowmentRow(keys[i], raw[keys[i]]);
+    }
   }
-  // CLI/test injection via env: IBEX_ENDOW="pkg:fetch,process;other:fetch".
-  // Read the raw value injected by the host (below) rather than `process.env`:
-  // this runs as a runtime deputy with no user frame, so a gated `process.env`
-  // read fails closed under --capsec enforce; and the endowment config must not
-  // be reachable by a package that merely holds env:read. @ref LLP 0013#mechanism-3
-  var envEndow = g.__ibexEndowRaw || '';
-  if (envEndow) {
-    var groups = String(envEndow).split(';');
-    for (var gi = 0; gi < groups.length; gi++) {
-      var colon = groups[gi].indexOf(':');
-      if (colon === -1) continue;
-      var pkgName = groups[gi].slice(0, colon).trim();
-      var caps = groups[gi].slice(colon + 1).split(',');
-      for (var ci = 0; ci < caps.length; ci++) caps[ci] = caps[ci].trim();
-      if (pkgName) endowMap[pkgName] = caps;
+
+  // Armed production receives a strict JSON array from the immutable Host
+  // snapshot. Locator punctuation remains JSON string data; no `;`, `:`, or
+  // `,` split can manufacture or overwrite another principal's bucket.
+  // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+  var rowsJson = g.__ibexEndowRaw;
+  if (rowsJson !== undefined) {
+    if (typeof rowsJson !== 'string') {
+      malformedEndowments('authenticated projection must be a JSON string');
+    }
+    var rows;
+    try {
+      rows = reflectApply(jsonParse, jsonObject, [rowsJson]);
+    } catch (parseError) {
+      malformedEndowments('authenticated projection is not valid JSON');
+    }
+    if (!isArray(rows)) {
+      malformedEndowments('authenticated projection must be an array');
+    }
+    for (var ri = 0; ri < rows.length; ri++) {
+      var row = rows[ri];
+      if (!row || typeof row !== 'object' || isArray(row)) {
+        malformedEndowments('row must be an object');
+      }
+      var rowKeys = getOwnPropNames(row);
+      if (rowKeys.length !== 2 || !owns(row, 'locator') || !owns(row, 'endowments')) {
+        malformedEndowments('row must contain exactly locator and endowments');
+      }
+      installEndowmentRow(row.locator, row.endowments);
     }
   }
   var bareNameOf = typeof g.__ibexBarePackageName === 'function'
@@ -1549,7 +1602,7 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
     // but endow entries are usually written bare (`pkg:fetch`, applying to every
     // version). Consult the exact key first so a pinned `pkg@1.0.0:fetch` can
     // narrow one version, then fall back to the bare name. (ENG-22621)
-    var e = endowMap[pkg] || endowMap[bareNameOf(pkg)];
+    var e = owns(endowMap, pkg) ? endowMap[pkg] : endowMap[bareNameOf(pkg)];
     if (!e) return false;
     for (var ei = 0; ei < e.length; ei++) {
       if (e[ei] === name) return true;
@@ -1566,7 +1619,8 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
   function isWithheld(pkg, name) {
     // Raw host primitives (__exact* / __ibex*) must never be reachable from
     // package code, endowed or not — exposing e.g. __exactFsOpen or the
-    // __ibexEndowRaw config would defeat the whole membrane. (ENG-22625/ENG-22636)
+    // __ibexEndowRaw config would defeat the whole membrane.
+    // (ENG-22625/ENG-22636)
     if (startsWithRawPrefix(name, '__exact') ||
         startsWithRawPrefix(name, '__ibex')) return true;
     return POWERFUL_SET[name] === true && !isEndowed(pkg, name);
@@ -1679,17 +1733,16 @@ bool installCompartmentRegistry(struct ExactHermesRuntime* handle) {
 })();
 )JS";
   try {
-    // Inject authenticated snapshot endowments directly from the active Host, so
-    // the registry does not read it through the capability-gated `process.env`
-    // (which fails closed under enforce, and would expose the config to any
-    // package holding env:read). @ref LLP 0013#mechanism-3
+    // Inject strict authenticated snapshot JSON directly from the active Host;
+    // no process environment or delimiter convention participates after arming.
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
     auto& rt = *handle->runtime;
-    if (!handle->snapshot_endowments.empty()) {
+    if (!handle->snapshot_endowments_json.empty()) {
       rt.global().setProperty(
           rt,
           "__ibexEndowRaw",
           facebook::jsi::String::createFromUtf8(
-              rt, handle->snapshot_endowments));
+              rt, handle->snapshot_endowments_json));
     }
     auto buffer =
         std::make_shared<facebook::jsi::StringBuffer>(kCompartmentRegistryJS);
@@ -2419,6 +2472,13 @@ void installGlobals(struct ExactHermesRuntime* handle) {
 #endif
   }
 
+  // WebSocketStream and the generic net wrappers share a transport-independent
+  // runtime/principal owner stamp. Install only that lightweight primitive
+  // before the Windows WebSocket shim and shared runtime bundle capture it;
+  // the socket and TLS host surfaces remain lazy behind __exactEnsureNet.
+  // @ref LLP 0004#retained-native-wrapper-invariant — wrapper ownership exists
+  // before a transport selector and survives its teardown.
+  installNetOwnerHostFunction(handle);
   installWebSocketGlobals(handle);
 
   // --- FormData (globalThis.FormData) + multipart parser ---
@@ -3482,10 +3542,15 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
   ScopedRuntimeSecurityContext securityContext(handle);
   if (armed) {
-    if (char* endowments = ex_host_armed_endowments()) {
-      handle->snapshot_endowments = endowments;
-      ex_host_free_string(endowments);
+    char* endowments = ex_host_armed_endowments();
+    if (endowments == nullptr) {
+      ex_host_console_log(
+          1, "Armed startup refused: authenticated endowment projection unavailable");
+      delete handle;
+      return nullptr;
     }
+    handle->snapshot_endowments_json = endowments;
+    ex_host_free_string(endowments);
   }
   handle->typed_authority_generations_initialized =
       ex_host_typed_generations(

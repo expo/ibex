@@ -4943,14 +4943,15 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactDeflateSync", std::move(deflateSyncFn));
 
-  // __exactInflateSync(data, mode, strict?, flags?, dictionary?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // __exactInflateSync(data, mode, strict?, flags?, dictionary?, maxOutputLength?)
+  //   -> Uint8Array or [Uint8Array, bytesConsumed]
   // mode: 0 = deflate (zlib header, windowBits=15), 1 = gzip (windowBits=15+32), 2 = raw (windowBits=-15)
   // flags: bitmask - bit0=lenientMode (ignore trailing data), bit1=returnConsumed (return [data, consumed])
   // dictionary: optional Uint8Array/Buffer for preset dictionary (5th argument)
   auto inflateSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactInflateSync"),
-      5,
+      6,
       [](facebook::jsi::Runtime& runtime,
          const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -4983,6 +4984,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
         if (count > 4 && !args[4].isUndefined() && !args[4].isNull()) {
           dictionary = extractBytes(runtime, args[4]);
         }
+        const size_t outputLimit = ibex_zlib_streams::readZlibOutputLimit(
+            runtime, count > 5 ? &args[5] : nullptr);
 
         z_stream strm = {};
         int windowBits;
@@ -5017,6 +5020,11 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
             strm.avail_out = sizeof(outBuf);
             ret = inflate(&strm, Z_NO_FLUSH);
             size_t have = sizeof(outBuf) - strm.avail_out;
+            if (!ibex_zlib_streams::zlibOutputFits(
+                    output.size(), have, outputLimit)) {
+              inflateEnd(&strm);
+              ibex_zlib_streams::throwZlibOutputLimit(runtime, outputLimit);
+            }
             output.insert(output.end(), outBuf, outBuf + have);
             if (ret == Z_NEED_DICT) {
               if (dictionary.empty()) {
@@ -5055,14 +5063,16 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
             uInt remaining = strm.avail_in;
             const Bytef* nextIn = strm.next_in;
 
-            // Check if next chunk looks like a gzip header (magic bytes 0x1f 0x8b)
-            // If it doesn't start with gzip magic, it's trailing non-gzip data - stop
+            // A gzip stream may continue with another member or end in zero
+            // padding. Arbitrary non-zero trailing bytes are not ignorable:
+            // accepting them turns gzip into a format-smuggling boundary.
             if (remaining < 2 || nextIn[0] != 0x1f || nextIn[1] != 0x8b) {
+              if (ibex_zlib_streams::isZeroPadding(nextIn, remaining)) {
+                strm.avail_in = 0;
+                break;
+              }
               inflateEnd(&strm);
-              strm = {};
-              strm.next_in = const_cast<Bytef*>(nextIn);
-              strm.avail_in = remaining;
-              break;
+              throw facebook::jsi::JSError(runtime, "inflate failed: trailing data");
             }
 
             // Reinitialize for next gzip member
@@ -5159,12 +5169,13 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
       });
   rt.global().setProperty(rt, "__exactBrotliCompressSync", std::move(brotliCompressSyncFn));
 
-  // __exactBrotliDecompressSync(data, strict?, flags?) -> Uint8Array or [Uint8Array, bytesConsumed]
+  // __exactBrotliDecompressSync(data, strict?, flags?, maxOutputLength?)
+  //   -> Uint8Array or [Uint8Array, bytesConsumed]
   // flags: bitmask - bit1=returnConsumed (return [data, consumed])
   auto brotliDecompressSyncFn = facebook::jsi::Function::createFromHostFunction(
       rt,
       facebook::jsi::PropNameID::forAscii(rt, "__exactBrotliDecompressSync"),
-      2,
+      4,
       [](facebook::jsi::Runtime& runtime,
         const facebook::jsi::Value&,
          const facebook::jsi::Value* args,
@@ -5185,6 +5196,8 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
           int flags = static_cast<int>(args[2].asNumber());
           returnConsumed = (flags & 2) != 0;
         }
+        const size_t outputLimit = ibex_zlib_streams::readZlibOutputLimit(
+            runtime, count > 3 ? &args[3] : nullptr);
 
         // Use streaming decoder for unknown output size
         BrotliDecoderState* state = BrotliDecoderCreateInstance(nullptr, nullptr, nullptr);
@@ -5212,6 +5225,15 @@ void installCryptoHostFunctions(ExactHermesRuntime* handle) {
               nullptr);
 
           size_t have = sizeof(outBuf) - availableOut;
+          // Brotli output is attacker-controlled. Enforce the caller's
+          // remaining maxOutputLength and the fixed per-host-call ceiling
+          // before vector growth, just like deflate/gzip inflation.
+          // @ref LLP 0004#the-zlib-builtin
+          if (!ibex_zlib_streams::zlibOutputFits(
+                  output.size(), have, outputLimit)) {
+            BrotliDecoderDestroyInstance(state);
+            ibex_zlib_streams::throwZlibOutputLimit(runtime, outputLimit);
+          }
           output.insert(output.end(), outBuf, outBuf + have);
 
           if (result == BROTLI_DECODER_RESULT_ERROR) {

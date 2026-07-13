@@ -22,6 +22,7 @@
 
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -35,6 +36,26 @@ const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 // bound, not a startup-performance assertion; keep the narrower command tests
 // below on their purpose-specific deadlines.
 const DIAGNOSTIC_EVAL_TIMEOUT: Duration = Duration::from_secs(60);
+
+async fn command_output(
+    cmd: &mut Command,
+    deadline: Duration,
+    timeout_message: &'static str,
+) -> std::process::Output {
+    // Serialize child processes so each purpose-specific deadline remains a
+    // child-runtime deadlock bound instead of a measurement of contention
+    // between sibling test cases. `diagnostic_output` supplies the wider bound
+    // for commands that also perform cold lowering/bundling work.
+    static RUN_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    let _guard = RUN_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    timeout(deadline, cmd.output())
+        .await
+        .expect(timeout_message)
+        .expect("failed to spawn or read ibex process output")
+}
 
 fn repo_root() -> PathBuf {
     // The package manifest dir IS the repo root here (unlike the exact
@@ -51,14 +72,21 @@ fn diagnostic_command(entry: &Path) -> Command {
     cmd
 }
 
+/// Run a diagnostic JS entry with enough headroom for its lowering/bundling
+/// setup. Keep narrow commands that do not execute JS on their own deadlines.
+async fn diagnostic_output(cmd: &mut Command) -> std::process::Output {
+    command_output(
+        cmd,
+        DIAGNOSTIC_EVAL_TIMEOUT,
+        "ibex capsec audit evaluation timed out",
+    )
+    .await
+}
+
 /// Evaluate an expression through a temporary diagnostic entry and return the
 /// process output. The wrapper retains `-p`'s promise-awaiting/printing behavior
 /// without reopening ad-hoc evaluation on the production command surface.
-async fn diagnostic_eval(
-    expression: &str,
-    bun_compat: bool,
-    deadline: Duration,
-) -> std::process::Output {
+async fn diagnostic_eval(expression: &str, bun_compat: bool) -> std::process::Output {
     let dir = tempfile::tempdir().expect("create diagnostic eval tempdir");
     let entry = dir.path().join("eval.js");
     std::fs::write(
@@ -77,15 +105,12 @@ async fn diagnostic_eval(
         // startup because this process is already in the named audit posture.
         cmd.env("EXACT_COMPAT_BUN", "1");
     }
-    timeout(deadline, cmd.output())
-        .await
-        .expect("ibex capsec audit evaluation timed out")
-        .expect("failed to spawn or read ibex process output")
+    diagnostic_output(&mut cmd).await
 }
 
 #[tokio::test]
 async fn cli_eval_one_returns_quickly() {
-    let output = diagnostic_eval("1", false, DIAGNOSTIC_EVAL_TIMEOUT).await;
+    let output = diagnostic_eval("1", false).await;
 
     assert!(
         output.status.success(),
@@ -101,7 +126,6 @@ async fn cli_print_first_require_fs_promises_has_exports() {
     let output = diagnostic_eval(
         "(function(){ var mod = require('fs/promises'); return JSON.stringify({ hasReadFile: !!mod.readFile, keyCount: Object.keys(mod).length }); })()",
         false,
-        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -127,7 +151,6 @@ async fn cli_print_waits_for_async_promise_resolution() {
     let output = diagnostic_eval(
         "(async function(){ await new Promise(function(resolve){ setTimeout(function(){ resolve(); }, 10); }); return 42; })()",
         false,
-        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -152,7 +175,7 @@ async fn cli_print_fs_promises_readfile_without_encoding_returns_buffer() {
         "(async function(){{ var fsp = require('fs/promises'); var bytes = await fsp.readFile({readme_path_json}); return JSON.stringify({{ isBuffer: typeof Buffer === 'function' && Buffer.isBuffer(bytes), length: bytes.length }}); }})()"
     );
 
-    let output = diagnostic_eval(&script, false, DIAGNOSTIC_EVAL_TIMEOUT).await;
+    let output = diagnostic_eval(&script, false).await;
 
     assert!(
         output.status.success(),
@@ -187,7 +210,6 @@ async fn cli_print_shared_runtime_installs_bootstrap_globals() {
             });
         })()"#,
         true,
-        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -238,7 +260,7 @@ async fn cli_print_shared_runtime_exposes_lazy_file_globals() {
         }})()"#
     );
 
-    let output = diagnostic_eval(&script, true, DIAGNOSTIC_EVAL_TIMEOUT).await;
+    let output = diagnostic_eval(&script, true).await;
 
     assert!(
         output.status.success(),
@@ -276,10 +298,7 @@ async fn cli_run_top_level_await_with_import_meta_url() {
     let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
 
-    let output = timeout(Duration::from_secs(20), cmd.output())
-        .await
-        .expect("CLI run timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = diagnostic_output(&mut cmd).await;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -381,10 +400,12 @@ async fn cli_completion_bash_targets_ibex_not_node() {
     let mut cmd = Command::new(IBEX);
     cmd.arg("--completion-bash");
 
-    let output = timeout(Duration::from_secs(10), cmd.output())
-        .await
-        .expect("CLI completion timed out");
-    let output = output.expect("failed to spawn or read ibex process output");
+    let output = command_output(
+        &mut cmd,
+        Duration::from_secs(10),
+        "CLI completion timed out",
+    )
+    .await;
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -415,10 +436,7 @@ async fn cli_rerun_picks_up_imported_file_edits() {
     let run = |entry: PathBuf| async move {
         let mut cmd = diagnostic_command(&entry);
         cmd.env("IBEX_NO_BYTECODE", "1");
-        let output = timeout(Duration::from_secs(20), cmd.output())
-            .await
-            .expect("CLI run timed out")
-            .expect("failed to spawn or read ibex process output");
+        let output = diagnostic_output(&mut cmd).await;
         assert!(
             output.status.success(),
             "run should succeed: stderr={}",
@@ -473,7 +491,7 @@ async fn cli_identity_is_node_primary_and_coherent() {
         releaseName: (process.release && process.release.name) || null
     })"#;
 
-    let output = diagnostic_eval(probe, false, DIAGNOSTIC_EVAL_TIMEOUT).await;
+    let output = diagnostic_eval(probe, false).await;
     assert!(
         output.status.success(),
         "default identity probe should run: stderr={}",
@@ -517,7 +535,7 @@ async fn cli_identity_is_node_primary_and_coherent() {
     );
     assert_eq!(parsed["releaseName"], "node");
 
-    let output = diagnostic_eval(probe, true, DIAGNOSTIC_EVAL_TIMEOUT).await;
+    let output = diagnostic_eval(probe, true).await;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: Value =
@@ -549,10 +567,7 @@ async fn cli_honors_process_exit_code_at_natural_exit() {
     std::fs::write(&file, "console.log('setting'); process.exitCode = 5;\n").expect("write");
     let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
-    let output = timeout(Duration::from_secs(20), cmd.output())
-        .await
-        .expect("CLI run timed out")
-        .expect("failed to spawn or read ibex process output");
+    let output = diagnostic_output(&mut cmd).await;
     assert_eq!(
         output.status.code(),
         Some(5),
@@ -570,10 +585,7 @@ async fn run_script(name: &str, source: &str) -> std::process::Output {
     std::fs::write(&file, source).expect("write script");
     let mut cmd = diagnostic_command(&file);
     cmd.env("IBEX_NO_BYTECODE", "1");
-    timeout(Duration::from_secs(20), cmd.output())
-        .await
-        .expect("CLI run timed out")
-        .expect("failed to spawn or read ibex process output")
+    diagnostic_output(&mut cmd).await
 }
 
 #[tokio::test]
@@ -726,10 +738,7 @@ async fn cli_legacy_env_names_warn_once() {
     let mut cmd = diagnostic_command(&file);
     cmd.env("EX_NO_BYTECODE", "1");
     cmd.env("EX_STARTUP_TRACE", "1");
-    let output = timeout(Duration::from_secs(20), cmd.output())
-        .await
-        .expect("CLI run timed out")
-        .expect("failed to spawn or read ibex process output");
+    let output = diagnostic_output(&mut cmd).await;
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "stderr: {stderr}");

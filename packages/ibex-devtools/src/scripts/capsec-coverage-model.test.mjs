@@ -1656,15 +1656,6 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     for (const name of [
       "__exactTimerRef",
       "__exactTimerUnref",
-      "__exactTlsEngineNew",
-      "__exactTlsEngineWriteTls",
-      "__exactTlsEngineReadPlain",
-      "__exactTlsEnginePeerCerts",
-      "__exactTlsEngineClose",
-      "__exactZlibCreate",
-      "__exactZlibWrite",
-      "__exactZlibParams",
-      "__exactZlibClose",
       "__exactUncaughtExceptionHandler",
     ]) {
       const classified = classifyObservedSurface(
@@ -1673,6 +1664,27 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       );
       expect(classified.edge.classification, name).toBe("closed");
       expect(edgeActions(classified), name).toEqual(["runtime:inspect"]);
+    }
+
+    for (const [name, rationaleId] of [
+      ["__exactTlsEngineNew", "internal-data-transform"],
+      ["__exactTlsEngineWriteTls", "internal-data-transform"],
+      ["__exactTlsEngineReadPlain", "internal-data-transform"],
+      ["__exactTlsEnginePeerCerts", "internal-data-transform"],
+      ["__exactTlsEngineClose", "authority-release"],
+      ["__exactTlsOwnerToken", "authority-control-plane"],
+      ["__exactZlibCreate", "internal-data-transform"],
+      ["__exactZlibWrite", "internal-data-transform"],
+      ["__exactZlibParams", "internal-data-transform"],
+      ["__exactZlibClose", "authority-release"],
+      ["__exactZlibCheckOwner", "authority-control-plane"],
+    ]) {
+      const classified = classifyObservedSurface(
+        surface("native-op", name),
+        context,
+      );
+      expect(classified.edge.classification, name).toBe("non-capability");
+      expect(classified.edge.rationaleId, name).toBe(rationaleId);
     }
 
     const spawnPoll = classifyObservedSurface(
@@ -2823,6 +2835,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "installLegacyLazyBootstrapGetters",
       "installModuleLoader",
       "installNetHostFunctions",
+      "installNetOwnerHostFunction",
       "installOsInfoGlobals",
       "installProcessSetup",
       "installSqliteHostFunctions",
@@ -3523,7 +3536,12 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
     const inheritedBuiltinExports = liveBuiltinExportRows.filter(
       (row) => row.metadata?.inheritedShape === true,
     );
-    expect(inheritedBuiltinExports).toHaveLength(434);
+    // The 22 additional rows are the reviewed zlib Transform `end`/`destroy`
+    // overrides. They authenticate retained native streams before inherited
+    // Transform state can commit a terminal transition. ServerResponse's
+    // owner-gated appendHeader override moves one former inherited row into
+    // the explicit export review, for a net +21 inherited rows.
+    expect(inheritedBuiltinExports).toHaveLength(455);
     expect(
       new Set(
         inheritedBuiltinExports.map(
@@ -3532,7 +3550,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       ),
     ).toEqual(
       new Set([
-        "sha256-cd96041814000bb350c2c28625c5b28bbb1a666a3d29a6f1d0a3d6948ee4c3bc",
+        "sha256-92e80596e19cbd5fa2167c0374f84e695fb493ad9caa022e5ef97d48c80a7a04",
       ]),
     );
     const reviewedBuiltinNames = new Set([
@@ -3984,6 +4002,7 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       "installLegacyLazyBootstrapGetters",
       "installModuleLoader",
       "installNetHostFunctions",
+      "installNetOwnerHostFunction",
       "installOsInfoGlobals",
       "installProcessSetup",
       "installSqliteHostFunctions",

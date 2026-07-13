@@ -100,9 +100,9 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-native-global-invocation/1",
     );
-    // Callback-invariant probes intentionally take precedence for 30 native
+    // Callback-invariant probes intentionally take precedence for native
     // routes that this harness could otherwise claim structurally.
-    expect(nativePublicFixtures).toHaveLength(207);
+    expect(nativePublicFixtures).toHaveLength(205);
     expect(
       nativePublicFixtures
         .filter(
@@ -124,7 +124,7 @@ describe("exact-target CapSec executable recipes", () => {
           recipe.scenario === "non-capability" &&
           recipe.publicSurfaceProbe.invocation.expectedResult === "return",
       ),
-    ).toHaveLength(133);
+    ).toHaveLength(131);
     expect(
       nativePublicFixtures.filter(
         (recipe) =>
@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_846);
+    expect(callbackRecipes).toHaveLength(2_834);
     expect(
       Object.fromEntries(
         [
@@ -352,12 +352,12 @@ describe("exact-target CapSec executable recipes", () => {
         ]),
       ),
     ).toEqual({
-      "attribution-missing-deny": 557,
-      "generation-recheck": 557,
-      "principal-restore": 557,
-      "snapshot-mismatch-deny": 557,
-      "cannot-widen-authority": 309,
-      "post-lockdown-invariant": 309,
+      "attribution-missing-deny": 551,
+      "generation-recheck": 551,
+      "principal-restore": 551,
+      "snapshot-mismatch-deny": 551,
+      "cannot-widen-authority": 315,
+      "post-lockdown-invariant": 315,
     });
     for (const terminalObservedKey of [
       "native-op:__ibexCompartmentBaselineFinalized",
