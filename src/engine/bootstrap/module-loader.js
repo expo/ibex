@@ -49,6 +49,11 @@
   var __privSetCompartmentFor = (typeof g.__exactSetCompartmentFor === 'function')
     ? g.__exactSetCompartmentFor
     : null;
+  // The loader closes over the real global before package code can run. The
+  // registry itself is installed later in native bootstrap, so it must be read
+  // lazily through that private `g`; its non-configurable root view cannot be
+  // replaced by a package Domain. A present registry makes binding mandatory —
+  // lookup or bind failures must never fall back to the real global. (ENG-24463)
   var __privBarePackageName = (typeof g.__ibexBarePackageName === 'function')
     ? g.__ibexBarePackageName
     : function (identity) { return identity; };
@@ -91,16 +96,33 @@
   // The per-package compartment global for a resolved module, or null when it
   // should resolve against the real global (root / builtins / no registry).
   function compartmentForRecord(record, parent) {
-    if (!__privSetCompartmentFor) return null;
-    var registry = g.__compartments;
-    if (!registry) return null;
     var name = packageNameForRecord(record, parent);
     if (!name) return null;
+    var registry = g.__compartments;
+    if (!registry) {
+      if (g.__ibexCompartmentRegistryReady === true) {
+        throw new Error('Compartment registry is marked ready but unavailable');
+      }
+      return null;
+    }
+    if (g.__ibexCompartmentRegistryReady !== true ||
+        g.__ibexCompartmentBaselineFinalized !== true ||
+        typeof registry !== 'object') {
+      throw new Error('Compartment registry is present but its runtime baseline is not finalized');
+    }
+    if (!__privSetCompartmentFor) {
+      throw new Error('Compartment registry is armed but the native Domain binder is unavailable');
+    }
     // Key by the version-qualified identity so two installed versions never
     // share one mutable compartment global (ENG-22621). Name-level endowment
     // entries still apply via the registry's bare-name fallback (isEndowed).
     var identity = packageIdentityFor(name, record);
-    try { return registry[identity] || null; } catch (e) { return null; }
+    var compartment = registry[identity];
+    if (!compartment ||
+        (typeof compartment !== 'object' && typeof compartment !== 'function')) {
+      throw new Error('No valid compartment for package ' + identity);
+    }
+    return compartment;
   }
   // Principal ids assigned per package name (0 = first-party / trusted root).
   var __packagePrincipals = Object.create(null);
@@ -241,8 +263,11 @@
     // @ref LLP 0013#mechanism-2 — (Phase 3) — bind this package's compartment to
     // the fresh Domain the compile created, so its bare-global references
     // resolve natively through the compartment. No-op for root/builtins.
-    if (__privSetCompartmentFor && compartment) {
-      try { __privSetCompartmentFor(fn, compartment); } catch (e) {}
+    if (compartment) {
+      if (!__privSetCompartmentFor) {
+        throw new Error('Cannot bind package Domain without the native compartment binder');
+      }
+      __privSetCompartmentFor(fn, compartment);
     }
     return fn;
   }

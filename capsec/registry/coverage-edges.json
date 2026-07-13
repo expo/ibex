@@ -128815,13 +128815,13 @@
     },
     {
       "id": "surface.cli.command.ibex.20capsec.20audit.08lc6u6",
-      "classification": "non-capability",
+      "classification": "closed",
       "surface": {
         "kind": "cli",
         "name": "command:ibex%20capsec%20audit"
       },
-      "rationaleId": "runtime-bootstrap-state",
-      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+      "cap": "vm:evaluate",
+      "rationale": "The foreground capsec audit dispatch executes operator-selected source and remains closed pending authenticated code ingress."
     },
     {
       "id": "surface.cli.command.ibex.20compat.0a3rj2h",
@@ -241316,6 +241316,26 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.native.op.ibexcompartmentbaselinefinalized.124fmzn",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCompartmentBaselineFinalized"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.ibexcompartmentregistryready.09cm8o6",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexCompartmentRegistryReady"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
       "id": "surface.native.op.ibexendowraw.004oyaj",
       "classification": "non-capability",
       "surface": {
@@ -241341,6 +241361,16 @@
       "surface": {
         "kind": "native-op",
         "name": "__ibexNativeLockdown"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.native.op.ibexrefreshcompartmentbaseline.1mo463m",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "native-op",
+        "name": "__ibexRefreshCompartmentBaseline"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -248398,6 +248428,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.startup.env.ibex.compartments.0h31phf",
+      "classification": "closed",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_COMPARTMENTS"
+      },
+      "cap": "runtime:inspect",
+      "rationale": "IBEX_COMPARTMENTS can weaken, widen, or replace shared runtime security and trust behavior."
+    },
+    {
       "id": "surface.startup.env.ibex.dns.server.0ggdo6d",
       "classification": "effects",
       "surface": {
@@ -248934,6 +248974,16 @@
           "peer-mismatch"
         ]
       }
+    },
+    {
+      "id": "surface.startup.env.ibex.lockdown.1o2femx",
+      "classification": "closed",
+      "surface": {
+        "kind": "startup",
+        "name": "env:IBEX_LOCKDOWN"
+      },
+      "cap": "runtime:inspect",
+      "rationale": "IBEX_LOCKDOWN can weaken, widen, or replace shared runtime security and trust behavior."
     },
     {
       "id": "surface.startup.env.ibex.loop.trace.0qn0o5e",
@@ -252157,6 +252207,16 @@
       "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
     },
     {
+      "id": "surface.startup.evaluation.installcompartmentregistry.compartment.registry.0nif5gk",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "evaluation:installCompartmentRegistry:compartment-registry"
+      },
+      "rationaleId": "runtime-bootstrap-state",
+      "rationale": "This trusted bootstrap or lifecycle marker carries no independent package authority and is not a weakening path."
+    },
+    {
       "id": "surface.startup.evaluation.installfetchglobals.windows.fetch.shim.08uyl7d",
       "classification": "non-capability",
       "surface": {
@@ -252182,16 +252242,6 @@
       "surface": {
         "kind": "startup",
         "name": "evaluation:translation-unit-fallback:capability-hardening"
-      },
-      "rationaleId": "authority-control-plane",
-      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
-    },
-    {
-      "id": "surface.startup.evaluation.translation.unit.fallback.compartment.registry.01fetgt",
-      "classification": "non-capability",
-      "surface": {
-        "kind": "startup",
-        "name": "evaluation:translation-unit-fallback:compartment-registry"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -252302,6 +252352,16 @@
       "surface": {
         "kind": "startup",
         "name": "install-route:env_flag_enabled:0jb9qqi:installWebStreamsPolyfill"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.install.route.ex.hermes.create.impl.installcompartmentregistry.0jtli1z",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "install-route:ex_hermes_create_impl:installCompartmentRegistry"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -252662,6 +252722,16 @@
       "surface": {
         "kind": "startup",
         "name": "installer:installChildProcessHostFunctions"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.startup.installer.installcompartmentregistry.1yo7iho",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "startup",
+        "name": "installer:installCompartmentRegistry"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."

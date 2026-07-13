@@ -208,6 +208,8 @@ fn validate_unix_address(address: &UnixAddress) -> Result<()> {
     }
 }
 
+// @ref LLP 0021#decision-staging-and-principal-semantics — semantic-set order
+// is RFC 8785/JCS order at every adapter and validation layer.
 fn canonical_wire<T: Serialize>(value: &T) -> Result<Vec<u8>> {
     let value = serde_json::to_value(value).map_err(|error| {
         Error::InvalidModel(format!("cannot encode semantic set item: {error}"))

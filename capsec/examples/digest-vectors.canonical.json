@@ -9,7 +9,7 @@
       "omitFields": [
         "armedSnapshotDigest"
       ],
-      "expectedDigest": "sha256-PhWFX_y831oj-1OgeJLiwwCeFWGoN3mSFdr4tsxSEEs"
+      "expectedDigest": "sha256-xnCyyVEMvj935sxPX1gSYwrHBFK8kyAFTZmxgv9n_Z8"
     },
     {
       "id": "conformance",
@@ -31,21 +31,21 @@
       "omitFields": [
         "policyDigest"
       ],
-      "expectedDigest": "sha256-GWvfeW_KgNSDbXIkzkrHbRTWxz2C4B2H14dovdlCFuo"
+      "expectedDigest": "sha256-5C-U2Oo9x5CM_QRInrTrlJXB5JoBfn6qBo7ht3kv93M"
     },
     {
       "id": "registry",
       "domain": "ibex:capsec:registry:1",
       "payloadRef": "examples/registry-digest-bundle.canonical.json",
       "omitFields": [],
-      "expectedDigest": "sha256-nvcEFxu06GnKjXFKgPCEfEUv83TwWy1DQW6yWx1mOXk"
+      "expectedDigest": "sha256-_F7NfmAOfbYumR6QH7-WaryY9RJ1QCYZrRSN6iU8YOs"
     },
     {
       "id": "vocabulary",
       "domain": "ibex:capsec:vocab:1",
       "payloadRef": "examples/digest-bundle.canonical.json",
       "omitFields": [],
-      "expectedDigest": "sha256-B-LETsPlDaLF5grVobZlxwjMn9wWjXh_PbBoxK0vcCs"
+      "expectedDigest": "sha256-jWIP-W9iyg7AxfgycL9HsrdtGVPFdsnVnmw0d8QZ8v0"
     }
   ]
 }

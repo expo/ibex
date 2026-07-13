@@ -330,9 +330,12 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__hostCallAsync",
   "__ibex",
   "__ibexBarePackageName",
+  "__ibexCompartmentBaselineFinalized",
+  "__ibexCompartmentRegistryReady",
   "__ibexEndowRaw",
   "__ibexLockedDown",
   "__ibexNativeLockdown",
+  "__ibexRefreshCompartmentBaseline",
   "__ibexTamed",
   "__nativeFetch",
   "__nativeFetchSync",
@@ -6430,10 +6433,12 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "env:IBEX_CAPSEC_PUBLIC_BATCH_EVIDENCE_OUTPUT",
     "env:IBEX_CAPSEC_RECIPE_CATALOG",
     "env:IBEX_CDP_LOG",
+    "env:IBEX_COMPARTMENTS",
     "env:IBEX_DNS_SERVER",
     "env:IBEX_HERMESC_TIMEOUT_MS",
     "env:IBEX_HERMES_TOOL_DIR",
     "env:IBEX_HTTP_MAX_REQUEST_BODY_BYTES",
+    "env:IBEX_LOCKDOWN",
     "env:IBEX_LOOP_TRACE",
     "env:IBEX_NO_BYTECODE",
     "env:IBEX_NO_DISK_RUNTIME_FALLBACK",
@@ -6477,10 +6482,10 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "evaluation:__has_include:18ool1z:stream-stability-patch",
     "evaluation:defined:13e9rgh:promise-unwrap",
     "evaluation:ex_hermes_debugger_eval:cdp",
+    "evaluation:installCompartmentRegistry:compartment-registry",
     "evaluation:installFetchGlobals:windows-fetch-shim",
     "evaluation:installWebSocketGlobals:windows-websocket-shim",
     "evaluation:translation-unit-fallback:capability-hardening",
-    "evaluation:translation-unit-fallback:compartment-registry",
     "evaluation:translation-unit-fallback:eager-install-seal",
     "evaluation:translation-unit-fallback:form-data",
     "evaluation:translation-unit-fallback:freeze-seal",
@@ -6492,6 +6497,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "globals-install",
     "install-route:defined:13e9rgh:installFsHostFunctions",
     "install-route:env_flag_enabled:0jb9qqi:installWebStreamsPolyfill",
+    "install-route:ex_hermes_create_impl:installCompartmentRegistry",
     "install-route:ex_hermes_create_impl:installGlobals",
     "install-route:ex_worklet_create:installWorkletGlobals",
     "install-route:installAndroidHostFunctions:installAndroidCameraBridge",
@@ -6528,6 +6534,7 @@ const REVIEWED_STARTUP_NAMES = reviewedNameSet(
     "installer:installAndroidHostFunctions",
     "installer:installAndroidLocationBridge",
     "installer:installChildProcessHostFunctions",
+    "installer:installCompartmentRegistry",
     "installer:installConsoleGlobals",
     "installer:installCryptoHostFunctions",
     "installer:installDnsHostFunctions",
@@ -9520,6 +9527,13 @@ function cliClassification(surface) {
       "The production inspector command is closed pending authenticated activation.",
     );
   }
+  if (name === "command:ibex%20capsec%20audit") {
+    return closedSpec(
+      "vm:evaluate",
+      "WP7",
+      "The foreground capsec audit dispatch executes operator-selected source and remains closed pending authenticated code ingress.",
+    );
+  }
   if (
     /^(?:eval|repl|command:ibex%20eval|command:ibex%20repl)$/u.test(name) ||
     /:(?:eval_code|print_eval):/u.test(name) ||
@@ -9573,6 +9587,8 @@ const CLOSED_STARTUP_ENVIRONMENT_CONTROLS = new Set([
   "EX_SKIP_STARTUP_MODULE_LOADER_SCRIPT",
   "EX_SKIP_STARTUP_SHARED_RUNTIME_BUNDLE",
   "IBEX_CAPSEC_ALLOW_ADVISORY",
+  "IBEX_COMPARTMENTS",
+  "IBEX_LOCKDOWN",
   "NODE_TLS_REJECT_UNAUTHORIZED",
 ]);
 
@@ -10056,6 +10072,7 @@ function startupClassification(surface) {
         "installer:installandroidhostfunctions",
         "installer:installandroidlocationbridge",
         "installer:installchildprocesshostfunctions",
+        "installer:installcompartmentregistry",
         "installer:installconsoleglobals",
         "installer:installcryptohostfunctions",
         "installer:installdnshostfunctions",
@@ -12061,7 +12078,7 @@ function classifyConcreteSurface(surface) {
   }
 
   if (
-    /deepfreeze|nativefreeze|nativelockdown|lockeddown|tamed|setcompartment|endowraw/u.test(
+    /deepfreeze|nativefreeze|nativelockdown|lockeddown|tamed|setcompartment|endowraw|compartmentbaselinefinalized|compartmentregistryready|refreshcompartmentbaseline|lazyglobalgetter/u.test(
       name,
     )
   ) {

@@ -22,6 +22,98 @@ use {std::sync::OnceLock, tokio::sync::Notify};
 
 const REQUIRED_RUNTIME_MARKERS: &[&[u8]] = &[b"globalThis.__exactRuntime", b"ExactBundle"];
 
+// The native bootstrap installs this one-shot trusted hook before any bundled
+// runtime code executes. Rust invokes it only after the embedded/disk runtime
+// path is complete, then removes the hook so application code cannot recapture
+// or replace the package-global baseline. @ref LLP 0013#mechanism-2
+pub(crate) const FINALIZE_COMPARTMENT_BASELINE: &str = r#"(function(){
+  var g = globalThis;
+  var hasOwn = Object.prototype.hasOwnProperty;
+  function owns(name) {
+    return hasOwn.call(g, name);
+  }
+
+  var hasRegistry = owns('__compartments');
+  var hasRefresh = owns('__ibexRefreshCompartmentBaseline');
+  var hasReady = owns('__ibexCompartmentRegistryReady');
+  var hasFinalized = owns('__ibexCompartmentBaselineFinalized');
+
+  // Native compartment support is disabled only when the entire handshake is
+  // absent. Any partial state is malformed and must fail closed.
+  if (!hasRegistry && !hasRefresh && !hasReady && !hasFinalized) return true;
+
+  function discardRefresh() {
+    if (hasRefresh) {
+      try { delete g.__ibexRefreshCompartmentBaseline; } catch (_) {}
+    }
+  }
+  function validFinalizedMarker() {
+    if (!owns('__ibexCompartmentBaselineFinalized') ||
+        g.__ibexCompartmentBaselineFinalized !== true) return false;
+    var descriptor = Object.getOwnPropertyDescriptor(
+      g,
+      '__ibexCompartmentBaselineFinalized'
+    );
+    return descriptor &&
+      descriptor.value === true &&
+      descriptor.writable === false &&
+      descriptor.enumerable === false &&
+      descriptor.configurable === false;
+  }
+  function validRegistry(expected) {
+    return owns('__compartments') &&
+      g.__compartments === expected &&
+      typeof expected === 'object' && expected !== null &&
+      owns('__ibexCompartmentRegistryReady') &&
+      g.__ibexCompartmentRegistryReady === true;
+  }
+
+  if (!hasRegistry || !hasReady || !hasFinalized) {
+    discardRefresh();
+    return false;
+  }
+
+  var registry = g.__compartments;
+
+  // A completed handshake is the idempotent path used by a repeated Windows
+  // Runtime::load_runtime call. The native hook owns the final marker so Rust
+  // never infers completion from mutable environment state.
+  if (!hasRefresh) {
+    return validRegistry(registry) && validFinalizedMarker();
+  }
+
+  var refresh = g.__ibexRefreshCompartmentBaseline;
+  if ((typeof registry !== 'object' || registry === null) ||
+      typeof refresh !== 'function' ||
+      g.__ibexCompartmentRegistryReady !== true ||
+      g.__ibexCompartmentBaselineFinalized !== false) {
+    discardRefresh();
+    return false;
+  }
+
+  try {
+    refresh();
+  } finally {
+    try { delete g.__ibexRefreshCompartmentBaseline; } catch (_) {}
+  }
+  return validRegistry(registry) &&
+    !owns('__ibexRefreshCompartmentBaseline') &&
+    validFinalizedMarker();
+})()"#;
+
+pub(crate) async fn finalize_compartment_baseline(engine: &dyn Engine) -> Result<()> {
+    let finalized = engine
+        .eval_immediate(FINALIZE_COMPARTMENT_BASELINE)
+        .await
+        .context("trusted compartment baseline refresh failed")?;
+    if !matches!(finalized.as_deref().map(str::trim), Some("true")) {
+        anyhow::bail!(
+            "compartment registry state was malformed or its trusted baseline was not finalized"
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) fn hermes_engine_test_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1773,6 +1865,7 @@ impl Engine for HermesEngine {
             already_installed
         };
         if already_installed {
+            finalize_compartment_baseline(self).await?;
             *loaded = true;
             return Ok(());
         }
@@ -1827,6 +1920,7 @@ impl Engine for HermesEngine {
             // No embedded runtime — fall back to disk-based loading
             self.load_runtime_from_disk().await?;
         }
+        finalize_compartment_baseline(self).await?;
         *loaded = true;
         Ok(())
     }
@@ -2786,6 +2880,34 @@ mod tests {
             !BytecodeOutputKind::ExplicitBuild.requires_runtime_attestation(),
             "explicit ibex build output must remain available on Windows"
         );
+    }
+
+    struct TestEnvVar {
+        name: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl TestEnvVar {
+        fn set(name: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::set_var(name, value);
+            Self { name, previous }
+        }
+
+        fn remove(name: &'static str) -> Self {
+            let previous = std::env::var_os(name);
+            std::env::remove_var(name);
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for TestEnvVar {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
     }
 
     #[cfg(feature = "host-http-server")]
@@ -5819,6 +5941,227 @@ cp \"$input\" \"$out\"\n";
             (1..=3).contains(&checks),
             "259 retained SQLite operations performed {checks} full capability decisions"
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn load_runtime_finalizes_preinstalled_compartment_baseline() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _lockdown_disabled = TestEnvVar::remove("IBEX_LOCKDOWN");
+        let _compartments_disabled = TestEnvVar::remove("IBEX_COMPARTMENTS");
+        let compartments_enabled = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+        let engine = HermesEngine::new().unwrap();
+
+        // HermesEngine::new is lazy; keep the flag set through the first native
+        // runtime touch so C++ installs the compartment handshake.
+        assert!(engine.runtime_bundle_installed().await.unwrap());
+        // Mode selection belongs to native runtime creation. Removing the env
+        // flag afterwards must not make Rust skip the already-installed hook.
+        let pending = engine
+            .eval_immediate(
+                r#"JSON.stringify([
+                  globalThis.__ibexCompartmentRegistryReady === true,
+                  typeof globalThis.__ibexRefreshCompartmentBaseline,
+                  typeof globalThis.__compartments,
+                  globalThis.__ibexCompartmentBaselineFinalized
+                ])"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.as_deref(),
+            Some(r#"[true,"function","object",false]"#)
+        );
+        drop(compartments_enabled);
+
+        engine.load_runtime().await.unwrap();
+        // Exercise the actual finalizer again, as Runtime::load_runtime does on
+        // every Windows call instead of taking HermesEngine's loaded fast path.
+        finalize_compartment_baseline(&engine).await.unwrap();
+        // A second call takes the runtime_loaded fast path and must not require
+        // the deliberately deleted one-shot hook again.
+        engine.load_runtime().await.unwrap();
+
+        let state = engine
+            .eval_immediate(
+                r#"JSON.stringify([
+                  globalThis.__ibexCompartmentRegistryReady === true,
+                  typeof globalThis.__ibexRefreshCompartmentBaseline,
+                  typeof globalThis.__compartments,
+                  globalThis.__ibexCompartmentBaselineFinalized
+                ])"#,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            state.as_deref(),
+            Some(r#"[true,"undefined","object",true]"#)
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn compartment_baseline_finalizer_accepts_disabled_and_rejects_partial_state() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        let _lockdown_disabled = TestEnvVar::remove("IBEX_LOCKDOWN");
+        let _compartments_disabled = TestEnvVar::remove("IBEX_COMPARTMENTS");
+        let engine = HermesEngine::new().unwrap();
+
+        finalize_compartment_baseline(&engine)
+            .await
+            .expect("an entirely absent native handshake means compartments are disabled");
+        engine
+            .eval_immediate(
+                r#"Object.defineProperty(
+                  globalThis,
+                  '__ibexCompartmentRegistryReady',
+                  { value: true, configurable: true }
+                )"#,
+            )
+            .await
+            .unwrap();
+
+        let error = finalize_compartment_baseline(&engine)
+            .await
+            .expect_err("a partial native handshake must fail closed");
+        assert!(error.to_string().contains("malformed"), "{error:#}");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn compartment_only_baseline_survives_late_prototype_and_proxy_mutation() {
+        let _guard = hermes_engine_test_lock().lock().await;
+        // Keep compartment mode authoritative throughout native creation and
+        // finalization while proving this boundary does not depend on lockdown.
+        let _lockdown_disabled = TestEnvVar::set("IBEX_LOCKDOWN", "0");
+        let _compartments_enabled = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+
+        let raw = engine
+            .eval_immediate(
+                r#"(function () {
+                  var root = globalThis;
+                  var O = Object;
+                  var R = Reflect;
+                  var J = JSON;
+                  var originalProxy = root.Proxy;
+                  var proxyDescriptor = O.getOwnPropertyDescriptor(root, 'Proxy');
+                  var registry = root.__compartments;
+                  var sessionSymbol = Symbol('ibex.session.prototype');
+                  var getterRan = false;
+                  var result;
+
+                  try {
+                    O.defineProperty(O.prototype, 'sessionPrototypeString', {
+                      value: 'STRING-SECRET', configurable: true
+                    });
+                    O.defineProperty(O.prototype, sessionSymbol, {
+                      value: 'SYMBOL-SECRET', configurable: true
+                    });
+                    O.defineProperty(O.prototype, 'sessionPrototypeGetter', {
+                      configurable: true,
+                      get: function () {
+                        getterRan = true;
+                        return 'GETTER-SECRET';
+                      }
+                    });
+
+                    O.freeze(registry);
+                    var replacementProxy = function PoisonedProxy() {
+                      throw new Error('live global Proxy must not create compartments');
+                    };
+                    root.Proxy = replacementProxy;
+
+                    // This key has not been requested before: creation must use
+                    // the captured Proxy constructor and immutable baseline.
+                    var compartment = registry['late-session-pkg@1.0.0'];
+                    var cachesDescriptorBefore = O.getOwnPropertyDescriptor(root, 'caches');
+                    var indexedDBDescriptorBefore = O.getOwnPropertyDescriptor(root, 'indexedDB');
+
+                    // Root-first and package-first access must converge on each
+                    // lazy global's single shared memo without replacing a value
+                    // that the other side has already observed.
+                    var rootCaches = root.caches;
+                    var packageCaches = compartment.caches;
+                    var packageIndexedDB = compartment.indexedDB;
+                    var rootIndexedDB = root.indexedDB;
+                    result = {
+                      freshProxy: compartment !== root,
+                      aliasesSelf: compartment.globalThis === compartment &&
+                        compartment.global === compartment &&
+                        compartment.self === compartment &&
+                        compartment.window === compartment,
+                      stringType: typeof compartment.sessionPrototypeString,
+                      stringHas: R.has(compartment, 'sessionPrototypeString'),
+                      symbolType: typeof compartment[sessionSymbol],
+                      symbolHas: R.has(compartment, sessionSymbol),
+                      getterType: typeof compartment.sessionPrototypeGetter,
+                      getterHas: R.has(compartment, 'sessionPrototypeGetter'),
+                      getterRan: getterRan,
+                      toStringType: typeof compartment.toString,
+                      registryFrozen: O.isFrozen(registry),
+                      proxyReplaced: root.Proxy === replacementProxy,
+                      capturedProxy: compartment.Proxy === originalProxy,
+                      lazyGlobalsPending:
+                        !!cachesDescriptorBefore &&
+                        typeof cachesDescriptorBefore.get === 'function' &&
+                        !!indexedDBDescriptorBefore &&
+                        typeof indexedDBDescriptorBefore.get === 'function',
+                      cachesIdentity: rootCaches === packageCaches,
+                      cachesRootStable: root.caches === rootCaches,
+                      cachesInstalled:
+                        O.getOwnPropertyDescriptor(root, 'caches').value === rootCaches,
+                      indexedDBIdentity: packageIndexedDB === rootIndexedDB,
+                      indexedDBRootStable: root.indexedDB === rootIndexedDB,
+                      indexedDBPackageStable:
+                        compartment.indexedDB === packageIndexedDB,
+                      indexedDBInstalled:
+                        O.getOwnPropertyDescriptor(root, 'indexedDB').value === rootIndexedDB,
+                      lockedDown: root.__ibexLockedDown === true
+                    };
+                  } finally {
+                    delete O.prototype.sessionPrototypeString;
+                    delete O.prototype[sessionSymbol];
+                    delete O.prototype.sessionPrototypeGetter;
+                    O.defineProperty(root, 'Proxy', proxyDescriptor);
+                  }
+
+                  return J.stringify(result);
+                })()"#,
+            )
+            .await
+            .unwrap()
+            .expect("baseline regression probe should return JSON");
+        let state: serde_json::Value = serde_json::from_str(&raw).unwrap();
+
+        for field in [
+            "freshProxy",
+            "aliasesSelf",
+            "registryFrozen",
+            "proxyReplaced",
+            "capturedProxy",
+            "lazyGlobalsPending",
+            "cachesIdentity",
+            "cachesRootStable",
+            "cachesInstalled",
+            "indexedDBIdentity",
+            "indexedDBRootStable",
+            "indexedDBPackageStable",
+            "indexedDBInstalled",
+        ] {
+            assert_eq!(state[field], true, "{field} failed: {state}");
+        }
+        for field in [
+            "stringHas",
+            "symbolHas",
+            "getterHas",
+            "getterRan",
+            "lockedDown",
+        ] {
+            assert_eq!(state[field], false, "{field} leaked: {state}");
+        }
+        for field in ["stringType", "symbolType", "getterType"] {
+            assert_eq!(state[field], "undefined", "{field} leaked: {state}");
+        }
+        assert_eq!(state["toStringType"], "function", "{state}");
     }
 
     #[tokio::test(flavor = "current_thread")]

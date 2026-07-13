@@ -5,10 +5,12 @@
 // emission, tested at the loader level). Run with: bun test.
 
 import { expect, test } from 'bun:test';
+import { rolldown } from 'rolldown';
 import {
   rewriteFreeGlobals,
   packageOfModuleId,
   defaultCompartmentGlobals,
+  createCompartmentGlobalsPlugin,
 } from './transforms.mjs';
 
 const REF = '__compartment';
@@ -26,6 +28,13 @@ test('free global reference is routed through the compartment', () => {
 test('globalThis rewrites to the bare compartment ref', () => {
   expect(rw('globalThis.process')).toBe('__compartment.process');
   expect(rw('const g = globalThis;')).toBe('const g = __compartment;');
+  expect(rw('window.process')).toBe('__compartment.window.process');
+});
+
+test('the authored registry name routes through the package-scoped registry', () => {
+  expect(rw('__compartments["victim@1.0.0"]')).toBe(
+    '__compartment.__compartments["victim@1.0.0"]',
+  );
 });
 
 test('a shadowing parameter is left untouched', () => {
@@ -190,6 +199,221 @@ test('hoistRef routes globalThis to the hoisted binding', () => {
   const out = rwHoist('const g = globalThis;');
   const m = out.match(/^var (__ibexC_\w+) =/);
   expect(out).toContain(`const g = ${m[1]};`);
+});
+
+// --- trusted Rolldown scope binding (ENG-24463) ---
+
+function generatedScopeSpecifier(transformed) {
+  const match = transformed.match(/import\s+[A-Za-z_$][\w$]*\s+from\s+("[^"]+");/);
+  expect(match).not.toBeNull();
+  return JSON.parse(match[1]);
+}
+
+test('the generated scope import is exact-importer-bound and preserves directives', () => {
+  const victimId = '/app/node_modules/victim/index.js';
+  const attackerId = '/app/node_modules/attacker/index.js';
+  const plugin = createCompartmentGlobalsPlugin({
+    resolvePackage(id) {
+      if (id === victimId) return 'victim@1.0.0';
+      if (id === attackerId) return 'attacker@1.0.0';
+      return null;
+    },
+  });
+  const transformed = plugin.transform('"use strict";\nprocess.env.SECRET;', victimId).code;
+  expect(transformed.startsWith('"use strict";\nimport ')).toBe(true);
+  const scopeSpecifier = generatedScopeSpecifier(transformed);
+  const internalId = plugin.resolveId(scopeSpecifier, victimId);
+  expect(internalId.startsWith('\0ibex:compartment-scope/')).toBe(true);
+  expect(plugin.load(internalId)).toContain('["victim@1.0.0"]');
+  const rendered = plugin.renderChunk('#!/usr/bin/env ibex\nrun();', {
+    modules: { [internalId]: {} },
+  }).code;
+  expect(rendered.startsWith('#!/usr/bin/env ibex\n"use strict";\nrun();')).toBe(true);
+  expect(() => plugin.resolveId(scopeSpecifier, attackerId)).toThrow(
+    /Refusing Ibex compartment scope import/,
+  );
+  expect(() =>
+    plugin.resolveId('ibex:compartment-scope/source-authored-forgery', attackerId),
+  ).toThrow(/Refusing unrecognized Ibex compartment scope import/);
+});
+
+test('hashbang stays first when the trusted scope import is injected', () => {
+  const id = '/app/node_modules/tool/bin.js';
+  const plugin = createCompartmentGlobalsPlugin({
+    resolvePackage(moduleId) {
+      return moduleId === id ? 'tool@1.0.0' : null;
+    },
+  });
+  const transformed = plugin.transform(
+    '#!/usr/bin/env ibex\n"use strict";\nprocess.exit();',
+    id,
+  ).code;
+  expect(transformed.startsWith('#!/usr/bin/env ibex\n"use strict";\nimport ')).toBe(true);
+});
+
+test('arbitrary free names remain delegated to the native Domain boundary', () => {
+  const id = '/app/node_modules/evil/index.js';
+  const plugin = createCompartmentGlobalsPlugin({
+    resolvePackage(moduleId) {
+      return moduleId === id ? 'evil@1.0.0' : null;
+    },
+  });
+  // The build-time pass intentionally routes a finite high-risk set. It is
+  // defense in depth, not an independent boundary for a post-arming/session
+  // name such as `apiKey`; production isolation comes from the package Domain.
+  // Routing every lexically free name in the flat transform is ENG-24527.
+  expect(plugin.transform('module.exports = () => apiKey;', id)).toBeNull();
+});
+
+test('real Rolldown output cannot use raw or shadowed registry names to select another package', async () => {
+  const entryId = '/virtual/app.js';
+  const rawId = '/virtual/node_modules/evil/raw.js';
+  const shadowId = '/virtual/node_modules/evil/shadow.js';
+  const plainId = '/virtual/node_modules/evil/plain.js';
+  const modules = new Map([
+    [
+      entryId,
+      `const raw = require("raw");
+const shadow = require("shadow");
+const plain = require("plain");
+globalThis.__ibexCompartmentTestResult = { raw: raw(), shadow: shadow(), plain: plain() };`,
+    ],
+    [
+      rawId,
+      `module.exports = function () {
+  return {
+    identifier: __compartments["victim@9.0.0"],
+    alias: globalThis.__compartments["victim@9.0.0"],
+    own: __compartments["evil@1.0.0"] === globalThis,
+    marker: process.marker
+  };
+};`,
+    ],
+    [
+      shadowId,
+      `var __compartments = {
+  "evil@1.0.0": { process: { marker: "FORGED" } }
+};
+module.exports = function () { return process.marker; };`,
+    ],
+    [
+      plainId,
+      `module.exports = function () {
+  return { sloppyThis: (function () { return this; })(), apiKey: apiKey };
+};`,
+    ],
+  ]);
+  const fixturePlugin = {
+    name: 'compartment-test-fixtures',
+    resolveId(source) {
+      if (modules.has(source)) return source;
+      if (source === 'raw') return rawId;
+      if (source === 'shadow') return shadowId;
+      if (source === 'plain') return plainId;
+      return null;
+    },
+    load(id) {
+      return modules.get(id) ?? null;
+    },
+  };
+  const compartmentPlugin = createCompartmentGlobalsPlugin({
+    resolvePackage(id) {
+      return id === rawId || id === shadowId || id === plainId ? 'evil@1.0.0' : null;
+    },
+  });
+  const bundle = await rolldown({
+    input: entryId,
+    treeshake: false,
+    plugins: [fixturePlugin, compartmentPlugin],
+  });
+  const generated = await bundle.generate({ format: 'cjs' });
+  await bundle.close();
+  const code = generated.output.find((item) => item.type === 'chunk').code;
+  expect(code.startsWith('"use strict";')).toBe(true);
+
+  const victim = { secret: 'must-not-leak' };
+  const evil = Object.create(null);
+  const scopedRegistry = new Proxy(Object.create(null), {
+    get(_target, requested) {
+      return requested === 'evil@1.0.0' ? evil : undefined;
+    },
+  });
+  evil.process = { marker: 'SCOPED' };
+  evil.__compartments = scopedRegistry;
+  const rootRegistry = new Proxy(Object.create(null), {
+    get(_target, requested) {
+      if (requested === 'evil@1.0.0') return evil;
+      if (requested === 'victim@9.0.0') return victim;
+      return undefined;
+    },
+  });
+  const fakeGlobal = Object.create(null);
+  const cjsModule = { exports: {} };
+  new Function('globalThis', '__compartments', 'module', 'exports', 'apiKey', code)(
+    fakeGlobal,
+    rootRegistry,
+    cjsModule,
+    cjsModule.exports,
+    'ROOT-SESSION-SECRET',
+  );
+
+  expect(fakeGlobal.__ibexCompartmentTestResult).toEqual({
+    raw: {
+      identifier: undefined,
+      alias: undefined,
+      own: true,
+      marker: 'SCOPED',
+    },
+    shadow: 'SCOPED',
+    plain: {
+      sloppyThis: undefined,
+      // Explicit residual: the finite build-time rewrite does not isolate an
+      // arbitrary session name. The native package Domain is the boundary;
+      // exhaustive flat rewriting is tracked by ENG-24527.
+      apiKey: 'ROOT-SESSION-SECRET',
+    },
+  });
+});
+
+test('a source-authored import of another module scope fails the real Rolldown build', async () => {
+  const victimId = '/virtual/node_modules/victim/index.js';
+  const attackerId = '/virtual/node_modules/attacker/index.js';
+  const compartmentPlugin = createCompartmentGlobalsPlugin({
+    resolvePackage(id) {
+      if (id === victimId) return 'victim@1.0.0';
+      if (id === attackerId) return 'attacker@1.0.0';
+      return null;
+    },
+  });
+  const victimTransform = compartmentPlugin.transform('process.env.SECRET;', victimId);
+  const victimScope = generatedScopeSpecifier(victimTransform.code);
+  const fixturePlugin = {
+    name: 'cross-scope-import-fixture',
+    resolveId(source) {
+      if (source === attackerId) return attackerId;
+      return null;
+    },
+    load(id) {
+      if (id !== attackerId) return null;
+      return `import stolen from ${JSON.stringify(victimScope)};\nmodule.exports = stolen;`;
+    },
+  };
+
+  const build = async () => {
+    const bundle = await rolldown({
+      input: attackerId,
+      treeshake: false,
+      plugins: [fixturePlugin, compartmentPlugin],
+    });
+    try {
+      await bundle.generate({ format: 'cjs' });
+    } finally {
+      await bundle.close();
+    }
+  };
+  await expect(build()).rejects.toThrow(
+    /Refusing Ibex compartment scope import for victim@1\.0\.0/,
+  );
 });
 
 // --- packageOfModuleId ---

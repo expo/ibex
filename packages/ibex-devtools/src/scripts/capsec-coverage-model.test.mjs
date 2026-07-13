@@ -2628,6 +2628,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         evidenceType: "cli-command-route",
         path: "ibex eval",
       }),
+      surface("cli", "command:ibex%20capsec%20audit", {
+        evidenceType: "cli-command-route",
+        path: "ibex capsec audit",
+      }),
       surface("startup", "script:eval"),
       surface("startup", "script:bytecode"),
     ]) {
@@ -2635,6 +2639,16 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
       expect(classified.edge.classification).toBe("closed");
       expect(edgeActions(classified)).toEqual(["vm:evaluate"]);
     }
+
+    const auditFileParser = classifyObservedSurface(
+      surface(
+        "cli",
+        "argument-parser:ibex%20capsec%20audit:file:utf8-string",
+      ),
+      context,
+    );
+    expect(auditFileParser.edge.classification).toBe("non-capability");
+    expect(auditFileParser.edge.rationaleId).toBe("runtime-bootstrap-state");
 
     for (const observed of [
       surface("cli", "run-external-program", {
@@ -2876,6 +2890,8 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
   test("startup environment controls are exact and cannot hide weakening", () => {
     for (const environmentName of [
       "IBEX_CAPSEC_ALLOW_ADVISORY",
+      "IBEX_COMPARTMENTS",
+      "IBEX_LOCKDOWN",
       "EX_SKIP_STARTUP_HOST_FUNCTIONS",
       "EX_DISABLE_BYTECODE_SANITY_CHECK",
       "EXACT_ALLOW_INSECURE_CRYPTO",
@@ -3543,7 +3559,10 @@ describe("LLP 0021 WP1 semantic coverage classifier", () => {
         row.metadata?.surfaceType === "global-api" &&
         row.metadata?.surfaceTypes?.includes("private-native-operation"),
     );
-    expect(liveDualRoleOperations.length).toBeGreaterThan(0);
+    // Session-boundary hardening added eight reviewed dual-role operations.
+    // Integration may add more, but must never regress below that coverage
+    // floor; the reviewed/live name equality above remains the exact check.
+    expect(liveDualRoleOperations.length).toBeGreaterThanOrEqual(289);
     expect(
       liveDualRoleOperations.every(
         (row) =>

@@ -19,7 +19,7 @@ use crate::decision::{
 use crate::digest::{compute_checked_contract_digest, DigestKind};
 use crate::model::{
     ActionId, AuthoritySelector, Digest, Generation, LogicalPath, LogicalRoot, NonEmptyString,
-    ObjectIdentity, PathComponent, Principal, SafeUint,
+    ObjectIdentity, PathComponent, Principal, SafeUint, SelectorResource,
 };
 use crate::registry::DefinitionSet;
 use crate::strict_json::parse_strict;
@@ -228,24 +228,40 @@ impl ArmedSnapshot {
 
     /// Convert an absolute host path into the most-specific authenticated
     /// logical root available to this principal. Package bindings are usable
-    /// only by their exact package owner; absolute bindings are exact rather
-    /// than ambient filesystem roots.
+    /// only by their exact package owner, and a deeper foreign package root
+    /// shadows an owned ancestor; absolute bindings are exact rather than
+    /// ambient filesystem roots.
     pub fn logical_path_for_host_components(
         &self,
         principal: &Principal,
         host_components: &[PathComponent],
     ) -> Result<LogicalPath> {
-        let binding = self.root_binding_for_host_components(principal, host_components)?;
-        if binding.logical_root == LogicalRoot::Absolute {
-            return binding.logical_path.ok_or_else(|| {
-                Error::ArmRefused("absolute root binding is missing its logical path".into())
-            });
-        }
-        Ok(LogicalPath {
-            root: binding.logical_root,
-            components: host_components[binding.host_path.components.len()..].to_vec(),
-            host_bound: None,
-        })
+        logical_path_for_host_components_in(self.root_bindings()?, principal, host_components)
+    }
+
+    /// Project one authenticated host path through every constrained
+    /// principal's own root-binding view. Bindings are decoded once for the
+    /// batch so a deputy stack does not repeatedly parse the armed document.
+    pub fn logical_paths_for_host_components(
+        &self,
+        principals: &[Principal],
+        host_components: &[PathComponent],
+    ) -> Result<BTreeMap<Principal, LogicalPath>> {
+        let bindings = self.root_bindings()?;
+        validate_package_binding_host_paths(bindings)?;
+        principals
+            .iter()
+            .map(|principal| {
+                Ok((
+                    principal.clone(),
+                    logical_path_for_host_components_in_validated(
+                        bindings,
+                        principal,
+                        host_components,
+                    )?,
+                ))
+            })
+            .collect()
     }
 
     /// Return the most-specific authenticated root binding used for a host
@@ -256,31 +272,7 @@ impl ArmedSnapshot {
         principal: &Principal,
         host_components: &[PathComponent],
     ) -> Result<ArmedRootBinding> {
-        let mut candidates = self
-            .root_bindings()?
-            .iter()
-            .filter(|binding| {
-                binding.host_path.root == LogicalRoot::Absolute
-                    && binding.host_path.host_bound == Some(true)
-                    && host_components.starts_with(&binding.host_path.components)
-                    && match binding.logical_root {
-                        LogicalRoot::Package => binding.owner.as_ref() == Some(principal),
-                        _ => binding.owner.is_none(),
-                    }
-                    && (binding.logical_root != LogicalRoot::Absolute
-                        || host_components.len() == binding.host_path.components.len())
-            })
-            .collect::<Vec<_>>();
-        candidates.sort_by(|left, right| {
-            right
-                .host_path
-                .components
-                .len()
-                .cmp(&left.host_path.components.len())
-        });
-        candidates.into_iter().next().cloned().ok_or_else(|| {
-            Error::ArmRefused("host path has no authenticated logical-root binding".into())
-        })
+        root_binding_for_host_components_in(self.root_bindings()?, principal, host_components)
     }
 
     /// Resolve the owner of the most-specific root binding without trusting a
@@ -292,14 +284,8 @@ impl ArmedSnapshot {
     ) -> Result<Option<Principal>> {
         let mut candidates = self
             .root_bindings()?
-            .into_iter()
-            .filter(|binding| {
-                binding.host_path.root == LogicalRoot::Absolute
-                    && binding.host_path.host_bound == Some(true)
-                    && host_components.starts_with(&binding.host_path.components)
-                    && (binding.logical_root != LogicalRoot::Absolute
-                        || host_components.len() == binding.host_path.components.len())
-            })
+            .iter()
+            .filter(|binding| host_binding_matches(binding, host_components))
             .collect::<Vec<_>>();
         candidates.sort_by(|left, right| {
             right
@@ -308,10 +294,10 @@ impl ArmedSnapshot {
                 .len()
                 .cmp(&left.host_path.components.len())
         });
-        let binding = candidates.into_iter().next().cloned().ok_or_else(|| {
+        let binding = candidates.into_iter().next().ok_or_else(|| {
             Error::ArmRefused("host path has no authenticated logical-root binding".into())
         })?;
-        Ok(binding.owner)
+        Ok(binding.owner.clone())
     }
 
     /// Reconstruct the exact semantic identity authenticated by this snapshot.
@@ -333,10 +319,14 @@ impl ArmedSnapshot {
         let principal_rows: Vec<SnapshotPrincipalRow> =
             serde_json::from_value(value_at(&self.document, &["principals"])?.clone())
                 .map_err(|error| invalid(format!("invalid armed principals: {error}")))?;
-        let package_principals = principal_rows
+        let principals = principal_rows
             .iter()
-            .filter(|row| row.principal.is_package())
             .map(|row| row.principal.clone())
+            .collect::<Vec<_>>();
+        let package_principals = principals
+            .iter()
+            .filter(|principal| principal.is_package())
+            .cloned()
             .collect::<Vec<_>>();
         let mut principal_policies = BTreeMap::new();
         for (principal_index, row) in principal_rows.into_iter().enumerate() {
@@ -396,6 +386,8 @@ impl ArmedSnapshot {
         if protected_objects.windows(2).any(|pair| pair[0] == pair[1]) {
             return refused("armed snapshot contains a duplicate protected-object guard");
         }
+        let protected_resources =
+            derive_package_write_guards(self.root_bindings()?, &principals, self.digest())?;
 
         let process_ceiling = match value_at(&self.document, &["processAuthorityCeiling"])?
             .get("kind")
@@ -424,7 +416,7 @@ impl ArmedSnapshot {
             },
             process_ceiling,
             protected_objects,
-            protected_resources: Vec::new(),
+            protected_resources,
             principal_policies,
             revocations: Vec::new(),
             handles: Vec::new(),
@@ -794,6 +786,195 @@ fn validate_expected_protected_artifacts(
         }
     }
     Ok(())
+}
+
+fn logical_path_for_host_components_in(
+    bindings: &[ArmedRootBinding],
+    principal: &Principal,
+    host_components: &[PathComponent],
+) -> Result<LogicalPath> {
+    let binding = root_binding_for_host_components_in(bindings, principal, host_components)?;
+    logical_path_from_binding(&binding, host_components)
+}
+
+fn logical_path_for_host_components_in_validated(
+    bindings: &[ArmedRootBinding],
+    principal: &Principal,
+    host_components: &[PathComponent],
+) -> Result<LogicalPath> {
+    let binding =
+        root_binding_for_host_components_in_validated(bindings, principal, host_components)?;
+    logical_path_from_binding(binding, host_components)
+}
+
+fn logical_path_from_binding(
+    binding: &ArmedRootBinding,
+    host_components: &[PathComponent],
+) -> Result<LogicalPath> {
+    if binding.logical_root == LogicalRoot::Absolute {
+        return binding.logical_path.clone().ok_or_else(|| {
+            Error::ArmRefused("absolute root binding is missing its logical path".into())
+        });
+    }
+    Ok(LogicalPath {
+        root: binding.logical_root,
+        components: host_components[binding.host_path.components.len()..].to_vec(),
+        host_bound: None,
+    })
+}
+
+fn root_binding_for_host_components_in(
+    bindings: &[ArmedRootBinding],
+    principal: &Principal,
+    host_components: &[PathComponent],
+) -> Result<ArmedRootBinding> {
+    validate_package_binding_host_paths(bindings)?;
+    root_binding_for_host_components_in_validated(bindings, principal, host_components).cloned()
+}
+
+fn root_binding_for_host_components_in_validated<'a>(
+    bindings: &'a [ArmedRootBinding],
+    principal: &Principal,
+    host_components: &[PathComponent],
+) -> Result<&'a ArmedRootBinding> {
+    // @ref LLP 0021#decision-staging-and-principal-semantics — package roots
+    // are principal-relative mount boundaries: a foreign nested root must not
+    // fall through to an owned package ancestor.
+    let matching_package_bindings = bindings
+        .iter()
+        .filter(|binding| {
+            binding.logical_root == LogicalRoot::Package
+                && host_binding_matches(binding, host_components)
+        })
+        .collect::<Vec<_>>();
+    let mut candidates = bindings
+        .iter()
+        .filter(|binding| {
+            host_binding_matches(binding, host_components)
+                && match binding.logical_root {
+                    LogicalRoot::Package => {
+                        binding.owner.as_ref() == Some(principal)
+                            && !matching_package_bindings.iter().any(|foreign| {
+                                foreign.owner.as_ref() != Some(principal)
+                                    && foreign.host_path.components.len()
+                                        > binding.host_path.components.len()
+                            })
+                    }
+                    _ => binding.owner.is_none(),
+                }
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by(|left, right| {
+        right
+            .host_path
+            .components
+            .len()
+            .cmp(&left.host_path.components.len())
+    });
+    candidates.into_iter().next().ok_or_else(|| {
+        Error::ArmRefused("host path has no authenticated logical-root binding".into())
+    })
+}
+
+fn host_binding_matches(binding: &ArmedRootBinding, host_components: &[PathComponent]) -> bool {
+    binding.host_path.root == LogicalRoot::Absolute
+        && binding.host_path.host_bound == Some(true)
+        && host_components.starts_with(&binding.host_path.components)
+        && (binding.logical_root != LogicalRoot::Absolute
+            || host_components.len() == binding.host_path.components.len())
+}
+
+fn validate_package_binding_host_paths(bindings: &[ArmedRootBinding]) -> Result<()> {
+    for (index, binding) in bindings
+        .iter()
+        .enumerate()
+        .filter(|(_, binding)| binding.logical_root == LogicalRoot::Package)
+    {
+        if bindings.iter().enumerate().any(|(other_index, other)| {
+            other_index != index && other.host_path == binding.host_path
+        }) {
+            return refused(
+                "package root binding and another root binding share an authenticated host path",
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Package source is immutable in the armed profile. Derive every protected
+/// package subtree from authenticated root bindings, projected through every
+/// authenticated principal's own namespace. This covers nested package
+/// layouts without enumerating descendant object identities.
+fn derive_package_write_guards(
+    bindings: &[ArmedRootBinding],
+    principals: &[Principal],
+    snapshot_digest: &Digest,
+) -> Result<Vec<BoundAuthority>> {
+    validate_package_binding_host_paths(bindings)?;
+    for principal in principals.iter().filter(|principal| principal.is_package()) {
+        if !bindings.iter().any(|binding| {
+            binding.logical_root == LogicalRoot::Package
+                && binding.owner.as_ref() == Some(principal)
+        }) {
+            return refused("authenticated package principal has no package root binding");
+        }
+    }
+
+    let action = ActionId::new("fs:write").map_err(Error::InvalidModel)?;
+    let mut guards = BTreeSet::new();
+
+    for binding in bindings
+        .iter()
+        .filter(|binding| binding.logical_root == LogicalRoot::Package)
+    {
+        let owner = binding
+            .owner
+            .as_ref()
+            .ok_or_else(|| Error::ArmRefused("package root binding is missing its owner".into()))?;
+        if !owner.is_package() || !principals.contains(owner) {
+            return refused("package root binding owner has no authenticated principal row");
+        }
+        let owner_view = logical_path_for_host_components_in_validated(
+            bindings,
+            owner,
+            &binding.host_path.components,
+        )?;
+        if owner_view.root != LogicalRoot::Package || !owner_view.components.is_empty() {
+            return refused("package root binding does not project to its owner's package root");
+        }
+
+        for principal in principals {
+            let Ok(path) = logical_path_for_host_components_in_validated(
+                bindings,
+                principal,
+                &binding.host_path.components,
+            ) else {
+                continue;
+            };
+            let package_root_owner = (path.root == LogicalRoot::Package).then(|| principal.clone());
+            guards.insert((
+                AuthoritySelector {
+                    action: action.clone(),
+                    resource: SelectorResource::PathTree { path },
+                },
+                package_root_owner,
+            ));
+        }
+    }
+
+    guards
+        .into_iter()
+        .enumerate()
+        .map(|(index, (selector, package_root_owner))| {
+            Ok(BoundAuthority {
+                source_id: NonEmptyString::new(format!("protected.package-tree.{index:06}"))
+                    .map_err(Error::InvalidModel)?,
+                selector,
+                armed_snapshot_digest: snapshot_digest.clone(),
+                package_root_owner,
+            })
+        })
+        .collect()
 }
 
 fn bind_authorities(

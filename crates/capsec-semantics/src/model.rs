@@ -342,6 +342,36 @@ impl Principal {
             Self::Runtime { identity } if identity.as_str() == "ibex-runtime-internal"
         )
     }
+
+    /// RFC 8785 key used for every constrained-principal set. Rust enum/field
+    /// order is not the semantic wire order, so adapters must never sort the
+    /// ordinary serde encoding instead.
+    /// @ref LLP 0021#decision-staging-and-principal-semantics
+    pub fn canonical_order_key(&self) -> crate::Result<Vec<u8>> {
+        let value = serde_json::to_value(self)
+            .map_err(|error| crate::Error::InvalidModel(error.to_string()))?;
+        crate::canonical::to_jcs_bytes(&value)
+    }
+}
+
+pub fn principals_are_canonical(principals: &[Principal]) -> bool {
+    let keys = principals
+        .iter()
+        .map(Principal::canonical_order_key)
+        .collect::<crate::Result<Vec<_>>>();
+    keys.is_ok_and(|keys| keys.windows(2).all(|pair| pair[0] < pair[1]))
+}
+
+pub fn sort_and_dedup_principals(principals: &mut Vec<Principal>) -> crate::Result<()> {
+    let mut keyed = principals
+        .iter()
+        .cloned()
+        .map(|principal| Ok((principal.canonical_order_key()?, principal)))
+        .collect::<crate::Result<Vec<_>>>()?;
+    keyed.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed.dedup_by(|left, right| left.0 == right.0);
+    *principals = keyed.into_iter().map(|(_, principal)| principal).collect();
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

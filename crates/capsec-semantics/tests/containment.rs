@@ -137,6 +137,8 @@ fn mixed_principal_sets_use_jcs_order_not_struct_field_order() {
     }))
     .expect("mixed-principal occurrence deserializes");
     assert!(occurrence.principal_context_is_valid());
+    validate_occurrence_stage_facts(&occurrence)
+        .expect("stage validation must use the same JCS principal order");
 }
 
 #[test]
