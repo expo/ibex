@@ -1439,7 +1439,7 @@ async fn capsec_public_closed_recipe_batch() {
         ibex_runtime::capsec_registry_generated::CAPSEC_CLOSED_STARTUP_ENVIRONMENT_NAMES.len(),
         "expected every generated closed startup environment control"
     );
-    assert_eq!(startup_count, 19);
+    assert_eq!(startup_count, 21);
     assert_eq!(cli_count, 134, "expected every rejecting closed CLI facet");
     assert_eq!(
         evaluator_count, 4,
