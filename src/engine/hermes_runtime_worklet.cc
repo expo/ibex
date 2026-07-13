@@ -15,8 +15,8 @@
 //                                      async-only escape to Context 3)
 //   - measure(nodeId)               -> host callback against the main-side
 //                                      presenter snapshot (never the kernel)
-//   - __svGet(slot) / __svSet(slot, v) + worklet.sharedValue(slot)
-//                                   -> atomic f32 slots in a host-bound slab
+//   - __svGet(slot, generation, epoch) / __svSet(..., value)
+//                                   -> host-validating typed SharedValues
 //   - worklet.{clamp, lerp}         -> frozen stdlib prelude
 //
 // Threading contract: exactly one owner thread (the creator). All
@@ -25,10 +25,13 @@
 // a worklet whose generation is stale — or whose generation's install has
 // not yet arrived — is a defined no-op (EX_WORKLET_NOOP).
 
+#include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
 
+#include <cmath>
 #include <cstring>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -60,8 +63,9 @@ struct WorkletState {
   // concatenation (no re-escaping).
   std::deque<std::string> logs;
   std::deque<std::string> scheduled;
-  std::atomic<uint32_t>* shared_values = nullptr;
-  size_t shared_value_count = 0;
+  ExWorkletSharedValueReadCallback shared_value_read = nullptr;
+  ExWorkletSharedValueWriteCallback shared_value_write = nullptr;
+  void* shared_value_context = nullptr;
   int (*measure_callback)(uint32_t node_id, float* out_frame4, void* ctx) = nullptr;
   void* measure_context = nullptr;
 };
@@ -94,6 +98,19 @@ void pushCapped(std::deque<std::string>& queue, std::string entry) {
   queue.push_back(std::move(entry));
 }
 
+bool readU32(const Value& value, uint32_t* out) {
+  if (!out || !value.isNumber()) {
+    return false;
+  }
+  double number = value.asNumber();
+  if (!std::isfinite(number) || number < 0.0 ||
+      number > static_cast<double>(UINT32_MAX) || std::trunc(number) != number) {
+    return false;
+  }
+  *out = static_cast<uint32_t>(number);
+  return true;
+}
+
 char* drainJsonArray(std::deque<std::string>& queue) {
   if (queue.empty()) {
     return nullptr;
@@ -110,18 +127,6 @@ char* drainJsonArray(std::deque<std::string>& queue) {
   out += "]";
   queue.clear();
   return mallocString(out);
-}
-
-float bitsToFloat(uint32_t bits) {
-  float value;
-  memcpy(&value, &bits, sizeof(value));
-  return value;
-}
-
-uint32_t floatToBits(float value) {
-  uint32_t bits;
-  memcpy(&bits, &value, sizeof(bits));
-  return bits;
 }
 
 void installWorkletGlobals(ExactHermesRuntime* handle) {
@@ -200,27 +205,34 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
             return result;
           }));
 
-  // __svGet / __svSet — atomic f32 slots. Out-of-range slots are defined
-  // no-ops (LLP 0297 §4.4 stale-id tolerance): get returns undefined, set
-  // does nothing.
+  // __svGet / __svSet — typed, validating accessors. Stale generation/epoch,
+  // malformed handles, and host rejection are defined no-ops (LLP 0297 §4.4):
+  // get returns undefined and set does nothing. Ibex never sees a raw slab.
   rt.global().setProperty(
       rt,
       "__svGet",
       Function::createFromHostFunction(
           rt,
           PropNameID::forAscii(rt, "__svGet"),
-          1,
+          3,
           [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
             auto* state = stateFor(handle);
-            if (!state || !state->shared_values || count < 1 || !args[0].isNumber()) {
+            if (!state || !state->shared_value_read || count < 3) {
               return Value::undefined();
             }
-            auto slot = static_cast<size_t>(args[0].asNumber());
-            if (slot >= state->shared_value_count) {
+            ExWorkletSharedValueHandle shared_value{};
+            if (!readU32(args[0], &shared_value.slot) ||
+                !readU32(args[1], &shared_value.generation) ||
+                !readU32(args[2], &shared_value.epoch)) {
               return Value::undefined();
             }
-            uint32_t bits = state->shared_values[slot].load(std::memory_order_relaxed);
-            return Value(static_cast<double>(bitsToFloat(bits)));
+            float value = 0.0f;
+            if (state->shared_value_read(
+                    shared_value, &value, state->shared_value_context) != 0 ||
+                !std::isfinite(value)) {
+              return Value::undefined();
+            }
+            return Value(static_cast<double>(value));
           }));
 
   rt.global().setProperty(
@@ -229,20 +241,23 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
       Function::createFromHostFunction(
           rt,
           PropNameID::forAscii(rt, "__svSet"),
-          2,
+          4,
           [handle](Runtime&, const Value&, const Value* args, size_t count) -> Value {
             auto* state = stateFor(handle);
-            if (!state || !state->shared_values || count < 2 || !args[0].isNumber() ||
-                !args[1].isNumber()) {
+            if (!state || !state->shared_value_write || count < 4 || !args[3].isNumber()) {
               return Value::undefined();
             }
-            auto slot = static_cast<size_t>(args[0].asNumber());
-            if (slot >= state->shared_value_count) {
+            ExWorkletSharedValueHandle shared_value{};
+            double number = args[3].asNumber();
+            if (!readU32(args[0], &shared_value.slot) ||
+                !readU32(args[1], &shared_value.generation) ||
+                !readU32(args[2], &shared_value.epoch) || !std::isfinite(number) ||
+                number < -static_cast<double>(std::numeric_limits<float>::max()) ||
+                number > static_cast<double>(std::numeric_limits<float>::max())) {
               return Value::undefined();
             }
-            state->shared_values[slot].store(
-                floatToBits(static_cast<float>(args[1].asNumber())),
-                std::memory_order_relaxed);
+            state->shared_value_write(
+                shared_value, static_cast<float>(number), state->shared_value_context);
             return Value::undefined();
           }));
 
@@ -253,10 +268,10 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
   var w = {
     clamp: function (v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; },
     lerp: function (a, b, t) { return a + (b - a) * t; },
-    sharedValue: function (slot) {
+    sharedValue: function (slot, generation, epoch) {
       return Object.freeze({
-        get: function () { return __svGet(slot); },
-        set: function (v) { __svSet(slot, v); }
+        get: function () { return __svGet(slot, generation, epoch); },
+        set: function (v) { __svSet(slot, generation, epoch, v); }
       });
     }
   };
@@ -456,16 +471,18 @@ extern "C" int ex_worklet_invoke(
   }
 }
 
-extern "C" int ex_worklet_bind_shared_values(
+extern "C" int ex_worklet_bind_shared_value_accessors(
     ExactHermesRuntime* handle,
-    void* slab,
-    size_t slot_count) {
+    ExWorkletSharedValueReadCallback read_callback,
+    ExWorkletSharedValueWriteCallback write_callback,
+    void* context) {
   auto* state = stateFor(handle);
   if (!state) {
     return EX_WORKLET_ERROR;
   }
-  state->shared_values = static_cast<std::atomic<uint32_t>*>(slab);
-  state->shared_value_count = slab ? slot_count : 0;
+  state->shared_value_read = read_callback;
+  state->shared_value_write = write_callback;
+  state->shared_value_context = context;
   return EX_WORKLET_OK;
 }
 

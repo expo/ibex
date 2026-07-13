@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse)
+**Revised:** 2026-07-13 (restricted-worklet SharedValues now use typed validating host callbacks rather than a raw slab pointer; previously 2026-07-09 for host-boundary constraints)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -65,6 +65,21 @@ debugger surface (`include/exact_runtime.h:216-249`), and GC/heap introspection
 (`include/exact_runtime.h:256-264`).
 These are part of the embedding API but are convenience/optional layers, not the
 minimal contract `[inferred]`.
+
+### Restricted-worklet SharedValue access
+
+The optional UI-worklet embedding surface no longer exports or retains a raw
+pointer to Exact's SharedValue storage. The embedder installs
+`ExWorkletSharedValueReadCallback` and
+`ExWorkletSharedValueWriteCallback` with
+`ex_worklet_bind_shared_value_accessors`; every access carries the typed
+`(slot, generation, epoch)` identity and any nonzero host verdict is a defined
+stale/no-op `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime_worklet.cc`). The
+callbacks execute synchronously on the restricted runtime's owning UI thread;
+they must not enter the app runtime or block on another domain. This is an
+optional convenience surface, not part of the five-function semver-major
+contract above.
 
 ### The `__hostCall` bridge — the generic host channel
 

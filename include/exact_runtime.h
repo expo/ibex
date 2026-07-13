@@ -395,14 +395,36 @@ int ex_worklet_invoke(
     const char* args_json,
     char** out_result_json);
 
-/// Bind the SharedValue slab: `slab` points to `slot_count` 32-bit slots
-/// (atomic f32 bit patterns; kernel-owned shared memory per LLP 0297 §4.5).
-/// Pass NULL to unbind. Out-of-range slot access from worklet JS is a
-/// defined no-op.
-int ex_worklet_bind_shared_values(
+/// Durable identity for one Exact Motion SharedValue. Ibex treats the fields
+/// as opaque and forwards them to the host's validating accessors.
+typedef struct ExWorkletSharedValueHandle {
+    uint32_t slot;
+    uint32_t generation;
+    uint32_t epoch;
+} ExWorkletSharedValueHandle;
+
+/// Validating, synchronous main-thread accessors for the restricted worklet
+/// runtime. Return 0 for a live read/write; any other verdict is a defined
+/// stale/no-op. `read` writes `out_value` only on success. The callbacks must
+/// never enter the app runtime or block on another domain.
+typedef uint32_t (*ExWorkletSharedValueReadCallback)(
+    ExWorkletSharedValueHandle handle,
+    float* out_value,
+    void* context);
+typedef uint32_t (*ExWorkletSharedValueWriteCallback)(
+    ExWorkletSharedValueHandle handle,
+    float value,
+    void* context);
+
+/// Bind typed SharedValue accessors, replacing the historical raw slab
+/// pointer. Pass NULL callbacks to unbind. Worklet JS addresses a value as
+/// `worklet.sharedValue(slot, generation, epoch)`; invalid/stale identities
+/// read as undefined and writes are no-ops.
+int ex_worklet_bind_shared_value_accessors(
     ExactHermesRuntime* runtime,
-    void* slab,
-    size_t slot_count);
+    ExWorkletSharedValueReadCallback read_callback,
+    ExWorkletSharedValueWriteCallback write_callback,
+    void* context);
 
 /// Register the measure(nodeId) host callback. The callback fills
 /// out_frame4 with {x, y, width, height} and returns 1, or returns 0 for

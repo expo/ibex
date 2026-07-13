@@ -86,12 +86,26 @@ pub fn take_callback_pending() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::{c_void, CStr, CString};
     use std::os::raw::c_char;
 
     #[repr(C)]
     struct HermesRuntimeOpaque {
         _private: [u8; 0],
     }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[repr(C)]
+    struct WorkletSharedValueHandle {
+        slot: u32,
+        generation: u32,
+        epoch: u32,
+    }
+
+    type WorkletSharedValueReadCallback =
+        extern "C" fn(WorkletSharedValueHandle, *mut f32, *mut c_void) -> u32;
+    type WorkletSharedValueWriteCallback =
+        extern "C" fn(WorkletSharedValueHandle, f32, *mut c_void) -> u32;
 
     extern "C" {
         fn ex_hermes_create() -> *mut HermesRuntimeOpaque;
@@ -110,6 +124,121 @@ mod tests {
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
         fn ex_hermes_now_ms() -> u64;
+        fn ex_worklet_create() -> *mut HermesRuntimeOpaque;
+        fn ex_worklet_destroy(runtime: *mut HermesRuntimeOpaque);
+        fn ex_worklet_set_generation(runtime: *mut HermesRuntimeOpaque, generation: u64);
+        fn ex_worklet_install(
+            runtime: *mut HermesRuntimeOpaque,
+            worklet_id: *const c_char,
+            source: *const u8,
+            source_len: usize,
+            generation: u64,
+            out_error: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_invoke(
+            runtime: *mut HermesRuntimeOpaque,
+            worklet_id: *const c_char,
+            args_json: *const c_char,
+            out_result_json: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_bind_shared_value_accessors(
+            runtime: *mut HermesRuntimeOpaque,
+            read_callback: Option<WorkletSharedValueReadCallback>,
+            write_callback: Option<WorkletSharedValueWriteCallback>,
+            context: *mut c_void,
+        ) -> i32;
+    }
+
+    #[derive(Debug)]
+    struct SharedValueHost {
+        expected: WorkletSharedValueHandle,
+        value: f32,
+        reads: u32,
+        writes: u32,
+        rejected_reads: u32,
+        rejected_writes: u32,
+    }
+
+    extern "C" fn read_shared_value(
+        handle: WorkletSharedValueHandle,
+        out_value: *mut f32,
+        context: *mut c_void,
+    ) -> u32 {
+        if context.is_null() || out_value.is_null() {
+            return 2;
+        }
+        // SAFETY: the test keeps the boxed host alive until after it unbinds
+        // the callbacks and destroys the single-owner worklet runtime.
+        let host = unsafe { &mut *context.cast::<SharedValueHost>() };
+        if handle != host.expected {
+            host.rejected_reads += 1;
+            return 1;
+        }
+        host.reads += 1;
+        // SAFETY: the C++ bridge supplies a non-null pointer to one float.
+        unsafe { *out_value = host.value };
+        0
+    }
+
+    extern "C" fn write_shared_value(
+        handle: WorkletSharedValueHandle,
+        value: f32,
+        context: *mut c_void,
+    ) -> u32 {
+        if context.is_null() {
+            return 2;
+        }
+        // SAFETY: see read_shared_value; callback invocation is synchronous.
+        let host = unsafe { &mut *context.cast::<SharedValueHost>() };
+        if handle != host.expected {
+            host.rejected_writes += 1;
+            return 1;
+        }
+        host.writes += 1;
+        host.value = value;
+        0
+    }
+
+    fn install_worklet(
+        runtime: *mut HermesRuntimeOpaque,
+        id: &CString,
+        source: &str,
+        generation: u64,
+    ) {
+        let mut error = std::ptr::null_mut();
+        let status = unsafe {
+            ex_worklet_install(
+                runtime,
+                id.as_ptr(),
+                source.as_ptr(),
+                source.len(),
+                generation,
+                &mut error,
+            )
+        };
+        let message = if error.is_null() {
+            None
+        } else {
+            let text = unsafe { CStr::from_ptr(error) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { ex_hermes_free_string(error) };
+            Some(text)
+        };
+        assert_eq!(status, 0, "worklet install failed: {message:?}");
+    }
+
+    fn invoke_worklet(runtime: *mut HermesRuntimeOpaque, id: &CString) -> String {
+        let mut result = std::ptr::null_mut();
+        let status =
+            unsafe { ex_worklet_invoke(runtime, id.as_ptr(), std::ptr::null(), &mut result) };
+        assert_eq!(status, 0, "worklet invoke failed");
+        assert!(!result.is_null(), "worklet result must be JSON encoded");
+        let text = unsafe { CStr::from_ptr(result) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { ex_hermes_free_string(result) };
+        text
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
@@ -135,6 +264,80 @@ mod tests {
             Some(text)
         };
         (status, value)
+    }
+
+    /// Restricted worklets must cross the SharedValue boundary with the full
+    /// typed identity. Stale identities are host-rejected no-ops, and values
+    /// that cannot be represented as finite f32 never reach the host callback.
+    #[test]
+    fn worklet_shared_values_use_validating_typed_accessors() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+
+            let mut host = Box::new(SharedValueHost {
+                expected: WorkletSharedValueHandle {
+                    slot: 2,
+                    generation: 7,
+                    epoch: 3,
+                },
+                value: 41.0,
+                reads: 0,
+                writes: 0,
+                rejected_reads: 0,
+                rejected_writes: 0,
+            });
+            let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(
+                    runtime,
+                    Some(read_shared_value),
+                    Some(write_shared_value),
+                    context,
+                ),
+                0
+            );
+            ex_worklet_set_generation(runtime, 1);
+
+            let live_id = CString::new("typed-live").expect("worklet id");
+            install_worklet(
+                runtime,
+                &live_id,
+                "(function () { var s = worklet.sharedValue(2, 7, 3); s.set(s.get() + 1); return s.get(); })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &live_id), "42");
+            assert_eq!(host.value, 42.0);
+            assert_eq!((host.reads, host.writes), (2, 1));
+
+            let stale_id = CString::new("typed-stale").expect("worklet id");
+            install_worklet(
+                runtime,
+                &stale_id,
+                "(function () { var s = worklet.sharedValue(2, 8, 3); s.set(99); return s.get() === undefined; })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &stale_id), "true");
+            assert_eq!(host.value, 42.0, "stale write must be a no-op");
+            assert_eq!((host.rejected_reads, host.rejected_writes), (1, 1));
+
+            let non_finite_id = CString::new("typed-non-finite").expect("worklet id");
+            install_worklet(
+                runtime,
+                &non_finite_id,
+                "(function () { worklet.sharedValue(2, 7, 3).set(Infinity); return 1; })",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &non_finite_id), "1");
+            assert_eq!(host.writes, 1, "non-finite value must not reach the host");
+            assert_eq!(host.value, 42.0);
+
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut(),),
+                0
+            );
+            ex_worklet_destroy(runtime);
+        }
     }
 
     /// A one-shot timer whose callback throws must be retired before the
