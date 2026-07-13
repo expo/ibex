@@ -335,7 +335,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.invocationSchema ===
         "ibex/capsec-callback-invariant-invocation/1",
     );
-    expect(callbackRecipes).toHaveLength(2_838);
+    expect(callbackRecipes).toHaveLength(2_846);
     expect(
       Object.fromEntries(
         [
@@ -356,9 +356,23 @@ describe("exact-target CapSec executable recipes", () => {
       "generation-recheck": 557,
       "principal-restore": 557,
       "snapshot-mismatch-deny": 557,
-      "cannot-widen-authority": 305,
-      "post-lockdown-invariant": 305,
+      "cannot-widen-authority": 309,
+      "post-lockdown-invariant": 309,
     });
+    for (const terminalObservedKey of [
+      "native-op:__ibexCompartmentBaselineFinalized",
+      "native-op:__ibexCompartmentRegistryReady",
+      "native-op:__ibexRefreshCompartmentBaseline",
+      "startup:install-route:ex_hermes_create_impl:installCompartmentRegistry",
+      "startup:installer:installCompartmentRegistry",
+    ]) {
+      expect(
+        callbackRecipes
+          .filter((recipe) => recipe.terminalObservedKey === terminalObservedKey)
+          .map((recipe) => recipe.scenario)
+          .sort(),
+      ).toEqual(["cannot-widen-authority", "post-lockdown-invariant"]);
+    }
     expect(
       callbackRecipes.every(
         (recipe) =>
@@ -638,7 +652,7 @@ describe("exact-target CapSec executable recipes", () => {
         recipe.publicSurfaceProbe?.invocation?.operation?.kind ===
         "startup-environment",
     );
-    expect(rows).toHaveLength(19);
+    expect(rows).toHaveLength(21);
     expect(rows.every((recipe) => recipe.status === "fully-executable")).toBe(
       true,
     );
@@ -680,6 +694,33 @@ describe("exact-target CapSec executable recipes", () => {
       },
     });
     expect(moduleLoader.residualReasons).toEqual([]);
+    for (const environmentName of ["IBEX_COMPARTMENTS", "IBEX_LOCKDOWN"]) {
+      const structuralControl = rows.find(
+        (recipe) =>
+          recipe.publicSurfaceProbe.invocation.operation.environmentName ===
+          environmentName,
+      );
+      expect(structuralControl).toMatchObject({
+        terminalObservedKey: `startup:env:${environmentName}`,
+        status: "fully-executable",
+        residualReasons: [],
+        publicSurfaceProbe: {
+          surfaceObservedKey: `startup:env:${environmentName}`,
+          invocation: {
+            sourceDescriptor: {
+              kind: "closed-startup-environment",
+              environmentName,
+              sourceRefs: [
+                `src/engine/hermes_runtime.cc#env_flag_enabled:${environmentName}:read`,
+              ],
+            },
+            operation: { kind: "startup-environment", environmentName },
+            expectedResult: "closed",
+            expectedTypedDecisionCount: 0,
+          },
+        },
+      });
+    }
   });
 
   test("binds curated structural startup stages to loaded-engine postconditions", () => {
@@ -1078,14 +1119,29 @@ describe("exact-target CapSec executable recipes", () => {
             .evidenceType === "cli-default-value",
       ),
     ).toHaveLength(12);
+    const unresolvedClosedCli = recipes.recipes.filter(
+      (recipe) =>
+        recipe.scenario === "closed" &&
+        recipe.terminalObservedKey.startsWith("cli:") &&
+        recipe.status !== "fully-executable",
+    );
+    expect(unresolvedClosedCli).toHaveLength(10);
     expect(
-      recipes.recipes.filter(
+      unresolvedClosedCli.find(
         (recipe) =>
-          recipe.scenario === "closed" &&
-          recipe.terminalObservedKey.startsWith("cli:") &&
-          recipe.status !== "fully-executable",
+          recipe.terminalObservedKey ===
+          "cli:command:ibex%20capsec%20audit",
       ),
-    ).toHaveLength(9);
+    ).toMatchObject({
+      classification: "closed",
+      scenario: "closed",
+      publicSurfaceProbe: null,
+      status: "unresolved",
+      residualReasons: [
+        "closed-surface-denial-probe-not-authored",
+        "public-surface-invocation-not-authored",
+      ],
+    });
   });
 
   test("binds reviewed evaluator identities to real lockdown taming", () => {
