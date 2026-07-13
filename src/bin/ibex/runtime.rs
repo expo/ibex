@@ -1633,10 +1633,13 @@ fn fresh_production_run_nonce() -> Result<String> {
 
 fn finalize_production_snapshot(value: &mut serde_json::Value) -> Result<()> {
     value["runNonce"] = serde_json::json!(fresh_production_run_nonce()?);
-    let digest = capsec_semantics::digest::compute_domain_digest(
-        capsec_semantics::digest::ARMED_SNAPSHOT_DOMAIN,
+    // Production arming must use the frozen digest contract, including its
+    // schema-aware semantic-set canonicalization. The low-level domain helper
+    // hashes the input's current array order and can therefore mint a digest
+    // that ArmedSnapshot::load correctly rejects after freshening the nonce.
+    let digest = capsec_semantics::digest::compute_checked_contract_digest(
+        capsec_semantics::digest::DigestKind::ArmedSnapshot,
         value,
-        &["armedSnapshotDigest".to_string()],
     )?;
     value["armedSnapshotDigest"] = serde_json::json!(digest);
     Ok(())

@@ -6026,11 +6026,14 @@ cp \"$input\" \"$out\"\n";
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn compartment_only_baseline_survives_late_prototype_and_proxy_mutation() {
+    async fn locked_baseline_rejects_prototype_and_contains_late_global_mutation() {
         let _guard = hermes_engine_test_lock().lock().await;
-        // Keep compartment mode authoritative throughout native creation and
-        // finalization while proving this boundary does not depend on lockdown.
-        let _lockdown_disabled = TestEnvVar::set("IBEX_LOCKDOWN", "0");
+        // Structural lockdown is a constructor invariant. An ambient opt-out
+        // must not restore the historical compartments-only mode where shared
+        // prototypes and evaluator constructors remained mutable.
+        // @ref LLP 0013#mechanism-1 — shared intrinsics are frozen and dynamic
+        // evaluator constructors are tamed before application code executes.
+        let _lockdown_cannot_disable = TestEnvVar::set("IBEX_LOCKDOWN", "0");
         let _compartments_enabled = TestEnvVar::set("IBEX_COMPARTMENTS", "1");
         let engine = HermesEngine::new().unwrap();
         engine.load_runtime().await.unwrap();
@@ -6047,82 +6050,101 @@ cp \"$input\" \"$out\"\n";
                   var registry = root.__compartments;
                   var sessionSymbol = Symbol('ibex.session.prototype');
                   var getterRan = false;
-                  var result;
-
-                  try {
-                    O.defineProperty(O.prototype, 'sessionPrototypeString', {
-                      value: 'STRING-SECRET', configurable: true
-                    });
-                    O.defineProperty(O.prototype, sessionSymbol, {
-                      value: 'SYMBOL-SECRET', configurable: true
-                    });
-                    O.defineProperty(O.prototype, 'sessionPrototypeGetter', {
+                  var prototypeStringRejected = !R.defineProperty(
+                    O.prototype,
+                    'sessionPrototypeString',
+                    { value: 'STRING-SECRET', configurable: true }
+                  );
+                  var prototypeSymbolRejected = !R.defineProperty(
+                    O.prototype,
+                    sessionSymbol,
+                    { value: 'SYMBOL-SECRET', configurable: true }
+                  );
+                  var prototypeGetterRejected = !R.defineProperty(
+                    O.prototype,
+                    'sessionPrototypeGetter',
+                    {
                       configurable: true,
                       get: function () {
                         getterRan = true;
                         return 'GETTER-SECRET';
                       }
-                    });
+                    }
+                  );
 
-                    O.freeze(registry);
-                    var replacementProxy = function PoisonedProxy() {
-                      throw new Error('live global Proxy must not create compartments');
-                    };
-                    root.Proxy = replacementProxy;
+                  O.freeze(registry);
+                  // Lockdown freezes shared intrinsics, not the session's realm
+                  // global. Late root bindings may exist for REPL/application
+                  // use, but the finalized package baseline must not acquire
+                  // them or a replacement constructor binding.
+                  var sessionGlobalAdded = R.defineProperty(
+                    root,
+                    'sessionGlobalSecret',
+                    { value: 'GLOBAL-SECRET', configurable: true }
+                  );
+                  var replacementProxy = function PoisonedProxy() {
+                    throw new Error('live global Proxy must not create compartments');
+                  };
+                  var proxyReplaced =
+                    R.set(root, 'Proxy', replacementProxy, root) &&
+                    root.Proxy === replacementProxy;
 
-                    // This key has not been requested before: creation must use
-                    // the captured Proxy constructor and immutable baseline.
-                    var compartment = registry['late-session-pkg@1.0.0'];
-                    var cachesDescriptorBefore = O.getOwnPropertyDescriptor(root, 'caches');
-                    var indexedDBDescriptorBefore = O.getOwnPropertyDescriptor(root, 'indexedDB');
+                  // This key has not been requested before: creation must use
+                  // the captured Proxy constructor and immutable baseline.
+                  var compartment = registry['late-session-pkg@1.0.0'];
+                  var cachesDescriptorBefore = O.getOwnPropertyDescriptor(root, 'caches');
+                  var indexedDBDescriptorBefore = O.getOwnPropertyDescriptor(root, 'indexedDB');
 
-                    // Root-first and package-first access must converge on each
-                    // lazy global's single shared memo without replacing a value
-                    // that the other side has already observed.
-                    var rootCaches = root.caches;
-                    var packageCaches = compartment.caches;
-                    var packageIndexedDB = compartment.indexedDB;
-                    var rootIndexedDB = root.indexedDB;
-                    result = {
-                      freshProxy: compartment !== root,
-                      aliasesSelf: compartment.globalThis === compartment &&
-                        compartment.global === compartment &&
-                        compartment.self === compartment &&
-                        compartment.window === compartment,
-                      stringType: typeof compartment.sessionPrototypeString,
-                      stringHas: R.has(compartment, 'sessionPrototypeString'),
-                      symbolType: typeof compartment[sessionSymbol],
-                      symbolHas: R.has(compartment, sessionSymbol),
-                      getterType: typeof compartment.sessionPrototypeGetter,
-                      getterHas: R.has(compartment, 'sessionPrototypeGetter'),
-                      getterRan: getterRan,
-                      toStringType: typeof compartment.toString,
-                      registryFrozen: O.isFrozen(registry),
-                      proxyReplaced: root.Proxy === replacementProxy,
-                      capturedProxy: compartment.Proxy === originalProxy,
-                      lazyGlobalsPending:
-                        !!cachesDescriptorBefore &&
-                        typeof cachesDescriptorBefore.get === 'function' &&
-                        !!indexedDBDescriptorBefore &&
-                        typeof indexedDBDescriptorBefore.get === 'function',
-                      cachesIdentity: rootCaches === packageCaches,
-                      cachesRootStable: root.caches === rootCaches,
-                      cachesInstalled:
-                        O.getOwnPropertyDescriptor(root, 'caches').value === rootCaches,
-                      indexedDBIdentity: packageIndexedDB === rootIndexedDB,
-                      indexedDBRootStable: root.indexedDB === rootIndexedDB,
-                      indexedDBPackageStable:
-                        compartment.indexedDB === packageIndexedDB,
-                      indexedDBInstalled:
-                        O.getOwnPropertyDescriptor(root, 'indexedDB').value === rootIndexedDB,
-                      lockedDown: root.__ibexLockedDown === true
-                    };
-                  } finally {
-                    delete O.prototype.sessionPrototypeString;
-                    delete O.prototype[sessionSymbol];
-                    delete O.prototype.sessionPrototypeGetter;
-                    O.defineProperty(root, 'Proxy', proxyDescriptor);
-                  }
+                  // Root-first and package-first access must converge on each
+                  // lazy global's single shared memo without replacing a value
+                  // that the other side has already observed.
+                  var rootCaches = root.caches;
+                  var packageCaches = compartment.caches;
+                  var packageIndexedDB = compartment.indexedDB;
+                  var rootIndexedDB = root.indexedDB;
+                  var result = {
+                    freshProxy: compartment !== root,
+                    aliasesSelf: compartment.globalThis === compartment &&
+                      compartment.global === compartment &&
+                      compartment.self === compartment &&
+                      compartment.window === compartment,
+                    prototypeStringRejected: prototypeStringRejected,
+                    prototypeSymbolRejected: prototypeSymbolRejected,
+                    prototypeGetterRejected: prototypeGetterRejected,
+                    sessionGlobalAdded: sessionGlobalAdded,
+                    sessionGlobalType: typeof compartment.sessionGlobalSecret,
+                    sessionGlobalHas: R.has(compartment, 'sessionGlobalSecret'),
+                    proxyReplaced: proxyReplaced,
+                    stringType: typeof compartment.sessionPrototypeString,
+                    stringHas: R.has(compartment, 'sessionPrototypeString'),
+                    symbolType: typeof compartment[sessionSymbol],
+                    symbolHas: R.has(compartment, sessionSymbol),
+                    getterType: typeof compartment.sessionPrototypeGetter,
+                    getterHas: R.has(compartment, 'sessionPrototypeGetter'),
+                    getterRan: getterRan,
+                    toStringType: typeof compartment.toString,
+                    registryFrozen: O.isFrozen(registry),
+                    capturedProxy: compartment.Proxy === originalProxy,
+                    lazyGlobalsPending:
+                      !!cachesDescriptorBefore &&
+                      typeof cachesDescriptorBefore.get === 'function' &&
+                      !!indexedDBDescriptorBefore &&
+                      typeof indexedDBDescriptorBefore.get === 'function',
+                    cachesIdentity: rootCaches === packageCaches,
+                    cachesRootStable: root.caches === rootCaches,
+                    cachesInstalled:
+                      O.getOwnPropertyDescriptor(root, 'caches').value === rootCaches,
+                    indexedDBIdentity: packageIndexedDB === rootIndexedDB,
+                    indexedDBRootStable: root.indexedDB === rootIndexedDB,
+                    indexedDBPackageStable:
+                      compartment.indexedDB === packageIndexedDB,
+                    indexedDBInstalled:
+                      O.getOwnPropertyDescriptor(root, 'indexedDB').value === rootIndexedDB,
+                    lockedDown: root.__ibexLockedDown === true
+                  };
+
+                  R.deleteProperty(root, 'sessionGlobalSecret');
+                  R.defineProperty(root, 'Proxy', proxyDescriptor);
 
                   return J.stringify(result);
                 })()"#,
@@ -6135,8 +6157,12 @@ cp \"$input\" \"$out\"\n";
         for field in [
             "freshProxy",
             "aliasesSelf",
-            "registryFrozen",
+            "prototypeStringRejected",
+            "prototypeSymbolRejected",
+            "prototypeGetterRejected",
+            "sessionGlobalAdded",
             "proxyReplaced",
+            "registryFrozen",
             "capturedProxy",
             "lazyGlobalsPending",
             "cachesIdentity",
@@ -6146,19 +6172,25 @@ cp \"$input\" \"$out\"\n";
             "indexedDBRootStable",
             "indexedDBPackageStable",
             "indexedDBInstalled",
+            "lockedDown",
         ] {
             assert_eq!(state[field], true, "{field} failed: {state}");
         }
         for field in [
+            "sessionGlobalHas",
             "stringHas",
             "symbolHas",
             "getterHas",
             "getterRan",
-            "lockedDown",
         ] {
             assert_eq!(state[field], false, "{field} leaked: {state}");
         }
-        for field in ["stringType", "symbolType", "getterType"] {
+        for field in [
+            "sessionGlobalType",
+            "stringType",
+            "symbolType",
+            "getterType",
+        ] {
             assert_eq!(state[field], "undefined", "{field} leaked: {state}");
         }
         assert_eq!(state["toStringType"], "function", "{state}");
