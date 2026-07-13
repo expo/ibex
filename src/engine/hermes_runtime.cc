@@ -3562,15 +3562,6 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   }
   TRACE_END(install_globals);
 
-  if (armed && !verifyArmedRuntimePosture(handle)) {
-    // installGlobals may already have registered runtime-scoped descriptors,
-    // sockets, Android callbacks, zlib streams, and debugger state. A posture
-    // refusal must unwind those just like normal destruction; deleting only
-    // the Hermes handle leaves stale authority keyed by its nonce.
-    cleanupPartiallyConstructedRuntime(handle);
-    return nullptr;
-  }
-
   // Web Streams API polyfill (ReadableStream, WritableStream, TransformStream).
   // Run after all global bootstrap scripts so ReadableStream can be wrapped
   // on the final runtime surface that user code observes.
@@ -3598,13 +3589,44 @@ static ExactHermesRuntime* ex_hermes_create_impl(uint64_t host_context_id, bool 
   // resolution uses the captured binding baseline and cannot observe
   // session-created or session-replaced realm-global properties. (ENG-24463)
   TRACE_START(compartment_registry);
-  const bool compartmentRegistryInstalled = installCompartmentRegistry(handle);
+  bool compartmentRegistryInstalled = false;
+  try {
+    compartmentRegistryInstalled = installCompartmentRegistry(handle);
+  } catch (const facebook::jsi::JSError& err) {
+    ex_host_console_log(
+        1, (std::string("Armed startup refused: ") + err.getMessage()).c_str());
+    TRACE_END(compartment_registry);
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  } catch (const std::exception& err) {
+    ex_host_console_log(
+        1, (std::string("Armed startup refused: ") + err.what()).c_str());
+    TRACE_END(compartment_registry);
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  } catch (...) {
+    ex_host_console_log(
+        1, "Armed startup refused: unknown compartment baseline failure");
+    TRACE_END(compartment_registry);
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
   if (!compartmentRegistryInstalled) {
     TRACE_END(compartment_registry);
     cleanupPartiallyConstructedRuntime(handle);
     return nullptr;
   }
   TRACE_END(compartment_registry);
+
+  if (armed && !verifyArmedRuntimePosture(handle)) {
+    // The compartment registry is deliberately installed only after every
+    // trusted bootstrap/polyfill has populated the final global baseline.
+    // Verify the armed posture after that final seal, while retaining full
+    // partial-runtime cleanup for every refusal.
+    // @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+    cleanupPartiallyConstructedRuntime(handle);
+    return nullptr;
+  }
 
   registerRuntime(handle);
 
