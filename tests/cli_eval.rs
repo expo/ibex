@@ -28,6 +28,14 @@ use tokio::time::timeout;
 
 const IBEX: &str = env!("CARGO_BIN_EXE_ibex");
 
+// Diagnostic `.js` entries exercise the real lowering/bundling path before
+// Hermes starts. A cold, unoptimized test binary routinely spends 10–12s in
+// that setup, so the old 20s deadline had too little headroom under full-matrix
+// load and intermittently reported an event-loop timeout. This is a deadlock
+// bound, not a startup-performance assertion; keep the narrower command tests
+// below on their purpose-specific deadlines.
+const DIAGNOSTIC_EVAL_TIMEOUT: Duration = Duration::from_secs(60);
+
 fn repo_root() -> PathBuf {
     // The package manifest dir IS the repo root here (unlike the exact
     // monorepo original, which had to hop two parents up).
@@ -77,7 +85,7 @@ async fn diagnostic_eval(
 
 #[tokio::test]
 async fn cli_eval_one_returns_quickly() {
-    let output = diagnostic_eval("1", false, Duration::from_secs(20)).await;
+    let output = diagnostic_eval("1", false, DIAGNOSTIC_EVAL_TIMEOUT).await;
 
     assert!(
         output.status.success(),
@@ -93,7 +101,7 @@ async fn cli_print_first_require_fs_promises_has_exports() {
     let output = diagnostic_eval(
         "(function(){ var mod = require('fs/promises'); return JSON.stringify({ hasReadFile: !!mod.readFile, keyCount: Object.keys(mod).length }); })()",
         false,
-        Duration::from_secs(20),
+        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -119,7 +127,7 @@ async fn cli_print_waits_for_async_promise_resolution() {
     let output = diagnostic_eval(
         "(async function(){ await new Promise(function(resolve){ setTimeout(function(){ resolve(); }, 10); }); return 42; })()",
         false,
-        Duration::from_secs(20),
+        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -144,7 +152,7 @@ async fn cli_print_fs_promises_readfile_without_encoding_returns_buffer() {
         "(async function(){{ var fsp = require('fs/promises'); var bytes = await fsp.readFile({readme_path_json}); return JSON.stringify({{ isBuffer: typeof Buffer === 'function' && Buffer.isBuffer(bytes), length: bytes.length }}); }})()"
     );
 
-    let output = diagnostic_eval(&script, false, Duration::from_secs(20)).await;
+    let output = diagnostic_eval(&script, false, DIAGNOSTIC_EVAL_TIMEOUT).await;
 
     assert!(
         output.status.success(),
@@ -179,7 +187,7 @@ async fn cli_print_shared_runtime_installs_bootstrap_globals() {
             });
         })()"#,
         true,
-        Duration::from_secs(20),
+        DIAGNOSTIC_EVAL_TIMEOUT,
     )
     .await;
 
@@ -230,7 +238,7 @@ async fn cli_print_shared_runtime_exposes_lazy_file_globals() {
         }})()"#
     );
 
-    let output = diagnostic_eval(&script, true, Duration::from_secs(20)).await;
+    let output = diagnostic_eval(&script, true, DIAGNOSTIC_EVAL_TIMEOUT).await;
 
     assert!(
         output.status.success(),
@@ -465,7 +473,7 @@ async fn cli_identity_is_node_primary_and_coherent() {
         releaseName: (process.release && process.release.name) || null
     })"#;
 
-    let output = diagnostic_eval(probe, false, Duration::from_secs(20)).await;
+    let output = diagnostic_eval(probe, false, DIAGNOSTIC_EVAL_TIMEOUT).await;
     assert!(
         output.status.success(),
         "default identity probe should run: stderr={}",
@@ -509,7 +517,7 @@ async fn cli_identity_is_node_primary_and_coherent() {
     );
     assert_eq!(parsed["releaseName"], "node");
 
-    let output = diagnostic_eval(probe, true, Duration::from_secs(20)).await;
+    let output = diagnostic_eval(probe, true, DIAGNOSTIC_EVAL_TIMEOUT).await;
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: Value =
