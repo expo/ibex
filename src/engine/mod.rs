@@ -102,6 +102,64 @@ mod tests {
         epoch: u32,
     }
 
+    const WORKLET_CAPTURE_F32: u32 = 1;
+    const WORKLET_CAPTURE_BOOL: u32 = 2;
+    const WORKLET_CAPTURE_SHARED_VALUE: u32 = 3;
+    const WORKLET_INSTALL_SOURCE_UTF8: u32 = 1;
+    const WORKLET_RUN_ON_JS_SLOTS: usize = 8;
+
+    #[derive(Clone, Copy)]
+    #[repr(C)]
+    struct WorkletCapture {
+        kind: u32,
+        scalar: f32,
+        shared_value: WorkletSharedValueHandle,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(C)]
+    struct WorkletScheduledCall {
+        source_identity: u64,
+        source_sequence: u64,
+        generation: u64,
+        callback_identity: u32,
+        argument_count: u32,
+        arguments: [f32; WORKLET_RUN_ON_JS_SLOTS],
+    }
+
+    impl Default for WorkletScheduledCall {
+        fn default() -> Self {
+            Self {
+                source_identity: 0,
+                source_sequence: 0,
+                generation: 0,
+                callback_identity: 0,
+                argument_count: 0,
+                arguments: [0.0; WORKLET_RUN_ON_JS_SLOTS],
+            }
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default)]
+    #[repr(C)]
+    struct WorkletInstallMetrics {
+        source_install_count: u64,
+        reused_install_count: u64,
+        source_install_total_ns: u64,
+        source_install_max_ns: u64,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    #[repr(C)]
+    struct MotionRatedPublishSample {
+        channel_identity: u64,
+        dirty_generation: u64,
+        sample_time_ns: u64,
+        value_count: u32,
+        flags: u32,
+        values: [f32; WORKLET_RUN_ON_JS_SLOTS],
+    }
+
     type WorkletSharedValueReadCallback =
         extern "C" fn(WorkletSharedValueHandle, *mut f32, *mut c_void) -> u32;
     type WorkletSharedValueWriteCallback =
@@ -140,6 +198,52 @@ mod tests {
             worklet_id: *const c_char,
             args_json: *const c_char,
             out_result_json: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_install_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            install_format: u32,
+            artifact: *const u8,
+            artifact_len: usize,
+            captures: *const WorkletCapture,
+            capture_count: u32,
+            generation: u64,
+            out_identity: *mut u64,
+            out_error: *mut *mut c_char,
+        ) -> i32;
+        fn ex_worklet_invoke_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            identity: u64,
+            inputs: *const f32,
+            input_count: u32,
+            outputs: *mut f32,
+            output_capacity: u32,
+            out_output_count: *mut u32,
+        ) -> i32;
+        fn ex_worklet_install_metrics(
+            runtime: *mut HermesRuntimeOpaque,
+            out_metrics: *mut WorkletInstallMetrics,
+        ) -> i32;
+        fn ex_worklet_drain_scheduled_typed(
+            runtime: *mut HermesRuntimeOpaque,
+            out_calls: *mut WorkletScheduledCall,
+            capacity: u32,
+        ) -> u32;
+        fn ex_worklet_take_scheduled_drop_count(runtime: *mut HermesRuntimeOpaque) -> u64;
+        fn ex_hermes_dispatch_worklet_calls(
+            runtime: *mut HermesRuntimeOpaque,
+            calls: *const WorkletScheduledCall,
+            count: u32,
+            out_delivered: *mut u32,
+        ) -> i32;
+        fn ex_hermes_dispatch_worklet_json_batch(
+            runtime: *mut HermesRuntimeOpaque,
+            batch_json: *const u8,
+            batch_len: usize,
+            generation: u64,
+        ) -> i32;
+        fn ex_hermes_dispatch_motion_rated_publish(
+            runtime: *mut HermesRuntimeOpaque,
+            sample: *const MotionRatedPublishSample,
         ) -> i32;
         fn ex_worklet_bind_shared_value_accessors(
             runtime: *mut HermesRuntimeOpaque,
@@ -239,6 +343,37 @@ mod tests {
             .into_owned();
         unsafe { ex_hermes_free_string(result) };
         text
+    }
+
+    unsafe fn install_typed_worklet(
+        runtime: *mut HermesRuntimeOpaque,
+        source: &str,
+        captures: &[WorkletCapture],
+        generation: u64,
+    ) -> u64 {
+        let mut identity = 0;
+        let mut error = std::ptr::null_mut();
+        let status = ex_worklet_install_typed(
+            runtime,
+            WORKLET_INSTALL_SOURCE_UTF8,
+            source.as_ptr(),
+            source.len(),
+            captures.as_ptr(),
+            captures.len() as u32,
+            generation,
+            &mut identity,
+            &mut error,
+        );
+        let message = if error.is_null() {
+            None
+        } else {
+            let text = CStr::from_ptr(error).to_string_lossy().into_owned();
+            ex_hermes_free_string(error);
+            Some(text)
+        };
+        assert_eq!(status, 0, "typed worklet install failed: {message:?}");
+        assert_ne!(identity, 0);
+        identity
     }
 
     fn eval(runtime: *mut HermesRuntimeOpaque, source: &str) -> (i32, Option<String>) {
@@ -354,6 +489,315 @@ mod tests {
                 0
             );
             ex_worklet_destroy(runtime);
+        }
+    }
+
+    /// LLP 0099 M6: the hot Motion worklet ABI is fixed f32 slots, captures
+    /// are install-time scalars or full SharedValue identities, unchanged
+    /// artifacts retain a stable callback identity, and runOnJS uses a
+    /// bounded drop-oldest ring drained on the app runtime.
+    #[test]
+    fn motion_worklet_typed_abi_captures_and_run_on_js_are_bounded() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            let mut host = Box::new(SharedValueHost {
+                expected: WorkletSharedValueHandle {
+                    slot: 3,
+                    generation: 9,
+                    epoch: 4,
+                },
+                value: 41.0,
+                reads: 0,
+                writes: 0,
+                rejected_reads: 0,
+                rejected_writes: 0,
+            });
+            let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(
+                    runtime,
+                    Some(read_shared_value),
+                    Some(write_shared_value),
+                    context,
+                ),
+                0
+            );
+            ex_worklet_set_generation(runtime, 7);
+            let captures = [
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_F32,
+                    scalar: 2.0,
+                    shared_value: WorkletSharedValueHandle {
+                        slot: 0,
+                        generation: 0,
+                        epoch: 0,
+                    },
+                },
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_BOOL,
+                    scalar: 1.0,
+                    shared_value: WorkletSharedValueHandle {
+                        slot: 0,
+                        generation: 0,
+                        epoch: 0,
+                    },
+                },
+                WorkletCapture {
+                    kind: WORKLET_CAPTURE_SHARED_VALUE,
+                    scalar: 0.0,
+                    shared_value: host.expected,
+                },
+            ];
+            let source = r#"(function (input) {
+              var shared = worklet.captureGet(2);
+              worklet.output(0, input * worklet.capture(0));
+              worklet.output(1, shared);
+              worklet.output(2, worklet.capture(1) ? 1 : 0);
+              worklet.captureSet(2, shared + 1);
+              worklet.runOnJS(77, input, shared);
+            })"#;
+            let identity = install_typed_worklet(runtime, source, &captures, 7);
+            assert_eq!(
+                install_typed_worklet(runtime, source, &captures, 7),
+                identity,
+                "content + capture identity must be stable across re-renders"
+            );
+
+            let mut output = [f32::NAN; 3];
+            let input = [3.0_f32];
+            let mut output_count = 0;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input.as_ptr(),
+                    input.len() as u32,
+                    output.as_mut_ptr(),
+                    output.len() as u32,
+                    &mut output_count,
+                ),
+                0
+            );
+            assert_eq!(output_count, 3);
+            assert_eq!(output, [6.0, 41.0, 1.0]);
+            assert_eq!(host.value, 42.0);
+
+            // The install-time SharedValue capture owns the same stale shadow
+            // contract as worklet.sharedValue(...). A host-rejected handle
+            // reads its last observed value and rejects the write.
+            host.expected.generation = 10;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input.as_ptr(),
+                    1,
+                    output.as_mut_ptr(),
+                    3,
+                    &mut output_count,
+                ),
+                0
+            );
+            assert_eq!(output[1], 42.0);
+            assert_eq!(host.rejected_reads, 1);
+            assert_eq!(host.rejected_writes, 1);
+            host.expected.generation = 9;
+
+            // Fill past the fixed ring. The oldest four calls are evicted;
+            // per-source sequence remains monotonic and makes the gap clear.
+            for _ in 0..254 {
+                assert_eq!(
+                    ex_worklet_invoke_typed(
+                        runtime,
+                        identity,
+                        input.as_ptr(),
+                        1,
+                        output.as_mut_ptr(),
+                        3,
+                        &mut output_count,
+                    ),
+                    0
+                );
+            }
+            let mut calls = [WorkletScheduledCall::default(); 256];
+            assert_eq!(
+                ex_worklet_drain_scheduled_typed(runtime, calls.as_mut_ptr(), 256),
+                256
+            );
+            assert_eq!(ex_worklet_take_scheduled_drop_count(runtime), 0);
+            // Two calls occurred before the 254-fill loop: the stale-shadow
+            // invocation is still a valid runOnJS enqueue, so capacity is
+            // reached exactly without a drop.
+            assert_eq!(calls[0].source_sequence, 1);
+            assert_eq!(calls[255].source_sequence, 256);
+            assert!(calls.iter().all(|call| {
+                call.source_identity == identity
+                    && call.generation == 7
+                    && call.callback_identity == 77
+                    && call.argument_count == 2
+            }));
+            for _ in 0..260 {
+                assert_eq!(
+                    ex_worklet_invoke_typed(
+                        runtime,
+                        identity,
+                        input.as_ptr(),
+                        1,
+                        output.as_mut_ptr(),
+                        3,
+                        &mut output_count,
+                    ),
+                    0
+                );
+            }
+            assert_eq!(
+                ex_worklet_drain_scheduled_typed(runtime, calls.as_mut_ptr(), 256),
+                256
+            );
+            assert_eq!(ex_worklet_take_scheduled_drop_count(runtime), 4);
+            assert_eq!(calls[0].source_sequence, 261);
+            assert_eq!(calls[255].source_sequence, 516);
+
+            let app = ex_hermes_create();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__runOnJSSeen=[]; globalThis.__exactRunOnJS=function(id,meta,a,b){ __runOnJSSeen.push([id,meta.sourceSequence,a,b]); }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let mut delivered = 0;
+            assert_eq!(
+                ex_hermes_dispatch_worklet_calls(
+                    app,
+                    calls.as_ptr(),
+                    calls.len() as u32,
+                    &mut delivered,
+                ),
+                0
+            );
+            assert_eq!(delivered, 256);
+            assert_eq!(
+                eval(
+                    app,
+                    "JSON.stringify([__runOnJSSeen.length,__runOnJSSeen[0],__runOnJSSeen[255]])",
+                )
+                .1
+                .as_deref(),
+                Some("[256,[77,\"261\",3,300],[77,\"516\",3,555]]")
+            );
+
+            let mut metrics = WorkletInstallMetrics::default();
+            assert_eq!(ex_worklet_install_metrics(runtime, &mut metrics), 0);
+            assert_eq!(metrics.source_install_count, 1);
+            assert_eq!(metrics.reused_install_count, 1);
+            assert!(metrics.source_install_total_ns > 0);
+            assert!(metrics.source_install_max_ns > 0);
+
+            ex_hermes_destroy(app);
+            assert_eq!(
+                ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut(),),
+                0
+            );
+            ex_worklet_destroy(runtime);
+        }
+    }
+
+    /// The source-install choice is deliberate for M6: the shipped build
+    /// plugin already emits function-expression source, and warm installs
+    /// must remain immaterial beside the 1ms per-frame execution budget.
+    #[test]
+    fn motion_worklet_source_install_p95_is_measured() {
+        unsafe {
+            let runtime = ex_worklet_create();
+            assert!(!runtime.is_null());
+            ex_worklet_set_generation(runtime, 1);
+            let mut samples = Vec::new();
+            for index in 0..64_u32 {
+                let source =
+                    format!("(function (value) {{ worklet.output(0, value + {index}); }})");
+                let started = std::time::Instant::now();
+                let _ = install_typed_worklet(runtime, &source, &[], 1);
+                samples.push(started.elapsed().as_nanos() as u64);
+            }
+            samples.sort_unstable();
+            let p50 = samples[samples.len() / 2];
+            let p95 = samples[(samples.len() * 95 / 100).min(samples.len() - 1)];
+            eprintln!(
+                "M6 source install: p50={:.3}ms p95={:.3}ms",
+                p50 as f64 / 1_000_000.0,
+                p95 as f64 / 1_000_000.0,
+            );
+            assert!(
+                p95 < 5_000_000,
+                "warm source install p95 must stay below the 5ms mount-time ceiling"
+            );
+            ex_worklet_destroy(runtime);
+        }
+    }
+
+    #[test]
+    fn schedule_on_app_runtime_json_dispatches_on_app_runtime() {
+        unsafe {
+            let app = ex_hermes_create();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__scheduled=null; globalThis.__exactScheduleOnAppRuntime=function(batch,generation){ __scheduled=[batch,generation]; }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let batch = br#"[{"name":"refreshBadge","args":{"count":3}}]"#;
+            assert_eq!(
+                ex_hermes_dispatch_worklet_json_batch(app, batch.as_ptr(), batch.len(), 11,),
+                0
+            );
+            assert_eq!(
+                eval(app, "JSON.stringify(__scheduled)").1.as_deref(),
+                Some("[[{\"name\":\"refreshBadge\",\"args\":{\"count\":3}}],11]")
+            );
+            ex_hermes_destroy(app);
+        }
+    }
+
+    #[test]
+    fn motion_rated_publish_dispatches_fixed_sample_on_app_runtime() {
+        unsafe {
+            let app = ex_hermes_create();
+            assert!(!app.is_null());
+            assert_eq!(
+                eval(
+                    app,
+                    "globalThis.__rated=null; globalThis.__exactMotionRatedPublish=function(id,values,metadata){ __rated=[id,values,metadata]; }; 'ready'",
+                )
+                .0,
+                0
+            );
+            let sample = MotionRatedPublishSample {
+                channel_identity: 91,
+                dirty_generation: 7,
+                sample_time_ns: 123_456,
+                value_count: 2,
+                flags: 3,
+                values: [4.5, -2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            };
+            assert_eq!(ex_hermes_dispatch_motion_rated_publish(app, &sample), 0);
+            assert_eq!(
+                eval(app, "JSON.stringify(__rated)").1.as_deref(),
+                Some(
+                    "[\"91\",[4.5,-2],{\"dirtyGeneration\":\"7\",\"sampleTimeNs\":\"123456\",\"heartbeat\":true,\"programmatic\":true}]"
+                )
+            );
+
+            let mut invalid = sample;
+            invalid.values[0] = f32::NAN;
+            assert_eq!(ex_hermes_dispatch_motion_rated_publish(app, &invalid), 1);
+            ex_hermes_destroy(app);
         }
     }
 

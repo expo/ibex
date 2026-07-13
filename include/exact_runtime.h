@@ -354,6 +354,29 @@ char* ex_hermes_get_gc_stats(ExactHermesRuntime* runtime);
 //   0 = ok, 1 = error (out param carries the message), 2 = defined no-op
 //       (missing worklet or generation mismatch).
 
+// M6's steady-state ABI is intentionally fixed-width. These limits are part
+// of the C contract: callers reject/lower larger programs at build time
+// rather than allocating variable argument/result containers on a frame.
+#define EX_WORKLET_MAX_INPUT_SLOTS 16
+#define EX_WORKLET_MAX_OUTPUT_SLOTS 16
+#define EX_WORKLET_MAX_RUN_ON_JS_SLOTS 8
+#define EX_WORKLET_TYPED_QUEUE_CAPACITY 256
+
+/// The restricted runtime currently installs UTF-8 function-expression
+/// source. This is an explicit format value rather than an implicit bool so
+/// an eventual HBC artifact can be added without guessing from bytes. The M6
+/// source-install decision is guarded by the install-cost benchmark in the
+/// Ibex engine tests; unsupported formats fail closed.
+typedef enum ExWorkletInstallFormat {
+    EX_WORKLET_INSTALL_SOURCE_UTF8 = 1,
+} ExWorkletInstallFormat;
+
+typedef enum ExWorkletCaptureKind {
+    EX_WORKLET_CAPTURE_F32 = 1,
+    EX_WORKLET_CAPTURE_BOOL = 2,
+    EX_WORKLET_CAPTURE_SHARED_VALUE = 3,
+} ExWorkletCaptureKind;
+
 /// Create a restricted worklet runtime (small heap: 1MB init / 8MB max).
 /// Compatible with ex_hermes_eval/gc/get_heap_info; destroy with
 /// ex_worklet_destroy (NOT ex_hermes_destroy — worklet state must be
@@ -403,6 +426,82 @@ typedef struct ExWorkletSharedValueHandle {
     uint32_t epoch;
 } ExWorkletSharedValueHandle;
 
+/// Install-time-only capture record. Scalar values and complete SharedValue
+/// identities are the entire legal capture surface for math worklets. A
+/// compiler must reject mutable JS/object captures before this ABI.
+typedef struct ExWorkletCapture {
+    uint32_t kind;
+    float scalar;
+    ExWorkletSharedValueHandle shared_value;
+} ExWorkletCapture;
+
+/// One allocation-free worklet -> app-runtime call. `callback_identity` is
+/// generated from the app callback at build time; `source_identity` and
+/// `source_sequence` let the consumer preserve/diagnose per-worklet order.
+typedef struct ExWorkletScheduledCall {
+    uint64_t source_identity;
+    uint64_t source_sequence;
+    uint64_t generation;
+    uint32_t callback_identity;
+    uint32_t argument_count;
+    float arguments[EX_WORKLET_MAX_RUN_ON_JS_SLOTS];
+} ExWorkletScheduledCall;
+
+typedef struct ExWorkletInstallMetrics {
+    uint64_t source_install_count;
+    uint64_t reused_install_count;
+    uint64_t source_install_total_ns;
+    uint64_t source_install_max_ns;
+} ExWorkletInstallMetrics;
+
+/// Runtime-side rated-publish input. Motion writes the latest finite raw
+/// sample plus a monotonically increasing dirty generation; the app-runtime
+/// pacer forwards one coalesced sample per declared slot. Payload evaluation
+/// and provider invocation are owned by the app callback, never main/UI.
+typedef struct ExMotionRatedPublishSample {
+    uint64_t channel_identity;
+    uint64_t dirty_generation;
+    uint64_t sample_time_ns;
+    uint32_t value_count;
+    uint32_t flags; // bit 0 = heartbeat, bit 1 = programmatic/default sample
+    float values[EX_WORKLET_MAX_RUN_ON_JS_SLOTS];
+} ExMotionRatedPublishSample;
+
+/// Install a Motion math worklet and return its stable identity, computed
+/// from artifact bytes plus the serialized capture set. Reinstalling the
+/// same artifact/captures in one generation reuses the resident function.
+/// Captures are read by `worklet.capture(index)`,
+/// `worklet.captureGet(index)`, and `worklet.captureSet(index, value)`.
+int ex_worklet_install_typed(
+    ExactHermesRuntime* runtime,
+    uint32_t install_format,
+    const uint8_t* artifact,
+    size_t artifact_len,
+    const ExWorkletCapture* captures,
+    uint32_t capture_count,
+    uint64_t generation,
+    uint64_t* out_identity,
+    char** out_error);
+
+/// Invoke by stable identity with fixed f32 input/output slots. The worklet
+/// receives each input as a positional number and writes results with
+/// `worklet.output(index, value)`. No strings, JSON, or result allocation
+/// occur on a successful steady-state host path. `out_output_count` is the
+/// highest written slot + 1 (zero when no output was written).
+int ex_worklet_invoke_typed(
+    ExactHermesRuntime* runtime,
+    uint64_t identity,
+    const float* inputs,
+    uint32_t input_count,
+    float* outputs,
+    uint32_t output_capacity,
+    uint32_t* out_output_count);
+
+/// Snapshot source-install cost counters. The call does not reset them.
+int ex_worklet_install_metrics(
+    ExactHermesRuntime* runtime,
+    ExWorkletInstallMetrics* out_metrics);
+
 /// Validating, synchronous main-thread accessors for the restricted worklet
 /// runtime. Return 0 for a live read/write; any other verdict is a defined
 /// stale/no-op. `read` writes `out_value` only on success. The callbacks must
@@ -443,6 +542,45 @@ char* ex_worklet_drain_logs(ExactHermesRuntime* runtime);
 /// {"name","args"} objects (malloc'd; free with ex_hermes_free_string).
 /// NULL when empty. The host forwards these to the app runtime.
 char* ex_worklet_drain_scheduled(ExactHermesRuntime* runtime);
+
+/// Drain the allocation-free `worklet.runOnJS(callbackIdentity, ...f32)`
+/// ring into caller-owned storage. Returns the number copied. A too-small
+/// output buffer leaves the remainder queued in FIFO order.
+uint32_t ex_worklet_drain_scheduled_typed(
+    ExactHermesRuntime* runtime,
+    ExWorkletScheduledCall* out_calls,
+    uint32_t capacity);
+
+/// Read-and-clear the number of schedule entries evicted by drop-oldest
+/// overflow (typed and compatibility JSON queues combined).
+uint64_t ex_worklet_take_scheduled_drop_count(ExactHermesRuntime* runtime);
+
+/// Deliver typed runOnJS calls on the APP runtime's owning thread. The app
+/// bundle installs `globalThis.__exactRunOnJS(callbackIdentity, metadata,
+/// ...args)`. Missing dispatchers are a defined no-op (2).
+int ex_hermes_dispatch_worklet_calls(
+    ExactHermesRuntime* runtime,
+    const ExWorkletScheduledCall* calls,
+    uint32_t count,
+    uint32_t* out_delivered);
+
+/// Compatibility delivery for `scheduleOnAppRuntime(name, args)`. The app
+/// bundle installs `globalThis.__exactScheduleOnAppRuntime(batch,
+/// generation)`. Parsing/callback execution happens on the app runtime;
+/// the main/UI worklet owner only drains and asynchronously forwards bytes.
+int ex_hermes_dispatch_worklet_json_batch(
+    ExactHermesRuntime* runtime,
+    const uint8_t* batch_json,
+    size_t batch_len,
+    uint64_t generation);
+
+/// Invoke `globalThis.__exactMotionRatedPublish(channelIdentity, values,
+/// metadata)` on the app runtime's owning thread. The callback evaluates the
+/// authored payload mapping and calls the capability provider. Missing
+/// callback is a defined no-op (2); non-finite input fails closed (1).
+int ex_hermes_dispatch_motion_rated_publish(
+    ExactHermesRuntime* runtime,
+    const ExMotionRatedPublishSample* sample);
 
 #ifdef __cplusplus
 }

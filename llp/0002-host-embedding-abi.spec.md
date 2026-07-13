@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-13 (restricted-worklet SharedValues now use typed validating host callbacks rather than a raw slab pointer; previously 2026-07-09 for host-boundary constraints)
+**Revised:** 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks; previously 2026-07-09 for host-boundary constraints)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -80,6 +80,37 @@ callbacks execute synchronously on the restricted runtime's owning UI thread;
 they must not enter the app runtime or block on another domain. This is an
 optional convenience surface, not part of the five-function semver-major
 contract above.
+
+### Restricted-worklet typed Motion ABI
+
+The optional M6 embedding surface admits one explicit artifact format:
+`EX_WORKLET_INSTALL_SOURCE_UTF8`. `ex_worklet_install_typed` evaluates a
+function expression with an install-time vector of finite f32/boolean captures
+or complete SharedValue identities and returns a stable content+capture hash;
+same-generation reinstallation reuses the resident function `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime_worklet.cc`). Unknown
+formats and capture kinds fail closed. The source decision belongs to Exact's
+LLP 0099/0297 contract; Ibex keeps the format discriminant explicit so adding
+HBC later is an additive, testable ABI choice rather than byte sniffing.
+
+`ex_worklet_invoke_typed` accepts at most 16 caller-owned f32 inputs and 16
+caller-owned output slots. Worklet code writes output with
+`worklet.output(index, value)` and can enqueue at most eight finite f32
+arguments with `worklet.runOnJS(callbackIdentity, ...args)`. The successful
+host path allocates no strings, JSON, or result container. Scheduled calls sit
+in a fixed 256-record ring; overflow drops the oldest record and increments the
+read-and-clear diagnostic counter. Each record carries stable source identity,
+per-source sequence, and runtime generation `[observed]` (same sources).
+
+The embedder drains those records into caller-owned storage, then calls
+`ex_hermes_dispatch_worklet_calls` only on the app runtime's owning thread.
+Compatibility JSON batches use `ex_hermes_dispatch_worklet_json_batch`. Both
+look for app-installed dispatcher functions and return the standard defined
+no-op result when absent. `ex_hermes_dispatch_motion_rated_publish` similarly
+forwards one fixed, finite eight-value sample to the app-installed rated
+publication dispatcher; pacing and lifecycle fencing remain embedder policy.
+These are optional convenience surfaces, not additions to the five-function
+semver-major contract.
 
 ### The `__hostCall` bridge — the generic host channel
 
