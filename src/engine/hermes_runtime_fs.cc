@@ -204,9 +204,6 @@ static std::vector<uint64_t> normalizeTypedPrincipalStack(
 }
 
 std::vector<uint64_t> exactCollectTypedPrincipalStack() {
-  if (g_typed_principal_stack) {
-    return normalizeTypedPrincipalStack(*g_typed_principal_stack);
-  }
   std::vector<uint64_t> principals;
 #ifdef EXACT_HAVE_FRAME_ATTRIBUTION
   if (g_vm_runtime != nullptr) {
