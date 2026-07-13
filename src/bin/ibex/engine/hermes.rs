@@ -5469,6 +5469,7 @@ cp \"$input\" \"$out\"\n";
             .grant_typed_dynamic(grant_id.clone(), principal, selector)
             .unwrap());
         let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
         let before = host.typed_decision_count();
         let control = host.clone();
         let revoked_id = grant_id.clone();
