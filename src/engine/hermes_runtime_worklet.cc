@@ -206,8 +206,10 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
           }));
 
   // __svGet / __svSet — typed, validating accessors. Stale generation/epoch,
-  // malformed handles, and host rejection are defined no-ops (LLP 0297 §4.4):
-  // get returns undefined and set does nothing. Ibex never sees a raw slab.
+  // malformed handles, and host rejection are defined no-ops (LLP 0297 §4.4).
+  // The private primitives report rejection as undefined/false; the durable
+  // language handle below owns its last-observed local shadow. Ibex never
+  // sees a raw slab.
   rt.global().setProperty(
       rt,
       "__svGet",
@@ -256,9 +258,9 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
                 number > static_cast<double>(std::numeric_limits<float>::max())) {
               return Value::undefined();
             }
-            state->shared_value_write(
+            const uint32_t verdict = state->shared_value_write(
                 shared_value, static_cast<float>(number), state->shared_value_context);
-            return Value::undefined();
+            return Value(verdict == 0);
           }));
 
   // Frozen stdlib prelude.
@@ -269,9 +271,16 @@ void installWorkletGlobals(ExactHermesRuntime* handle) {
     clamp: function (v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; },
     lerp: function (a, b, t) { return a + (b - a) * t; },
     sharedValue: function (slot, generation, epoch) {
+      var shadow;
       return Object.freeze({
-        get: function () { return __svGet(slot, generation, epoch); },
-        set: function (v) { __svSet(slot, generation, epoch, v); }
+        get: function () {
+          var value = __svGet(slot, generation, epoch);
+          if (value !== undefined) shadow = value;
+          return value === undefined ? shadow : value;
+        },
+        set: function (v) {
+          if (__svSet(slot, generation, epoch, v)) shadow = v;
+        }
       });
     }
   };

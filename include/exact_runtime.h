@@ -419,7 +419,7 @@ typedef uint32_t (*ExWorkletSharedValueWriteCallback)(
 /// Bind typed SharedValue accessors, replacing the historical raw slab
 /// pointer. Pass NULL callbacks to unbind. Worklet JS addresses a value as
 /// `worklet.sharedValue(slot, generation, epoch)`; invalid/stale identities
-/// read as undefined and writes are no-ops.
+/// retain the handle's last-observed local shadow and writes are no-ops.
 int ex_worklet_bind_shared_value_accessors(
     ExactHermesRuntime* runtime,
     ExWorkletSharedValueReadCallback read_callback,

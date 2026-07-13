@@ -321,6 +321,23 @@ mod tests {
             assert_eq!(host.value, 42.0, "stale write must be a no-op");
             assert_eq!((host.rejected_reads, host.rejected_writes), (1, 1));
 
+            // A durable handle keeps its last successfully observed value
+            // when the host later rejects that same typed identity. The raw
+            // accessor still fails closed; only the language handle owns the
+            // stale shadow required by LLP 0099 M1.
+            let shadow_id = CString::new("typed-stale-shadow").expect("worklet id");
+            install_worklet(
+                runtime,
+                &shadow_id,
+                "(function () { var s = worklet.sharedValue(2, 7, 3); return function () { return s.get(); }; })()",
+                1,
+            );
+            assert_eq!(invoke_worklet(runtime, &shadow_id), "42");
+            host.expected.generation = 8;
+            assert_eq!(invoke_worklet(runtime, &shadow_id), "42");
+            assert_eq!(host.rejected_reads, 2);
+            host.expected.generation = 7;
+
             let non_finite_id = CString::new("typed-non-finite").expect("worklet id");
             install_worklet(
                 runtime,
