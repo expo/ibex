@@ -654,7 +654,7 @@ mod tls_bridge_support {
     /// data after the handshake, then acknowledge only after `expected` bytes
     /// arrive. This forces both rustls' plaintext buffer and the raw socket's
     /// writable queue through their backpressure paths.
-    pub fn spawn_delayed_tls_sink(expected: usize) -> u16 {
+    fn spawn_delayed_tls_sink_inner(expected: usize, await_peer_close: bool) -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let port = listener.local_addr().expect("local addr").port();
         let config = server_config();
@@ -681,12 +681,33 @@ mod tls_bridge_support {
                     Ok(n) => received += n,
                 }
             }
+            if await_peer_close {
+                // `TLSSocket.end()` sends close_notify immediately after the
+                // final application record. Drain that alert before closing
+                // this TcpStream: dropping a socket with unread inbound bytes
+                // can send RST and truncate our own close_notify after the ack.
+                loop {
+                    match tls.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => received += n,
+                        Err(_) => return,
+                    }
+                }
+            }
             let response = format!("ack:{received}");
             let _ = tls.write_all(response.as_bytes());
             tls.conn.send_close_notify();
             let _ = tls.flush();
         });
         port
+    }
+
+    pub fn spawn_delayed_tls_sink(expected: usize) -> u16 {
+        spawn_delayed_tls_sink_inner(expected, false)
+    }
+
+    pub fn spawn_delayed_tls_closing_sink(expected: usize) -> u16 {
+        spawn_delayed_tls_sink_inner(expected, true)
     }
 
     /// Push a large response immediately after the handshake. The client test
@@ -1487,7 +1508,7 @@ try {{
 #[tokio::test]
 async fn node_tls_bridge_end_with_data_during_handshake_flushes_before_close_notify() {
     let payload = "end-during-handshake";
-    let port = tls_bridge_support::spawn_delayed_tls_sink(payload.len());
+    let port = tls_bridge_support::spawn_delayed_tls_closing_sink(payload.len());
     let script = format!(
         r#"
 var tls = require('tls');
