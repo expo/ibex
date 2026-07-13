@@ -20,7 +20,7 @@ import { File as IbexFile } from '../blob/File';
 // Test harness: a file-backed SQLite provider (real persistence across opens).
 // ---------------------------------------------------------------------------
 
-const tmpDirs: string[] = [];
+const tmpRoot = mkdtempSync(join(tmpdir(), 'idb-eng22974-suite-'));
 
 function dbPath(dir: string, name: string): string {
   return join(dir, encodeURIComponent(name) + '.sqlite');
@@ -52,9 +52,10 @@ function makeProvider(dir: string, onSql?: (sql: string) => void) {
 }
 
 function makeDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'idb-eng22974-'));
-  tmpDirs.push(dir);
-  return dir;
+  // Keep each factory isolated while making suite cleanup a single recursive
+  // operation. Removing dozens of separate SQLite directories can exceed
+  // Bun's default hook timeout when the full test matrix is under disk load.
+  return mkdtempSync(join(tmpRoot, 'case-'));
 }
 
 function makeFactory(): IDBFactory {
@@ -62,12 +63,10 @@ function makeFactory(): IDBFactory {
 }
 
 afterAll(() => {
-  for (const dir of tmpDirs) {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch (_) {}
-  }
-});
+  try {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  } catch (_) {}
+}, 30_000);
 
 const flush = () => new Promise<void>((r) => setTimeout(r, 0));
 
