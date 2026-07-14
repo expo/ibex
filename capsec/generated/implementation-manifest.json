@@ -115111,6 +115111,102 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5",
+      "observedKey": "host-abi:ex_hermes_dispatch_motion_rated_publish",
+      "branchId": "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_dispatch_motion_rated_publish"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_motion_rated_publish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_motion_rated_publish"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_dispatch_motion_rated_publish"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_motion_rated_publish"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
+      "observedKey": "host-abi:ex_hermes_dispatch_worklet_calls",
+      "branchId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_dispatch_worklet_calls"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_calls"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_calls"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_dispatch_worklet_calls"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_calls"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64",
+      "observedKey": "host-abi:ex_hermes_dispatch_worklet_json_batch",
+      "branchId": "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_dispatch_worklet_json_batch"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_json_batch"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_json_batch"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_dispatch_worklet_json_batch"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_hermes_dispatch_worklet_json_batch"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64.default.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
       "observedKey": "host-abi:ex_hermes_emit_module_event",
       "branchId": "surface.host.abi.ex.hermes.emit.module.event.00w52n6.ios",
@@ -120298,22 +120394,22 @@
       ]
     },
     {
-      "edgeId": "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f",
-      "observedKey": "host-abi:ex_worklet_bind_shared_values",
-      "branchId": "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f.default",
-      "enforcementBranchId": "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f.default",
+      "edgeId": "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t",
+      "observedKey": "host-abi:ex_worklet_bind_shared_value_accessors",
+      "branchId": "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t.default",
       "enforcementRoute": {
         "kind": "surface-branch",
         "proofPaths": [
-          "host-abi:ex_worklet_bind_shared_values"
+          "host-abi:ex_worklet_bind_shared_value_accessors"
         ],
         "proofSourceRefs": [
-          "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_values"
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_value_accessors"
         ],
         "sourceRefs": [
-          "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_values"
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_value_accessors"
         ],
-        "terminalObservedKey": "host-abi:ex_worklet_bind_shared_values"
+        "terminalObservedKey": "host-abi:ex_worklet_bind_shared_value_accessors"
       },
       "branchKind": "single",
       "targetVariant": "default",
@@ -120322,11 +120418,11 @@
       },
       "stubDisposition": "not-structurally-proven",
       "sourceRefs": [
-        "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_values"
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_bind_shared_value_accessors"
       ],
       "implementationOwner": "WP7",
       "fixtureObligations": [
-        "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f.default.closed"
+        "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t.default.closed"
       ]
     },
     {
@@ -120458,6 +120554,38 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0",
+      "observedKey": "host-abi:ex_worklet_drain_scheduled_typed",
+      "branchId": "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_worklet_drain_scheduled_typed"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_drain_scheduled_typed"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_drain_scheduled_typed"
+        ],
+        "terminalObservedKey": "host-abi:ex_worklet_drain_scheduled_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_drain_scheduled_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0.default.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.worklet.generation.1c7z1ct",
       "observedKey": "host-abi:ex_worklet_generation",
       "branchId": "surface.host.abi.ex.worklet.generation.1c7z1ct.default",
@@ -120524,6 +120652,70 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
+      "observedKey": "host-abi:ex_worklet_install_metrics",
+      "branchId": "surface.host.abi.ex.worklet.install.metrics.1d5ipuc.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.install.metrics.1d5ipuc.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_worklet_install_metrics"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_metrics"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_metrics"
+        ],
+        "terminalObservedKey": "host-abi:ex_worklet_install_metrics"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_metrics"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.worklet.install.metrics.1d5ipuc.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.worklet.install.typed.11dea8d",
+      "observedKey": "host-abi:ex_worklet_install_typed",
+      "branchId": "surface.host.abi.ex.worklet.install.typed.11dea8d.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.install.typed.11dea8d.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_worklet_install_typed"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_typed"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_typed"
+        ],
+        "terminalObservedKey": "host-abi:ex_worklet_install_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_install_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.worklet.install.typed.11dea8d.default.closed"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.worklet.invoke.14qubev",
       "observedKey": "host-abi:ex_worklet_invoke",
       "branchId": "surface.host.abi.ex.worklet.invoke.14qubev.default",
@@ -120553,6 +120745,38 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.worklet.invoke.14qubev.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.worklet.invoke.typed.0vm7ato",
+      "observedKey": "host-abi:ex_worklet_invoke_typed",
+      "branchId": "surface.host.abi.ex.worklet.invoke.typed.0vm7ato.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.invoke.typed.0vm7ato.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_worklet_invoke_typed"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke_typed"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke_typed"
+        ],
+        "terminalObservedKey": "host-abi:ex_worklet_invoke_typed"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_invoke_typed"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.worklet.invoke.typed.0vm7ato.default.closed"
       ]
     },
     {
@@ -120619,6 +120843,38 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.host.abi.ex.worklet.set.measure.callback.0fil0s8.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
+      "observedKey": "host-abi:ex_worklet_take_scheduled_drop_count",
+      "branchId": "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4.default",
+      "enforcementBranchId": "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_worklet_take_scheduled_drop_count"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_take_scheduled_drop_count"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#ex_worklet_take_scheduled_drop_count"
+        ],
+        "terminalObservedKey": "host-abi:ex_worklet_take_scheduled_drop_count"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#ex_worklet_take_scheduled_drop_count"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4.default.closed"
       ]
     },
     {
@@ -157839,6 +158095,37 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.exactmotionratedpublish.17cxgfa",
+      "observedKey": "native-op:__exactMotionRatedPublish",
+      "branchId": "surface.native.op.exactmotionratedpublish.17cxgfa.main",
+      "enforcementBranchId": "surface.native.op.exactmotionratedpublish.17cxgfa.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactMotionRatedPublish"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactMotionRatedPublish"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactMotionRatedPublish"
+        ],
+        "terminalObservedKey": "native-op:__exactMotionRatedPublish"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__exactMotionRatedPublish"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.exactmotionratedpublish.17cxgfa.main.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.exactnativedialog.0qc9nk6",
       "observedKey": "native-op:__exactNativeDialog",
       "branchId": "surface.native.op.exactnativedialog.0qc9nk6.android",
@@ -159711,6 +159998,37 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.exactrunonjs.0h77cb0",
+      "observedKey": "native-op:__exactRunOnJS",
+      "branchId": "surface.native.op.exactrunonjs.0h77cb0.main",
+      "enforcementBranchId": "surface.native.op.exactrunonjs.0h77cb0.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactRunOnJS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactRunOnJS"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactRunOnJS"
+        ],
+        "terminalObservedKey": "native-op:__exactRunOnJS"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__exactRunOnJS"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.exactrunonjs.0h77cb0.main.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.exactruntime.0agzg87",
       "observedKey": "native-op:__exactRuntime",
       "branchId": "surface.native.op.exactruntime.0agzg87.all",
@@ -159943,6 +160261,37 @@
       "implementationOwner": "WP4",
       "fixtureObligations": [
         "surface.native.op.exactruntimeloaded.1supjni.all.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.exactscheduleonappruntime.0ev3zto",
+      "observedKey": "native-op:__exactScheduleOnAppRuntime",
+      "branchId": "surface.native.op.exactscheduleonappruntime.0ev3zto.main",
+      "enforcementBranchId": "surface.native.op.exactscheduleonappruntime.0ev3zto.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__exactScheduleOnAppRuntime"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactScheduleOnAppRuntime"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__exactScheduleOnAppRuntime"
+        ],
+        "terminalObservedKey": "native-op:__exactScheduleOnAppRuntime"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__exactScheduleOnAppRuntime"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.exactscheduleonappruntime.0ev3zto.main.closed"
       ]
     },
     {
@@ -242939,6 +243288,102 @@
       ]
     },
     {
+      "edgeId": "surface.native.op.global.worklet.capture.0yvdy3b",
+      "observedKey": "native-op:global:worklet.capture",
+      "branchId": "surface.native.op.global.worklet.capture.0yvdy3b.worklet",
+      "enforcementBranchId": "surface.native.op.global.worklet.capture.0yvdy3b.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:worklet.capture"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.capture"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.capture"
+        ],
+        "terminalObservedKey": "native-op:global:worklet.capture"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.capture"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.worklet.capture.0yvdy3b.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.worklet.captureget.0a4t4gx",
+      "observedKey": "native-op:global:worklet.captureGet",
+      "branchId": "surface.native.op.global.worklet.captureget.0a4t4gx.worklet",
+      "enforcementBranchId": "surface.native.op.global.worklet.captureget.0a4t4gx.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:worklet.captureGet"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureGet"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureGet"
+        ],
+        "terminalObservedKey": "native-op:global:worklet.captureGet"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureGet"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.worklet.captureget.0a4t4gx.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.worklet.captureset.02i1hil",
+      "observedKey": "native-op:global:worklet.captureSet",
+      "branchId": "surface.native.op.global.worklet.captureset.02i1hil.worklet",
+      "enforcementBranchId": "surface.native.op.global.worklet.captureset.02i1hil.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:worklet.captureSet"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureSet"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureSet"
+        ],
+        "terminalObservedKey": "native-op:global:worklet.captureSet"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.captureSet"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.worklet.captureset.02i1hil.worklet.closed"
+      ]
+    },
+    {
       "edgeId": "surface.native.op.global.worklet.clamp.10ckbeu",
       "observedKey": "native-op:global:worklet.clamp",
       "branchId": "surface.native.op.global.worklet.clamp.10ckbeu.worklet",
@@ -243000,6 +243445,70 @@
       "implementationOwner": "WP1",
       "fixtureObligations": [
         "surface.native.op.global.worklet.lerp.0ljvwxi.worklet.non-capability"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.worklet.output.1ij3raq",
+      "observedKey": "native-op:global:worklet.output",
+      "branchId": "surface.native.op.global.worklet.output.1ij3raq.worklet",
+      "enforcementBranchId": "surface.native.op.global.worklet.output.1ij3raq.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:worklet.output"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.output"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.output"
+        ],
+        "terminalObservedKey": "native-op:global:worklet.output"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.output"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.worklet.output.1ij3raq.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.worklet.runonjs.08g0zpi",
+      "observedKey": "native-op:global:worklet.runOnJS",
+      "branchId": "surface.native.op.global.worklet.runonjs.08g0zpi.worklet",
+      "enforcementBranchId": "surface.native.op.global.worklet.runonjs.08g0zpi.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:worklet.runOnJS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.runOnJS"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.runOnJS"
+        ],
+        "terminalObservedKey": "native-op:global:worklet.runOnJS"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#embedded:kPrelude:worklet.runOnJS"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.global.worklet.runonjs.08g0zpi.worklet.closed"
       ]
     },
     {
@@ -249722,6 +250231,181 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.svset.0snna21.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.workletcapture.1qk72mm",
+      "observedKey": "native-op:__workletCapture",
+      "branchId": "surface.native.op.workletcapture.1qk72mm.worklet",
+      "enforcementBranchId": "surface.native.op.workletcapture.1qk72mm.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__workletCapture"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCapture",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCapture"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCapture",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCapture"
+        ],
+        "terminalObservedKey": "native-op:__workletCapture"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__workletCapture",
+        "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCapture"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.workletcapture.1qk72mm.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.workletcaptureget.1nw8x5m",
+      "observedKey": "native-op:__workletCaptureGet",
+      "branchId": "surface.native.op.workletcaptureget.1nw8x5m.worklet",
+      "enforcementBranchId": "surface.native.op.workletcaptureget.1nw8x5m.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__workletCaptureGet"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCaptureGet",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureGet"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCaptureGet",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureGet"
+        ],
+        "terminalObservedKey": "native-op:__workletCaptureGet"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__workletCaptureGet",
+        "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureGet"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.workletcaptureget.1nw8x5m.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.workletcaptureset.0khajo6",
+      "observedKey": "native-op:__workletCaptureSet",
+      "branchId": "surface.native.op.workletcaptureset.0khajo6.worklet",
+      "enforcementBranchId": "surface.native.op.workletcaptureset.0khajo6.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__workletCaptureSet"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCaptureSet",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureSet"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletCaptureSet",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureSet"
+        ],
+        "terminalObservedKey": "native-op:__workletCaptureSet"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__workletCaptureSet",
+        "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletCaptureSet"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.workletcaptureset.0khajo6.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.workletoutput.03umqr5",
+      "observedKey": "native-op:__workletOutput",
+      "branchId": "surface.native.op.workletoutput.03umqr5.worklet",
+      "enforcementBranchId": "surface.native.op.workletoutput.03umqr5.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__workletOutput"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletOutput",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletOutput"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletOutput",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletOutput"
+        ],
+        "terminalObservedKey": "native-op:__workletOutput"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__workletOutput",
+        "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletOutput"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.workletoutput.03umqr5.worklet.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.workletrunonjs.12t14kb",
+      "observedKey": "native-op:__workletRunOnJS",
+      "branchId": "surface.native.op.workletrunonjs.12t14kb.worklet",
+      "enforcementBranchId": "surface.native.op.workletrunonjs.12t14kb.worklet",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:__workletRunOnJS"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletRunOnJS",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletRunOnJS"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime_worklet.cc#__workletRunOnJS",
+          "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletRunOnJS"
+        ],
+        "terminalObservedKey": "native-op:__workletRunOnJS"
+      },
+      "branchKind": "single",
+      "targetVariant": "worklet",
+      "targetApplicability": {
+        "kind": "runtime-variant",
+        "value": "worklet"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime_worklet.cc#__workletRunOnJS",
+        "src/engine/hermes_runtime_worklet.cc#jsi-global:__workletRunOnJS"
+      ],
+      "implementationOwner": "WP7",
+      "fixtureObligations": [
+        "surface.native.op.workletrunonjs.12t14kb.worklet.closed"
       ]
     },
     {
@@ -260941,15 +261625,19 @@
         "surface.callback.worklet.measure.0xyn55v",
         "surface.callback.worklet.scheduled.drain.1g4n74z",
         "surface.host.abi.ex.hermes.dispatch.event.0lbx6vi",
+        "surface.host.abi.ex.hermes.dispatch.motion.rated.publish.0bbxbt5",
+        "surface.host.abi.ex.hermes.dispatch.worklet.calls.0duc0ou",
+        "surface.host.abi.ex.hermes.dispatch.worklet.json.batch.0vpbf64",
         "surface.host.abi.ex.hermes.emit.module.event.00w52n6",
         "surface.host.abi.ex.hermes.emit.module.view.event.1oibky8",
         "surface.host.abi.ex.hermes.resolve.host.call.01crbkh",
         "surface.host.abi.ex.hermes.set.host.call.16xhko5",
         "surface.host.abi.ex.hermes.set.host.call.async.0nmid6a",
         "surface.host.abi.ex.hermes.set.kernel.handle.0qask6y",
-        "surface.host.abi.ex.worklet.bind.shared.values.1vkss8f",
+        "surface.host.abi.ex.worklet.bind.shared.value.accessors.0dpm31t",
         "surface.host.abi.ex.worklet.drain.logs.0zx6wkj",
         "surface.host.abi.ex.worklet.drain.scheduled.10au0wb",
+        "surface.host.abi.ex.worklet.drain.scheduled.typed.1cd8ro0",
         "surface.host.abi.ex.worklet.set.measure.callback.0fil0s8",
         "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.accessibilityflags.1m7g2yw",
         "surface.host.abi.java.dev.ibex.runtime.ibexnetworking.appstate.0773q3j",
@@ -260988,6 +261676,7 @@
         "surface.native.op.exactipcrecvmsg.0gk98ri",
         "surface.native.op.exactipcsendmsg.0zqe1hg",
         "surface.native.op.exactkchannelhandlekey.0hsvxwe",
+        "surface.native.op.exactmotionratedpublish.17cxgfa",
         "surface.native.op.exactnativedialog.0qc9nk6",
         "surface.native.op.exactnativewrapstate.1bb1293",
         "surface.native.op.exactnativewrapstate.byfd.15kypmk",
@@ -260997,6 +261686,8 @@
         "surface.native.op.exactnativewrapstate.tcpconnectwrap.0iucfqg",
         "surface.native.op.exactnativewrapstate.tcpconstants.0tcjeov",
         "surface.native.op.exactnativewrapstate.uv.einval.03vi2aa",
+        "surface.native.op.exactrunonjs.0h77cb0",
+        "surface.native.op.exactscheduleonappruntime.0ev3zto",
         "surface.native.op.exactspawngetfd.07j4nuy",
         "surface.native.op.exactspawnread.1mvufao",
         "surface.native.op.exactspawnrecvmsg.0b4i0ql",
@@ -261095,11 +261786,21 @@
         "surface.native.op.global.process.stdin.fd.0bfcbak",
         "surface.native.op.global.process.stdout.fd.04bmj6f",
         "surface.native.op.global.scheduleonappruntime.1rw05f6",
+        "surface.native.op.global.worklet.capture.0yvdy3b",
+        "surface.native.op.global.worklet.captureget.0a4t4gx",
+        "surface.native.op.global.worklet.captureset.02i1hil",
+        "surface.native.op.global.worklet.output.1ij3raq",
+        "surface.native.op.global.worklet.runonjs.08g0zpi",
         "surface.native.op.global.worklet.sharedvalue.1jey6on",
         "surface.native.op.hostcall.0q81rao",
         "surface.native.op.hostcallasync.0sg4x10",
         "surface.native.op.svget.1spmln9",
         "surface.native.op.svset.0snna21",
+        "surface.native.op.workletcapture.1qk72mm",
+        "surface.native.op.workletcaptureget.1nw8x5m",
+        "surface.native.op.workletcaptureset.0khajo6",
+        "surface.native.op.workletoutput.03umqr5",
+        "surface.native.op.workletrunonjs.12t14kb",
         "surface.startup.env.exact.ipc.fd.0xu7eta",
         "surface.startup.env.exact.ipc.serialization.1k9ltq0",
         "surface.startup.env.node.channel.fd.1y0wkxq",
@@ -261107,7 +261808,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 205 observed surface edges."
+      "rationale": "Closed by 222 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -262432,6 +263133,8 @@
         "surface.host.abi.ex.hermes.gc.07e6shp",
         "surface.host.abi.ex.hermes.get.gc.stats.0w4g890",
         "surface.host.abi.ex.hermes.get.heap.info.0sv0nxd",
+        "surface.host.abi.ex.worklet.install.metrics.1d5ipuc",
+        "surface.host.abi.ex.worklet.take.scheduled.drop.count.0btyia4",
         "surface.native.op.exactaccessibilitystate.09y1rng",
         "surface.native.op.exactaccessibilitystate.changetimer.0f6xcir",
         "surface.native.op.exactaccessibilitystate.eventlisteners.1chk2sn",
@@ -262609,7 +263312,7 @@
         "surface.startup.env.node.tls.reject.unauthorized.0548r0g",
         "surface.startup.evaluation.ex.hermes.debugger.eval.cdp.13seaf2"
       ],
-      "rationale": "Closed by 494 observed surface edges."
+      "rationale": "Closed by 496 observed surface edges."
     },
     {
       "definitionId": "stdio:query",
@@ -263570,55 +264273,57 @@
         "surface.builtin.worker.threads.095byxq",
         "surface.host.abi.ex.worklet.create.1pn4i2n",
         "surface.host.abi.ex.worklet.install.0ohsdam",
+        "surface.host.abi.ex.worklet.install.typed.11dea8d",
         "surface.host.abi.ex.worklet.invoke.14qubev",
+        "surface.host.abi.ex.worklet.invoke.typed.0vm7ato",
         "surface.native.op.global.worklet.0kkuh0r",
         "surface.startup.installer.installworkletglobals.0hrm4zr"
       ],
-      "rationale": "Closed by 46 observed surface edges."
+      "rationale": "Closed by 48 observed surface edges."
     }
   ],
   "outputs": [
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-60uvewgxercm2J_OrSC0jvHXaEHg1DkK0TIWDXJX-oo"
+      "rawContentDigest": "sha256-RXFw2Wl2jeFzcNQJPyGuMZGII7To2efqWLJacoJ-u5k"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-DhXmU0KhnBXBQ4PZHGvn2w3J5SDKL_RuAr-qyb0nLmo"
+      "rawContentDigest": "sha256-e_cRjg8ktNxqJMhel4mPEIyEL2h3-RZPSQj3wEkQRiU"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-fJIZsncbhMqKU5t73ICH4UANjlwExWdVEunV7bV0NI0"
+      "rawContentDigest": "sha256-iUIqQhiOXzpPoO_G1stBIxYYqiKMozU_RZrcrBik1Pw"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-J_tU383idsSdkFT9G2tKf9inwcaYQ11Z5GUzPjvEoQk"
+      "rawContentDigest": "sha256-SrAjPeJrCfnTMuFSF470dIn6N4d4EAp5DcwJ2KO2Ewo"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-lrCyiLGuBtv-uQIQv1a2ozAX2LWfqZJNY_f0Of46BWU"
+      "rawContentDigest": "sha256-PHiyUgVZ6_QwXLU4jEig436x3U1vbTFyDXfC_MRDplY"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-Fpw0nGOCVh650fUT7JDrUq3eIwkdKGO0PjyeENG_PX0"
+      "rawContentDigest": "sha256-sxqAeK3vvjy4Mi0QdRz3ZRetpOte8I2faaGcc0NwgeE"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-JcGmnlLnZcG8Sk9Q_2rethZHDjiAK1NzNXxNYxt7dng"
+      "rawContentDigest": "sha256-DJpPm0y0gRL_vYuBJVxYappnifLVrwCldTCG6TglSXk"
     }
   ],
   "counts": {
-    "observedReferences": 12731,
-    "logicalSurfaces": 7078,
-    "enforcementBranches": 7277,
-    "coverageEdges": 7078,
-    "targetCells": 7078
+    "observedReferences": 12757,
+    "logicalSurfaces": 7099,
+    "enforcementBranches": 7298,
+    "coverageEdges": 7099,
+    "targetCells": 7099
   }
 }

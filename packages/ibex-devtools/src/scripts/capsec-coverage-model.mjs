@@ -194,6 +194,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactLutimesSync",
   "__exactMkdir",
   "__exactMkdtemp",
+  "__exactMotionRatedPublish",
   "__exactModuleEvent",
   "__exactModuleResolve",
   "__exactModuleResolveMeta",
@@ -233,7 +234,9 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__exactRmdir",
   "__exactRsaOaepDecrypt",
   "__exactRsaOaepEncrypt",
+  "__exactRunOnJS",
   "__exactRuntimeLoaded",
+  "__exactScheduleOnAppRuntime",
   "__exactScryptSync",
   "__exactSetActiveModuleId",
   "__exactSetCompartmentFor",
@@ -345,6 +348,11 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
   "__nativeFetchSync",
   "__svGet",
   "__svSet",
+  "__workletCapture",
+  "__workletCaptureGet",
+  "__workletCaptureSet",
+  "__workletOutput",
+  "__workletRunOnJS",
   "native_fetch_cancel",
   "native_fetch_perform",
   "native_ws_close",
@@ -2832,9 +2840,12 @@ const REVIEWED_NON_GLOBAL_NATIVE_OPERATION_NAMES = new Set([
   "__exactHttpAwaitWritableExecutor",
   "__exactHttpWaitExecutor",
   "__exactModuleEvent",
+  "__exactMotionRatedPublish",
   "__exactNativeFreeze",
   "__exactOSRelease",
   "__exactOSVersion",
+  "__exactRunOnJS",
+  "__exactScheduleOnAppRuntime",
   "__exactSetCompartmentFor",
   "__ibex",
   "__ibexCapsecContextObserver_",
@@ -5004,7 +5015,17 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
   setTimeout: [""],
   structuredClone: [""],
   window: [""],
-  worklet: ["", "clamp", "lerp", "sharedValue"],
+  worklet: [
+    "",
+    "capture",
+    "captureGet",
+    "captureSet",
+    "clamp",
+    "lerp",
+    "output",
+    "runOnJS",
+    "sharedValue",
+  ],
 });
 
 function reviewedGlobalSurfaceName(globalName, memberName) {
@@ -5091,6 +5112,9 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_debugger_set_breakpoint",
     "ex_hermes_destroy",
     "ex_hermes_dispatch_event",
+    "ex_hermes_dispatch_motion_rated_publish",
+    "ex_hermes_dispatch_worklet_calls",
+    "ex_hermes_dispatch_worklet_json_batch",
     "ex_hermes_emit_module_event",
     "ex_hermes_emit_module_view_event",
     "ex_hermes_engine_binary_path",
@@ -5237,16 +5261,21 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_typed_handle_mint",
     "ex_host_typed_handle_revoke",
     "ex_host_version",
-    "ex_worklet_bind_shared_values",
+    "ex_worklet_bind_shared_value_accessors",
     "ex_worklet_create",
     "ex_worklet_destroy",
     "ex_worklet_drain_logs",
     "ex_worklet_drain_scheduled",
+    "ex_worklet_drain_scheduled_typed",
     "ex_worklet_generation",
     "ex_worklet_install",
+    "ex_worklet_install_metrics",
+    "ex_worklet_install_typed",
     "ex_worklet_invoke",
+    "ex_worklet_invoke_typed",
     "ex_worklet_set_generation",
     "ex_worklet_set_measure_callback",
+    "ex_worklet_take_scheduled_drop_count",
     "java:dev.ibex.runtime.IbexNetworking.CameraHostProvider.cameraHostCall",
     "java:dev.ibex.runtime.IbexNetworking.DialogHostProvider.dialog",
     "java:dev.ibex.runtime.IbexNetworking.accessibilityFlags",
@@ -11054,11 +11083,15 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
     if (member === "clamp" || member === "lerp") {
       return nonCapabilitySpec("pure-in-memory-compute", "WP1");
     }
-    if (member === "sharedvalue") {
+    if (
+      /^(?:capture|captureget|captureset|output|runonjs|sharedvalue)$/u.test(
+        member,
+      )
+    ) {
       return closedSpec(
         "ipc:channel",
         "WP7",
-        "Worklet shared values are a cross-runtime communication channel.",
+        "Worklet capture, output, scheduling, and shared-value operations are cross-runtime communication channels.",
       );
     }
     return closedSpec(
@@ -11591,6 +11624,9 @@ function embedderAbiClassification(name) {
     if (
       new Set([
         "exhermesdispatchevent",
+        "exhermesdispatchmotionratedpublish",
+        "exhermesdispatchworkletcalls",
+        "exhermesdispatchworkletjsonbatch",
         "exhermesemitmoduleevent",
         "exhermesemitmoduleviewevent",
         "exhermesresolvehostcall",
@@ -11667,9 +11703,13 @@ function embedderAbiClassification(name) {
       return nonCapabilitySpec("authority-release", "WP8");
     }
     if (
-      new Set(["exworkletcreate", "exworkletinstall", "exworkletinvoke"]).has(
-        name,
-      )
+      new Set([
+        "exworkletcreate",
+        "exworkletinstall",
+        "exworkletinstalltyped",
+        "exworkletinvoke",
+        "exworkletinvoketyped",
+      ]).has(name)
     ) {
       return closedSpec(
         "worker:create",
@@ -11679,9 +11719,10 @@ function embedderAbiClassification(name) {
     }
     if (
       new Set([
-        "exworkletbindsharedvalues",
+        "exworkletbindsharedvalueaccessors",
         "exworkletdrainlogs",
         "exworkletdrainscheduled",
+        "exworkletdrainscheduledtyped",
         "exworkletsetmeasurecallback",
       ]).has(name)
     ) {
@@ -11693,6 +11734,18 @@ function embedderAbiClassification(name) {
     }
     if (new Set(["exworkletgeneration", "exworkletsetgeneration"]).has(name)) {
       return nonCapabilitySpec("authority-control-plane", "WP8");
+    }
+    if (
+      new Set([
+        "exworkletinstallmetrics",
+        "exworklettakescheduleddropcount",
+      ]).has(name)
+    ) {
+      return closedSpec(
+        "runtime:inspect",
+        "WP7",
+        "Worklet diagnostic counters are closed in the initial profile.",
+      );
     }
     return null;
   }
@@ -12051,6 +12104,24 @@ function classifyConcreteSurface(surface) {
     if (!REVIEWED_NATIVE_OPERATION_NAMES.has(surface.name)) return null;
     if (surface.name === "__ibexCapsecContextObserver_") {
       return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
+    if (
+      new Set([
+        "__exactMotionRatedPublish",
+        "__exactRunOnJS",
+        "__exactScheduleOnAppRuntime",
+        "__workletCapture",
+        "__workletCaptureGet",
+        "__workletCaptureSet",
+        "__workletOutput",
+        "__workletRunOnJS",
+      ]).has(surface.name)
+    ) {
+      return closedSpec(
+        "ipc:channel",
+        "WP7",
+        "Restricted-worklet capture, output, and app-runtime dispatch channels are closed in the initial profile.",
+      );
     }
     const nativeNetworkBackend = nativeNetworkBackendClassification(
       surface.name,

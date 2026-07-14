@@ -422,11 +422,90 @@ mod tests {
         source_install_max_ns: u64,
     }
 
-    #[derive(Clone, Copy, Debug, Default)]
-    #[repr(C)]
-    struct WorkletAllocationMetrics {
-        typed_invoke_count: u64,
-        hermes_total_allocated_bytes: u64,
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6EvidenceSource {
+        path: String,
+        sha256: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6Transaction {
+        epoch: u32,
+        motion_seq: String,
+        root_instance: u32,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6CaptureEvidence {
+        kind: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        value: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        descriptor_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        generation: Option<u32>,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6CallbackEvidence {
+        identity: u32,
+        action: String,
+        payload_keys: Vec<String>,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6ArtifactEvidence {
+        schema_version: u32,
+        descriptor_id: String,
+        node_id: u32,
+        phase: String,
+        generation: u64,
+        compiler_id: String,
+        install_format: String,
+        source: String,
+        source_identity: String,
+        callback_identity: String,
+        captures: Vec<MotionM6CaptureEvidence>,
+        input_slots: Vec<String>,
+        output_slots: Vec<String>,
+        callbacks: Vec<MotionM6CallbackEvidence>,
+        source_sha256: String,
+    }
+
+    #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6TierEvidence {
+        tier: String,
+        root_id: u32,
+        transaction: MotionM6Transaction,
+        artifacts: Vec<MotionM6ArtifactEvidence>,
+    }
+
+    #[derive(Clone, Debug, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct MotionM6GeneratedEvidence {
+        schema_version: u32,
+        generated_at_unix_ms: u64,
+        generator: String,
+        sources: Vec<MotionM6EvidenceSource>,
+        tiers: Vec<MotionM6TierEvidence>,
+    }
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct MotionM6EvidenceFile {
+        schema_version: u32,
+        generated_at_unix_ms: u64,
+        generator: String,
+        sources: Vec<MotionM6EvidenceSource>,
+        tiers: Vec<MotionM6TierEvidence>,
+        evidence_sha256: String,
     }
 
     #[derive(Clone, Copy, Debug)]
@@ -460,6 +539,7 @@ mod tests {
         #[cfg(target_os = "windows")]
         fn ex_host_install();
         fn ex_hermes_free_string(value: *mut c_char);
+        fn ex_hermes_get_gc_stats(runtime: *mut HermesRuntimeOpaque) -> *mut c_char;
         fn ex_hermes_poll(runtime: *mut HermesRuntimeOpaque, now_ms: u64) -> i32;
         fn ex_hermes_set_keep_alive_on_async_error(runtime: *mut HermesRuntimeOpaque, enabled: i32);
         fn ex_hermes_next_timer(runtime: *mut HermesRuntimeOpaque) -> i64;
@@ -517,10 +597,6 @@ mod tests {
         fn ex_worklet_install_metrics(
             runtime: *mut HermesRuntimeOpaque,
             out_metrics: *mut WorkletInstallMetrics,
-        ) -> i32;
-        fn ex_worklet_allocation_metrics(
-            runtime: *mut HermesRuntimeOpaque,
-            out_metrics: *mut WorkletAllocationMetrics,
         ) -> i32;
         fn ex_worklet_drain_scheduled_typed(
             runtime: *mut HermesRuntimeOpaque,
@@ -675,52 +751,553 @@ mod tests {
         identity
     }
 
-    unsafe fn worklet_allocation_metrics(
-        runtime: *mut HermesRuntimeOpaque,
-    ) -> WorkletAllocationMetrics {
-        let mut metrics = WorkletAllocationMetrics::default();
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::{Digest as _, Sha256};
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn load_motion_m6_evidence() -> Option<MotionM6GeneratedEvidence> {
+        let evidence_path = std::env::var_os("EXACT_MOTION_M6_ARTIFACTS")?;
+        let bytes = std::fs::read(&evidence_path).unwrap_or_else(|error| {
+            panic!(
+                "failed to read EXACT_MOTION_M6_ARTIFACTS {}: {error}",
+                std::path::Path::new(&evidence_path).display(),
+            )
+        });
+        let evidence: MotionM6EvidenceFile =
+            serde_json::from_slice(&bytes).expect("Motion M6 evidence must be strict JSON");
+        let generated = MotionM6GeneratedEvidence {
+            schema_version: evidence.schema_version,
+            generated_at_unix_ms: evidence.generated_at_unix_ms,
+            generator: evidence.generator,
+            sources: evidence.sources,
+            tiers: evidence.tiers,
+        };
         assert_eq!(
-            ex_worklet_allocation_metrics(runtime, &mut metrics),
-            0,
-            "worklet allocation counter must be available"
+            generated.schema_version, 1,
+            "unsupported Motion M6 evidence schema"
         );
-        metrics
+        assert_eq!(
+            generated.generator, "scripts/check-motion-m6-authoring.ts",
+            "Motion M6 evidence must come from the registered authoring twin",
+        );
+        let canonical_bytes =
+            serde_json::to_vec(&generated).expect("Motion M6 evidence must reserialize");
+        assert_eq!(
+            sha256_hex(&canonical_bytes),
+            evidence.evidence_sha256,
+            "Motion M6 evidence digest does not authenticate the generated payload",
+        );
+
+        let max_age_ms = std::env::var("EXACT_MOTION_M6_ARTIFACT_MAX_AGE_MS")
+            .unwrap_or_else(|_| "300000".to_owned())
+            .parse::<u64>()
+            .expect("EXACT_MOTION_M6_ARTIFACT_MAX_AGE_MS must be a u64");
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock must be after the Unix epoch")
+            .as_millis() as u64;
+        assert!(
+            generated.generated_at_unix_ms <= now_ms.saturating_add(10_000),
+            "Motion M6 evidence timestamp is implausibly in the future",
+        );
+        assert!(
+            now_ms.saturating_sub(generated.generated_at_unix_ms) <= max_age_ms,
+            "Motion M6 evidence is stale (generated={}, now={}, maxAgeMs={})",
+            generated.generated_at_unix_ms,
+            now_ms,
+            max_age_ms,
+        );
+
+        const EXPECTED_SOURCES: [&str; 5] = [
+            "scripts/check-motion-m6-authoring.ts",
+            "tests/motion/m6-authoring-twin.contract",
+            "tests/motion/m6-authoring-twin.react.ts",
+            "packages/exact-contract/src/compiler/motion-worklet-source.ts",
+            "packages/exact-devtools/src/worklet-source-plugin.ts",
+        ];
+        assert_eq!(
+            generated
+                .sources
+                .iter()
+                .map(|source| source.path.as_str())
+                .collect::<Vec<_>>(),
+            EXPECTED_SOURCES,
+            "Motion M6 provenance source set drifted",
+        );
+        let exact_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(std::path::Path::parent)
+            .expect("Ibex must be vendored under Exact/vendor");
+        for source in &generated.sources {
+            let source_bytes =
+                std::fs::read(exact_root.join(&source.path)).unwrap_or_else(|error| {
+                    panic!("failed to read provenance source {}: {error}", source.path)
+                });
+            assert_eq!(
+                sha256_hex(&source_bytes),
+                source.sha256,
+                "Motion M6 provenance source {} changed after evidence generation",
+                source.path,
+            );
+        }
+
+        assert_eq!(
+            generated.tiers.len(),
+            2,
+            "expected Contract and React evidence"
+        );
+        assert_eq!(generated.tiers[0].tier, "contract");
+        assert_eq!(generated.tiers[0].root_id, 2_470_401);
+        assert_eq!(generated.tiers[1].tier, "react");
+        assert_eq!(generated.tiers[1].root_id, 2_470_402);
+        for tier in &generated.tiers {
+            assert!(tier.transaction.epoch > 0);
+            assert!(tier.transaction.root_instance > 0);
+            assert!(
+                tier.transaction
+                    .motion_seq
+                    .parse::<u64>()
+                    .is_ok_and(|sequence| sequence > 0),
+                "{} Motion transaction sequence must be positive",
+                tier.tier,
+            );
+            assert_eq!(
+                tier.artifacts.len(),
+                4,
+                "{} must emit four artifacts",
+                tier.tier
+            );
+            let phase_count = |phase: &str| {
+                tier.artifacts
+                    .iter()
+                    .filter(|artifact| artifact.phase == phase)
+                    .count()
+            };
+            assert_eq!(
+                phase_count("derive"),
+                2,
+                "{} must emit two projections",
+                tier.tier
+            );
+            assert_eq!(
+                phase_count("update"),
+                1,
+                "{} must emit one update",
+                tier.tier
+            );
+            assert_eq!(
+                phase_count("end"),
+                1,
+                "{} must emit one terminal callback",
+                tier.tier
+            );
+            for artifact in &tier.artifacts {
+                assert_eq!(artifact.schema_version, 1);
+                assert_eq!(artifact.install_format, "source-utf8");
+                assert!(artifact.node_id > 0);
+                assert!(artifact.generation > 0);
+                assert!(!artifact.compiler_id.is_empty());
+                assert!(
+                    artifact
+                        .descriptor_id
+                        .parse::<u64>()
+                        .is_ok_and(|identity| identity > 0),
+                    "{} descriptor identity must be a positive u64",
+                    artifact.compiler_id,
+                );
+                assert!(artifact.source_identity.parse::<u64>().is_ok());
+                assert!(artifact.callback_identity.parse::<u64>().is_ok());
+                assert_eq!(
+                    sha256_hex(artifact.source.as_bytes()),
+                    artifact.source_sha256,
+                    "{} artifact source digest mismatch",
+                    artifact.compiler_id,
+                );
+                assert!(artifact.input_slots.len() <= 16);
+                assert!(artifact.output_slots.len() <= 16);
+                match artifact.phase.as_str() {
+                    "derive" => {
+                        assert!(artifact.input_slots.is_empty());
+                        assert_eq!(artifact.output_slots, ["return.value"]);
+                        assert_eq!(artifact.captures.len(), 1);
+                        assert!(artifact.callbacks.is_empty());
+                    }
+                    "update" => {
+                        assert_eq!(artifact.input_slots.len(), 1);
+                        assert!(artifact.output_slots.is_empty());
+                        assert_eq!(artifact.captures.len(), 1);
+                        assert!(artifact.callbacks.is_empty());
+                    }
+                    "end" => {
+                        assert_eq!(artifact.input_slots.len(), 2);
+                        assert!(artifact.output_slots.is_empty());
+                        assert!(artifact.captures.is_empty());
+                        assert_eq!(artifact.callbacks.len(), 1);
+                        assert_eq!(artifact.callbacks[0].action, "observe");
+                        assert_eq!(artifact.callbacks[0].payload_keys, ["x", "velocity"]);
+                    }
+                    other => panic!("unexpected Motion M6 artifact phase {other}"),
+                }
+            }
+        }
+        Some(generated)
+    }
+
+    unsafe fn worklet_total_allocated_bytes(runtime: *mut HermesRuntimeOpaque) -> u64 {
+        let stats = ex_hermes_get_gc_stats(runtime);
+        assert!(!stats.is_null(), "Hermes GC stats must be available");
+        let text = CStr::from_ptr(stats).to_string_lossy().into_owned();
+        ex_hermes_free_string(stats);
+        let marker = "\"totalAllocatedBytes\":";
+        let cursor = text
+            .find(marker)
+            .map(|offset| offset + marker.len())
+            .expect("Hermes GC stats must include totalAllocatedBytes");
+        let digits = text[cursor..]
+            .trim_start()
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .collect::<Vec<_>>();
+        assert!(!digits.is_empty(), "totalAllocatedBytes must be an integer");
+        std::str::from_utf8(&digits)
+            .expect("allocation counter digits must be UTF-8")
+            .parse::<u64>()
+            .expect("totalAllocatedBytes must fit in u64")
+    }
+
+    unsafe fn invoke_typed_repeatedly(
+        runtime: *mut HermesRuntimeOpaque,
+        identity: u64,
+        input_count: usize,
+        output_capacity: usize,
+        expected_output_count: u32,
+        sample_count: u64,
+    ) {
+        let inputs = vec![2.0_f32; input_count];
+        let mut outputs = vec![0.0_f32; output_capacity];
+        let input_ptr = if inputs.is_empty() {
+            std::ptr::null()
+        } else {
+            inputs.as_ptr()
+        };
+        let output_ptr = if outputs.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            outputs.as_mut_ptr()
+        };
+        for _ in 0..sample_count {
+            let mut output_count = 0;
+            assert_eq!(
+                ex_worklet_invoke_typed(
+                    runtime,
+                    identity,
+                    input_ptr,
+                    input_count as u32,
+                    output_ptr,
+                    output_capacity as u32,
+                    &mut output_count,
+                ),
+                0,
+            );
+            assert_eq!(output_count, expected_output_count);
+        }
     }
 
     unsafe fn typed_allocation_slope(
         runtime: *mut HermesRuntimeOpaque,
         identity: u64,
+        input_count: usize,
+        output_capacity: usize,
+        expected_output_count: u32,
         sample_count: u64,
     ) -> u64 {
-        let inputs = [2.0_f32];
-        let mut outputs = [0.0_f32];
-        let mut output_count = 0;
-        let before = worklet_allocation_metrics(runtime);
-        for _ in 0..sample_count {
-            assert_eq!(
-                ex_worklet_invoke_typed(
-                    runtime,
-                    identity,
-                    inputs.as_ptr(),
-                    inputs.len() as u32,
-                    outputs.as_mut_ptr(),
-                    outputs.len() as u32,
-                    &mut output_count,
-                ),
-                0
-            );
-            assert_eq!(output_count, 1);
-        }
-        let after = worklet_allocation_metrics(runtime);
-        assert_eq!(
-            after.typed_invoke_count - before.typed_invoke_count,
-            sample_count
+        let before = worklet_total_allocated_bytes(runtime);
+        invoke_typed_repeatedly(
+            runtime,
+            identity,
+            input_count,
+            output_capacity,
+            expected_output_count,
+            sample_count,
         );
+        let after = worklet_total_allocated_bytes(runtime);
         assert!(
-            after.hermes_total_allocated_bytes >= before.hermes_total_allocated_bytes,
+            after >= before,
             "Hermes' cumulative allocation counter must be monotonic"
         );
-        after.hermes_total_allocated_bytes - before.hermes_total_allocated_bytes
+        after - before
+    }
+
+    fn motion_m6_worklet_captures(
+        artifact: &MotionM6ArtifactEvidence,
+        epoch: u32,
+    ) -> Vec<WorkletCapture> {
+        artifact
+            .captures
+            .iter()
+            .map(|capture| match capture.kind.as_str() {
+                "f32" => {
+                    assert!(capture.descriptor_id.is_none());
+                    assert!(capture.generation.is_none());
+                    let value = capture
+                        .value
+                        .as_ref()
+                        .and_then(serde_json::Value::as_f64)
+                        .expect("f32 capture must carry a numeric value");
+                    assert!(value.is_finite());
+                    assert!(value >= f32::MIN as f64 && value <= f32::MAX as f64);
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_F32,
+                        scalar: value as f32,
+                        shared_value: WorkletSharedValueHandle {
+                            slot: 0,
+                            generation: 0,
+                            epoch: 0,
+                        },
+                    }
+                }
+                "bool" => {
+                    assert!(capture.descriptor_id.is_none());
+                    assert!(capture.generation.is_none());
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_BOOL,
+                        scalar: if capture
+                            .value
+                            .as_ref()
+                            .and_then(serde_json::Value::as_bool)
+                            .expect("bool capture must carry a boolean value")
+                        {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                        shared_value: WorkletSharedValueHandle {
+                            slot: 0,
+                            generation: 0,
+                            epoch: 0,
+                        },
+                    }
+                }
+                "sharedValue" => {
+                    assert!(capture.value.is_none());
+                    let descriptor_id = capture
+                        .descriptor_id
+                        .as_deref()
+                        .expect("SharedValue capture must carry descriptorId")
+                        .parse::<u64>()
+                        .expect("SharedValue descriptorId must fit u64");
+                    assert!(descriptor_id > 0);
+                    let folded_slot = (descriptor_id ^ (descriptor_id >> 32)) as u32;
+                    WorkletCapture {
+                        kind: WORKLET_CAPTURE_SHARED_VALUE,
+                        scalar: 0.0,
+                        shared_value: WorkletSharedValueHandle {
+                            slot: folded_slot.max(1),
+                            generation: capture
+                                .generation
+                                .expect("SharedValue capture must carry generation"),
+                            epoch,
+                        },
+                    }
+                }
+                other => panic!("unsupported Motion M6 capture kind {other}"),
+            })
+            .collect()
+    }
+
+    fn motion_m6_matched_control(artifact: &MotionM6ArtifactEvidence) -> String {
+        match artifact.phase.as_str() {
+            "derive" if artifact.source.contains("worklet.clamp") => {
+                "(function(){worklet.output(0,worklet.clamp((Math.abs(worklet.captureGet(0))/320),0,1));})".to_owned()
+            }
+            "derive" if artifact.source.contains("Math.max") => {
+                "()=>{worklet.output(0,Math.max(0,Math.min(1,Math.abs(worklet.captureGet(0))/320)));return;}".to_owned()
+            }
+            "derive" if artifact.source.starts_with("()=>") => {
+                "()=>{worklet.output(0,worklet.captureGet(0)+0);return;}".to_owned()
+            }
+            "derive" => {
+                "(function(){worklet.output(0,worklet.captureGet(0)+0);})".to_owned()
+            }
+            "update" if artifact.source.contains("=>") => {
+                "__exactInput0=>{worklet.captureSet(0,__exactInput0+0);}".to_owned()
+            }
+            "update" => {
+                "(function(__exactInput0){worklet.captureSet(0,__exactInput0+0);})".to_owned()
+            }
+            "end" if artifact.source.contains("=>") => {
+                "(__exactInput0,__exactInput1)=>{worklet.runOnJS(1,__exactInput0,__exactInput1);}".to_owned()
+            }
+            "end" => {
+                "(function(__exactInput0,__exactInput1){worklet.runOnJS(1,__exactInput0,__exactInput1);})".to_owned()
+            }
+            other => panic!("unsupported Motion M6 artifact phase {other}"),
+        }
+    }
+
+    unsafe fn measure_motion_m6_tier(tier: &MotionM6TierEvidence) {
+        const WARMUP: u64 = 128;
+        const SAMPLES: u64 = 2_048;
+        let generation = tier.artifacts[0].generation;
+        assert!(tier
+            .artifacts
+            .iter()
+            .all(|artifact| artifact.generation == generation));
+
+        let captures = tier
+            .artifacts
+            .iter()
+            .map(|artifact| {
+                (
+                    artifact,
+                    motion_m6_worklet_captures(artifact, tier.transaction.epoch),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut shared_handles = captures
+            .iter()
+            .flat_map(|(_, captures)| captures)
+            .filter(|capture| capture.kind == WORKLET_CAPTURE_SHARED_VALUE)
+            .map(|capture| capture.shared_value)
+            .collect::<Vec<_>>();
+        shared_handles.dedup();
+        assert_eq!(
+            shared_handles.len(),
+            1,
+            "{} fixture must project one SharedValue identity",
+            tier.tier,
+        );
+
+        let runtime = ex_worklet_create();
+        assert!(!runtime.is_null());
+        let mut host = Box::new(SharedValueHost {
+            expected: shared_handles[0],
+            value: 80.0,
+            reads: 0,
+            writes: 0,
+            rejected_reads: 0,
+            rejected_writes: 0,
+        });
+        let context = (&mut *host as *mut SharedValueHost).cast::<c_void>();
+        assert_eq!(
+            ex_worklet_bind_shared_value_accessors(
+                runtime,
+                Some(read_shared_value),
+                Some(write_shared_value),
+                context,
+            ),
+            0,
+        );
+        ex_worklet_set_generation(runtime, generation);
+
+        for (artifact, captures) in &captures {
+            let candidate =
+                install_typed_worklet(runtime, &artifact.source, captures, artifact.generation);
+            let control = install_typed_worklet(
+                runtime,
+                &motion_m6_matched_control(artifact),
+                captures,
+                artifact.generation,
+            );
+            invoke_typed_repeatedly(
+                runtime,
+                candidate,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                WARMUP,
+            );
+            invoke_typed_repeatedly(
+                runtime,
+                control,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                WARMUP,
+            );
+            let candidate_bytes = typed_allocation_slope(
+                runtime,
+                candidate,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                SAMPLES,
+            );
+            let control_bytes = typed_allocation_slope(
+                runtime,
+                control,
+                artifact.input_slots.len(),
+                artifact.output_slots.len(),
+                artifact.output_slots.len() as u32,
+                SAMPLES,
+            );
+            eprintln!(
+                concat!(
+                    "motion-worklet-generated-artifact: tier={} compiler={} phase={} ",
+                    "samples={} raw-control={} raw-candidate={} semantic-excess={}",
+                ),
+                tier.tier,
+                artifact.compiler_id,
+                artifact.phase,
+                SAMPLES,
+                control_bytes,
+                candidate_bytes,
+                candidate_bytes.saturating_sub(control_bytes),
+            );
+            assert!(control_bytes > 0, "retain raw Hermes ABI allocation truth");
+            assert_eq!(
+                candidate_bytes, control_bytes,
+                "{} {} generated artifact must have zero semantic/excess allocation bytes",
+                tier.tier, artifact.compiler_id,
+            );
+        }
+
+        let (derive, derive_captures) = captures
+            .iter()
+            .find(|(artifact, _)| {
+                artifact.phase == "derive"
+                    && !artifact.source.contains("worklet.clamp")
+                    && !artifact.source.contains("Math.max")
+            })
+            .expect("Motion M6 evidence must include the direct scalar projection");
+        let negative = install_typed_worklet(
+            runtime,
+            "(function(){var box={value:worklet.captureGet(0)};worklet.output(0,box.value);})",
+            derive_captures,
+            derive.generation,
+        );
+        let control = install_typed_worklet(
+            runtime,
+            &motion_m6_matched_control(derive),
+            derive_captures,
+            derive.generation,
+        );
+        invoke_typed_repeatedly(runtime, negative, 0, 1, 1, WARMUP);
+        invoke_typed_repeatedly(runtime, control, 0, 1, 1, WARMUP);
+        let negative_bytes = typed_allocation_slope(runtime, negative, 0, 1, 1, SAMPLES);
+        let control_bytes = typed_allocation_slope(runtime, control, 0, 1, 1, SAMPLES);
+        assert!(
+            negative_bytes > control_bytes,
+            "{} negative object-allocation control must exceed its matched control",
+            tier.tier,
+        );
+        eprintln!(
+            "motion-worklet-generated-negative: tier={} samples={} raw-control={} raw-negative={} semantic-excess={}",
+            tier.tier,
+            SAMPLES,
+            control_bytes,
+            negative_bytes,
+            negative_bytes.saturating_sub(control_bytes),
+        );
+
+        assert_eq!(host.rejected_reads, 0);
+        assert_eq!(host.rejected_writes, 0);
+        assert_eq!(
+            ex_worklet_bind_shared_value_accessors(runtime, None, None, std::ptr::null_mut()),
+            0,
+        );
+        ex_worklet_destroy(runtime);
     }
 
     /// LLP 0099 M6 forbids object/string allocation in the hot math path; it
@@ -731,8 +1308,21 @@ mod tests {
     /// the compiler is required to exclude.
     #[test]
     fn motion_worklet_semantic_allocation_slope_is_flat() {
+        if let Some(evidence) = load_motion_m6_evidence() {
+            unsafe {
+                for tier in &evidence.tiers {
+                    measure_motion_m6_tier(tier);
+                }
+            }
+            return;
+        }
+
+        // The standalone Ibex suite has no Exact authoring toolchain. Retain
+        // one local source-shape sentinel there; the registered Exact M6
+        // acceptance wrapper always supplies authenticated generated evidence
+        // and therefore takes the branch above.
         unsafe {
-            const WARMUP: usize = 128;
+            const WARMUP: u64 = 128;
             const SAMPLES: u64 = 2_048;
             let runtime = ex_worklet_create();
             assert!(!runtime.is_null());
@@ -757,29 +1347,14 @@ mod tests {
                 1,
             );
 
-            let inputs = [2.0_f32];
-            let mut outputs = [0.0_f32];
-            let mut output_count = 0;
             for identity in [control, candidate, allocating_control] {
-                for _ in 0..WARMUP {
-                    assert_eq!(
-                        ex_worklet_invoke_typed(
-                            runtime,
-                            identity,
-                            inputs.as_ptr(),
-                            1,
-                            outputs.as_mut_ptr(),
-                            1,
-                            &mut output_count,
-                        ),
-                        0
-                    );
-                }
+                invoke_typed_repeatedly(runtime, identity, 1, 1, 1, WARMUP);
             }
 
-            let control_bytes = typed_allocation_slope(runtime, control, SAMPLES);
-            let candidate_bytes = typed_allocation_slope(runtime, candidate, SAMPLES);
-            let allocating_bytes = typed_allocation_slope(runtime, allocating_control, SAMPLES);
+            let control_bytes = typed_allocation_slope(runtime, control, 1, 1, 1, SAMPLES);
+            let candidate_bytes = typed_allocation_slope(runtime, candidate, 1, 1, 1, SAMPLES);
+            let allocating_bytes =
+                typed_allocation_slope(runtime, allocating_control, 1, 1, 1, SAMPLES);
 
             eprintln!(
                 concat!(
