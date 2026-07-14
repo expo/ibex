@@ -436,7 +436,7 @@ char* ex_host_prepare_armed_embedder_artifacts(
     const uint8_t* expected_identity,
     size_t expected_identity_len);
 
-/// Release heap-owned strings returned by Host ABI functions.
+/// Release a heap-owned string returned by the host ABI.
 void ex_host_free_string(char* value);
 
 /// Return 1 only when the installed host has the exact snapshot digest.
