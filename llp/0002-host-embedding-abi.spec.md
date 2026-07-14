@@ -5,7 +5,7 @@
 **Systems:** Host ABI, Engine, Runtime
 **Author:** Charlie Cheever / Claude (Tuft)
 **Date:** 2026-06-13
-**Revised:** 2026-07-14 (source-derived capability inventory reconciled with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
+**Revised:** 2026-07-14 (ENG-24933 adds the dedicated binary Exact app/agent ingress and records the UI-worklet non-endowment; earlier source-derived capability inventory reconciliation with the complete typed worklet/Motion ABI); 2026-07-13 (the optional restricted-worklet surface now has an explicit source-artifact + typed-capture installer, fixed f32 invoke/output slots, a bounded typed app-runtime drain, and fixed rated-publish dispatch; earlier that day SharedValues moved from a raw slab pointer to typed validating callbacks); 2026-07-13 (`allowed_hosts` is an outbound remote-host fence and no longer gates independent `network:listen` authority — ENG-24285); 2026-07-12 (armed runtimes reject the generic sync/async host-call bridge and its resolver before any callback/global/pending-state mutation); 2026-07-12 (production construction now requires a runtime-scoped armed Host context; the legacy constructor is non-executable and native fd/socket ownership is runtime-namespaced — ENG-24237, ENG-24244, ENG-24245); 2026-07-09 (host-boundary constraints: `root_dir`/`allowed_hosts` are now enforced fences, ENG-23876; previously 2026-07-07 for the capsec mode collapse); 2026-07-11 (generated capsec ABI inventory — ENG-24145); 2026-07-11 (immutable armed-snapshot install and Hermes handshake — ENG-24148)
 **Related:** LLP 0000; LLP 0003 (Hermes engine bridge)
 
 ## Summary
@@ -166,6 +166,66 @@ generic bridge as unavailable rather than granting fallback authority
 `[observed]` (`src/engine/hermes_runtime.cc`;
 `packages/ibex-runtime-js/src/camera/index.ts`;
 `packages/ibex-runtime-js/src/core/accessibility.ts`).
+
+### The Exact embedder ingress
+
+Exact app and agent isolates use a dedicated binary channel rather than the
+diagnostic string bridge. The native host calls
+`ex_hermes_set_exact_host_call_async` once with an explicit context kind and a
+strictly increasing set of nonzero 32-bit operation IDs. The runtime then
+exposes only
+`exact.invokeHostAsync(operationId, ArrayBuffer | ArrayBufferView) ->
+Promise<Uint8Array>`.
+Operation names and JSON envelopes do not cross Ibex's boundary, and a JS
+caller cannot ask for an operation absent from its immutable endowment set.
+The setter rejects malformed or duplicate/reordered endowments and rejects any
+attempt to replace a successful installation `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+Because installation creates and publishes JSI values, the setter is an
+owner-runtime-thread operation. An off-owner call returns `-7` before reading
+or mutating JSI or publishing any endowment `[observed]`
+(`include/exact_runtime.h`; `src/engine/hermes_runtime.cc`).
+The source inventory nevertheless classifies the JS invocation as closed
+`ipc:channel` until the native set and its app/agent context are authenticated
+by the armed artifact; the existence of a caller-selected allowlist is not
+conformance evidence.
+
+`ex_hermes_resolve_exact_host_call` is the only completion route for this
+channel. Its call IDs are runtime-generation-scoped, single-use capabilities;
+unknown, stale, replayed, and already-completed IDs are ignored. Completion
+copies binary bytes onto the runtime thread through the ordinary native-worker
+pin and callback queue. This route is valid for armed runtimes and does not
+make either generic `__hostCall` global reachable again.
+
+The channel is bounded to 1,024 pending calls and 16 MiB in either direction.
+The native callback runs inline on the runtime owner thread, borrows its input
+bytes only for that invocation, and must return promptly. Its callback and
+opaque context live until runtime destruction; the embedder cancels outstanding
+native work at destruction and never resolves using a destroyed runtime
+pointer. Malformed/oversized completions consume and reject the call rather
+than stranding its Promise.
+
+The context model is deliberately closed:
+
+- an **app** runtime receives the app operation-ID set selected by its native
+  host;
+- an **agent** runtime receives a separately selected agent operation-ID set;
+- a **UI worklet** cannot install this ingress at all. Its complete endowment
+  remains the typed SharedValue/Motion ABI described above.
+
+The native callback remains part of the trusted embedder. Exact owns the
+operation registry, payload schemas, and the narrower app/agent sets; the
+normal Ibex-to-Exact packaging path must bind that registry identity into the
+authenticated production artifact before an Exact target may advertise. The
+existence of this ABI by itself is not target-conformance evidence and does not
+relax the unsupported-target refusal.
+
+These three new symbols (`ex_hermes_set_exact_host_call_async`, its resolver,
+and `ex_host_prepare_armed_embedder_artifacts`) are a public, provisional
+extension for the pinned Exact consumer, not an expansion of LLP 0000's five-
+function semver-major minimum. Until this Draft spec is accepted, a breaking
+change requires an atomic Ibex commit plus Exact submodule/consumer update; it
+must never silently preserve an older ambient bridge.
 
 ## The Rust host surface
 

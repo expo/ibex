@@ -366,6 +366,7 @@ const REVIEWED_NATIVE_OPERATION_NAMES = new Set([
 ]);
 
 const REVIEWED_CALLBACK_PRODUCER_NAMES = new Set([
+  "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_host_call:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime.cc:ex_hermes_schedule_watchdog_heartbeat_for_generation:pushRuntimeCallback",
   "producer:src/engine/hermes_runtime_android.cc:android_animation_frame_callback:pushRuntimeCallback",
@@ -4727,6 +4728,7 @@ const REVIEWED_GLOBAL_API_MEMBER_NAMES = Object.freeze({
     "getStateMirror",
     "hasKernelInspector",
     "hitTest",
+    "invokeHostAsync",
     "nodeExists",
     "runtime",
     "runtime.detectEngine",
@@ -5129,12 +5131,14 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_hermes_notify_callback",
     "ex_hermes_now_ms",
     "ex_hermes_poll",
+    "ex_hermes_resolve_exact_host_call",
     "ex_hermes_resolve_host_call",
     "ex_hermes_runtime_nonce",
     "ex_hermes_schedule_watchdog_heartbeat",
     "ex_hermes_schedule_watchdog_heartbeat_for_generation",
     "ex_hermes_set_dispatch_callback",
     "ex_hermes_set_dispatch_with_debug_context_callback",
+    "ex_hermes_set_exact_host_call_async",
     "ex_hermes_set_host_call",
     "ex_hermes_set_host_call_async",
     "ex_hermes_set_host_wake_hook",
@@ -5238,6 +5242,7 @@ const REVIEWED_HOST_ABI_NAMES = reviewedNameSet(
     "ex_host_permission_request",
     "ex_host_permission_revoke",
     "ex_host_permission_status",
+    "ex_host_prepare_armed_embedder_artifacts",
     "ex_host_random_fill",
     "ex_host_register_module_package",
     "ex_host_release_context",
@@ -9125,6 +9130,10 @@ function callbackClassification(surface) {
     );
   }
 
+  if (name === "exact-host-call-async-resolve") {
+    return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+  }
+
   if (name === "websocket-context-release") {
     return nonCapabilitySpec("authority-release", "WP8");
   }
@@ -10688,6 +10697,13 @@ function globalApiClassification(surface, dualNativeSpecification = null) {
         "Kernel-inspector reachability reveals shared runtime diagnostic state.",
       );
     }
+    if (member === "invokehostasync") {
+      return closedSpec(
+        "ipc:channel",
+        "WP8",
+        "The typed Exact embedder route remains closed until its app/agent operation manifest and context are authenticated by the armed artifact.",
+      );
+    }
     return closedSpec(
       "ipc:channel",
       "WP7",
@@ -11621,6 +11637,12 @@ function abiEscapeClassification(name) {
 
 function embedderAbiClassification(name) {
   if (/^exhermes/u.test(name)) {
+    if (name === "exhermessetexacthostcallasync") {
+      return nonCapabilitySpec("authority-control-plane", "WP4");
+    }
+    if (name === "exhermesresolveexacthostcall") {
+      return nonCapabilitySpec("callback-attribution-carrier", "WP8");
+    }
     if (
       new Set([
         "exhermesdispatchevent",
@@ -11768,6 +11790,7 @@ function hostAbiClassification(name) {
       "exhostarmedendowments",
       "exhostinstallarmed",
       "exhostmatchesarmedsnapshotdigest",
+      "exhostpreparearmedembedderartifacts",
     ]).has(name)
   ) {
     return nonCapabilitySpec("authority-control-plane", "WP4");

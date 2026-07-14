@@ -179,6 +179,30 @@ extern "C" {
         call_id: u64,
         payload: *const std::os::raw::c_char,
     );
+    #[cfg(test)]
+    fn ex_hermes_set_exact_host_call_async(
+        runtime: *mut HermesRuntimeOpaque,
+        context_kind: i32,
+        allowed_operation_ids: *const u32,
+        allowed_operation_count: usize,
+        callback: extern "C" fn(
+            runtime: *mut HermesRuntimeOpaque,
+            call_id: u64,
+            operation_id: u32,
+            payload: *const u8,
+            payload_len: usize,
+            context: *mut std::ffi::c_void,
+        ),
+        context: *mut std::ffi::c_void,
+    ) -> i32;
+    #[cfg(test)]
+    fn ex_hermes_resolve_exact_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        status: i32,
+        payload: *const u8,
+        payload_len: usize,
+    );
     fn ex_hermes_eval(
         runtime: *mut HermesRuntimeOpaque,
         data: *const u8,
@@ -3795,6 +3819,12 @@ cp \"$input\" \"$out\"\n";
         std::sync::atomic::AtomicUsize::new(0);
     static ABI_PROBE_ASYNC_CALLS: std::sync::atomic::AtomicUsize =
         std::sync::atomic::AtomicUsize::new(0);
+    static EXACT_ABI_PROBE_CALLS: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    static EXACT_ABI_PROBE_OPERATION: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    static EXACT_ABI_PROBE_PAYLOAD_LEN: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
 
     extern "C" fn abi_probe_sync_host_call(
         _op: *const std::os::raw::c_char,
@@ -3815,6 +3845,61 @@ cp \"$input\" \"$out\"\n";
         unsafe {
             ex_hermes_resolve_host_call(runtime, call_id, payload.as_ptr().cast());
         }
+    }
+
+    extern "C" fn abi_probe_exact_host_call(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        operation_id: u32,
+        payload: *const u8,
+        payload_len: usize,
+        _context: *mut std::ffi::c_void,
+    ) {
+        EXACT_ABI_PROBE_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_OPERATION.store(operation_id as usize, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_PAYLOAD_LEN.store(payload_len, std::sync::atomic::Ordering::SeqCst);
+        if payload_len > 0 {
+            assert!(!payload.is_null());
+            let bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+            assert_eq!(bytes, [1, 2, 3]);
+        }
+        let response = [9_u8, 8_u8];
+        unsafe {
+            ex_hermes_resolve_exact_host_call(
+                runtime,
+                call_id,
+                0,
+                response.as_ptr(),
+                response.len(),
+            );
+            // Completion IDs are single-use capabilities. A replay must be a
+            // no-op and cannot replace the first result.
+            let replay = [7_u8];
+            ex_hermes_resolve_exact_host_call(runtime, call_id, 0, replay.as_ptr(), replay.len());
+        }
+    }
+
+    extern "C" fn abi_probe_exact_malformed_completion(
+        runtime: *mut HermesRuntimeOpaque,
+        call_id: u64,
+        _operation_id: u32,
+        _payload: *const u8,
+        _payload_len: usize,
+        _context: *mut std::ffi::c_void,
+    ) {
+        unsafe {
+            ex_hermes_resolve_exact_host_call(runtime, call_id, 0, std::ptr::null(), 1);
+        }
+    }
+
+    extern "C" fn abi_probe_exact_pending_call(
+        _runtime: *mut HermesRuntimeOpaque,
+        _call_id: u64,
+        _operation_id: u32,
+        _payload: *const u8,
+        _payload_len: usize,
+        _context: *mut std::ffi::c_void,
+    ) {
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -4133,6 +4218,349 @@ cp \"$input\" \"$out\"\n";
         assert_eq!(
             ABI_PROBE_ASYNC_CALLS.load(std::sync::atomic::Ordering::SeqCst),
             0
+        );
+    }
+
+    #[cfg(feature = "capsec-conformance-observer")]
+    #[tokio::test(flavor = "current_thread")]
+    async fn armed_exact_embedder_ingress_is_binary_endowed_and_single_use() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let (_reset, digest) = install_armed_test_host();
+        EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let engine = HermesEngine::new_with_armed_snapshot(Some(&digest)).unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -5,
+                    "an embedder cannot replace an installed endowment"
+                );
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "typeof __hostCall + '/' + typeof __hostCallAsync + '/' + \
+                     typeof exact.invokeHostAsync",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined/undefined/function")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "globalThis.__exactTypedResult = 'pending'; \
+                     exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                       function(value) { globalThis.__exactTypedResult = Array.from(value).join(','); },\
+                       function(error) { globalThis.__exactTypedResult = 'rejected:' + error.message; }); \
+                     'kicked'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("kicked")
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__exactTypedResult")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("9,8")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, {}); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync payload must be an ArrayBuffer or view")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(8, new Uint8Array()); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync operation is not endowed")
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_OPERATION.load(std::sync::atomic::Ordering::SeqCst),
+            7
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_PAYLOAD_LEN.load(std::sync::atomic::Ordering::SeqCst),
+            3
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn exact_embedder_ingress_rejects_malformed_completion_and_pending_flood() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+
+        let malformed_engine = HermesEngine::new().unwrap();
+        malformed_engine.load_runtime().await.unwrap();
+        let malformed_runtime = malformed_engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32];
+        malformed_runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_malformed_completion,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+            })
+            .unwrap();
+        malformed_engine
+            .eval_immediate(
+                "globalThis.__exactMalformed = 'pending'; \
+                 exact.invokeHostAsync(7, new Uint8Array()).then(\
+                   function() { globalThis.__exactMalformed = 'resolved'; },\
+                   function(error) { globalThis.__exactMalformed = error.message; });",
+            )
+            .await
+            .unwrap();
+        malformed_engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            malformed_engine
+                .eval_immediate("globalThis.__exactMalformed")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("Exact host operation completion payload is invalid or exceeds 16 MiB")
+        );
+        drop(malformed_runtime);
+        drop(malformed_engine);
+
+        let flood_engine = HermesEngine::new().unwrap();
+        flood_engine.load_runtime().await.unwrap();
+        let flood_runtime = flood_engine.ensure_runtime().await.unwrap();
+        flood_runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_pending_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+            })
+            .unwrap();
+        flood_engine
+            .eval_immediate(
+                "globalThis.__exactFlood = 'pending'; \
+                 for (var i = 0; i < 1025; i += 1) { \
+                   exact.invokeHostAsync(7, new Uint8Array()).catch(\
+                     function(error) { globalThis.__exactFlood = error.message; }); \
+                 }",
+            )
+            .await
+            .unwrap();
+        flood_engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            flood_engine
+                .eval_immediate("globalThis.__exactFlood")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync pending-call budget exhausted")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn diagnostic_exact_embedder_ingress_exercises_binary_completion() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        EXACT_ABI_PROBE_CALLS.store(0, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_OPERATION.store(0, std::sync::atomic::Ordering::SeqCst);
+        EXACT_ABI_PROBE_PAYLOAD_LEN.store(0, std::sync::atomic::Ordering::SeqCst);
+
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        let operations = [7_u32, 11_u32];
+        runtime
+            .with_runtime(|raw| unsafe {
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        operations.as_ptr(),
+                        operations.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    0
+                );
+            })
+            .unwrap();
+
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "globalThis.__exactTypedResult = 'pending'; \
+                     exact.invokeHostAsync(7, new Uint8Array([1,2,3])).then(\
+                       function(value) { globalThis.__exactTypedResult = Array.from(value).join(','); },\
+                       function(error) { globalThis.__exactTypedResult = 'rejected:' + error.message; }); \
+                     'kicked'",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("kicked")
+        );
+        engine.drive_event_loop().await.unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("globalThis.__exactTypedResult")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("9,8")
+        );
+        assert_eq!(
+            engine
+                .eval_immediate(
+                    "try { exact.invokeHostAsync(7, new Uint8Array(16777217)); 'allowed' } \
+                     catch (error) { error.message }",
+                )
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("exact.invokeHostAsync payload exceeds 16 MiB")
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_CALLS.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_OPERATION.load(std::sync::atomic::Ordering::SeqCst),
+            7
+        );
+        assert_eq!(
+            EXACT_ABI_PROBE_PAYLOAD_LEN.load(std::sync::atomic::Ordering::SeqCst),
+            3
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn exact_embedder_ingress_rejects_noncanonical_endowments() {
+        let _lock = hermes_engine_test_lock().lock().await;
+        let _reset = install_test_host_with_allow(&[]);
+        let engine = HermesEngine::new().unwrap();
+        engine.load_runtime().await.unwrap();
+        let runtime = engine.ensure_runtime().await.unwrap();
+        runtime
+            .with_runtime(|raw| unsafe {
+                let raw_address = raw as usize;
+                let off_owner = std::thread::spawn(move || {
+                    let valid = [19_u32];
+                    ex_hermes_set_exact_host_call_async(
+                        raw_address as *mut HermesRuntimeOpaque,
+                        1,
+                        valid.as_ptr(),
+                        valid.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    )
+                })
+                .join()
+                .unwrap();
+                assert_eq!(off_owner, -7);
+                let unsorted = [11_u32, 7_u32];
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        1,
+                        unsorted.as_ptr(),
+                        unsorted.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -4
+                );
+                let zero = [0_u32];
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        2,
+                        zero.as_ptr(),
+                        zero.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -4
+                );
+                let valid = [19_u32];
+                assert_eq!(
+                    ex_hermes_set_exact_host_call_async(
+                        raw,
+                        99,
+                        valid.as_ptr(),
+                        valid.len(),
+                        abi_probe_exact_host_call,
+                        std::ptr::null_mut(),
+                    ),
+                    -3
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            engine
+                .eval_immediate("typeof exact.invokeHostAsync")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("undefined")
         );
     }
 

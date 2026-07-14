@@ -27,6 +27,16 @@ extern "C" {
 /// Opaque handle to an Exact Hermes runtime
 typedef struct ExactHermesRuntime ExactHermesRuntime;
 
+/// Exact embedder execution contexts. App and agent runtimes receive separate
+/// operation endowment sets through `ex_hermes_set_exact_host_call_async`.
+/// UI worklets are created through `ex_worklet_create` and deliberately cannot
+/// install this ingress; their existing SharedValue/Motion ABI is the complete
+/// host endowment.
+typedef enum ExactEmbedderContext {
+    EXACT_EMBEDDER_CONTEXT_APP = 1,
+    EXACT_EMBEDDER_CONTEXT_AGENT = 2,
+} ExactEmbedderContext;
+
 // =============================================================================
 // Runtime Lifecycle
 // =============================================================================
@@ -279,6 +289,57 @@ void ex_hermes_resolve_host_call(
     uint64_t call_id,
     const char* payload);
 
+/// Install the dedicated asynchronous Exact embedder ingress as
+/// `exact.invokeHostAsync(operationId, ArrayBuffer | ArrayBufferView)
+///   -> Promise<Uint8Array>`.
+///
+/// This is not the generic `__hostCall` channel: operations are numeric,
+/// payloads are binary, and each app/agent runtime receives one immutable,
+/// canonical endowment set. `allowed_operation_ids` must be non-empty,
+/// strictly increasing, contain no zero ID, and contain at most 4096 entries.
+/// The setter succeeds at most once per runtime. It is available to armed and
+/// diagnostic app/agent runtimes, but always refuses restricted UI worklets.
+///
+/// Return 0 on success; negative values indicate malformed arguments,
+/// unsupported context/runtime kind, or an attempted replacement.
+/// This setter creates JSI objects and therefore must be called on the runtime
+/// owner thread; an off-owner-thread call returns -7 without touching JSI or
+/// installing any endowment.
+/// `payload` passed to `callback` is borrowed only for that callback invocation;
+/// an asynchronous embedder must copy it before returning.
+/// The callback runs inline on the runtime owner thread and must return
+/// promptly. `context` and the callback implementation must remain valid until
+/// runtime destruction. At most 1024 calls may be pending; excess calls reject
+/// deterministically. Runtime destruction abandons pending calls, so the
+/// embedder must cancel its native work and must not resolve through a destroyed
+/// runtime pointer.
+int ex_hermes_set_exact_host_call_async(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     void* context),
+    void* context);
+
+/// Complete a pending `exact.invokeHostAsync` call. Safe from any thread.
+/// Status zero resolves with a Uint8Array copy of `payload`; non-zero status
+/// rejects with an Error whose message is decoded from the payload (or a
+/// generic message when the payload is empty). Completion payloads are limited
+/// to 16 MiB; a malformed or oversized completion consumes the call ID and
+/// rejects it. Unknown, stale, replayed, and already-completed call IDs are
+/// ignored.
+void ex_hermes_resolve_exact_host_call(
+    ExactHermesRuntime* runtime,
+    uint64_t call_id,
+    int32_t status,
+    const uint8_t* payload,
+    size_t payload_len);
+
 /// Attach the Exact kernel handle so the runtime can expose kernel-backed
 /// state-mirror snapshots and module metadata through the `exact` global.
 void ex_hermes_set_kernel_handle(
@@ -348,6 +409,24 @@ int ex_host_install_armed(const uint8_t* snapshot,
                           size_t snapshot_len,
                           const uint8_t* expected_identity,
                           size_t expected_identity_len);
+
+/// Authenticate a paired snapshot template/expected identity against the
+/// loaded engine and checked registry, validate protected artifacts/package
+/// roots, replace the template nonce with OS randomness, and recompute the
+/// checked armed digest. Returns a heap-owned strict JSON success/refusal
+/// envelope; free it with `ex_host_free_string`.
+/// A success envelope's `artifacts` object has the stable schema
+/// `{ artifactSchema, armedSnapshotDigest, snapshot, expectedIdentity }`, with
+/// `artifactSchema` equal to `ibex/armed-embedder-artifacts/1`.
+///
+/// Preparing an artifact does not advertise a target. A later
+/// `ex_host_install_armed` still refuses any target without report-derived
+/// complete cells.
+char* ex_host_prepare_armed_embedder_artifacts(
+    const uint8_t* snapshot_template,
+    size_t snapshot_template_len,
+    const uint8_t* expected_identity,
+    size_t expected_identity_len);
 
 /// Return 1 only when the installed host has the exact snapshot digest.
 int ex_host_matches_armed_snapshot_digest(const char* digest);

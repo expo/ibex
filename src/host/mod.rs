@@ -14,6 +14,7 @@
 pub mod abi;
 pub mod capability;
 pub mod capability_bits;
+pub mod embedder_artifacts;
 pub mod handles;
 // @ref LLP 0005#c-compilation — the hyper-based `ex_host_http_*` server is
 // feature-gated; without it the C++ adapter links no-op stubs.

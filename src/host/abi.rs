@@ -381,6 +381,44 @@ pub fn install_armed_host(snapshot: &[u8], expected_json: &[u8]) -> Result<(), S
     Ok(())
 }
 
+/// Prepare one construction-fresh authenticated artifact pair for a native
+/// embedder. The returned strict JSON envelope is owned by Rust and must be
+/// released with `ex_host_free_string`.
+///
+/// Success: `{ "ok": true, "artifacts": { ... } }`.
+/// Refusal: `{ "ok": false, "error": "..." }`.
+/// @ref LLP 0021#wp4--arm-immutable-snapshots-through-the-cli-host-and-engine
+#[no_mangle]
+pub extern "C" fn ex_host_prepare_armed_embedder_artifacts(
+    snapshot_template: *const u8,
+    snapshot_template_len: usize,
+    expected_identity: *const u8,
+    expected_identity_len: usize,
+) -> *mut c_char {
+    let result = if snapshot_template.is_null()
+        || snapshot_template_len == 0
+        || expected_identity.is_null()
+        || expected_identity_len == 0
+    {
+        Err(anyhow::anyhow!(
+            "snapshot template and expected identity are required"
+        ))
+    } else {
+        let snapshot =
+            unsafe { std::slice::from_raw_parts(snapshot_template, snapshot_template_len) };
+        let expected =
+            unsafe { std::slice::from_raw_parts(expected_identity, expected_identity_len) };
+        super::embedder_artifacts::prepare_embedder_artifacts(snapshot, expected)
+    };
+    let envelope = match result {
+        Ok(artifacts) => serde_json::json!({"ok": true, "artifacts": artifacts}),
+        Err(error) => serde_json::json!({"ok": false, "error": error.to_string()}),
+    };
+    CString::new(envelope.to_string())
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn with_host<T>(f: impl FnOnce(&Host) -> T, default: T) -> T {
     let active = ACTIVE_HOST_CONTEXT.with(Cell::get);
     if active != 0 {
@@ -5233,5 +5271,20 @@ mod tests {
         assert_eq!(ex_host_env_get(key.as_ptr(), ptr::null_mut(), 0), 10_000);
 
         std::env::remove_var(KEY);
+    }
+
+    #[test]
+    fn embedder_artifact_preparation_refuses_missing_inputs() {
+        let envelope = take_json(ex_host_prepare_armed_embedder_artifacts(
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+        ));
+        assert_eq!(envelope["ok"], false);
+        assert!(envelope["error"]
+            .as_str()
+            .unwrap()
+            .contains("snapshot template and expected identity are required"));
     }
 }

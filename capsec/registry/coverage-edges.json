@@ -134520,6 +134520,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "exact-host-call-async-resolve"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.callback.fetch.delivery.09vuauz",
       "classification": "non-capability",
       "surface": {
@@ -134655,6 +134665,16 @@
       "surface": {
         "kind": "callback",
         "name": "producer:src/engine/hermes_runtime_android.cc:android_platform_event_available:pushRuntimeCallback"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "callback",
+        "name": "producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
@@ -140240,6 +140260,16 @@
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
     },
     {
+      "id": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_resolve_exact_host_call"
+      },
+      "rationaleId": "callback-attribution-carrier",
+      "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
       "id": "surface.host.abi.ex.hermes.resolve.host.call.01crbkh",
       "classification": "closed",
       "surface": {
@@ -140298,6 +140328,16 @@
       },
       "rationaleId": "callback-attribution-carrier",
       "rationale": "The callback channel is security-critical attribution plumbing, but scheduling or draining it is not itself an external effect."
+    },
+    {
+      "id": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_hermes_set_exact_host_call_async"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
     },
     {
       "id": "surface.host.abi.ex.hermes.set.host.call.16xhko5",
@@ -143772,6 +143812,16 @@
       "surface": {
         "kind": "host-abi",
         "name": "ex_host_permission_status"
+      },
+      "rationaleId": "authority-control-plane",
+      "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
+    },
+    {
+      "id": "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77",
+      "classification": "non-capability",
+      "surface": {
+        "kind": "host-abi",
+        "name": "ex_host_prepare_armed_embedder_artifacts"
       },
       "rationaleId": "authority-control-plane",
       "rationale": "This security-sensitive control-plane operation changes or records authority metadata but does not itself exercise external authority."
@@ -216488,6 +216538,16 @@
       },
       "cap": "runtime:inspect",
       "rationale": "Runtime heap inspection and unsafe process-wide controls are closed."
+    },
+    {
+      "id": "surface.native.op.global.exact.invokehostasync.0b92itq",
+      "classification": "closed",
+      "surface": {
+        "kind": "native-op",
+        "name": "global:exact.invokeHostAsync"
+      },
+      "cap": "ipc:channel",
+      "rationale": "The typed Exact embedder route remains closed until its app/agent operation manifest and context are authenticated by the armed artifact."
     },
     {
       "id": "surface.native.op.global.exact.ismainthread.0u4gec9",

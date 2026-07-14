@@ -3433,7 +3433,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
 
   test("every live fixed reference joins one exact structural definition", () => {
     const rows = fixedRuntimeSurfaceInventory();
-    expect(rows).toHaveLength(72);
+    expect(rows).toHaveLength(73);
     expect(() => validateFixedRuntimeSurfaceRefs(repoRoot, rows)).not.toThrow();
   });
 
@@ -3901,7 +3901,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     ]);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")),
-    ).toHaveLength(119);
+    ).toHaveLength(120);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_host_")).length,
     ).toBeGreaterThan(0);
@@ -3921,7 +3921,7 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     );
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_worklet_")),
-    ).toHaveLength(10);
+    ).toHaveLength(15);
     expect(
       first.hostAbi.filter((row) => row.name.startsWith("ex_android_")),
     ).toHaveLength(1);
@@ -4211,10 +4211,10 @@ describe("LLP 0021 WP1 source surface inventory", () => {
     const producers = first.callbacks.filter((row) =>
       row.name.startsWith("producer:"),
     );
-    expect(producers).toHaveLength(12);
+    expect(producers).toHaveLength(13);
     expect(
       producers.reduce((count, row) => count + row.metadata.occurrenceCount, 0),
-    ).toBe(17);
+    ).toBe(18);
     expect(
       first.loader
         .filter((row) => row.metadata?.evidenceType === "loader-kind-branch")

@@ -2309,34 +2309,9 @@ fn observed_structural_features() -> Vec<String> {
 }
 
 fn observed_arming_identity(
-    mut supplied: capsec_semantics::arming::ExpectedArmingIdentity,
+    supplied: capsec_semantics::arming::ExpectedArmingIdentity,
 ) -> Result<capsec_semantics::arming::ExpectedArmingIdentity> {
-    use capsec_semantics::model::Digest;
-
-    let compiled: serde_json::Value = serde_json::from_slice(include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/capsec/examples/armed-snapshot.canonical.json"
-    )))?;
-    supplied.profile = ibex_runtime::capsec_registry_generated::CAPSEC_PROFILE.into();
-    supplied.semantic_core = ibex_runtime::capsec_registry_generated::CAPSEC_SEMANTIC_CORE.into();
-    supplied.vocab_digest = Digest::new(
-        compiled["vocabDigest"]
-            .as_str()
-            .context("compiled vocabulary digest is missing")?,
-    )
-    .map_err(anyhow::Error::msg)?;
-    supplied.registry_digest = Digest::new(
-        compiled["registryDigest"]
-            .as_str()
-            .context("compiled registry digest is missing")?,
-    )
-    .map_err(anyhow::Error::msg)?;
-    supplied.target = exact_runtime_target();
-    supplied.features = observed_structural_features();
-    supplied.engine_binary_digest =
-        Digest::new(crate::engine::hermes::HermesEngine::loaded_engine_identity()?.binary_digest)
-            .map_err(anyhow::Error::msg)?;
-    Ok(supplied)
+    ibex_runtime::host::embedder_artifacts::verify_expected_identity(supplied)
 }
 
 /// Select the one project root whose object identity will be bound into the

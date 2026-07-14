@@ -97404,6 +97404,41 @@
       ]
     },
     {
+      "edgeId": "surface.callback.exact.host.call.async.resolve.0f9z2o3",
+      "observedKey": "callback:exact-host-call-async-resolve",
+      "branchId": "surface.callback.exact.host.call.async.resolve.0f9z2o3.main",
+      "enforcementBranchId": "surface.callback.exact.host.call.async.resolve.0f9z2o3.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:exact-host-call-async-resolve"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+        ],
+        "terminalObservedKey": "callback:exact-host-call-async-resolve"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.exact.host.call.async.resolve.0f9z2o3.main.attribution-missing-deny",
+        "surface.callback.exact.host.call.async.resolve.0f9z2o3.main.generation-recheck",
+        "surface.callback.exact.host.call.async.resolve.0f9z2o3.main.non-capability",
+        "surface.callback.exact.host.call.async.resolve.0f9z2o3.main.principal-restore",
+        "surface.callback.exact.host.call.async.resolve.0f9z2o3.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.callback.fetch.delivery.09vuauz",
       "observedKey": "callback:fetch-delivery",
       "branchId": "surface.callback.fetch.delivery.09vuauz.main",
@@ -97871,6 +97906,41 @@
         "surface.callback.producer.src.engine.hermes.runtime.android.cc.android.platform.event.ava.0xzicxk.main.non-capability",
         "surface.callback.producer.src.engine.hermes.runtime.android.cc.android.platform.event.ava.0xzicxk.main.principal-restore",
         "surface.callback.producer.src.engine.hermes.runtime.android.cc.android.platform.event.ava.0xzicxk.main.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x",
+      "observedKey": "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback",
+      "branchId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main",
+      "enforcementBranchId": "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+        ],
+        "terminalObservedKey": "callback:producer:src/engine/hermes_runtime.cc:ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+      },
+      "branchKind": "single",
+      "targetVariant": "all",
+      "targetApplicability": {
+        "kind": "all"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call:pushRuntimeCallback"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main.attribution-missing-deny",
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main.generation-recheck",
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main.non-capability",
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main.principal-restore",
+        "surface.callback.producer.src.engine.hermes.runtime.cc.ex.hermes.resolve.exact.host.call.0n49v9x.main.snapshot-mismatch-deny"
       ]
     },
     {
@@ -115673,6 +115743,42 @@
       ]
     },
     {
+      "edgeId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5",
+      "observedKey": "host-abi:ex_hermes_resolve_exact_host_call",
+      "branchId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_resolve_exact_host_call"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_resolve_exact_host_call"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_resolve_exact_host_call"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default.attribution-missing-deny",
+        "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default.generation-recheck",
+        "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default.non-capability",
+        "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default.principal-restore",
+        "surface.host.abi.ex.hermes.resolve.exact.host.call.081d2k5.default.snapshot-mismatch-deny"
+      ]
+    },
+    {
       "edgeId": "surface.host.abi.ex.hermes.resolve.host.call.01crbkh",
       "observedKey": "host-abi:ex_hermes_resolve_host_call",
       "branchId": "surface.host.abi.ex.hermes.resolve.host.call.01crbkh.default",
@@ -115882,6 +115988,40 @@
         "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.ios.non-capability",
         "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.ios.principal-restore",
         "surface.host.abi.ex.hermes.set.dispatch.with.debug.context.callback.0na3ytl.ios.snapshot-mismatch-deny"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2",
+      "observedKey": "host-abi:ex_hermes_set_exact_host_call_async",
+      "branchId": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default",
+      "enforcementBranchId": "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_hermes_set_exact_host_call_async"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_set_exact_host_call_async"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#ex_hermes_set_exact_host_call_async"
+        ],
+        "terminalObservedKey": "host-abi:ex_hermes_set_exact_host_call_async"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#ex_hermes_set_exact_host_call_async"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.cannot-widen-authority",
+        "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.non-capability",
+        "surface.host.abi.ex.hermes.set.exact.host.call.async.0cynsb2.default.post-lockdown-invariant"
       ]
     },
     {
@@ -119559,6 +119699,40 @@
         "surface.host.abi.ex.host.permission.status.0l68i6n.default.cannot-widen-authority",
         "surface.host.abi.ex.host.permission.status.0l68i6n.default.non-capability",
         "surface.host.abi.ex.host.permission.status.0l68i6n.default.post-lockdown-invariant"
+      ]
+    },
+    {
+      "edgeId": "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77",
+      "observedKey": "host-abi:ex_host_prepare_armed_embedder_artifacts",
+      "branchId": "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default",
+      "enforcementBranchId": "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "host-abi:ex_host_prepare_armed_embedder_artifacts"
+        ],
+        "proofSourceRefs": [
+          "src/host/abi.rs#ex_host_prepare_armed_embedder_artifacts"
+        ],
+        "sourceRefs": [
+          "src/host/abi.rs#ex_host_prepare_armed_embedder_artifacts"
+        ],
+        "terminalObservedKey": "host-abi:ex_host_prepare_armed_embedder_artifacts"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "stubDisposition": "not-structurally-proven",
+      "sourceRefs": [
+        "src/host/abi.rs#ex_host_prepare_armed_embedder_artifacts"
+      ],
+      "implementationOwner": "WP4",
+      "fixtureObligations": [
+        "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.cannot-widen-authority",
+        "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.non-capability",
+        "surface.host.abi.ex.host.prepare.armed.embedder.artifacts.03uub77.default.post-lockdown-invariant"
       ]
     },
     {
@@ -186329,10 +186503,12 @@
           "native-op:global:exact"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact"
+          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
+          "src/engine/hermes_runtime.cc#jsi-global:exact"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact"
+          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
+          "src/engine/hermes_runtime.cc#jsi-global:exact"
         ],
         "terminalObservedKey": "native-op:global:exact"
       },
@@ -186342,7 +186518,8 @@
         "kind": "fallback"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact"
+        "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
+        "src/engine/hermes_runtime.cc#jsi-global:exact"
       ],
       "implementationOwner": "WP4",
       "fixtureObligations": [
@@ -186362,11 +186539,9 @@
           "native-op:global:exact"
         ],
         "proofSourceRefs": [
-          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
           "src/engine/hermes_runtime_ios.cc#jsi-global:exact"
         ],
         "sourceRefs": [
-          "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
           "src/engine/hermes_runtime_ios.cc#jsi-global:exact"
         ],
         "terminalObservedKey": "native-op:global:exact"
@@ -186378,7 +186553,6 @@
         "value": "ios"
       },
       "sourceRefs": [
-        "packages/ibex-runtime-js/src/runtime-entry.ts#<module>:globals:exact",
         "src/engine/hermes_runtime_ios.cc#jsi-global:exact"
       ],
       "implementationOwner": "WP4",
@@ -188341,6 +188515,37 @@
       "implementationOwner": "WP7",
       "fixtureObligations": [
         "surface.native.op.global.exact.inspect.095ouik.default.closed"
+      ]
+    },
+    {
+      "edgeId": "surface.native.op.global.exact.invokehostasync.0b92itq",
+      "observedKey": "native-op:global:exact.invokeHostAsync",
+      "branchId": "surface.native.op.global.exact.invokehostasync.0b92itq.default",
+      "enforcementBranchId": "surface.native.op.global.exact.invokehostasync.0b92itq.default",
+      "enforcementRoute": {
+        "kind": "surface-branch",
+        "proofPaths": [
+          "native-op:global:exact.invokeHostAsync"
+        ],
+        "proofSourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"
+        ],
+        "sourceRefs": [
+          "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"
+        ],
+        "terminalObservedKey": "native-op:global:exact.invokeHostAsync"
+      },
+      "branchKind": "single",
+      "targetVariant": "default",
+      "targetApplicability": {
+        "kind": "fallback"
+      },
+      "sourceRefs": [
+        "src/engine/hermes_runtime.cc#jsi-global:exact.invokeHostAsync"
+      ],
+      "implementationOwner": "WP8",
+      "fixtureObligations": [
+        "surface.native.op.global.exact.invokehostasync.0b92itq.default.closed"
       ]
     },
     {
@@ -261750,6 +261955,7 @@
         "surface.native.op.global.exact.getrootviewid.0gcfi7s",
         "surface.native.op.global.exact.getstatemirror.1r65bcm",
         "surface.native.op.global.exact.hittest.0g8tl31",
+        "surface.native.op.global.exact.invokehostasync.0b92itq",
         "surface.native.op.global.exact.nodeexists.1qt4kt0",
         "surface.native.op.global.measure.109akat",
         "surface.native.op.global.messagechannel.1f2qo6p",
@@ -261808,7 +262014,7 @@
         "surface.startup.installer.installipclistenerpatch.1a0b3bh",
         "surface.startup.script.ipc.listener.183xoza"
       ],
-      "rationale": "Closed by 222 observed surface edges."
+      "rationale": "Closed by 223 observed surface edges."
     },
     {
       "definitionId": "network:connect",
@@ -264286,44 +264492,44 @@
     {
       "kind": "json-schema",
       "path": "capsec/generated/capsec-registry-ids.schema.json",
-      "rawContentDigest": "sha256-RXFw2Wl2jeFzcNQJPyGuMZGII7To2efqWLJacoJ-u5k"
+      "rawContentDigest": "sha256-M1K7GV8FEnwGsTnGaVwuWE6iQyk02GX34gCbdlEdjo8"
     },
     {
       "kind": "markdown",
       "path": "capsec/generated/surface-inventory.md",
-      "rawContentDigest": "sha256-e_cRjg8ktNxqJMhel4mPEIyEL2h3-RZPSQj3wEkQRiU"
+      "rawContentDigest": "sha256-C7OnETFJtaywYW5-UqVQdv4mpF-PjgsFVAcf3W120xA"
     },
     {
       "kind": "registry",
       "path": "capsec/registry/coverage-edges.json",
-      "rawContentDigest": "sha256-iUIqQhiOXzpPoO_G1stBIxYYqiKMozU_RZrcrBik1Pw"
+      "rawContentDigest": "sha256-K4lhDzD9cSLlgnJoro_XyzUU7qKvt00rbUgcNGAera8"
     },
     {
       "kind": "typescript",
       "path": "packages/ibex-runtime-js/src/security/capsec-registry.generated.ts",
-      "rawContentDigest": "sha256-SrAjPeJrCfnTMuFSF470dIn6N4d4EAp5DcwJ2KO2Ewo"
+      "rawContentDigest": "sha256-KZ_vBD0A1IYwgSz85CDJZydukPd8INKagzn_N7-5IiI"
     },
     {
       "kind": "javascript",
       "path": "src/builtins/helpers/capsec-registry.generated.cjs",
-      "rawContentDigest": "sha256-PHiyUgVZ6_QwXLU4jEig436x3U1vbTFyDXfC_MRDplY"
+      "rawContentDigest": "sha256-V8imcoTI0kzoCD6DJbRQ420IdbbXTYyjOGR0ruBTceE"
     },
     {
       "kind": "rust",
       "path": "src/capsec_registry_generated.rs",
-      "rawContentDigest": "sha256-sxqAeK3vvjy4Mi0QdRz3ZRetpOte8I2faaGcc0NwgeE"
+      "rawContentDigest": "sha256-KkR3pptgvZ_4NNFf4J-1uw4vRjwua9UlkM_BZqKhCcg"
     },
     {
       "kind": "cxx",
       "path": "src/engine/capsec_registry_generated.h",
-      "rawContentDigest": "sha256-DJpPm0y0gRL_vYuBJVxYappnifLVrwCldTCG6TglSXk"
+      "rawContentDigest": "sha256--pbUHlIdZ4ZNN744CSv8LpZzr7hzqAX9hcQjntUbC2k"
     }
   ],
   "counts": {
-    "observedReferences": 12757,
-    "logicalSurfaces": 7099,
-    "enforcementBranches": 7298,
-    "coverageEdges": 7099,
-    "targetCells": 7099
+    "observedReferences": 12763,
+    "logicalSurfaces": 7105,
+    "enforcementBranches": 7304,
+    "coverageEdges": 7105,
+    "targetCells": 7105
   }
 }

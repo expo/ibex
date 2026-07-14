@@ -177,6 +177,7 @@ extern "C" char **environ;
 #include "bootstrap_source.h"
 #endif
 
+#include "../../include/exact_runtime.h"
 #include "hermes_runtime_internal.h"
 #include "hermes_runtime_zlib_streams.h"
 
@@ -4440,6 +4441,242 @@ extern "C" void ex_hermes_resolve_host_call(ExactHermesRuntime* runtime,
           } catch (...) {
           }
         } catch (...) {
+        }
+      });
+  exactUnpinRuntimeNativeWorker(target);
+}
+
+namespace {
+
+constexpr size_t kMaxExactHostOperationCount = 4096;
+constexpr size_t kMaxExactHostPayloadBytes = 16 * 1024 * 1024;
+constexpr size_t kMaxExactPendingHostCalls = 1024;
+
+bool exactHostContextIsValid(uint32_t context) {
+  return context == EXACT_EMBEDDER_CONTEXT_APP ||
+      context == EXACT_EMBEDDER_CONTEXT_AGENT;
+}
+
+}  // namespace
+
+extern "C" int ex_hermes_set_exact_host_call_async(
+    ExactHermesRuntime* runtime,
+    ExactEmbedderContext context_kind,
+    const uint32_t* allowed_operation_ids,
+    size_t allowed_operation_count,
+    void (*callback)(ExactHermesRuntime* runtime,
+                     uint64_t call_id,
+                     uint32_t operation_id,
+                     const uint8_t* payload,
+                     size_t payload_len,
+                     void* context),
+    void* context) {
+  // @ref LLP 0002#the-exact-embedder-ingress — app and agent isolates receive
+  // an explicit operation endowment. UI worklets retain only their dedicated
+  // SharedValue/Motion ABI and can never acquire the host-operation channel.
+  if (!runtime || !runtime->runtime || !callback) return -1;
+  if (runtime->runtime_thread != std::this_thread::get_id()) return -7;
+  if (runtime->restricted) return -2;
+  auto rawContext = static_cast<uint32_t>(context_kind);
+  if (!exactHostContextIsValid(rawContext)) return -3;
+  if (!allowed_operation_ids || allowed_operation_count == 0 ||
+      allowed_operation_count > kMaxExactHostOperationCount) {
+    return -4;
+  }
+  if (runtime->exact_host_call_async_fn != nullptr ||
+      runtime->exact_host_context != 0 ||
+      !runtime->exact_host_operations.empty()) {
+    return -5;
+  }
+
+  std::unordered_set<uint32_t> operations;
+  operations.reserve(allowed_operation_count);
+  uint32_t previous = 0;
+  for (size_t index = 0; index < allowed_operation_count; ++index) {
+    uint32_t operation = allowed_operation_ids[index];
+    if (operation == 0 || (index > 0 && operation <= previous)) return -4;
+    operations.insert(operation);
+    previous = operation;
+  }
+
+  runtime->exact_host_context = rawContext;
+  runtime->exact_host_operations = std::move(operations);
+  runtime->exact_host_call_async_fn = callback;
+  runtime->exact_host_call_async_context = context;
+
+  try {
+    auto& rt = *runtime->runtime;
+    auto exactValue = rt.global().getProperty(rt, "exact");
+    auto exactObject = exactValue.isObject()
+        ? exactValue.getObject(rt)
+        : facebook::jsi::Object(rt);
+    auto invoke = facebook::jsi::Function::createFromHostFunction(
+        rt,
+        facebook::jsi::PropNameID::forAscii(rt, "invokeHostAsync"),
+        2,
+        [runtime](facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+          if (!runtime->exact_host_call_async_fn || count != 2 ||
+              !args[0].isNumber() || !args[1].isObject()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync requires an operation ID and bytes");
+          }
+          double rawOperation = args[0].asNumber();
+          if (!std::isfinite(rawOperation) || rawOperation < 1.0 ||
+              rawOperation > static_cast<double>(UINT32_MAX) ||
+              std::floor(rawOperation) != rawOperation) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation ID must be a uint32");
+          }
+          auto operation = static_cast<uint32_t>(rawOperation);
+          if (runtime->exact_host_operations.find(operation) ==
+              runtime->exact_host_operations.end()) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync operation is not endowed");
+          }
+          auto payloadObject = args[1].asObject(rt);
+          const uint8_t* payloadData = nullptr;
+          size_t payloadLength = 0;
+          if (!extractArrayBufferView(
+                  rt, payloadObject, payloadData, payloadLength)) {
+            throw facebook::jsi::JSError(
+                rt,
+                "exact.invokeHostAsync payload must be an ArrayBuffer or view");
+          }
+          if (payloadLength > kMaxExactHostPayloadBytes) {
+            throw facebook::jsi::JSError(
+                rt, "exact.invokeHostAsync payload exceeds 16 MiB");
+          }
+          auto payload = std::make_shared<std::vector<uint8_t>>();
+          if (payloadLength > 0) {
+            payload->assign(payloadData, payloadData + payloadLength);
+          }
+
+          auto promiseConstructor =
+              rt.global().getPropertyAsFunction(rt, "Promise");
+          auto executor = facebook::jsi::Function::createFromHostFunction(
+              rt,
+              facebook::jsi::PropNameID::forAscii(rt, "executor"),
+              2,
+              [runtime, operation, payload](
+                  facebook::jsi::Runtime& rt,
+                  const facebook::jsi::Value&,
+                  const facebook::jsi::Value* args,
+                  size_t count) -> facebook::jsi::Value {
+                if (count < 2 || !args[0].isObject() || !args[1].isObject()) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync malformed Promise executor");
+                }
+                auto resolve = std::make_shared<facebook::jsi::Function>(
+                    args[0].asObject(rt).asFunction(rt));
+                auto reject = std::make_shared<facebook::jsi::Function>(
+                    args[1].asObject(rt).asFunction(rt));
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  if (runtime->exactHostCallAsyncCallbacks.size() >=
+                      kMaxExactPendingHostCalls) {
+                    throw facebook::jsi::JSError(
+                        rt,
+                        "exact.invokeHostAsync pending-call budget exhausted");
+                  }
+                }
+                auto target = exactRuntimeCallbackTarget(runtime);
+                uint64_t callId = registerHostCallTarget(target);
+                if (callId == 0) {
+                  throw facebook::jsi::JSError(
+                      rt, "exact.invokeHostAsync call ID space exhausted");
+                }
+                {
+                  std::lock_guard<std::mutex> lock(
+                      runtime->exactHostCallAsyncMutex);
+                  runtime->exactHostCallAsyncCallbacks[callId] = {
+                      std::move(resolve), std::move(reject)};
+                }
+                runtime->exact_host_call_async_fn(
+                    runtime,
+                    callId,
+                    operation,
+                    payload->empty() ? nullptr : payload->data(),
+                    payload->size(),
+                    runtime->exact_host_call_async_context);
+                return facebook::jsi::Value::undefined();
+              });
+          return promiseConstructor.callAsConstructor(rt, executor);
+        });
+    exactObject.setProperty(rt, "invokeHostAsync", std::move(invoke));
+    rt.global().setProperty(rt, "exact", std::move(exactObject));
+  } catch (...) {
+    runtime->exact_host_call_async_fn = nullptr;
+    runtime->exact_host_call_async_context = nullptr;
+    runtime->exact_host_context = 0;
+    runtime->exact_host_operations.clear();
+    return -6;
+  }
+  return 0;
+}
+
+extern "C" void ex_hermes_resolve_exact_host_call(
+    ExactHermesRuntime* runtime,
+    uint64_t call_id,
+    int32_t status,
+    const uint8_t* payload,
+    size_t payload_len) {
+  if (!runtime) return;
+  bool malformedPayload = payload_len > kMaxExactHostPayloadBytes ||
+      (payload_len > 0 && payload == nullptr);
+  auto target = takeHostCallTarget(runtime, call_id);
+  if (!target || !exactPinRuntimeNativeWorker(target)) return;
+
+  std::shared_ptr<facebook::jsi::Function> resolve;
+  std::shared_ptr<facebook::jsi::Function> reject;
+  bool extracted = withRuntimePinned(target, [&]() {
+    std::lock_guard<std::mutex> lock(runtime->exactHostCallAsyncMutex);
+    auto iterator = runtime->exactHostCallAsyncCallbacks.find(call_id);
+    if (iterator == runtime->exactHostCallAsyncCallbacks.end()) return;
+    resolve = std::move(iterator->second.resolve);
+    reject = std::move(iterator->second.reject);
+    runtime->exactHostCallAsyncCallbacks.erase(iterator);
+  });
+  if (!extracted || !resolve || !reject) {
+    exactUnpinRuntimeNativeWorker(target);
+    return;
+  }
+
+  std::vector<uint8_t> payloadCopy;
+  int32_t completionStatus = status;
+  if (malformedPayload) {
+    completionStatus = -1;
+    constexpr char kMalformedCompletion[] =
+        "Exact host operation completion payload is invalid or exceeds 16 MiB";
+    payloadCopy.assign(
+        kMalformedCompletion,
+        kMalformedCompletion + sizeof(kMalformedCompletion) - 1);
+  } else if (payload_len > 0) {
+    payloadCopy.assign(payload, payload + payload_len);
+  }
+  pushRuntimeCallback(
+      target,
+      [resolve, reject, completionStatus, payloadCopy = std::move(payloadCopy)](
+          facebook::jsi::Runtime& rt) mutable {
+        try {
+          if (completionStatus == 0) {
+            resolve->call(rt, makeUint8Array(rt, std::move(payloadCopy)));
+            return;
+          }
+          std::string message(payloadCopy.begin(), payloadCopy.end());
+          if (message.empty()) message = "Exact host operation failed";
+          reject->call(rt, facebook::jsi::JSError(rt, message).value());
+        } catch (...) {
+          try {
+            reject->call(
+                rt,
+                facebook::jsi::JSError(
+                    rt, "Exact host operation completion failed").value());
+          } catch (...) {
+          }
         }
       });
   exactUnpinRuntimeNativeWorker(target);

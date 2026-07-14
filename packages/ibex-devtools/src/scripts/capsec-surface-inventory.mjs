@@ -14657,6 +14657,15 @@ const FIXED_RUNTIME_SURFACE_DEFINITIONS = [
   ),
   fixedSurface(
     "callback",
+    "exact-host-call-async-resolve",
+    fixedEvidence(
+      "public-abi",
+      "src/engine/hermes_runtime.cc",
+      "ex_hermes_resolve_exact_host_call",
+    ),
+  ),
+  fixedSurface(
+    "callback",
     "watchdog-heartbeat",
     fixedEvidence(
       "public-abi",
